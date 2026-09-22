@@ -9,6 +9,7 @@ import { ConsoleLayout } from './components/layouts/ConsoleLayout'
 import { HomeRedirect, PendientePage } from './pages/PendientePage'
 import { LoginPage } from './pages/login/LoginPage'
 import { RegisterPage } from './pages/login/RegisterPage'
+import { PerfilPage } from './pages/PerfilPage'
 import { EvaluarHome } from './pages/evaluar/EvaluarHome'
 import { EvaluarSucursal } from './pages/evaluar/EvaluarSucursal'
 import { Spinner } from './components/ui'
@@ -44,6 +45,7 @@ export default function App() {
                 <Route path="/" element={<HomeRedirect />} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/registro" element={<RegisterPage />} />
+                <Route path="/perfil" element={<RequireAuth><PerfilPage /></RequireAuth>} />
                 <Route path="/pendiente" element={<RequireSesion><PendientePage /></RequireSesion>} />
 
                 <Route

@@ -88,6 +88,7 @@ export function MobileLayout({
         <div className="mx-auto flex max-w-md items-stretch">
           <NavItem to="/evaluar" label="Evaluar" icon="✓" />
           <NavItem to="/evaluar/historial" label="Historial" icon="≡" />
+          <NavItem to="/perfil" label="Perfil" icon="⚙" />
           <button
             onClick={() => void signOut()}
             className="flex w-full flex-col items-center justify-center gap-0.5 py-2.5 text-slate-500"

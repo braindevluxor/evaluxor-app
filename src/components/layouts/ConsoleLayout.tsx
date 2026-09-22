@@ -68,9 +68,12 @@ export function ConsoleLayout() {
         </nav>
         <div className="border-t border-white/10 px-5 py-4">
           <p className="truncate text-sm font-semibold">{profile?.nombre || profile?.email}</p>
+          <NavLink to="/perfil" className="mt-2 block text-sm font-medium text-primary-200 hover:text-white">
+            ⚙ Mi perfil / contraseña
+          </NavLink>
           <button
             onClick={() => void signOut()}
-            className="mt-2 text-sm font-medium text-primary-200 hover:text-white"
+            className="mt-1 text-sm font-medium text-primary-200 hover:text-white"
           >
             Cerrar sesión
           </button>

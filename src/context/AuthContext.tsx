@@ -15,6 +15,7 @@ interface AuthContextValue {
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
   updateNombre: (nombre: string) => Promise<void>
+  cambiarPassword: (actual: string, nueva: string) => Promise<{ error?: string }>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -95,6 +96,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .update({ nombre })
           .eq('id', profile.id)
         if (!error) await cargarPerfil(profile.id)
+      },
+      async cambiarPassword(actual, nueva) {
+        if (!session?.user?.email) return { error: 'No hay sesión activa.' }
+        const ver = await supabase.auth.signInWithPassword({ email: session.user.email, password: actual })
+        if (ver.error) return { error: 'La contraseña actual es incorrecta.' }
+        const { error } = await supabase.auth.updateUser({ password: nueva })
+        return error ? { error: mensajeError(error.message) } : {}
       }
     }),
     [session, profile, loading]
