@@ -22,6 +22,7 @@ export function ConsoleLayout() {
       seccion: 'Gestión',
       items: [
         { to: '/config/sucursales', label: 'Sucursales', icon: '🏬' },
+        { to: '/config/departamentos', label: 'Departamentos', icon: '🏷️' },
         { to: '/config/modulos', label: 'Módulos', icon: '🗂️' },
         { to: '/config/items', label: 'Ítems de evaluación', icon: '📋' },
         { to: '/config/usuarios', label: 'Usuarios', icon: '👥' },

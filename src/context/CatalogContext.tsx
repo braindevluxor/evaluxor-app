@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import type { Modulo, Item, Sucursal, Asignacion } from '../lib/types'
+import type { Modulo, Item, Sucursal, Asignacion, Departamento } from '../lib/types'
 import { obtenerCacheLocal, refrescarCatalogo } from '../lib/data/catalog'
 import { useAuth } from './AuthContext'
 
@@ -7,6 +7,7 @@ interface CatalogContextValue {
   modulos: Modulo[]
   items: Item[]
   sucursales: Sucursal[]
+  departamentos: Departamento[]
   asignaciones: Asignacion[]
   cargado: boolean
   cacheFecha: number | null
@@ -20,6 +21,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   const [modulos, setModulos] = useState<Modulo[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
+  const [departamentos, setDepartamentos] = useState<Departamento[]>([])
   const [asignaciones, setAsignaciones] = useState<Asignacion[]>([])
   const [cargado, setCargado] = useState(false)
   const [cacheFecha, setCacheFecha] = useState<number | null>(null)
@@ -31,6 +33,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       setModulos(data.modulos)
       setItems(data.items)
       setSucursales(data.sucursales)
+      setDepartamentos(data.departamentos)
       setAsignaciones(data.asignaciones)
       setCacheFecha(data.updated_at)
       setCargado(true)
@@ -40,6 +43,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         setModulos(local.modulos)
         setItems(local.items)
         setSucursales(local.sucursales)
+        setDepartamentos(local.departamentos ?? [])
         setAsignaciones(local.asignaciones)
         setCacheFecha(local.updated_at)
       }
@@ -55,6 +59,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         setModulos(local.modulos)
         setItems(local.items)
         setSucursales(local.sucursales)
+        setDepartamentos(local.departamentos ?? [])
         setAsignaciones(local.asignaciones)
         setCacheFecha(local.updated_at)
         setCargado(true)
@@ -68,6 +73,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     modulos,
     items,
     sucursales,
+    departamentos,
     asignaciones,
     cargado,
     cacheFecha,

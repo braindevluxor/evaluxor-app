@@ -176,6 +176,18 @@ alter table public.items add constraint items_tipo_check check (tipo in (
 ));
 
 -- ----------------------------------------------------------------------------
+-- DEPARTAMENTOS (tolerancias de conciliación)
+-- ----------------------------------------------------------------------------
+create table if not exists public.departamentos (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  codigo text not null unique,
+  tolerancia numeric(8,2), -- % de desviación permitido (ej. 5 = ±5%)
+  activo boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
 -- EVALUACIONES / RESPUESTAS / FOTOS
 -- ----------------------------------------------------------------------------
 create table if not exists public.evaluaciones (
@@ -213,6 +225,7 @@ create index if not exists idx_fotos_evaluacion on public.fotos(evaluacion_id);
 -- ROW LEVEL SECURITY
 -- ============================================================================
 alter table public.sucursales enable row level security;
+alter table public.departamentos enable row level security;
 alter table public.profiles enable row level security;
 alter table public.invitaciones enable row level security;
 alter table public.asignaciones enable row level security;
@@ -245,6 +258,12 @@ drop policy if exists sucursales_select on public.sucursales;
 create policy sucursales_select on public.sucursales for select using (true);
 drop policy if exists sucursales_lider on public.sucursales;
 create policy sucursales_lider on public.sucursales for all using (public.es_lider()) with check (public.es_lider());
+
+-- DEPARTAMENTOS: lectura autenticados / gestion solo LIDER --------------------
+drop policy if exists departamentos_select on public.departamentos;
+create policy departamentos_select on public.departamentos for select using (true);
+drop policy if exists departamentos_lider on public.departamentos;
+create policy departamentos_lider on public.departamentos for all using (public.es_lider()) with check (public.es_lider());
 
 -- PROFILES: lectura autenticados / gestion completa solo LIDER ------------------
 drop policy if exists profiles_select on public.profiles;

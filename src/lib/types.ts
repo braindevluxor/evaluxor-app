@@ -19,6 +19,15 @@ export interface Sucursal {
   created_at: string
 }
 
+export interface Departamento {
+  id: string
+  nombre: string
+  codigo: string
+  tolerancia: number | null
+  activo: boolean
+  created_at: string
+}
+
 export interface Profile {
   id: string
   email: string

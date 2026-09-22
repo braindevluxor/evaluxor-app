@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, conciliacionEnRango, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple } from '../lib/scoring'
 import { buscarProducto } from '../lib/data/precios'
+import { useCatalog } from '../context/CatalogContext'
 import { Badge, cn, Input, Textarea, Button, Spinner } from './ui'
 import { PhotoCapture } from './PhotoCapture'
 import { BarcodeScanner } from './BarcodeScanner'
@@ -152,6 +153,7 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
   const [escaneandoIndice, setEscaneandoIndice] = useState<number | null>(null)
   const [consultando, setConsultando] = useState<Record<number, boolean>>({})
   const [info, setInfo] = useState<Record<number, string>>({})
+  const { departamentos } = useCatalog()
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
   const productos = v.productos ?? []
 
@@ -160,20 +162,28 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
     actualizar(productos.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))
   const total = conciliacionTotal(v)
 
+  const departamentoPara = (id: string | null) =>
+    departamentos.find((d) => d.codigo === id) ?? null
+
   const aplicarCodigo = async (i: number, codigo: string) => {
-    const p = productos[i]
-    actualizarUno(i, { sku: codigo, nombre: null })
+    actualizarUno(i, { sku: codigo, nombre: null, departamento_id: null, departamento_nombre: null, tolerancia: null })
     setInfo((old) => ({ ...old, [i]: '' }))
     if (!shopId) {
       setInfo((old) => ({ ...old, [i]: 'Nº tienda (shop_id) no configurado en la sucursal.' }))
       return
     }
-    if (p?.nombre && p.nombre !== '') return
     setConsultando((old) => ({ ...old, [i]: true }))
     const r = await buscarProducto(codigo, shopId)
     setConsultando((old) => ({ ...old, [i]: false }))
-    if (r.nombre) {
-      actualizarUno(i, { sku: codigo, nombre: r.nombre })
+    if (r.nombre || r.departamentoId) {
+      const depto = departamentoPara(r.departamentoId)
+      actualizarUno(i, {
+        sku: codigo,
+        nombre: r.nombre,
+        departamento_id: r.departamentoId,
+        departamento_nombre: depto?.nombre ?? null,
+        tolerancia: depto?.tolerancia ?? null
+      })
       setInfo((old) => ({ ...old, [i]: '' }))
     } else {
       setInfo((old) => ({ ...old, [i]: r.mensaje ?? 'Producto no encontrado.' }))
@@ -187,6 +197,9 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
       ) : (
         productos.map((p, i) => {
           const pct = conciliacionPorcentaje(p)
+          const dentro = conciliacionEnRango(p, p.tolerancia ?? null)
+          const depto = departamentoPara(p.departamento_id)
+          const tolerancia = depto ? depto.tolerancia : p.tolerancia ?? null
           return (
             <div key={i} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="flex items-center gap-2">
@@ -224,6 +237,12 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
               ) : info[i] ? (
                 <p className="text-xs font-medium text-amber-600">{info[i]}</p>
               ) : null}
+              {p.departamento_id ? (
+                <p className="text-xs text-slate-500">
+                  Departamento: {p.departamento_nombre ?? `ID ${p.departamento_id}`}
+                  {tolerancia != null ? ` • tolerancia ±${tolerancia}%` : ' • sin tolerancia'}
+                </p>
+              ) : null}
               <div className="flex gap-2">
                 <CampoConciliacion
                   etiqueta="Teórica (sistema)"
@@ -237,8 +256,11 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
                 />
               </div>
               {pct != null ? (
-                <p className={cn('text-sm font-bold', pct >= 100 ? 'text-green-600' : 'text-red-600')}>
-                  Conciliación: {pct}%
+                <p className={cn('text-sm font-bold', dentro === false ? 'text-red-600' : 'text-green-600')}>
+                  {pct}% de conciliación
+                  {tolerancia != null
+                    ? dentro === false ? ' — FUERA de rango' : ' — dentro del rango permitido'
+                    : dentro === false ? ' — fuera (sin tolerancia: exige 100%)' : ''}
                 </p>
               ) : (
                 <p className="text-xs text-slate-400">Ingresa ambas cantidades.</p>
@@ -248,7 +270,7 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
         })
       )}
 
-      <Button type="button" variant="secondary" className="w-full" onClick={() => actualizar([...productos, { sku: '', nombre: null, teorica: null, fisica: null }])}>
+      <Button type="button" variant="secondary" className="w-full" onClick={() => actualizar([...productos, { sku: '', nombre: null, departamento_id: null, departamento_nombre: null, tolerancia: null, teorica: null, fisica: null }])}>
         + Agregar producto
       </Button>
 

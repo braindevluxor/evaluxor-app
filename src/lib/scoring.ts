@@ -34,6 +34,9 @@ export interface ValorConciliacion {
 export interface ProductoConciliacion {
   sku: string
   nombre: string | null
+  departamento_id: string | null
+  departamento_nombre: string | null
+  tolerancia: number | null
   teorica: number | null
   fisica: number | null
 }
@@ -42,7 +45,18 @@ export function conciliacionPorcentaje(p: { teorica?: number | null; fisica?: nu
   const t = p?.teorica
   const f = p?.fisica
   if (typeof t !== 'number' || typeof f !== 'number' || !(t > 0)) return null
-  return Math.round(Math.min(100, (f / t) * 100) * 100) / 100
+  return Math.round((f / t) * 10000) / 100
+}
+
+export function conciliacionEnRango(p: { teorica?: number | null; fisica?: number | null } | null | undefined, tolerancia: number | null): boolean | null {
+  const t = p?.teorica
+  const f = p?.fisica
+  if (typeof t !== 'number' || typeof f !== 'number' || !(t > 0)) return null
+  if (tolerancia == null || !(tolerancia > 0)) return f === t
+  const pct = (f / t) * 100
+  const min = 100 - tolerancia
+  const max = 100 + tolerancia
+  return pct >= min && pct <= max
 }
 
 export function conciliacionTotal(v: ValorConciliacion | null | undefined): number | null {
@@ -52,7 +66,7 @@ export function conciliacionTotal(v: ValorConciliacion | null | undefined): numb
   const sumT = validos.reduce((a, p) => a + (p.teorica ?? 0), 0)
   const sumF = validos.reduce((a, p) => a + (p.fisica ?? 0), 0)
   if (!(sumT > 0)) return null
-  return Math.round(Math.min(100, (sumF / sumT) * 100) * 100) / 100
+  return Math.round((sumF / sumT) * 10000) / 100
 }
 
 export function valorBinario(item: { tipo: string; opciones?: string[] | { id: string }[] | null }, valor: unknown): boolean | null {
@@ -66,7 +80,8 @@ export function valorBinario(item: { tipo: string; opciones?: string[] | { id: s
     if (!ps.length) return null
     for (const p of ps) {
       if (typeof p.teorica !== 'number' || typeof p.fisica !== 'number' || !(p.teorica > 0)) return null
-      if (p.fisica !== p.teorica) return false
+      const dentro = conciliacionEnRango(p, p.tolerancia ?? null)
+      if (dentro === null || dentro === false) return false
     }
     return true
   }

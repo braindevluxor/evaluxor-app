@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, conciliacionPorcentaje, conciliacionTotal } from './scoring'
+import { calcularPuntaje, valorBinario, conciliacionPorcentaje, conciliacionTotal, conciliacionEnRango } from './scoring'
 
 describe('valorBinario', () => {
   it('cumple/no cumple', () => {
@@ -30,15 +30,33 @@ describe('valorBinario', () => {
     expect(valorBinario({ tipo: 'CONCILIACION' }, { productos: [] })).toBe(null)
     expect(valorBinario({ tipo: 'CONCILIACION' }, null)).toBe(null)
   })
-  it('conciliacion porcentaje redondea a maximo 100', () => {
+  it('conciliacion usa la tolerancia configurada por departamento', () => {
+    const dentro = { sku: 'A', teorica: 10, fisica: 10.4, tolerancia: 5 }
+    const fuera = { sku: 'B', teorica: 10, fisica: 8, tolerancia: 5 }
+    const sinTol = { sku: 'C', teorica: 10, fisica: 9, tolerancia: null }
+    expect(valorBinario({ tipo: 'CONCILIACION' }, { productos: [dentro] })).toBe(true)
+    expect(valorBinario({ tipo: 'CONCILIACION' }, { productos: [fuera] })).toBe(false)
+    expect(valorBinario({ tipo: 'CONCILIACION' }, { productos: [sinTol] })).toBe(false)
+  })
+  it('conciliacionEnRango aplica un % de desviacion sobre el 100%', () => {
+    expect(conciliacionEnRango({ teorica: 10, fisica: 10 }, 5)).toBe(true)
+    expect(conciliacionEnRango({ teorica: 10, fisica: 10.4 }, 5)).toBe(true)
+    expect(conciliacionEnRango({ teorica: 10, fisica: 10.6 }, 5)).toBe(false)
+    expect(conciliacionEnRango({ teorica: 10, fisica: 9.6 }, 5)).toBe(true)
+    expect(conciliacionEnRango({ teorica: 10, fisica: 9 }, 5)).toBe(false)
+    expect(conciliacionEnRango({ teorica: 10, fisica: 12 }, null)).toBe(false)
+    expect(conciliacionEnRango({ teorica: 0, fisica: 5 }, 5)).toBe(null)
+  })
+  it('conciliacion porcentaje puede superar el 100 (sobre-stock)', () => {
     expect(conciliacionPorcentaje({ teorica: 10, fisica: 10 })).toBe(100)
     expect(conciliacionPorcentaje({ teorica: 10, fisica: 5 })).toBe(50)
+    expect(conciliacionPorcentaje({ teorica: 10, fisica: 12 })).toBe(120)
     expect(conciliacionPorcentaje({ teorica: 0, fisica: 5 })).toBe(null)
     expect(conciliacionPorcentaje({ teorica: 10, fisica: null })).toBe(null)
     expect(conciliacionPorcentaje(null)).toBe(null)
   })
   it('conciliacion total pondera por cantidades', () => {
-    expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: 10 }, { sku: 'B', nombre: null, teorica: 10, fisica: 5 }] })).toBe(75)
+    expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, departamento_id: null, departamento_nombre: null, tolerancia: null, teorica: 10, fisica: 10 }, { sku: 'B', nombre: null, departamento_id: null, departamento_nombre: null, tolerancia: null, teorica: 10, fisica: 5 }] })).toBe(75)
     expect(conciliacionTotal({ productos: [] })).toBe(null)
     expect(conciliacionTotal(null)).toBe(null)
   })

@@ -1,16 +1,17 @@
 import { supabase } from '../supabase'
 import { getCache, putCache, type CacheData } from '../offline/db'
-import type { Modulo, Item, Sucursal } from '../types'
+import type { Modulo, Item, Sucursal, Departamento } from '../types'
 
 export async function obtenerCacheLocal(): Promise<CacheData | undefined> {
   return getCache()
 }
 
 export async function refrescarCatalogo(evaluadorId: string): Promise<CacheData> {
-  const [modulos, items, sucursales, asignaciones] = await Promise.all([
+  const [modulos, items, sucursales, departamentos, asignaciones] = await Promise.all([
     supabase.from('modulos').select('*').eq('activo', true).order('orden').order('nombre'),
     supabase.from('items').select('*').eq('activo', true),
     supabase.from('sucursales').select('*').eq('activa', true).order('nombre'),
+    supabase.from('departamentos').select('*').eq('activo', true).order('nombre'),
     supabase.from('asignaciones').select('*').eq('evaluador_id', evaluadorId).eq('activa', true)
   ])
 
@@ -18,6 +19,7 @@ export async function refrescarCatalogo(evaluadorId: string): Promise<CacheData>
     modulos: (modulos.data ?? []) as Modulo[],
     items: (items.data ?? []) as Item[],
     sucursales: (sucursales.data ?? []) as Sucursal[],
+    departamentos: (departamentos.data ?? []) as Departamento[],
     asignaciones: (asignaciones.data ?? []) as CacheData['asignaciones'],
     updated_at: Date.now()
   }
@@ -69,6 +71,28 @@ export async function guardarModulo(m: Partial<Modulo> & { nombre: string }): Pr
 
 export async function eliminarModulo(id: string): Promise<void> {
   await supabase.from('modulos').delete().eq('id', id)
+}
+
+export async function listarDepartamentosAdmin(): Promise<Departamento[]> {
+  const { data } = await supabase.from('departamentos').select('*').order('nombre')
+  return (data ?? []) as Departamento[]
+}
+
+export async function guardarDepartamento(d: Partial<Departamento> & { nombre: string; codigo: string }): Promise<void> {
+  if (d.id) {
+    const { id, ...rest } = d
+    await supabase.from('departamentos').update(rest).eq('id', id)
+  } else {
+    await supabase.from('departamentos').insert({
+      nombre: d.nombre,
+      codigo: d.codigo,
+      tolerancia: d.tolerancia ?? null
+    })
+  }
+}
+
+export async function eliminarDepartamento(id: string): Promise<void> {
+  await supabase.from('departamentos').delete().eq('id', id)
 }
 
 export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: Item['tipo']; texto: string }): Promise<void> {

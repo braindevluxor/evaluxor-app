@@ -23,6 +23,7 @@ export function EvaluarSucursal() {
   })
 
   const guardadoRef = useRef<Map<string, number>>(new Map())
+  const draftRef = useRef<DraftEval | null>(null)
 
   const modulos = useMemo(
     () => modulosActivos.filter((m) => itemsDe(m).length > 0),
@@ -43,9 +44,31 @@ export function EvaluarSucursal() {
         updated_at: Date.now()
       }
       setDraft(d)
+      draftRef.current = d
       setCargando(false)
     })()
   }, [sucursalId, profile])
+
+  useEffect(() => {
+    if (!draft) return
+    draftRef.current = draft
+  }, [draft])
+
+  useEffect(() => {
+    const flush = () => {
+      const d = draftRef.current
+      if (d) void putDraft(d)
+    }
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('pagehide', flush)
+    }
+  }, [])
 
   useEffect(() => {
     if (!modulos.length) return
