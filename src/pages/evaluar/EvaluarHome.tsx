@@ -15,7 +15,7 @@ export function EvaluarHome() {
   const asignadas = asignaciones
     .filter((a) => a.activa)
     .map((a) => sucursales.find((s) => s.id === a.sucursal_id))
-    .filter(Boolean) as { id: string; nombre: string; codigo: string; ciudad: string | null }[]
+    .filter(Boolean) as { id: string; nombre: string; shop_id: string | null; ciudad: string | null }[]
 
   useEffect(() => {
     void (async () => {
@@ -56,7 +56,7 @@ export function EvaluarHome() {
                 <div>
                   <p className="font-bold text-primary-900">{s.nombre}</p>
                   <p className="text-xs text-slate-500">
-                    {s.codigo}
+                    {s.shop_id ? `Tienda Nº ${s.shop_id}` : 'Sin nº de tienda'}
                     {s.ciudad ? ` • ${s.ciudad}` : ''}
                   </p>
                 </div>

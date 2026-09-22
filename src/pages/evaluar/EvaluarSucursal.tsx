@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { useModulosActivos } from '../../context/CatalogContext'
+import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { getDraft, putDraft, type DraftEval } from '../../lib/offline/db'
 import { ItemRenderer } from '../../components/ItemRenderer'
 import { Button, Field, Input, ProgressBar } from '../../components/ui'
@@ -12,6 +12,8 @@ export function EvaluarSucursal() {
   const navigate = useNavigate()
   const { profile } = useAuth()
   const { modulosActivos, itemsDe } = useModulosActivos()
+  const { sucursales } = useCatalog()
+  const sucursal = sucursales.find((s) => s.id === sucursalId)
 
   const [draft, setDraft] = useState<DraftEval | null>(null)
   const [cargando, setCargando] = useState(true)
@@ -123,6 +125,7 @@ export function EvaluarSucursal() {
               index={i}
               total={items.length}
               valor={actual.respuestas[item.id]?.valor}
+              shopId={sucursal?.shop_id}
               onChange={(v) => cambiarValor(item.id, v)}
             />
           ))}

@@ -9,12 +9,31 @@ function isFotoValor(valor: unknown): string[] | null {
   return null
 }
 
+function isCumpleValor(valor: unknown): string[][] | null {
+  const v = valor as { value?: boolean | null; evidencias?: { photoIds?: unknown; comentario?: unknown }[] } | null
+  if (!v || typeof v.value !== 'boolean' || !Array.isArray(v.evidencias)) return null
+  return v.evidencias.map((e) => (Array.isArray(e.photoIds) ? e.photoIds.filter((x) => typeof x === 'string') : []))
+}
+
 export function extraerPhotoIds(valor: unknown): string[] {
-  return isFotoValor(valor) ?? []
+  const directos = isFotoValor(valor)
+  if (directos) return directos
+  return isCumpleValor(valor)?.flat() ?? []
 }
 
 export function convertirValor(valor: unknown, map: Map<string, string>): unknown {
   const ids = isFotoValor(valor)
   if (ids) return { paths: ids.map((id) => map.get(id) ?? `.local/${id}`) }
+  const cumpleIds = isCumpleValor(valor)
+  if (cumpleIds) {
+    const v = valor as { value?: boolean | null; evidencias?: { photoIds?: string[]; comentario?: string }[] }
+    return {
+      value: v.value ?? null,
+      evidencias: (v.evidencias ?? []).map((e, i) => ({
+        comentario: e.comentario ?? '',
+        paths: (cumpleIds[i] ?? []).map((id) => map.get(id) ?? `.local/${id}`)
+      }))
+    }
+  }
   return valor
 }

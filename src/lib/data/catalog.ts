@@ -30,12 +30,17 @@ export async function listarSucursalesAdmin(): Promise<Sucursal[]> {
   return (data ?? []) as Sucursal[]
 }
 
-export async function guardarSucursal(s: Partial<Sucursal> & { nombre: string; codigo: string }): Promise<void> {
+export async function guardarSucursal(s: Partial<Sucursal> & { nombre: string }): Promise<void> {
   if (s.id) {
     const { id, ...rest } = s
     await supabase.from('sucursales').update(rest).eq('id', id)
   } else {
-    await supabase.from('sucursales').insert({ nombre: s.nombre, codigo: s.codigo, ciudad: s.ciudad, direccion: s.direccion })
+    await supabase.from('sucursales').insert({
+      nombre: s.nombre,
+      shop_id: s.shop_id ?? null,
+      ciudad: s.ciudad,
+      direccion: s.direccion
+    })
   }
 }
 

@@ -38,7 +38,7 @@ describe('valorBinario', () => {
     expect(conciliacionPorcentaje(null)).toBe(null)
   })
   it('conciliacion total pondera por cantidades', () => {
-    expect(conciliacionTotal({ productos: [{ sku: 'A', teorica: 10, fisica: 10 }, { sku: 'B', teorica: 10, fisica: 5 }] })).toBe(75)
+    expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: 10 }, { sku: 'B', nombre: null, teorica: 10, fisica: 5 }] })).toBe(75)
     expect(conciliacionTotal({ productos: [] })).toBe(null)
     expect(conciliacionTotal(null)).toBe(null)
   })

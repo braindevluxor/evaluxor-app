@@ -12,7 +12,7 @@ export type TipoItem =
 export interface Sucursal {
   id: string
   nombre: string
-  codigo: string
+  shop_id: string | null
   ciudad: string | null
   direccion: string | null
   activa: boolean
@@ -106,6 +106,6 @@ export interface Foto {
 }
 
 export type VistaEvaluacion = Evaluacion & {
-  sucursal?: Pick<Sucursal, 'id' | 'nombre' | 'codigo' | 'ciudad' | 'direccion'> | null
+  sucursal?: Pick<Sucursal, 'id' | 'nombre' | 'shop_id' | 'ciudad' | 'direccion'> | null
   evaluador?: Pick<Profile, 'id' | 'nombre'> | null
 }

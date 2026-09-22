@@ -17,8 +17,13 @@ export { ETIQUETAS_TIPO }
 export interface ValorChecklist {
   selected: string[]
 }
+export interface EvidenciaCumple {
+  photoIds: string[]
+  comentario: string
+}
 export interface ValorCumple {
   value: boolean | null
+  evidencias: EvidenciaCumple[]
 }
 export interface ValorFoto {
   photoIds: string[]
@@ -28,6 +33,7 @@ export interface ValorConciliacion {
 }
 export interface ProductoConciliacion {
   sku: string
+  nombre: string | null
   teorica: number | null
   fisica: number | null
 }

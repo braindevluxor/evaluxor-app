@@ -14,12 +14,17 @@ create extension if not exists "pgcrypto";
 create table if not exists public.sucursales (
   id uuid primary key default gen_random_uuid(),
   nombre text not null,
-  codigo text not null unique,
+  shop_id text,
   ciudad text,
   direccion text,
   activa boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+-- Idempotencia: si la tabla ya existia sin la columna shop_id
+alter table public.sucursales add column if not exists shop_id text;
+-- Migracion: se elimina la columna codigo (se usa solo shop_id)
+alter table public.sucursales drop column if exists codigo;
 
 -- ----------------------------------------------------------------------------
 -- PROFILES (1:1 con auth.users; el rol y sucursal se asignan desde invitacion)

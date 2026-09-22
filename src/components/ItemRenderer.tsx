@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, type ValorConciliacion, type ProductoConciliacion } from '../lib/scoring'
-import { Badge, cn, Input, Textarea, Button } from './ui'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple } from '../lib/scoring'
+import { buscarProducto } from '../lib/data/precios'
+import { Badge, cn, Input, Textarea, Button, Spinner } from './ui'
 import { PhotoCapture } from './PhotoCapture'
 import { BarcodeScanner } from './BarcodeScanner'
 
@@ -11,9 +12,10 @@ interface Props {
   onChange: (valor: unknown) => void
   index: number
   total: number
+  shopId?: string | null
 }
 
-export function ItemRenderer({ item, valor, onChange, index, total }: Props) {
+export function ItemRenderer({ item, valor, onChange, index, total, shopId }: Props) {
   const preg = `${index + 1}. ${item.texto}` + (item.requerido ? ' *' : '')
   const tipoColor =
     item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'FOTO' ? 0 : item.tipo === 'CHECKLIST' ? 5 : 4
@@ -24,7 +26,7 @@ export function ItemRenderer({ item, valor, onChange, index, total }: Props) {
         <p className="font-semibold text-slate-800">{preg}</p>
         <Badge color={tipoColor}>{etiquetaTipo(item.tipo)}</Badge>
       </div>
-      <Contenido item={item} valor={valor} onChange={onChange} />
+      <Contenido item={item} valor={valor} onChange={onChange} shopId={shopId} />
       {item.requerido && estaVacio(item, valor) ? (
         <p className="mt-2 text-xs font-medium text-red-600">Obligatorio para enviar la evaluación.</p>
       ) : null}
@@ -36,7 +38,7 @@ export function ItemRenderer({ item, valor, onChange, index, total }: Props) {
 function estaVacio(item: Item, valor: unknown): boolean {
   switch (item.tipo) {
     case 'CUMPLE_NO_CUMPLE':
-      return (valor as { value?: boolean | null } | null)?.value !== true && (valor as { value?: boolean | null } | null)?.value !== false
+      return (valor as ValorCumple | null)?.value !== true && (valor as ValorCumple | null)?.value !== false
     case 'CHECKLIST':
       return !((valor as { selected?: string[] } | null)?.selected?.length)
     case 'COMENTARIO':
@@ -55,14 +57,21 @@ function estaVacio(item: Item, valor: unknown): boolean {
   }
 }
 
-function Contenido({ item, valor, onChange }: { item: Item; valor: unknown; onChange: (v: unknown) => void }) {
+function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
   switch (item.tipo) {
     case 'CUMPLE_NO_CUMPLE': {
-      const v = (valor as { value?: boolean | null } | null)?.value ?? null
+      const v = (valor as ValorCumple | null) ?? { value: null, evidencias: [] }
+      const value = v.value ?? null
+      const evidencias = v.evidencias ?? []
+      const setValue = (valor2: boolean) => onChange({ ...v, value: valor2 })
+      const setEvidencias = (evs: EvidenciaCumple[]) => onChange({ ...v, evidencias: evs })
       return (
-        <div className="grid grid-cols-2 gap-3">
-          <BotonCumple activo={v === true} onPick={() => onChange({ value: true })} />
-          <BotonNoCumple activo={v === false} onPick={() => onChange({ value: false })} />
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <BotonCumple activo={value === true} onPick={() => setValue(true)} />
+            <BotonNoCumple activo={value === false} onPick={() => setValue(false)} />
+          </div>
+          <EvidenciasEditor evidencias={evidencias} onChange={setEvidencias} />
         </div>
       )
     }
@@ -129,7 +138,7 @@ function Contenido({ item, valor, onChange }: { item: Item; valor: unknown; onCh
         />
       )
     case 'CONCILIACION':
-      return <ConciliacionEditor valor={valor} onChange={onChange} />
+      return <ConciliacionEditor valor={valor} onChange={onChange} shopId={shopId} />
     case 'FOTO': {
       const ids = (valor as { photoIds?: string[] } | null)?.photoIds ?? []
       return <PhotoCapture photoIds={ids} onChange={(photoIds) => onChange({ photoIds })} />
@@ -139,8 +148,10 @@ function Contenido({ item, valor, onChange }: { item: Item; valor: unknown; onCh
   }
 }
 
-function ConciliacionEditor({ valor, onChange }: { valor: unknown; onChange: (v: unknown) => void }) {
+function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
   const [escaneandoIndice, setEscaneandoIndice] = useState<number | null>(null)
+  const [consultando, setConsultando] = useState<Record<number, boolean>>({})
+  const [info, setInfo] = useState<Record<number, string>>({})
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
   const productos = v.productos ?? []
 
@@ -148,6 +159,26 @@ function ConciliacionEditor({ valor, onChange }: { valor: unknown; onChange: (v:
   const actualizarUno = (i: number, patch: Partial<ProductoConciliacion>) =>
     actualizar(productos.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))
   const total = conciliacionTotal(v)
+
+  const aplicarCodigo = async (i: number, codigo: string) => {
+    const p = productos[i]
+    actualizarUno(i, { sku: codigo, nombre: null })
+    setInfo((old) => ({ ...old, [i]: '' }))
+    if (!shopId) {
+      setInfo((old) => ({ ...old, [i]: 'Nº tienda (shop_id) no configurado en la sucursal.' }))
+      return
+    }
+    if (p?.nombre && p.nombre !== '') return
+    setConsultando((old) => ({ ...old, [i]: true }))
+    const r = await buscarProducto(codigo, shopId)
+    setConsultando((old) => ({ ...old, [i]: false }))
+    if (r.nombre) {
+      actualizarUno(i, { sku: codigo, nombre: r.nombre })
+      setInfo((old) => ({ ...old, [i]: '' }))
+    } else {
+      setInfo((old) => ({ ...old, [i]: r.mensaje ?? 'Producto no encontrado.' }))
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -163,6 +194,10 @@ function ConciliacionEditor({ valor, onChange }: { valor: unknown; onChange: (v:
                   placeholder="SKU / código interno del producto"
                   value={p.sku}
                   onChange={(e) => actualizarUno(i, { sku: e.target.value })}
+                  onBlur={() => {
+                    const codigo = p.sku.trim()
+                    if (codigo && codigo !== p.nombre) void aplicarCodigo(i, codigo)
+                  }}
                   required
                 />
                 <button
@@ -182,6 +217,13 @@ function ConciliacionEditor({ valor, onChange }: { valor: unknown; onChange: (v:
                   ✕
                 </button>
               </div>
+              {p.nombre ? (
+                <p className="text-sm font-medium text-primary-900">{p.nombre}</p>
+              ) : consultando[i] ? (
+                <p className="flex items-center gap-2 text-xs text-slate-500"><Spinner /> Consultando producto…</p>
+              ) : info[i] ? (
+                <p className="text-xs font-medium text-amber-600">{info[i]}</p>
+              ) : null}
               <div className="flex gap-2">
                 <CampoConciliacion
                   etiqueta="Teórica (sistema)"
@@ -206,7 +248,7 @@ function ConciliacionEditor({ valor, onChange }: { valor: unknown; onChange: (v:
         })
       )}
 
-      <Button type="button" variant="secondary" className="w-full" onClick={() => actualizar([...productos, { sku: '', teorica: null, fisica: null }])}>
+      <Button type="button" variant="secondary" className="w-full" onClick={() => actualizar([...productos, { sku: '', nombre: null, teorica: null, fisica: null }])}>
         + Agregar producto
       </Button>
 
@@ -224,10 +266,54 @@ function ConciliacionEditor({ valor, onChange }: { valor: unknown; onChange: (v:
           onDetect={(codigo) => {
             const i = escaneandoIndice
             setEscaneandoIndice(null)
-            if (i != null) actualizarUno(i, { sku: codigo })
+            if (i != null) void aplicarCodigo(i, codigo)
           }}
         />
       ) : null}
+    </div>
+  )
+}
+
+function EvidenciasEditor({ evidencias, onChange }: { evidencias: EvidenciaCumple[]; onChange: (evs: EvidenciaCumple[]) => void }) {
+  const agregar = () => onChange([...evidencias, { photoIds: [], comentario: '' }])
+  const quitar = (i: number) => onChange(evidencias.filter((_, idx) => idx !== i))
+  const actualizar = (i: number, patch: Partial<EvidenciaCumple>) =>
+    onChange(evidencias.map((e, idx) => (idx === i ? { ...e, ...patch } : e)))
+
+  if (!evidencias.length) {
+    return (
+      <Button type="button" variant="secondary" className="w-full" onClick={agregar}>
+        + Agregar evidencia (foto + comentario)
+      </Button>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {evidencias.map((ev, i) => (
+        <div key={i} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold uppercase text-slate-500">Evidencia {i + 1}</p>
+            <button
+              type="button"
+              onClick={() => quitar(i)}
+              className="rounded-lg px-2 py-1 text-xs font-medium text-slate-400 hover:bg-red-50 hover:text-red-500"
+            >
+              ✕ Quitar
+            </button>
+          </div>
+          <PhotoCapture photoIds={ev.photoIds} onChange={(photoIds) => actualizar(i, { photoIds })} />
+          <Textarea
+            rows={2}
+            placeholder="Comentario de la evidencia…"
+            value={ev.comentario}
+            onChange={(e) => actualizar(i, { comentario: e.target.value })}
+          />
+        </div>
+      ))}
+      <Button type="button" variant="secondary" className="w-full" onClick={agregar}>
+        + Agregar otra evidencia
+      </Button>
     </div>
   )
 }

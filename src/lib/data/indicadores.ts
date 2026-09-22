@@ -20,7 +20,7 @@ export interface ConjuntoDatos {
 export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<ConjuntoDatos> {
   let query = supabase
     .from('evaluaciones')
-    .select('*, sucursal:sucursales(id,nombre,codigo,ciudad,direccion), evaluador:profiles(id,nombre)')
+    .select('*, sucursal:sucursales(id,nombre,shop_id,ciudad,direccion), evaluador:profiles(id,nombre)')
     .order('fecha', { ascending: false })
 
   const sucursales = f.sucursal_ids && f.sucursal_ids.length ? f.sucursal_ids : null
