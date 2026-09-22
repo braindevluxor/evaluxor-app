@@ -1,4 +1,5 @@
 import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { FolderOpen, X } from 'lucide-react'
 
 export function cn(...cls: (string | false | null | undefined)[]): string {
   return cls.filter(Boolean).join(' ')
@@ -102,7 +103,7 @@ export function Spinner({ className }: { className?: string }) {
 export function EmptyState({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-      <div className="text-3xl">🗂️</div>
+      <FolderOpen className="h-10 w-10 text-slate-300" strokeWidth={1.5} />
       <p className="font-semibold text-slate-700">{title}</p>
       {subtitle ? <p className="text-sm text-slate-500">{subtitle}</p> : null}
     </div>
@@ -132,7 +133,7 @@ export function Modal({
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-bold text-primary-900">{title}</h3>
           <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-slate-400 hover:bg-slate-100">
-            ✕
+            <X className="h-5 w-5" />
           </button>
         </div>
         {children}

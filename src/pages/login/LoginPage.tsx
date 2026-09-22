@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { ShoppingCart } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { homePorRol } from '../../lib/roles'
 import { Button, Field, Input } from '../../components/ui'
@@ -33,7 +34,7 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-primary px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center text-white">
-          <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-2xl bg-white/10 text-3xl">🛒</div>
+          <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-2xl bg-white/10"><ShoppingCart className="h-8 w-8" /></div>
           <h1 className="text-3xl font-extrabold">EvaLuxor</h1>
           <p className="mt-1 text-sm text-primary-200">Evaluaciones 360 de supermercados</p>
         </div>

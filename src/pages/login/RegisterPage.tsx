@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { ShoppingCart } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { Button, Field, Input } from '../../components/ui'
 
@@ -21,7 +22,7 @@ export function RegisterPage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-primary px-4">
         <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl">
-          <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-2xl bg-primary-50 text-3xl">🛒</div>
+          <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-2xl bg-primary-50"><ShoppingCart className="h-8 w-8 text-primary-700" /></div>
           <h1 className="text-xl font-extrabold text-primary-900">Acceso solo por invitación</h1>
           <p className="mt-2 text-sm text-slate-500">
             Las cuentas las crea el Líder enviando una invitación. Pídele tu enlace de registro para continuar.
@@ -54,7 +55,7 @@ export function RegisterPage() {
     <div className="flex min-h-screen items-center justify-center bg-primary px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center text-white">
-          <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-2xl bg-white/10 text-3xl">🛒</div>
+          <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-2xl bg-white/10"><ShoppingCart className="h-8 w-8" /></div>
           <h1 className="text-3xl font-extrabold">Crear cuenta</h1>
           <p className="mt-1 text-sm text-primary-200">Registro por invitación del Líder</p>
         </div>

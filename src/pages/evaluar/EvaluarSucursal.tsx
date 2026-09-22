@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft, ArrowRight, Check } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { getDraft, putDraft, type DraftEval } from '../../lib/offline/db'
 import { ItemRenderer } from '../../components/ItemRenderer'
-import { Button, Field, Input, ProgressBar } from '../../components/ui'
+import { Button, ProgressBar } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 
 export function EvaluarSucursal() {
   const { sucursalId = '' } = useParams()
   const navigate = useNavigate()
   const { profile } = useAuth()
-  const { modulosActivos, itemsDe } = useModulosActivos()
+  const { modulosActivos, itemsDe } = useModulosActivos(sucursalId)
   const { sucursales } = useCatalog()
   const sucursal = sucursales.find((s) => s.id === sucursalId)
 
@@ -23,7 +24,6 @@ export function EvaluarSucursal() {
   })
 
   const guardadoRef = useRef<Map<string, number>>(new Map())
-  const draftRef = useRef<DraftEval | null>(null)
 
   const modulos = useMemo(
     () => modulosActivos.filter((m) => itemsDe(m).length > 0),
@@ -44,31 +44,9 @@ export function EvaluarSucursal() {
         updated_at: Date.now()
       }
       setDraft(d)
-      draftRef.current = d
       setCargando(false)
     })()
   }, [sucursalId, profile])
-
-  useEffect(() => {
-    if (!draft) return
-    draftRef.current = draft
-  }, [draft])
-
-  useEffect(() => {
-    const flush = () => {
-      const d = draftRef.current
-      if (d) void putDraft(d)
-    }
-    const onVis = () => {
-      if (document.visibilityState === 'hidden') flush()
-    }
-    document.addEventListener('visibilitychange', onVis)
-    window.addEventListener('pagehide', flush)
-    return () => {
-      document.removeEventListener('visibilitychange', onVis)
-      window.removeEventListener('pagehide', flush)
-    }
-  }, [])
 
   useEffect(() => {
     if (!modulos.length) return
@@ -85,8 +63,8 @@ export function EvaluarSucursal() {
     return (
       <MobileLayout titulo="Evaluación">
         <div className="rounded-2xl bg-white p-6 text-center">
-          <p className="text-slate-600">No hay módulos con ítems configurados todavía. Pídele al Líder que active el catálogo.</p>
-          <Link to="/evaluar" className="mt-4 inline-block font-semibold text-primary">← Volver</Link>
+          <p className="text-slate-600">No tienes módulos asignados para esta evaluación. Pídele al Líder que te asigne módulos.</p>
+          <Link to="/evaluar" className="mt-4 inline-flex items-center gap-1 font-semibold text-primary"><ArrowLeft className="h-4 w-4" /> Volver</Link>
         </div>
       </MobileLayout>
     )
@@ -165,7 +143,7 @@ export function EvaluarSucursal() {
             disabled={idxModulo === 0}
             className="flex-1"
           >
-            ← Anterior
+            <ArrowLeft className="h-4 w-4" /> Anterior
           </Button>
           {idxModulo < modulos.length - 1 ? (
             <Button
@@ -177,26 +155,21 @@ export function EvaluarSucursal() {
                 setIdxModulo(n)
               }}
             >
-              Siguiente →
+              Siguiente <ArrowRight className="h-4 w-4" />
             </Button>
           ) : (
             <Button variant="success" className="flex-1" onClick={() => navigate(`/evaluar/${sucursalId}/resumen`)}>
-              Ver resumen ✓
+              Ver resumen <Check className="h-4 w-4" />
             </Button>
           )}
         </div>
 
-        <Field label="Fecha de la evaluación">
-          <Input
-            type="date"
-            value={actual.fecha}
-            onChange={(e) => {
-              const nuevo = { ...actual, fecha: e.target.value }
-              setDraft(nuevo)
-              void putDraft(nuevo)
-            }}
-          />
-        </Field>
+        <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <span className="text-sm font-medium text-slate-500">Fecha de la evaluación</span>
+          <span className="text-sm font-bold text-primary-900">
+            {new Date(`${actual.fecha}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })}
+          </span>
+        </div>
 
         <div className="text-center">
           <Link to="/evaluar" className="text-sm font-medium text-slate-500 hover:text-primary">

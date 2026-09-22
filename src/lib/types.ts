@@ -13,18 +13,9 @@ export interface Sucursal {
   id: string
   nombre: string
   shop_id: string | null
-  ciudad: string | null
   direccion: string | null
+  gerente_id: string | null
   activa: boolean
-  created_at: string
-}
-
-export interface Departamento {
-  id: string
-  nombre: string
-  codigo: string
-  tolerancia: number | null
-  activo: boolean
   created_at: string
 }
 
@@ -58,6 +49,31 @@ export interface Asignacion {
   sucursal_id: string
   activa: boolean
   created_by: string | null
+  created_at: string
+}
+
+export interface AsignacionModulo {
+  id: string
+  evaluador_id: string
+  modulo_id: string
+  activa: boolean
+  created_by: string | null
+  created_at: string
+}
+
+export interface SucursalModulo {
+  id: string
+  sucursal_id: string
+  modulo_id: string
+  activa: boolean
+  created_at: string
+}
+
+export interface SucursalItem {
+  id: string
+  sucursal_id: string
+  item_id: string
+  activa: boolean
   created_at: string
 }
 
@@ -115,6 +131,6 @@ export interface Foto {
 }
 
 export type VistaEvaluacion = Evaluacion & {
-  sucursal?: Pick<Sucursal, 'id' | 'nombre' | 'shop_id' | 'ciudad' | 'direccion'> | null
+  sucursal?: Pick<Sucursal, 'id' | 'nombre' | 'shop_id' | 'direccion'> | null
   evaluador?: Pick<Profile, 'id' | 'nombre'> | null
 }

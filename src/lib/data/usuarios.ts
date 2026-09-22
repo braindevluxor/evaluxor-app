@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import type { Profile, Invitacion, Asignacion, Rol } from '../types'
+import type { Profile, Invitacion, Asignacion, AsignacionModulo, Rol } from '../types'
 
 export type ProfileVista = Profile & {
   sucursal?: { id: string; nombre: string } | null
@@ -8,7 +8,7 @@ export type ProfileVista = Profile & {
 export async function listarUsuarios(): Promise<ProfileVista[]> {
   const { data } = await supabase
     .from('profiles')
-    .select('*, sucursal:sucursales(id, nombre)')
+    .select('*, sucursal:sucursales!profiles_sucursal_id_fkey(id, nombre)')
     .order('created_at', { ascending: false })
   return (data ?? []) as ProfileVista[]
 }
@@ -61,4 +61,23 @@ export async function desasignarEvaluador(evaluadorId: string, sucursalId: strin
     .update({ activa: false })
     .eq('evaluador_id', evaluadorId)
     .eq('sucursal_id', sucursalId)
+}
+
+export async function listarAsignacionesModulosAdmin(): Promise<AsignacionModulo[]> {
+  const { data } = await supabase.from('asignaciones_modulos').select('*')
+  return (data ?? []) as AsignacionModulo[]
+}
+
+export async function asignarModulo(evaluadorId: string, moduloId: string): Promise<void> {
+  await supabase
+    .from('asignaciones_modulos')
+    .upsert({ evaluador_id: evaluadorId, modulo_id: moduloId, activa: true }, { onConflict: 'evaluador_id,modulo_id' })
+}
+
+export async function desasignarModulo(evaluadorId: string, moduloId: string): Promise<void> {
+  await supabase
+    .from('asignaciones_modulos')
+    .update({ activa: false })
+    .eq('evaluador_id', evaluadorId)
+    .eq('modulo_id', moduloId)
 }

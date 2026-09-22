@@ -1,35 +1,46 @@
 import { supabase } from '../supabase'
 import { getCache, putCache, type CacheData } from '../offline/db'
-import type { Modulo, Item, Sucursal, Departamento } from '../types'
+import type { Modulo, Item, Sucursal, SucursalModulo, SucursalItem } from '../types'
 
 export async function obtenerCacheLocal(): Promise<CacheData | undefined> {
   return getCache()
 }
 
 export async function refrescarCatalogo(evaluadorId: string): Promise<CacheData> {
-  const [modulos, items, sucursales, departamentos, asignaciones] = await Promise.all([
+  const [modulos, items, sucursales, asignaciones, asignacionesModulos, sucursalModulos, sucursalItems] = await Promise.all([
     supabase.from('modulos').select('*').eq('activo', true).order('orden').order('nombre'),
     supabase.from('items').select('*').eq('activo', true),
     supabase.from('sucursales').select('*').eq('activa', true).order('nombre'),
-    supabase.from('departamentos').select('*').eq('activo', true).order('nombre'),
-    supabase.from('asignaciones').select('*').eq('evaluador_id', evaluadorId).eq('activa', true)
+    supabase.from('asignaciones').select('*').eq('evaluador_id', evaluadorId).eq('activa', true),
+    supabase.from('asignaciones_modulos').select('*').eq('evaluador_id', evaluadorId).eq('activa', true),
+    supabase.from('sucursal_modulos').select('*').eq('activa', true),
+    supabase.from('sucursal_items').select('*').eq('activa', true)
   ])
 
   const data: CacheData = {
     modulos: (modulos.data ?? []) as Modulo[],
     items: (items.data ?? []) as Item[],
     sucursales: (sucursales.data ?? []) as Sucursal[],
-    departamentos: (departamentos.data ?? []) as Departamento[],
     asignaciones: (asignaciones.data ?? []) as CacheData['asignaciones'],
+    asignacionesModulos: (asignacionesModulos.data ?? []) as CacheData['asignacionesModulos'],
+    sucursalModulos: (sucursalModulos.data ?? []) as SucursalModulo[],
+    sucursalItems: (sucursalItems.data ?? []) as SucursalItem[],
     updated_at: Date.now()
   }
   await putCache(data)
   return data
 }
 
-export async function listarSucursalesAdmin(): Promise<Sucursal[]> {
-  const { data } = await supabase.from('sucursales').select('*').order('nombre')
-  return (data ?? []) as Sucursal[]
+export type SucursalVista = Sucursal & {
+  gerente?: { id: string; nombre: string } | null
+}
+
+export async function listarSucursalesAdmin(): Promise<SucursalVista[]> {
+  const { data } = await supabase
+    .from('sucursales')
+    .select('*, gerente:profiles!sucursales_gerente_id_fkey(id, nombre)')
+    .order('nombre')
+  return (data ?? []) as SucursalVista[]
 }
 
 export async function guardarSucursal(s: Partial<Sucursal> & { nombre: string }): Promise<void> {
@@ -40,8 +51,8 @@ export async function guardarSucursal(s: Partial<Sucursal> & { nombre: string })
     await supabase.from('sucursales').insert({
       nombre: s.nombre,
       shop_id: s.shop_id ?? null,
-      ciudad: s.ciudad,
-      direccion: s.direccion
+      direccion: s.direccion,
+      gerente_id: s.gerente_id ?? null
     })
   }
 }
@@ -73,28 +84,6 @@ export async function eliminarModulo(id: string): Promise<void> {
   await supabase.from('modulos').delete().eq('id', id)
 }
 
-export async function listarDepartamentosAdmin(): Promise<Departamento[]> {
-  const { data } = await supabase.from('departamentos').select('*').order('nombre')
-  return (data ?? []) as Departamento[]
-}
-
-export async function guardarDepartamento(d: Partial<Departamento> & { nombre: string; codigo: string }): Promise<void> {
-  if (d.id) {
-    const { id, ...rest } = d
-    await supabase.from('departamentos').update(rest).eq('id', id)
-  } else {
-    await supabase.from('departamentos').insert({
-      nombre: d.nombre,
-      codigo: d.codigo,
-      tolerancia: d.tolerancia ?? null
-    })
-  }
-}
-
-export async function eliminarDepartamento(id: string): Promise<void> {
-  await supabase.from('departamentos').delete().eq('id', id)
-}
-
 export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: Item['tipo']; texto: string }): Promise<void> {
   if (i.id) {
     const { id, ...rest } = i
@@ -113,4 +102,43 @@ export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: 
 
 export async function eliminarItem(id: string): Promise<void> {
   await supabase.from('items').delete().eq('id', id)
+}
+
+export async function listarSucursalConfigAdmin(sucursalId: string): Promise<{ modulos: string[]; items: string[] }> {
+  const [mods, items] = await Promise.all([
+    supabase.from('sucursal_modulos').select('modulo_id').eq('sucursal_id', sucursalId).eq('activa', true),
+    supabase.from('sucursal_items').select('item_id').eq('sucursal_id', sucursalId).eq('activa', true)
+  ])
+  return {
+    modulos: (mods.data ?? []).map((r) => r.modulo_id as string),
+    items: (items.data ?? []).map((r) => r.item_id as string)
+  }
+}
+
+export async function configurarSucursalModulos(sucursalId: string, modulosIds: string[]): Promise<void> {
+  const { data: actuales } = await supabase.from('sucursal_modulos').select('id, modulo_id, activa').eq('sucursal_id', sucursalId)
+  const rows = (actuales ?? []) as { id: string; modulo_id: string; activa: boolean }[]
+  const ids = new Set(modulosIds)
+  const aInsertar = modulosIds.filter((mid) => !rows.some((r) => r.modulo_id === mid))
+  const aActivar = rows.filter((r) => ids.has(r.modulo_id) && !r.activa).map((r) => r.id)
+  const aDesactivar = rows.filter((r) => !ids.has(r.modulo_id)).map((r) => r.id)
+  const ops: Promise<void>[] = []
+  if (aInsertar.length) ops.push(Promise.resolve(supabase.from('sucursal_modulos').insert(aInsertar.map((modulo_id) => ({ sucursal_id: sucursalId, modulo_id })))).then(() => undefined))
+  if (aActivar.length) ops.push(Promise.resolve(supabase.from('sucursal_modulos').update({ activa: true }).in('id', aActivar)).then(() => undefined))
+  if (aDesactivar.length) ops.push(Promise.resolve(supabase.from('sucursal_modulos').update({ activa: false }).in('id', aDesactivar)).then(() => undefined))
+  await Promise.all(ops)
+}
+
+export async function configurarSucursalItems(sucursalId: string, itemsIds: string[]): Promise<void> {
+  const { data: actuales } = await supabase.from('sucursal_items').select('id, item_id, activa').eq('sucursal_id', sucursalId)
+  const rows = (actuales ?? []) as { id: string; item_id: string; activa: boolean }[]
+  const ids = new Set(itemsIds)
+  const aInsertar = itemsIds.filter((iid) => !rows.some((r) => r.item_id === iid))
+  const aActivar = rows.filter((r) => ids.has(r.item_id) && !r.activa).map((r) => r.id)
+  const aDesactivar = rows.filter((r) => !ids.has(r.item_id)).map((r) => r.id)
+  const ops: Promise<void>[] = []
+  if (aInsertar.length) ops.push(Promise.resolve(supabase.from('sucursal_items').insert(aInsertar.map((item_id) => ({ sucursal_id: sucursalId, item_id })))).then(() => undefined))
+  if (aActivar.length) ops.push(Promise.resolve(supabase.from('sucursal_items').update({ activa: true }).in('id', aActivar)).then(() => undefined))
+  if (aDesactivar.length) ops.push(Promise.resolve(supabase.from('sucursal_items').update({ activa: false }).in('id', aDesactivar)).then(() => undefined))
+  await Promise.all(ops)
 }

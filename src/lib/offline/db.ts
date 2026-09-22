@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Modulo, Item, Sucursal, Asignacion, Departamento } from '../types'
+import type { Modulo, Item, Sucursal, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem } from '../types'
 
 export interface DraftResp {
   valor: unknown
@@ -39,8 +39,10 @@ export interface CacheData {
   modulos: Modulo[]
   items: Item[]
   sucursales: Sucursal[]
-  departamentos: Departamento[]
   asignaciones: Asignacion[]
+  asignacionesModulos: AsignacionModulo[]
+  sucursalModulos: SucursalModulo[]
+  sucursalItems: SucursalItem[]
   updated_at: number
 }
 
@@ -52,7 +54,7 @@ interface EvaluxorDB extends DBSchema {
 }
 
 const DB_NAME = 'evaluxor-db'
-const DB_VERSION = 2
+const DB_VERSION = 1
 
 let dbPromise: Promise<IDBPDatabase<EvaluxorDB>> | null = null
 

@@ -15,9 +15,24 @@ function isCumpleValor(valor: unknown): string[][] | null {
   return v.evidencias.map((e) => (Array.isArray(e.photoIds) ? e.photoIds.filter((x) => typeof x === 'string') : []))
 }
 
+function isChecklistValor(valor: unknown): Record<string, string[]> | null {
+  const v = valor as { selected?: string[]; evidencias?: Record<string, { photoIds?: unknown } | null> } | null
+  if (!v || !Array.isArray(v.selected)) return null
+  const evs = v.evidencias
+  if (!evs || typeof evs !== 'object' || Array.isArray(evs)) return null
+  const out: Record<string, string[]> = {}
+  for (const [optId, e] of Object.entries(evs)) {
+    const ids = e && Array.isArray(e.photoIds) ? e.photoIds.filter((x) => typeof x === 'string') : []
+    if (ids.length) out[optId] = ids
+  }
+  return out
+}
+
 export function extraerPhotoIds(valor: unknown): string[] {
   const directos = isFotoValor(valor)
   if (directos) return directos
+  const checklist = isChecklistValor(valor)
+  if (checklist) return Object.values(checklist).flat()
   return isCumpleValor(valor)?.flat() ?? []
 }
 
@@ -33,6 +48,18 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
         comentario: e.comentario ?? '',
         paths: (cumpleIds[i] ?? []).map((id) => map.get(id) ?? `.local/${id}`)
       }))
+    }
+  }
+  const checklistIds = isChecklistValor(valor)
+  if (checklistIds) {
+    const v = valor as { selected?: string[]; evidencias?: Record<string, { photoIds?: string[] } | null> }
+    const evidencias: Record<string, unknown> = {}
+    for (const [optId, ids] of Object.entries(checklistIds)) {
+      evidencias[optId] = { paths: ids.map((id) => map.get(id) ?? `.local/${id}`) }
+    }
+    return {
+      selected: v.selected ?? [],
+      evidencias
     }
   }
   return valor

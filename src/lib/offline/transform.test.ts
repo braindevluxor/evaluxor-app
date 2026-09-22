@@ -22,6 +22,13 @@ describe('extraerPhotoIds', () => {
     expect(extraerPhotoIds({ value: false, evidencias: [] })).toEqual([])
     expect(extraerPhotoIds({ value: true })).toEqual([])
   })
+  it('extrae photoIds de evidencias de checklist', () => {
+    expect(
+      extraerPhotoIds({ selected: ['a', 'b'], evidencias: { a: { photoIds: ['x'] }, b: { photoIds: ['y', 'z'] } } })
+    ).toEqual(['x', 'y', 'z'])
+    expect(extraerPhotoIds({ selected: ['a', 'b'], evidencias: {} })).toEqual([])
+    expect(extraerPhotoIds({ selected: [] })).toEqual([])
+  })
 })
 
 describe('convertirValor', () => {
@@ -44,6 +51,21 @@ describe('convertirValor', () => {
         { comentario: 'ok', paths: ['ev/x/y/a.jpg'] },
         { comentario: 'x', paths: ['.local/b'] }
       ]
+    })
+  })
+  it('convierte evidencias de checklist a paths', () => {
+    const map = new Map([['x', 'ev/c/d/x.jpg']])
+    expect(
+      convertirValor(
+        { selected: ['a', 'b'], evidencias: { a: { photoIds: ['x'] }, b: { photoIds: ['y'] } } },
+        map
+      )
+    ).toEqual({
+      selected: ['a', 'b'],
+      evidencias: {
+        a: { paths: ['ev/c/d/x.jpg'] },
+        b: { paths: ['.local/y'] }
+      }
     })
   })
   it('deja pasar otros valores', () => {

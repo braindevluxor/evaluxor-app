@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { crearInvitacion, listarInvitaciones, listarUsuarios, actualizarUsuario, type ProfileVista } from '../../lib/data/usuarios'
-import { listarSucursalesAdmin } from '../../lib/data/catalog'
+import { crearInvitacion, actualizarUsuario, type ProfileVista } from '../../lib/data/usuarios'
+import { supabase } from '../../lib/supabase'
 import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
 import type { Invitacion, Rol, Sucursal } from '../../lib/types'
 import { Badge, Button, Field, Input, Modal, Select, Spinner } from '../../components/ui'
@@ -12,15 +12,29 @@ export function UsuariosPage() {
   const [invitaciones, setInvitaciones] = useState<Invitacion[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [cargando, setCargando] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
   const [editando, setEditando] = useState<ProfileVista | null>(null)
   const [invitando, setInvitando] = useState(false)
   const [linkInv, setLinkInv] = useState('')
 
   const cargar = useCallback(async () => {
-    const [u, i, s] = await Promise.all([listarUsuarios(), listarInvitaciones(), listarSucursalesAdmin()])
-    setUsuarios(u)
-    setInvitaciones(i)
-    setSucursales(s)
+    setErr(null)
+    setCargando(true)
+    try {
+      const [ur, ir, sr] = await Promise.all([
+        supabase.from('profiles').select('*, sucursal:sucursales!profiles_sucursal_id_fkey(id, nombre)').order('created_at', { ascending: false }),
+        supabase.from('invitaciones').select('*').order('created_at', { ascending: false }),
+        supabase.from('sucursales').select('*').order('nombre')
+      ])
+      if (ur.error) setErr(`No se pudieron cargar los usuarios: ${ur.error.message}`)
+      if (ir.error) setErr((prev) => (prev ? `${prev}\nNo se pudieron cargar las invitaciones: ${ir.error.message}` : `No se pudieron cargar las invitaciones: ${ir.error.message}`))
+      if (sr.error) setErr((prev) => (prev ? `${prev}\nNo se cargaron las sucursales: ${sr.error.message}` : `No se cargaron las sucursales: ${sr.error.message}`))
+      setUsuarios((ur.data ?? []) as ProfileVista[])
+      setInvitaciones((ir.data ?? []) as Invitacion[])
+      setSucursales((sr.data ?? []) as Sucursal[])
+    } catch (e) {
+      setErr(`Error inesperado: ${e instanceof Error ? e.message : String(e)}`)
+    }
     setCargando(false)
   }, [])
 
@@ -53,6 +67,10 @@ export function UsuariosPage() {
             ))}
           </div>
         </div>
+      ) : null}
+
+      {err ? (
+        <div className="whitespace-pre-wrap rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
       ) : null}
 
       {cargando ? <div className="flex justify-center py-16"><Spinner /></div> : (

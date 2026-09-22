@@ -1,3 +1,4 @@
+import { LayoutDashboard, Link2 as LinkIcon, ClipboardList, FolderOpen, History, Menu, Settings, Store, Users, X } from 'lucide-react'
 import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -7,8 +8,8 @@ import { cn } from '../ui'
 
 const enlaces = [
   { seccion: 'Resultados', items: [
-    { to: '/dashboard', label: 'Inicio', icon: '📊' },
-    { to: '/dashboard/comparativas', label: 'Comparativas', icon: '📈' }
+    { to: '/dashboard', label: 'Inicio', icon: <LayoutDashboard className="h-5 w-5" /> },
+    { to: '/dashboard/historial', label: 'Historial', icon: <History className="h-5 w-5" /> }
   ]}
 ]
 
@@ -21,12 +22,11 @@ export function ConsoleLayout() {
     {
       seccion: 'Gestión',
       items: [
-        { to: '/config/sucursales', label: 'Sucursales', icon: '🏬' },
-        { to: '/config/departamentos', label: 'Departamentos', icon: '🏷️' },
-        { to: '/config/modulos', label: 'Módulos', icon: '🗂️' },
-        { to: '/config/items', label: 'Ítems de evaluación', icon: '📋' },
-        { to: '/config/usuarios', label: 'Usuarios', icon: '👥' },
-        { to: '/config/asignaciones', label: 'Asignaciones', icon: '🔗' }
+        { to: '/config/sucursales', label: 'Sucursales', icon: <Store className="h-5 w-5" /> },
+        { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> },
+        { to: '/config/items', label: 'Ítems de evaluación', icon: <ClipboardList className="h-5 w-5" /> },
+        { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> },
+        { to: '/config/asignaciones', label: 'Asignaciones', icon: <LinkIcon className="h-5 w-5" /> }
       ]
     }
   ] : []
@@ -41,7 +41,7 @@ export function ConsoleLayout() {
             <h1 className="text-xl font-extrabold">EvaLuxor</h1>
             <p className="text-xs text-primary-200">Indicadores de gestión</p>
           </div>
-          <button onClick={() => setAbierto(false)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 lg:hidden">✕</button>
+          <button onClick={() => setAbierto(false)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 lg:hidden"><X className="h-5 w-5" /></button>
         </div>
         <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-6">
           {secciones.length ? secciones.map((s) => (
@@ -69,8 +69,8 @@ export function ConsoleLayout() {
         </nav>
         <div className="border-t border-white/10 px-5 py-4">
           <p className="truncate text-sm font-semibold">{profile?.nombre || profile?.email}</p>
-          <NavLink to="/perfil" className="mt-2 block text-sm font-medium text-primary-200 hover:text-white">
-            ⚙ Mi perfil / contraseña
+          <NavLink to="/perfil" className="mt-2 flex items-center gap-2 text-sm font-medium text-primary-200 hover:text-white">
+            <Settings className="h-4 w-4" /> Mi perfil / contraseña
           </NavLink>
           <button
             onClick={() => void signOut()}
@@ -86,7 +86,7 @@ export function ConsoleLayout() {
       <div className="lg:pl-64">
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
           <button onClick={() => setAbierto(true)} className="grid h-10 w-10 place-items-center rounded-xl text-primary hover:bg-primary-50 lg:hidden">
-            ☰
+            <Menu className="h-6 w-6" />
           </button>
           <div className="text-primary font-extrabold lg:hidden">EvaLuxor</div>
           <button

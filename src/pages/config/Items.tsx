@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { X } from 'lucide-react'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
 import { etiquetaTipo, ETIQUETAS_TIPO } from '../../lib/scoring'
 import type { Item, Modulo, Opcion, TipoItem } from '../../lib/types'
@@ -173,13 +174,14 @@ function FormItem({
           {TIPOS.map((t) => <option key={t} value={t}>{etiquetaTipo(t)}</option>)}
         </Select>
       </Field>
-      <Field label={tipo === 'CHECKLIST' ? 'Lista de opciones (el ítem cumple al marcar todas)' : 'Pregunta / enunciado'}>
-        {tipo === 'CHECKLIST' ? (
-          <EditorOpciones opciones={opciones} onChange={setOpciones} />
-        ) : (
-          <Textarea rows={2} value={texto} onChange={(e) => setTexto(e.target.value)} required placeholder="Ej. Los pasillos están libres de obstáculos…" />
-        )}
+      <Field label="Pregunta / enunciado">
+        <Textarea rows={2} value={texto} onChange={(e) => setTexto(e.target.value)} required placeholder="Ej. Los pasillos están libres de obstáculos…" />
       </Field>
+      {tipo === 'CHECKLIST' ? (
+        <Field label="Lista de opciones (el ítem cumple al marcar todas)">
+          <EditorOpciones opciones={opciones} onChange={setOpciones} />
+        </Field>
+      ) : null}
       {tipo === 'CONCILIACION' ? (
         <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
           En la evaluación, el evaluador agrega los productos (escaneando o escribiendo el SKU) y registra las cantidades teórica y física por cada uno.
@@ -211,7 +213,7 @@ function EditorOpciones({ opciones, onChange }: { opciones: Opcion[]; onChange: 
       {opciones.map((o, i) => (
         <div key={o.id} className="flex items-center gap-2">
           <Input value={o.etiqueta} onChange={(e) => cambiar(i, e.target.value)} placeholder={`Opción ${i + 1}`} />
-          <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50">✕</button>
+          <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
         </div>
       ))}
       <Button type="button" variant="secondary" onClick={agregar}>+ Agregar opción</Button>

@@ -15,8 +15,8 @@ create table if not exists public.sucursales (
   id uuid primary key default gen_random_uuid(),
   nombre text not null,
   shop_id text,
-  ciudad text,
   direccion text,
+  gerente_id uuid references public.profiles(id) on delete set null,
   activa boolean not null default true,
   created_at timestamptz not null default now()
 );
@@ -25,6 +25,8 @@ create table if not exists public.sucursales (
 alter table public.sucursales add column if not exists shop_id text;
 -- Migracion: se elimina la columna codigo (se usa solo shop_id)
 alter table public.sucursales drop column if exists codigo;
+-- Migracion: GERENTE S a cargo de la sucursal (opcional)
+alter table public.sucursales add column if not exists gerente_id uuid references public.profiles(id) on delete set null;
 
 -- ----------------------------------------------------------------------------
 -- PROFILES (1:1 con auth.users; el rol y sucursal se asignan desde invitacion)
@@ -176,15 +178,50 @@ alter table public.items add constraint items_tipo_check check (tipo in (
 ));
 
 -- ----------------------------------------------------------------------------
--- DEPARTAMENTOS (tolerancias de conciliación)
+-- ASIGNACIONES DE MODULOS (el LIDER asigna módulos a evaluadores)
+-- Regla de negocio: un módulo activo solo se asigna a UN evaluador a la vez.
 -- ----------------------------------------------------------------------------
-create table if not exists public.departamentos (
+create table if not exists public.asignaciones_modulos (
   id uuid primary key default gen_random_uuid(),
-  nombre text not null,
-  codigo text not null unique,
-  tolerancia numeric(8,2), -- % de desviación permitido (ej. 5 = ±5%)
-  activo boolean not null default true,
-  created_at timestamptz not null default now()
+  evaluador_id uuid not null references public.profiles(id) on delete cascade,
+  modulo_id uuid not null references public.modulos(id) on delete cascade,
+  activa boolean not null default true,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  unique (evaluador_id, modulo_id)
+);
+
+-- Se limpian asignaciones duplicadas previas conservando la mas antigua.
+delete from public.asignaciones_modulos a
+using public.asignaciones_modulos b
+where a.activa and b.activa
+  and a.modulo_id = b.modulo_id
+  and a.created_at > b.created_at;
+
+-- Exclusividad: un modulo activo solo puede pertenecer a un evaluador.
+create unique index if not exists uniq_asignaciones_modulos_activo
+  on public.asignaciones_modulos (modulo_id) where activa;
+
+-- ----------------------------------------------------------------------------
+-- CONFIGURACION POR SUCURSAL (que módulos e ítems aplican en cada sucursal)
+-- Semántica: sin filas activas => aplican TODOS; con filas => solo las marcadas.
+-- ----------------------------------------------------------------------------
+create table if not exists public.sucursal_modulos (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  modulo_id uuid not null references public.modulos(id) on delete cascade,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (sucursal_id, modulo_id)
+);
+
+create table if not exists public.sucursal_items (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  item_id uuid not null references public.items(id) on delete cascade,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (sucursal_id, item_id)
 );
 
 -- ----------------------------------------------------------------------------
@@ -225,12 +262,14 @@ create index if not exists idx_fotos_evaluacion on public.fotos(evaluacion_id);
 -- ROW LEVEL SECURITY
 -- ============================================================================
 alter table public.sucursales enable row level security;
-alter table public.departamentos enable row level security;
 alter table public.profiles enable row level security;
 alter table public.invitaciones enable row level security;
 alter table public.asignaciones enable row level security;
+alter table public.asignaciones_modulos enable row level security;
 alter table public.modulos enable row level security;
 alter table public.items enable row level security;
+alter table public.sucursal_modulos enable row level security;
+alter table public.sucursal_items enable row level security;
 alter table public.evaluaciones enable row level security;
 alter table public.respuestas enable row level security;
 alter table public.fotos enable row level security;
@@ -259,12 +298,6 @@ create policy sucursales_select on public.sucursales for select using (true);
 drop policy if exists sucursales_lider on public.sucursales;
 create policy sucursales_lider on public.sucursales for all using (public.es_lider()) with check (public.es_lider());
 
--- DEPARTAMENTOS: lectura autenticados / gestion solo LIDER --------------------
-drop policy if exists departamentos_select on public.departamentos;
-create policy departamentos_select on public.departamentos for select using (true);
-drop policy if exists departamentos_lider on public.departamentos;
-create policy departamentos_lider on public.departamentos for all using (public.es_lider()) with check (public.es_lider());
-
 -- PROFILES: lectura autenticados / gestion completa solo LIDER ------------------
 drop policy if exists profiles_select on public.profiles;
 create policy profiles_select on public.profiles for select using (true);
@@ -281,6 +314,12 @@ create policy asignaciones_select on public.asignaciones for select using (auth.
 drop policy if exists asignaciones_lider on public.asignaciones;
 create policy asignaciones_lider on public.asignaciones for all using (public.es_lider()) with check (public.es_lider());
 
+-- ASIGNACIONES_MODULOS: evaluador ve las suyas / gestion solo LIDER ------------
+drop policy if exists asignaciones_modulos_select on public.asignaciones_modulos;
+create policy asignaciones_modulos_select on public.asignaciones_modulos for select using (auth.uid() = evaluador_id or public.es_lider());
+drop policy if exists asignaciones_modulos_lider on public.asignaciones_modulos;
+create policy asignaciones_modulos_lider on public.asignaciones_modulos for all using (public.es_lider()) with check (public.es_lider());
+
 -- MODULOS / ITEMS: lectura autenticados / gestion solo LIDER -------------------
 drop policy if exists modulos_select on public.modulos;
 create policy modulos_select on public.modulos for select using (true);
@@ -290,6 +329,16 @@ drop policy if exists items_select on public.items;
 create policy items_select on public.items for select using (true);
 drop policy if exists items_lider on public.items;
 create policy items_lider on public.items for all using (public.es_lider()) with check (public.es_lider());
+
+-- CONFIG POR SUCURSAL: lectura autenticados / gestion solo LIDER ---------------
+drop policy if exists sucursal_modulos_select on public.sucursal_modulos;
+create policy sucursal_modulos_select on public.sucursal_modulos for select using (true);
+drop policy if exists sucursal_modulos_lider on public.sucursal_modulos;
+create policy sucursal_modulos_lider on public.sucursal_modulos for all using (public.es_lider()) with check (public.es_lider());
+drop policy if exists sucursal_items_select on public.sucursal_items;
+create policy sucursal_items_select on public.sucursal_items for select using (true);
+drop policy if exists sucursal_items_lider on public.sucursal_items;
+create policy sucursal_items_lider on public.sucursal_items for all using (public.es_lider()) with check (public.es_lider());
 
 -- EVALUACIONES -----------------------------------------------------------------
 drop policy if exists evaluaciones_select on public.evaluaciones;
@@ -303,7 +352,15 @@ create policy evaluaciones_insert on public.evaluaciones for insert with check (
         and p.id = evaluador_id
   )
 );
--- inmutables: no update/delete
+-- Inmutables: no update. Eliminación: LIDER o el propio evaluador (cascade a respuestas/fotos).
+drop policy if exists evaluaciones_delete on public.evaluaciones;
+create policy evaluaciones_delete on public.evaluaciones for delete using (
+  exists (
+    select 1 from public.profiles p
+      where p.id = auth.uid() and p.activo
+        and (p.rol = 'LIDER' or p.id = evaluador_id)
+  )
+);
 
 -- RESPUESTAS -------------------------------------------------------------------
 drop policy if exists respuestas_select on public.respuestas;

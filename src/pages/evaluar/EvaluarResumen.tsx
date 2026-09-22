@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft, Check, Send } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useModulosActivos } from '../../context/CatalogContext'
 import { getDraft, putDraft, type DraftEval } from '../../lib/offline/db'
@@ -12,7 +13,7 @@ import { cn } from '../../components/ui'
 export function EvaluarResumen() {
   const { sucursalId = '' } = useParams()
   const { profile } = useAuth()
-  const { modulosActivos, itemsDe } = useModulosActivos()
+  const { modulosActivos, itemsDe } = useModulosActivos(sucursalId)
   const navigate = useNavigate()
 
   const [draft, setDraft] = useState<DraftEval | null>(null)
@@ -83,7 +84,7 @@ export function EvaluarResumen() {
                     <p className="text-xs text-slate-500">{respondidos}/{items.length} ítems respondidos</p>
                   </div>
                   <span className={cn('grid h-8 w-8 place-items-center rounded-full text-sm font-bold', completo ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700')}>
-                    {completo ? '✓' : respondidos ? '…' : '—'}
+                    {completo ? <Check className="h-4 w-4" /> : respondidos ? '…' : '—'}
                   </span>
                 </div>
               </div>
@@ -112,10 +113,10 @@ export function EvaluarResumen() {
 
         <div className="flex gap-3">
           <Button variant="secondary" className="flex-1" onClick={() => navigate(`/evaluar/${sucursalId}`)}>
-            ← Editar
+            <ArrowLeft className="h-4 w-4" /> Editar
           </Button>
           <Button variant="success" className="flex-1" disabled={enviando} onClick={() => void enviar()}>
-            {enviando ? 'Enviando…' : 'Enviar evaluación ✓'}
+            {enviando ? 'Enviando…' : <>Enviar evaluación <Send className="h-4 w-4" /></>}
           </Button>
         </div>
       </div>

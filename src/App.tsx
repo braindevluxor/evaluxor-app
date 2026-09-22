@@ -12,14 +12,14 @@ import { RegisterPage } from './pages/login/RegisterPage'
 import { PerfilPage } from './pages/PerfilPage'
 import { EvaluarHome } from './pages/evaluar/EvaluarHome'
 import { EvaluarSucursal } from './pages/evaluar/EvaluarSucursal'
+import { EvaluacionDetalle } from './pages/EvaluacionDetalle'
 import { Spinner } from './components/ui'
 
 const EvaluarResumen = lazy(() => import('./pages/evaluar/EvaluarResumen').then((m) => ({ default: m.EvaluarResumen })))
 const MisEvaluaciones = lazy(() => import('./pages/evaluar/MisEvaluaciones').then((m) => ({ default: m.MisEvaluaciones })))
 const DashboardHome = lazy(() => import('./pages/dashboard/DashboardHome').then((m) => ({ default: m.DashboardHome })))
-const Comparativas = lazy(() => import('./pages/dashboard/Comparativas').then((m) => ({ default: m.Comparativas })))
+const Historial = lazy(() => import('./pages/dashboard/Historial').then((m) => ({ default: m.Historial })))
 const SucursalesPage = lazy(() => import('./pages/config/Sucursales').then((m) => ({ default: m.SucursalesPage })))
-const DepartamentosPage = lazy(() => import('./pages/config/Departamentos').then((m) => ({ default: m.DepartamentosPage })))
 const ModulosPage = lazy(() => import('./pages/config/Modulos').then((m) => ({ default: m.ModulosPage })))
 const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ default: m.ItemsPage })))
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
@@ -47,6 +47,16 @@ export default function App() {
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/registro" element={<RegisterPage />} />
                 <Route path="/perfil" element={<RequireAuth><PerfilPage /></RequireAuth>} />
+                <Route
+                  path="/evaluaciones/:evaluacionId"
+                  element={
+                    <RequireAuth>
+                      <RequireRol roles={[...ROLES_DASHBOARD, 'EVALUADOR']}>
+                        <EvaluacionDetalle />
+                      </RequireRol>
+                    </RequireAuth>
+                  }
+                />
                 <Route path="/pendiente" element={<RequireSesion><PendientePage /></RequireSesion>} />
 
                 <Route
@@ -106,15 +116,14 @@ export default function App() {
                     }
                   />
                   <Route
-                    path="/dashboard/comparativas"
+                    path="/dashboard/historial"
                     element={
                       <RequireRol roles={ROLES_DASHBOARD}>
-                        <Comparativas />
+                        <Historial />
                       </RequireRol>
                     }
                   />
                   <Route path="/config/sucursales" element={<SoloLider><SucursalesPage /></SoloLider>} />
-                  <Route path="/config/departamentos" element={<SoloLider><DepartamentosPage /></SoloLider>} />
                   <Route path="/config/modulos" element={<SoloLider><ModulosPage /></SoloLider>} />
                   <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
                   <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />

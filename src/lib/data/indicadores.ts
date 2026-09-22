@@ -17,10 +17,50 @@ export interface ConjuntoDatos {
   fotos: Foto[]
 }
 
+export interface DetalleEvaluacion {
+  evaluacion: VistaEvaluacion
+  respuestas: Respuesta[]
+  items: Item[]
+  modulos: Modulo[]
+  fotos: Foto[]
+}
+
+export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion | null> {
+  const { data: ev } = await supabase
+    .from('evaluaciones')
+    .select('*, sucursal:sucursales(id,nombre,shop_id,direccion), evaluador:profiles(id,nombre)')
+    .eq('id', id)
+    .maybeSingle()
+  if (!ev) return null
+  const evaluacion = ev as VistaEvaluacion
+
+  const [resp, itemsResp, mods, fotos] = await Promise.all([
+    supabase.from('respuestas').select('*').eq('evaluacion_id', id),
+    (async () => {
+      const rr = (await supabase.from('respuestas').select('item_id').eq('evaluacion_id', id)).data ?? []
+      const itemIds = Array.from(new Set((rr as { item_id: string }[]).map((r) => r.item_id)))
+      if (!itemIds.length) return [] as Item[]
+      return ((await supabase.from('items').select('*').in('id', itemIds)).data ?? []) as Item[]
+    })(),
+    supabase.from('modulos').select('*').order('orden'),
+    supabase.from('fotos').select('*').eq('evaluacion_id', id)
+  ])
+
+  const modulos = ((mods.data ?? []) as Modulo[]).filter((m) => itemsResp.some((i) => i.modulo_id === m.id))
+
+  return {
+    evaluacion,
+    respuestas: (resp.data ?? []) as Respuesta[],
+    items: itemsResp,
+    modulos,
+    fotos: (fotos.data ?? []) as Foto[]
+  }
+}
+
 export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<ConjuntoDatos> {
   let query = supabase
     .from('evaluaciones')
-    .select('*, sucursal:sucursales(id,nombre,shop_id,ciudad,direccion), evaluador:profiles(id,nombre)')
+    .select('*, sucursal:sucursales(id,nombre,shop_id,direccion), evaluador:profiles(id,nombre)')
     .order('fecha', { ascending: false })
 
   const sucursales = f.sucursal_ids && f.sucursal_ids.length ? f.sucursal_ids : null
@@ -103,39 +143,40 @@ export interface PuntajeModulo {
 export function puntajePorModulo(
   datos: ConjuntoDatos
 ): PuntajeModulo[] {
-  const acum = new Map<string, { nombre: string; puntajes: number[]; eval: number }>()
-  for (const ev of datos.evaluaciones) {
-    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items)
-    if (puntaje == null) continue
-    const respsEv = datos.respuestas.filter((r) => r.evaluacion_id === ev.id)
-    const mods = Array.from(new Set(
-      respsEv.map((r) => datos.items.find((i) => i.id === r.item_id)).filter(Boolean).map((i) => (i as Item).modulo_id)
-    ))
-    for (const m of mods) {
-      const nombre = datos.modulos.find((mm) => mm.id === m)?.nombre ?? 'Módulo'
-      const a = acum.get(m)
-      if (a) {
-        a.puntajes.push(puntaje)
-        a.eval++
-      } else {
-        acum.set(m, { nombre, puntajes: [puntaje], eval: 1 })
-      }
+  const acum = new Map<string, { modulo_id: string; nombre: string; ok: number; total: number; evals: Set<string> }>()
+  for (const r of datos.respuestas) {
+    const item = datos.items.find((i) => i.id === r.item_id)
+    if (!item) continue
+    const bin = valorBinario(item, r.valor)
+    if (bin === null) continue
+    const nombre = datos.modulos.find((mm) => mm.id === item.modulo_id)?.nombre ?? 'Módulo'
+    let a = acum.get(item.modulo_id)
+    if (!a) {
+      a = { modulo_id: item.modulo_id, nombre, ok: 0, total: 0, evals: new Set() }
+      acum.set(item.modulo_id, a)
     }
+    a.total++
+    if (bin) a.ok++
+    a.evals.add(r.evaluacion_id)
   }
   return Array.from(acum.values())
-    .map(({ nombre, puntajes, eval: e }) => ({
-      modulo_id: '',
+    .map(({ modulo_id, nombre, ok, total, evals }) => ({
+      modulo_id,
       nombre,
-      puntaje: Math.round((puntajes.reduce((a, b) => a + b, 0) / puntajes.length) * 100) / 100,
-      evaluaciones: e
+      puntaje: total ? Math.round((ok / total) * 10000) / 100 : null,
+      evaluaciones: evals.size
     }))
     .sort((a, b) => (b.puntaje ?? 0) - (a.puntaje ?? 0))
 }
 
 export function rankingSucursales(
-  datos: ConjuntoDatos
+  datos: ConjuntoDatos,
+  todas?: { id: string; nombre: string }[]
 ): { sucursal_id: string; nombre: string; puntaje: number | null; completadas: number }[] {
   const porSuc = new Map<string, { sucursal_id: string; puntajes: number[]; completadas: number; nombre: string }>()
+  for (const t of todas ?? []) {
+    porSuc.set(t.id, { sucursal_id: t.id, puntajes: [], completadas: 0, nombre: t.nombre })
+  }
   for (const ev of datos.evaluaciones) {
     const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items)
     const s = porSuc.get(ev.sucursal_id)
@@ -158,7 +199,7 @@ export function rankingSucursales(
       puntaje: s.puntajes.length ? Math.round((s.puntajes.reduce((a, b) => a + b, 0) / s.puntajes.length) * 100) / 100 : null,
       completadas: s.completadas
     }))
-    .sort((a, b) => (b.puntaje ?? 0) - (a.puntaje ?? 0))
+    .sort((a, b) => (b.puntaje ?? -1) - (a.puntaje ?? -1) || a.nombre.localeCompare(b.nombre))
 }
 
 export interface SerieMes {
@@ -271,4 +312,15 @@ export function matrizModuloSucursal(
       }
     })
   }))
+}
+
+export async function eliminarEvaluacion(id: string): Promise<void> {
+  const { data: fotos } = await supabase.from('fotos').select('path').eq('evaluacion_id', id)
+  const paths = ((fotos ?? []) as { path: string }[]).map((f) => f.path)
+  const { error } = await supabase.from('evaluaciones').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+  if (paths.length) {
+    // Se eliminan los archivos del bucket; si falla, solo quedan huérfanos en storage.
+    await supabase.storage.from('evidencias').remove(paths).catch(() => null)
+  }
 }

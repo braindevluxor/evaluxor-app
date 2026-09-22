@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { Camera, Check, ScanLine, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, conciliacionEnRango, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple } from '../lib/scoring'
 import { buscarProducto } from '../lib/data/precios'
-import { useCatalog } from '../context/CatalogContext'
 import { Badge, cn, Input, Textarea, Button, Spinner } from './ui'
-import { PhotoCapture } from './PhotoCapture'
+import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
 import { BarcodeScanner } from './BarcodeScanner'
+import { deletePhoto } from '../lib/offline/db'
 
 interface Props {
   item: Item
@@ -77,32 +78,60 @@ function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unkno
       )
     }
     case 'CHECKLIST': {
-      const seleccion = (valor as { selected?: string[] } | null)?.selected ?? []
+      const value = ((valor as ValorChecklist | null) ?? { selected: [], evidencias: {} })
+      const seleccion = value.selected ?? []
+      const evidencias = value.evidencias ?? {}
       const opts = (item.opciones ?? []) as Opcion[]
       if (!opts.length) return <p className="text-sm text-slate-400">Sin opciones definidas.</p>
       const toggle = (id: string) => {
         const existe = seleccion.includes(id)
-        onChange({ selected: existe ? seleccion.filter((x) => x !== id) : [...seleccion, id] })
+        onChange({ ...value, selected: existe ? seleccion.filter((x) => x !== id) : [...seleccion, id] })
+      }
+      const setEvidencia = (id: string, photoIds: string[]) => {
+        onChange({ ...value, evidencias: { ...evidencias, [id]: { photoIds } } })
+      }
+      const quitarEvidencia = (id: string, photoId: string) => {
+        void deletePhoto(photoId)
+        setEvidencia(id, (evidencias[id]?.photoIds ?? []).filter((x) => x !== photoId))
       }
       return (
         <div className="space-y-2">
-          {opts.map((o) => (
-            <label
-              key={o.id}
-              className={cn(
-                'flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 transition-colors',
-                seleccion.includes(o.id) ? 'border-primary bg-primary-50' : 'border-slate-200 bg-white'
-              )}
-            >
-              <input
-                type="checkbox"
-                className="h-5 w-5 accent-primary"
-                checked={seleccion.includes(o.id)}
-                onChange={() => toggle(o.id)}
-              />
-              <span className="text-sm text-slate-700">{o.etiqueta}</span>
-            </label>
-          ))}
+          {opts.map((o) => {
+            const activo = seleccion.includes(o.id)
+            const idsEv = evidencias[o.id]?.photoIds ?? []
+            return (
+              <div
+                key={o.id}
+                className={cn(
+                  'rounded-xl border transition-colors',
+                  activo ? 'border-primary bg-primary-50' : 'border-slate-200 bg-white'
+                )}
+              >
+                <div className="flex items-center gap-2 px-3 py-2.5">
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                    <input
+                      type="checkbox"
+                      className="h-5 w-5 shrink-0 accent-primary"
+                      checked={activo}
+                      onChange={() => toggle(o.id)}
+                    />
+                    <span className="text-sm text-slate-700">{o.etiqueta}</span>
+                  </label>
+                  {!activo ? (
+                    <FotoOpcion
+                      photoIds={idsEv}
+                      onChange={(ids) => setEvidencia(o.id, ids)}
+                    />
+                  ) : null}
+                </div>
+                {!activo && idsEv.length > 0 ? (
+                  <div className="px-3 pb-3">
+                    <MinaFotos photoIds={idsEv} onQuitar={(fid) => quitarEvidencia(o.id, fid)} />
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
         </div>
       )
     }
@@ -153,7 +182,6 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
   const [escaneandoIndice, setEscaneandoIndice] = useState<number | null>(null)
   const [consultando, setConsultando] = useState<Record<number, boolean>>({})
   const [info, setInfo] = useState<Record<number, string>>({})
-  const { departamentos } = useCatalog()
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
   const productos = v.productos ?? []
 
@@ -162,28 +190,20 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
     actualizar(productos.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))
   const total = conciliacionTotal(v)
 
-  const departamentoPara = (id: string | null) =>
-    departamentos.find((d) => d.codigo === id) ?? null
-
   const aplicarCodigo = async (i: number, codigo: string) => {
-    actualizarUno(i, { sku: codigo, nombre: null, departamento_id: null, departamento_nombre: null, tolerancia: null })
+    const p = productos[i]
+    actualizarUno(i, { sku: codigo, nombre: null })
     setInfo((old) => ({ ...old, [i]: '' }))
     if (!shopId) {
       setInfo((old) => ({ ...old, [i]: 'Nº tienda (shop_id) no configurado en la sucursal.' }))
       return
     }
+    if (p?.nombre && p.nombre !== '') return
     setConsultando((old) => ({ ...old, [i]: true }))
     const r = await buscarProducto(codigo, shopId)
     setConsultando((old) => ({ ...old, [i]: false }))
-    if (r.nombre || r.departamentoId) {
-      const depto = departamentoPara(r.departamentoId)
-      actualizarUno(i, {
-        sku: codigo,
-        nombre: r.nombre,
-        departamento_id: r.departamentoId,
-        departamento_nombre: depto?.nombre ?? null,
-        tolerancia: depto?.tolerancia ?? null
-      })
+    if (r.nombre) {
+      actualizarUno(i, { sku: codigo, nombre: r.nombre })
       setInfo((old) => ({ ...old, [i]: '' }))
     } else {
       setInfo((old) => ({ ...old, [i]: r.mensaje ?? 'Producto no encontrado.' }))
@@ -197,9 +217,6 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
       ) : (
         productos.map((p, i) => {
           const pct = conciliacionPorcentaje(p)
-          const dentro = conciliacionEnRango(p, p.tolerancia ?? null)
-          const depto = departamentoPara(p.departamento_id)
-          const tolerancia = depto ? depto.tolerancia : p.tolerancia ?? null
           return (
             <div key={i} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="flex items-center gap-2">
@@ -216,10 +233,10 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
                 <button
                   type="button"
                   onClick={() => setEscaneandoIndice(i)}
-                  className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-200 text-lg hover:bg-slate-300"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-200 text-slate-600 hover:bg-slate-300"
                   title="Escanear código de barras"
                 >
-                  🔍
+                  <ScanLine className="h-5 w-5" />
                 </button>
                 <button
                   type="button"
@@ -227,22 +244,19 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
                   className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-500"
                   title="Quitar producto"
                 >
-                  ✕
+                  <X className="h-5 w-5" />
                 </button>
               </div>
-              {p.nombre ? (
-                <p className="text-sm font-medium text-primary-900">{p.nombre}</p>
-              ) : consultando[i] ? (
+              {consultando[i] ? (
                 <p className="flex items-center gap-2 text-xs text-slate-500"><Spinner /> Consultando producto…</p>
-              ) : info[i] ? (
+              ) : info[i] && !p.nombre ? (
                 <p className="text-xs font-medium text-amber-600">{info[i]}</p>
               ) : null}
-              {p.departamento_id ? (
-                <p className="text-xs text-slate-500">
-                  Departamento: {p.departamento_nombre ?? `ID ${p.departamento_id}`}
-                  {tolerancia != null ? ` • tolerancia ±${tolerancia}%` : ' • sin tolerancia'}
-                </p>
-              ) : null}
+              <Input
+                placeholder="Nombre del producto (se autocompleta al buscar)"
+                value={p.nombre ?? ''}
+                onChange={(e) => actualizarUno(i, { nombre: e.target.value })}
+              />
               <div className="flex gap-2">
                 <CampoConciliacion
                   etiqueta="Teórica (sistema)"
@@ -256,11 +270,8 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
                 />
               </div>
               {pct != null ? (
-                <p className={cn('text-sm font-bold', dentro === false ? 'text-red-600' : 'text-green-600')}>
-                  {pct}% de conciliación
-                  {tolerancia != null
-                    ? dentro === false ? ' — FUERA de rango' : ' — dentro del rango permitido'
-                    : dentro === false ? ' — fuera (sin tolerancia: exige 100%)' : ''}
+                <p className={cn('text-sm font-bold', pct >= 100 ? 'text-green-600' : 'text-red-600')}>
+                  Conciliación: {pct}%
                 </p>
               ) : (
                 <p className="text-xs text-slate-400">Ingresa ambas cantidades.</p>
@@ -270,7 +281,7 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
         })
       )}
 
-      <Button type="button" variant="secondary" className="w-full" onClick={() => actualizar([...productos, { sku: '', nombre: null, departamento_id: null, departamento_nombre: null, tolerancia: null, teorica: null, fisica: null }])}>
+      <Button type="button" variant="secondary" className="w-full" onClick={() => actualizar([...productos, { sku: '', nombre: null, teorica: null, fisica: null }])}>
         + Agregar producto
       </Button>
 
@@ -319,9 +330,9 @@ function EvidenciasEditor({ evidencias, onChange }: { evidencias: EvidenciaCumpl
             <button
               type="button"
               onClick={() => quitar(i)}
-              className="rounded-lg px-2 py-1 text-xs font-medium text-slate-400 hover:bg-red-50 hover:text-red-500"
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-400 hover:bg-red-50 hover:text-red-500"
             >
-              ✕ Quitar
+              <X className="h-3.5 w-3.5" /> Quitar
             </button>
           </div>
           <PhotoCapture photoIds={ev.photoIds} onChange={(photoIds) => actualizar(i, { photoIds })} />
@@ -350,7 +361,7 @@ function BotonCumple({ activo, onPick }: { activo: boolean; onPick: () => void }
         activo ? 'border-green-600 bg-green-50 text-green-800' : 'border-slate-200 bg-white text-slate-500'
       )}
     >
-      <span className="text-xl">✓</span>
+      <Check className="text-2xl" strokeWidth={2.5} />
       <span className="text-sm font-bold">Cumple</span>
     </button>
   )
@@ -366,7 +377,7 @@ function BotonNoCumple({ activo, onPick }: { activo: boolean; onPick: () => void
         activo ? 'border-red-600 bg-red-50 text-red-700' : 'border-slate-200 bg-white text-slate-500'
       )}
     >
-      <span className="text-xl">✗</span>
+      <X className="text-2xl" strokeWidth={2.5} />
       <span className="text-sm font-bold">No cumple</span>
     </button>
   )
@@ -389,5 +400,41 @@ function CampoConciliacion({ etiqueta, valor, onChange }: { etiqueta: string; va
         }}
       />
     </div>
+  )
+}
+
+function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids: string[]) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [subiendo, setSubiendo] = useState(false)
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          void (async () => {
+            setSubiendo(true)
+            const nuevos = await guardarFotosDe(e.target.files)
+            setSubiendo(false)
+            if (nuevos.length) onChange([...photoIds, ...nuevos])
+          })()
+          e.target.value = ''
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={subiendo}
+        aria-label="Tomar foto de evidencia"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-white shadow-sm transition-colors hover:bg-primary-700 disabled:opacity-50"
+      >
+        {subiendo ? <Spinner className="h-4 w-4 border-white border-t-transparent" /> : <Camera className="h-4 w-4" />}
+      </button>
+    </>
   )
 }

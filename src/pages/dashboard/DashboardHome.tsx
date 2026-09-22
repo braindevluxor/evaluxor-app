@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Target, CheckCircle2, Store, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
-import { consultarEvaluaciones, evolucionMensual, peoresItems, puntajePorModulo, rankingSucursales } from '../../lib/data/indicadores'
-import { valorBinario } from '../../lib/scoring'
+import { consultarEvaluaciones, peoresItems, puntajePorModulo, rankingSucursales } from '../../lib/data/indicadores'
 import type { ConjuntoDatos } from '../../lib/data/indicadores'
 import { KpiCard } from '../../components/dashboard/Kpi'
-import { Fotogaleria } from '../../components/dashboard/Fotogaleria'
-import { Card, Field, Input, Puntaje, Select, Spinner, Badge } from '../../components/ui'
+import { Card, Field, Input, Puntaje, Select, Spinner } from '../../components/ui'
 import { verTodo } from '../../lib/roles'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Line, ComposedChart, Cell
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
+  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
 } from 'recharts'
 
 function haceMeses(n: number): string {
@@ -17,6 +17,8 @@ function haceMeses(n: number): string {
   d.setMonth(d.getMonth() - n)
   return d.toISOString().slice(0, 10)
 }
+
+const RADAR_COLOR = '#ef4444'
 
 export function DashboardHome() {
   const { profile } = useAuth()
@@ -60,8 +62,7 @@ export function DashboardHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desde, hasta, sucursalSel, moduloSel, scope?.join(',')])
 
-  const ranking = useMemo(() => (datos ? rankingSucursales(datos) : []), [datos])
-  const serie = useMemo(() => (datos ? evolucionMensual(datos) : []), [datos])
+  const ranking = useMemo(() => (datos ? rankingSucursales(datos, sucursalesVisibles) : []), [datos, sucursalesVisibles])
   const porModulo = useMemo(() => (datos ? puntajePorModulo(datos) : []), [datos])
   const peores = useMemo(() => (datos ? peoresItems(datos) : []), [datos])
 
@@ -99,10 +100,10 @@ export function DashboardHome() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard titulo="Cumplimiento global" valor={<Puntaje value={kpis.global} className="text-3xl text-white" />} icono="🎯" />
-        <KpiCard titulo="Evaluaciones completadas" valor={kpis.completadas} icono="✅" color="bg-slate-800 text-white" />
-        <KpiCard titulo="Cobertura de sucursales" valor={`${kpis.cobertura}%`} icono="🏬" color="bg-green-700 text-white" />
-        <KpiCard titulo="Ítems incumplidos" valor={kpis.incumplimientos} icono="⚠️" color="bg-red-600 text-white" />
+        <KpiCard titulo="Cumplimiento global" valor={<Puntaje value={kpis.global} className="text-3xl text-white" />} icono={<Target className="h-4 w-4" />} />
+        <KpiCard titulo="Evaluaciones completadas" valor={kpis.completadas} icono={<CheckCircle2 className="h-4 w-4" />} color="bg-slate-800 text-white" />
+        <KpiCard titulo="Cobertura de sucursales" valor={`${kpis.cobertura}%`} icono={<Store className="h-4 w-4" />} color="bg-green-700 text-white" />
+        <KpiCard titulo="Ítems incumplidos" valor={kpis.incumplimientos} icono={<AlertTriangle className="h-4 w-4" />} color="bg-red-600 text-white" />
       </div>
 
       <FiltrosBar
@@ -121,92 +122,67 @@ export function DashboardHome() {
 
       {cargando ? (
         <div className="flex justify-center py-20"><Spinner className="h-10 w-10" /></div>
-      ) : !datos || datos.evaluaciones.length === 0 ? (
-        <Card>
-          <div className="py-10 text-center">
-            <p className="text-lg font-bold text-primary-900">Sin datos en el rango seleccionado</p>
-            <p className="text-sm text-slate-500">Ajusta los filtros o espera a que se sincronicen evaluaciones.</p>
-          </div>
-        </Card>
-      ) : (
+      ) : datos ? (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <Card className="lg:col-span-2">
-            <h3 className="mb-3 font-bold text-primary-900">Evolución del cumplimiento</h3>
-            {serie.length ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <ComposedChart data={serie}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="mes" />
-                  <YAxis yAxisId="l" domain={[0, 100]} />
-                  <YAxis yAxisId="r" orientation="right" />
-                  <Tooltip />
-                  <Line yAxisId="l" type="monotone" dataKey="puntaje" name="Cumplimiento %" stroke="#0B2545" strokeWidth={3} dot={{ r: 4 }} />
-                  <Bar yAxisId="r" dataKey="completadas" name="Completadas" fill="#93c5fd" radius={[4, 4, 0, 0]} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            ) : <p className="text-sm text-slate-400">Sin meses con datos.</p>}
-          </Card>
-
-          <Card>
-            <h3 className="mb-3 font-bold text-primary-900">Ranking de sucursales</h3>
+            <h3 className="mb-1 font-bold text-primary-900">Ranking de sucursales</h3>
+            <p className="mb-3 text-xs text-slate-400">Todas las sucursales, con o sin evaluaciones en el rango</p>
             {ranking.length ? (
-              <ResponsiveContainer width="100%" height={Math.max(200, ranking.length * 42)}>
-                <BarChart data={ranking} layout="vertical" margin={{ left: 8, right: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} />
-                  <YAxis type="category" dataKey="nombre" width={120} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v) => [`${v}%`, 'Cumplimiento']} />
-                  <Bar dataKey="puntaje" radius={[0, 6, 6, 0]}>
-                    {ranking.map((_, i) => (
-                      <Cell key={i} fill={i === 0 ? '#16a34a' : i === 1 ? '#0B2545' : '#64748b'} />
+              <ResponsiveContainer width="100%" height={360}>
+                <BarChart data={ranking} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="nombre" interval={0} angle={-38} textAnchor="end" height={90} tick={{ fontSize: 11, fill: '#475569' }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    formatter={(v, _n, item) => {
+                      const d = item?.payload as { puntaje?: number | null; completadas?: number }
+                      return [`${v}%`, d?.puntaje == null ? `Sin evaluaciones (${d?.completadas ?? 0})` : 'Cumplimiento']
+                    }}
+                  />
+                  <Bar dataKey="puntaje" radius={[6, 6, 0, 0]}>
+                    {ranking.map((r, i) => (
+                      <Cell key={r.sucursal_id} fill={r.puntaje == null ? '#e2e8f0' : i === 0 ? '#16a34a' : i === 1 ? '#0B2545' : '#64748b'} />
                     ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-            ) : <p className="text-sm text-slate-400">Sin datos.</p>}
-          </Card>
-
-          <Card>
-            <h3 className="mb-3 font-bold text-primary-900">Resultado por módulo</h3>
-            {porModulo.length ? (
-              <ResponsiveContainer width="100%" height={Math.max(160, porModulo.length * 36)}>
-                <BarChart data={porModulo} layout="vertical" margin={{ left: 8, right: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} />
-                  <YAxis type="category" dataKey="nombre" width={140} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v) => [`${v}%`, 'Cumplimiento']} />
-                  <Bar dataKey="puntaje" fill="#1D4ED8" radius={[0, 6, 6, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : <p className="text-sm text-slate-400">Sin datos.</p>}
+            ) : <p className="text-sm text-slate-400">Sin sucursales.</p>}
           </Card>
 
           <Card className="lg:col-span-2">
-            <h3 className="mb-3 font-bold text-primary-900">Matriz módulo × sucursal</h3>
-            <MatrizTabla datos={datos} />
-          </Card>
-
-          <Card>
-            <h3 className="mb-3 font-bold text-primary-900">Alertas: ítems con menor cumplimiento</h3>
-            <div className="space-y-2">
-              {peores.length ? peores.slice(0, 6).map((p) => (
-                <div key={p.item_id} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-700">{p.texto}</p>
-                    <p className="text-xs text-slate-400">{p.ok} de {p.total} cumplen</p>
-                  </div>
-                  <Badge color={p.ratio > 0.6 ? 3 : 4}>{Math.round(p.ratio * 100)}%</Badge>
+            <h3 className="mb-3 font-bold text-primary-900">Gráfico radial (o diagrama de araña)</h3>
+            {porModulo.length >= 3 ? (
+              <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,1fr)_auto]">
+                <ResponsiveContainer width="100%" height={320}>
+                  <RadarChart data={porModulo.map((m) => ({ categoria: m.nombre, valor: m.puntaje ?? 0 }))} cx="50%" cy="50%" outerRadius="75%">
+                    <PolarGrid gridType="polygon" stroke="#e2e8f0" />
+                    <PolarAngleAxis dataKey="categoria" tick={{ fontSize: 11, fill: '#334155' }} />
+                    <PolarRadiusAxis
+                      type="number"
+                      domain={[0, 100]}
+                      ticks={[0, 20, 40, 60, 80, 100]}
+                      tickFormatter={(v) => String(Math.round(Number(v) / 20))}
+                      axisLine={false}
+                      tick={{ fontSize: 10, fill: '#94a3b8' }}
+                    />
+                    <Tooltip formatter={(v) => [`${v}%`, 'Cumplimiento']} />
+                    <Radar dataKey="valor" stroke={RADAR_COLOR} fill={RADAR_COLOR} fillOpacity={0.25} strokeWidth={2} />
+                  </RadarChart>
+                </ResponsiveContainer>
+                <div className="space-y-2">
+                  {porModulo.map((m) => (
+                    <div key={m.modulo_id} className="flex items-center gap-2 text-sm">
+                      <span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: RADAR_COLOR }} />
+                      <span className="font-medium text-slate-700">{m.nombre}</span>
+                      <span className="ml-auto pl-4 font-bold text-primary-900">{m.puntaje != null ? `${m.puntaje}%` : '—'}</span>
+                    </div>
+                  ))}
                 </div>
-              )) : <p className="text-sm text-slate-400">No hay datos binarios todavía.</p>}
-            </div>
-          </Card>
-
-          <Card>
-            <h3 className="mb-3 font-bold text-primary-900">Últimas evidencias fotográficas</h3>
-            <Fotogaleria fotos={datos.fotos} />
+              </div>
+            ) : <p className="text-sm text-slate-400">Se necesitan al menos 3 módulos con datos.</p>}
           </Card>
         </div>
-      )}
+      ) : null}
     </div>
   )
 }
@@ -257,67 +233,4 @@ function FiltrosBar(props: {
       </Field>
     </div>
   )
-}
-
-function MatrizTabla({ datos }: { datos: ConjuntoDatos }) {
-  const modulos = datos.modulos
-  const sucursales = Array.from(new Set(datos.evaluaciones.map((e) => e.sucursal_id)))
-  const nombres: Record<string, string> = {}
-  for (const ev of datos.evaluaciones) nombres[ev.sucursal_id] = ev.sucursal?.nombre ?? ev.sucursal_id
-
-  const celdas: Record<string, Record<string, { ok: number; n: number }>> = {}
-  for (const ev of datos.evaluaciones) {
-    for (const r of datos.respuestas.filter((x) => x.evaluacion_id === ev.id)) {
-      const item = datos.items.find((i) => i.id === r.item_id)
-      if (!item) continue
-      const bin = valorBinario(item, r.valor)
-      if (bin === null) continue
-      const c = celdas[ev.sucursal_id]?.[item.modulo_id] ?? { ok: 0, n: 0 }
-      c.n++
-      if (bin) c.ok++
-      if (!celdas[ev.sucursal_id]) celdas[ev.sucursal_id] = {}
-      celdas[ev.sucursal_id][item.modulo_id] = c
-    }
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-xs uppercase text-slate-400">
-            <th className="py-2 pr-4">Sucursal</th>
-            {modulos.map((m) => <th key={m.id} className="px-2 py-2">{m.nombre}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {sucursales.map((suc) => (
-            <tr key={suc} className="border-t border-slate-100">
-              <td className="py-2 pr-4 font-medium text-slate-700">{nombres[suc]}</td>
-              {modulos.map((m) => {
-                const c = celdas[suc]?.[m.id]
-                const pct = c && c.n ? (c.ok / c.n) * 100 : null
-                return (
-                  <td key={m.id} className="px-2 py-2">
-                    <span
-                      className="inline-flex min-w-[52px] items-center justify-center rounded-lg px-2 py-1 text-xs font-bold text-white"
-                      style={{ backgroundColor: colorPct(pct) }}
-                    >
-                      {pct == null ? '—' : `${Math.round(pct)}%`}
-                    </span>
-                  </td>
-                )
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function colorPct(pct: number | null): string {
-  if (pct == null) return '#e2e8f0'
-  if (pct >= 80) return '#16a34a'
-  if (pct >= 60) return '#d97706'
-  return '#dc2626'
 }
