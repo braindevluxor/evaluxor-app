@@ -1,0 +1,259 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { crearInvitacion, listarInvitaciones, listarUsuarios, actualizarUsuario, type ProfileVista } from '../../lib/data/usuarios'
+import { listarSucursalesAdmin } from '../../lib/data/catalog'
+import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
+import type { Invitacion, Rol, Sucursal } from '../../lib/types'
+import { Badge, Button, Field, Input, Modal, Select, Spinner } from '../../components/ui'
+
+export function UsuariosPage() {
+  const navigate = useNavigate()
+  const [usuarios, setUsuarios] = useState<ProfileVista[]>([])
+  const [invitaciones, setInvitaciones] = useState<Invitacion[]>([])
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [editando, setEditando] = useState<ProfileVista | null>(null)
+  const [invitando, setInvitando] = useState(false)
+  const [linkInv, setLinkInv] = useState('')
+
+  const cargar = useCallback(async () => {
+    const [u, i, s] = await Promise.all([listarUsuarios(), listarInvitaciones(), listarSucursalesAdmin()])
+    setUsuarios(u)
+    setInvitaciones(i)
+    setSucursales(s)
+    setCargando(false)
+  }, [])
+
+  useEffect(() => {
+    void cargar()
+  }, [cargar])
+
+  const pendientes = useMemo(() => invitaciones.filter((i) => !i.usado), [invitaciones])
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-extrabold text-primary-900">Usuarios</h2>
+          <p className="text-sm text-slate-500">Gestión de roles y accesos (solo Líder)</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setInvitando(true)}>＋ Invitar usuario</Button>
+        </div>
+      </div>
+
+      {pendientes.length ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <h3 className="mb-2 text-sm font-bold text-amber-800">Invitaciones sin usar ({pendientes.length})</h3>
+          <div className="space-y-1">
+            {pendientes.map((i) => (
+              <p key={i.id} className="text-sm text-amber-700">
+                {i.email} → {ETIQUETAS_ROL[i.rol]}. Comparte: <code className="rounded bg-amber-100 px-1">{linkRegistro(i)}</code>
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {cargando ? <div className="flex justify-center py-16"><Spinner /></div> : (
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400">
+                <th className="px-4 py-3">Nombre</th>
+                <th className="px-4 py-3">Usuario</th>
+                <th className="px-4 py-3">Correo</th>
+                <th className="px-4 py-3">Rol</th>
+                <th className="px-4 py-3">Sucursal</th>
+                <th className="px-4 py-3">Estado</th>
+                <th className="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {usuarios.map((u) => (
+                <tr key={u.id} className="border-t border-slate-100">
+                  <td className="px-4 py-3 font-semibold text-slate-700">{u.nombre || '—'}</td>
+                  <td className="px-4 py-3 font-mono text-sm text-primary">{u.usuario || '—'}</td>
+                  <td className="px-4 py-3">{u.email}</td>
+                  <td className="px-4 py-3">
+                    <RolBadge rol={u.rol} />
+                  </td>
+                  <td className="px-4 py-3">{u.sucursal?.nombre || '—'}</td>
+                  <td className="px-4 py-3">
+                    <Badge color={u.activo ? 2 : 4}>{u.activo ? 'Activo' : 'Bloqueado'}</Badge>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button onClick={() => setEditando(u)} className="font-semibold text-primary hover:underline">Editar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Modal open={!!editando} onClose={() => setEditando(null)} title="Editar usuario">
+        {editando ? (
+          <FormUsuario
+            usuario={editando}
+            sucursales={sucursales}
+            onGuardar={async (cambios) => {
+              await actualizarUsuario(editando.id, cambios)
+              setEditando(null)
+              await cargar()
+            }}
+            onVer={(email) => navigate(`/config/asignaciones?evaluador=${encodeURIComponent(email)}`)}
+          />
+        ) : null}
+      </Modal>
+
+      <Modal open={invitando} onClose={() => { setInvitando(false); setLinkInv('') }} title="Invitar usuario">
+        <FormInvitacion
+          sucursales={sucursales}
+          onCrear={async (data) => {
+            const inv = await crearInvitacion(data)
+            if (inv) {
+              setLinkInv(linkRegistro(inv))
+              await cargar()
+            }
+          }}
+        />
+        {linkInv ? (
+          <div className="mt-4">
+            <p className="mb-1 text-sm font-semibold text-slate-700">Comparte este enlace con el nuevo usuario:</p>
+            <code className="block break-all rounded-xl bg-slate-50 px-3 py-2 text-xs text-primary">{linkInv}</code>
+            <button
+              onClick={() => void navigator.clipboard.writeText(linkInv)}
+              className="mt-2 text-sm font-semibold text-primary hover:underline"
+            >
+              Copiar enlace
+            </button>
+          </div>
+        ) : null}
+      </Modal>
+    </div>
+  )
+
+  function linkRegistro(i: Invitacion): string {
+    const origen = window.location.origin
+    return `${origen}/registro?token=${encodeURIComponent(i.token)}&email=${encodeURIComponent(i.email)}&usuario=${encodeURIComponent(i.usuario)}`
+  }
+}
+
+function RolBadge({ rol }: { rol: Rol }) {
+  const colores: Record<string, number> = {
+    LIDER: 5,
+    EVALUADOR: 1,
+    GERENTE_S: 0,
+    GERENTE_C: 2,
+    GERENTE_TH: 3,
+    SIN_ROL: 4
+  }
+  return <Badge color={colores[rol] ?? 0}>{ETIQUETAS_ROL[rol]}</Badge>
+}
+
+function FormUsuario({
+  usuario: usuarioActual,
+  sucursales,
+  onGuardar,
+  onVer
+}: {
+  usuario: ProfileVista
+  sucursales: Sucursal[]
+  onGuardar: (c: { usuario: string; rol: Rol; sucursal_id: string | null; activo: boolean; nombre: string }) => Promise<void>
+  onVer: (email: string) => void
+}) {
+  const [usuario, setUsuario] = useState(usuarioActual.usuario)
+  const [rol, setRol] = useState<Rol>(usuarioActual.rol)
+  const [sucursal, setSucursal] = useState(usuarioActual.sucursal_id ?? '')
+  const [activo, setActivo] = useState(usuarioActual.activo)
+
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void onGuardar({
+          usuario,
+          rol,
+          sucursal_id: rol === 'GERENTE_S' || rol === 'EVALUADOR' ? sucursal || null : null,
+          activo,
+          nombre: usuarioActual.nombre
+        })
+      }}
+    >
+      <Field label="Usuario de acceso">
+        <Input type="text" value={usuario} onChange={(e) => setUsuario(e.target.value)} required />
+      </Field>
+      <Field label="Rol">
+        <Select value={rol} onChange={(e) => setRol(e.target.value as Rol)}>
+          {['SIN_ROL', ...ROLES_EDITABLES].map((r) => <option key={r} value={r}>{ETIQUETAS_ROL[r as Rol]}</option>)}
+        </Select>
+      </Field>
+      <Field label="Sucursal" hint="Necesaria para GERENTE_S y útil para asignar evaluadores">
+        <Select value={sucursal} onChange={(e) => setSucursal(e.target.value)}>
+          <option value="">Ninguna</option>
+          {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+        </Select>
+      </Field>
+      <label className="flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
+        Usuario activo
+      </label>
+      {usuarioActual.rol === 'EVALUADOR' ? (
+        <Button type="button" variant="secondary" className="w-full" onClick={() => onVer(usuarioActual.email)}>
+          Ir a asignaciones
+        </Button>
+      ) : null}
+      <Button type="submit" className="w-full">Guardar cambios</Button>
+    </form>
+  )
+}
+
+function FormInvitacion({
+  sucursales,
+  onCrear
+}: {
+  sucursales: Sucursal[]
+  onCrear: (d: { email: string; usuario: string; rol: Exclude<Rol, 'SIN_ROL'>; sucursal_id: string | null }) => Promise<void>
+}) {
+  const [email, setEmail] = useState('')
+  const [usuario, setUsuario] = useState('')
+  const [rol, setRol] = useState<Exclude<Rol, 'SIN_ROL'>>('EVALUADOR')
+  const [sucursal, setSucursal] = useState('')
+
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void onCrear({
+          email,
+          usuario,
+          rol,
+          sucursal_id: (rol === 'GERENTE_S' || rol === 'EVALUADOR') && sucursal ? sucursal : null
+        })
+      }}
+    >
+      <Field label="Correo del nuevo usuario">
+        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="nombre@empresa.com" />
+      </Field>
+      <Field label="Usuario de acceso" hint="Con este usuario iniciará sesión">
+        <Input type="text" value={usuario} onChange={(e) => setUsuario(e.target.value)} required placeholder="Ej: jperez" />
+      </Field>
+      <Field label="Rol a asignar">
+        <Select value={rol} onChange={(e) => setRol(e.target.value as Exclude<Rol, 'SIN_ROL'>)}>
+          {ROLES_EDITABLES.map((r) => <option key={r} value={r}>{ETIQUETAS_ROL[r]}</option>)}
+        </Select>
+      </Field>
+      <Field label="Sucursal">
+        <Select value={sucursal} onChange={(e) => setSucursal(e.target.value)}>
+          <option value="">Ninguna</option>
+          {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+        </Select>
+      </Field>
+      <p className="text-xs text-slate-400">Al registrarse, la cuenta queda vinculada al usuario de acceso indicado. El enlace de registro aparece tras guardar.</p>
+      <Button type="submit" className="w-full">Crear invitación</Button>
+    </form>
+  )
+}
