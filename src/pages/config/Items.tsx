@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { X } from 'lucide-react'
+import { GripVertical, X } from 'lucide-react'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
 import { etiquetaTipo, ETIQUETAS_TIPO } from '../../lib/scoring'
 import type { FiltroColaboradores, Item, Modulo, Opcion, TipoItem } from '../../lib/types'
-import { Button, Field, Input, Modal, Select, Textarea, Badge, Spinner } from '../../components/ui'
+import { Button, Field, Input, Modal, Select, Textarea, Badge, Spinner, cn } from '../../components/ui'
 
 const TIPOS = Object.keys(ETIQUETAS_TIPO) as TipoItem[]
 
@@ -220,28 +220,56 @@ function FormItem({
 }
 
 function EditorOpciones({ opciones, onChange }: { opciones: Opcion[]; onChange: (o: Opcion[]) => void }) {
+  const [arrastrando, setArrastrando] = useState<number | null>(null)
+  const [sobre, setSobre] = useState<number | null>(null)
+
   const cambiar = (i: number, etiqueta: string) => {
     const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, etiqueta } : o))
     onChange(nuevo)
   }
   const agregar = () => onChange([...opciones, { id: `o${Date.now()}`, etiqueta: '' }])
   const quitar = (i: number) => onChange(opciones.filter((_, idx) => idx !== i))
-  const mover = (i: number, dir: -1 | 1) => {
-    const j = i + dir
-    if (j < 0 || j >= opciones.length) return
+  const soltarEn = (j: number) => {
+    if (arrastrando == null || arrastrando === j) return
     const nuevo = [...opciones]
-    ;[nuevo[i], nuevo[j]] = [nuevo[j], nuevo[i]]
+    const [movido] = nuevo.splice(arrastrando, 1)
+    nuevo.splice(j, 0, movido)
     onChange(nuevo)
+    setArrastrando(null)
+    setSobre(null)
   }
 
   return (
     <div className="space-y-2">
       {opciones.map((o, i) => (
-        <div key={o.id} className="flex items-center gap-2">
-          <span className="w-6 shrink-0 text-center text-sm font-bold text-slate-400">{i + 1}</span>
+        <div
+          key={o.id}
+          onDragOver={(e) => e.preventDefault()}
+          onDragEnter={() => { if (arrastrando !== null && arrastrando !== i) setSobre(i) }}
+          onDrop={() => soltarEn(i)}
+          className={cn(
+            'flex items-center gap-2 rounded-xl p-1',
+            arrastrando === i ? 'bg-slate-100' : '',
+            sobre === i ? 'bg-primary/10 ring-1 ring-primary' : ''
+          )}
+        >
+          <button
+            type="button"
+            draggable
+            onDragStart={(e) => {
+              setArrastrando(i)
+              setSobre(null)
+              e.dataTransfer.effectAllowed = 'move'
+              e.dataTransfer.setData('text/plain', String(i))
+            }}
+            onDragEnd={() => { setArrastrando(null); setSobre(null) }}
+            className="grid h-10 w-10 shrink-0 cursor-grab place-items-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
+            title="Arrastrar para reordenar"
+          >
+            <GripVertical className="h-5 w-5" />
+          </button>
+          <span className="w-5 shrink-0 text-center text-sm font-bold text-slate-400">{i + 1}</span>
           <Input value={o.etiqueta} onChange={(e) => cambiar(i, e.target.value)} placeholder={`Opción ${i + 1}`} />
-          <button type="button" onClick={() => mover(i, -1)} disabled={i === 0} title="Subir" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-30">↑</button>
-          <button type="button" onClick={() => mover(i, 1)} disabled={i === opciones.length - 1} title="Bajar" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-30">↓</button>
           <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
         </div>
       ))}
