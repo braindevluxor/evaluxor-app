@@ -8,27 +8,36 @@ export async function obtenerCacheLocal(): Promise<CacheData | undefined> {
 
 export async function refrescarCatalogo(evaluadorId: string): Promise<CacheData> {
   const [modulos, items, sucursales, asignaciones, asignacionesModulos, sucursalModulos, sucursalItems] = await Promise.all([
-    supabase.from('modulos').select('*').eq('activo', true).order('orden').order('nombre'),
-    supabase.from('items').select('*').eq('activo', true),
-    supabase.from('sucursales').select('*').eq('activa', true).order('nombre'),
-    supabase.from('asignaciones').select('*').eq('evaluador_id', evaluadorId).eq('activa', true),
-    supabase.from('asignaciones_modulos').select('*').eq('evaluador_id', evaluadorId).eq('activa', true),
-    supabase.from('sucursal_modulos').select('*').eq('activa', true),
-    supabase.from('sucursal_items').select('*').eq('activa', true)
+    selectSeguro(supabase.from('modulos').select('*').eq('activo', true).order('orden').order('nombre')),
+    selectSeguro(supabase.from('items').select('*').eq('activo', true)),
+    selectSeguro(supabase.from('sucursales').select('*').eq('activa', true).order('nombre')),
+    selectSeguro(supabase.from('asignaciones').select('*').eq('evaluador_id', evaluadorId).eq('activa', true)),
+    selectSeguro(supabase.from('asignaciones_modulos').select('*').eq('evaluador_id', evaluadorId).eq('activa', true)),
+    selectSeguro(supabase.from('sucursal_modulos').select('*').eq('activa', true)),
+    selectSeguro(supabase.from('sucursal_items').select('*').eq('activa', true))
   ])
 
   const data: CacheData = {
-    modulos: (modulos.data ?? []) as Modulo[],
-    items: (items.data ?? []) as Item[],
-    sucursales: (sucursales.data ?? []) as Sucursal[],
-    asignaciones: (asignaciones.data ?? []) as CacheData['asignaciones'],
-    asignacionesModulos: (asignacionesModulos.data ?? []) as CacheData['asignacionesModulos'],
-    sucursalModulos: (sucursalModulos.data ?? []) as SucursalModulo[],
-    sucursalItems: (sucursalItems.data ?? []) as SucursalItem[],
+    modulos: modulos as Modulo[],
+    items: items as Item[],
+    sucursales: sucursales as Sucursal[],
+    asignaciones: asignaciones as CacheData['asignaciones'],
+    asignacionesModulos: asignacionesModulos as CacheData['asignacionesModulos'],
+    sucursalModulos: sucursalModulos as SucursalModulo[],
+    sucursalItems: sucursalItems as SucursalItem[],
     updated_at: Date.now()
   }
   await putCache(data)
   return data
+}
+
+async function selectSeguro(p: PromiseLike<{ data: unknown[] | null }>): Promise<unknown[]> {
+  try {
+    const r = await p
+    return r.data ?? []
+  } catch {
+    return []
+  }
 }
 
 export type SucursalVista = Sucursal & {
