@@ -135,7 +135,7 @@ export function ItemsPage() {
 }
 
 function tipoColor(t: TipoItem): number {
-  return t === 'CUMPLE_NO_CUMPLE' ? 3 : t === 'CONCILIACION' ? 6 : t === 'CHECKLIST' ? 5 : t === 'LISTA_COLABORADORES' ? 1 : 4
+  return t === 'CUMPLE_NO_CUMPLE' ? 3 : t === 'CONCILIACION' ? 6 : t === 'CHECKLIST' ? 5 : t === 'LISTA_COLABORADORES' ? 1 : t === 'UNIDAD_CHECKLIST' ? 1 : 4
 }
 
 function FormItem({
@@ -164,7 +164,7 @@ function FormItem({
           modulo_id: inicial?.modulo_id ?? moduloId,
           tipo,
           texto,
-          opciones: tipo === 'CHECKLIST' || tipo === 'LISTA_COLABORADORES' ? opciones.filter((o) => o.etiqueta.trim()) : [],
+          opciones: tipo === 'CHECKLIST' || tipo === 'LISTA_COLABORADORES' || tipo === 'UNIDAD_CHECKLIST' ? opciones.filter((o) => o.etiqueta.trim()) : [],
           colaboradores_filtro: tipo === 'LISTA_COLABORADORES' ? filtroColaboradores : null,
           requerido,
           activo
@@ -198,6 +198,16 @@ function FormItem({
           </Field>
           <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
             En la evaluación se cargan los colaboradores de la tienda desde la API de talento humano (aplicando el filtro elegido) y este mismo checklist se marca para cada uno. El ítem cumple cuando todos los colaboradores en cuenta tienen su checklist completo.
+          </p>
+        </>
+      ) : null}
+      {tipo === 'UNIDAD_CHECKLIST' ? (
+        <>
+          <Field label="Checklist de cada unidad (se aplica a todas las unidades que se agreguen)">
+            <EditorOpciones opciones={opciones} onChange={setOpciones} />
+          </Field>
+          <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+            En la evaluación el evaluador agrega cada unidad (valor alfanumérico) una a una y marca este mismo checklist para cada una. El ítem cumple cuando todas las unidades agregadas tienen su checklist completo.
           </p>
         </>
       ) : null}

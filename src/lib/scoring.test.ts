@@ -67,6 +67,15 @@ describe('valorBinario', () => {
     expect(valorBinario(item, null)).toBe(null)
     expect(valorBinario(item, { colaboradores: [col(['a', 'b'])], informativo: true })).toBe(null)
   })
+  it('unidad checklist cumple cuando todas las unidades tienen su checklist completo', () => {
+    const item = { tipo: 'UNIDAD_CHECKLIST', opciones: [{ id: 'a' }, { id: 'b' }] }
+    const unidad = (selected: string[]) => ({ codigo: `U-${selected.join('')}`, selected })
+    expect(valorBinario(item, { unidades: [unidad(['a', 'b']), unidad(['a', 'b'])] })).toBe(true)
+    expect(valorBinario(item, { unidades: [unidad(['a', 'b']), unidad(['a'])] })).toBe(false)
+    expect(valorBinario(item, { unidades: [] })).toBe(null)
+    expect(valorBinario(item, null)).toBe(null)
+    expect(valorBinario(item, { unidades: [unidad(['a', 'b'])], informativo: true })).toBe(null)
+  })
   it('conciliacion porcentaje redondea a maximo 100', () => {
     expect(conciliacionPorcentaje({ teorica: 10, fisica: 10 })).toBe(100)
     expect(conciliacionPorcentaje({ teorica: 10, fisica: 5 })).toBe(50)

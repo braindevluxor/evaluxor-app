@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Camera, Check, ChevronDown, Info, ScanLine, RefreshCw, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto } from '../lib/data/precios'
 import { listarColaboradores } from '../lib/data/colaboradores'
 import { Badge, cn, Input, Textarea, Button, Spinner } from './ui'
@@ -21,7 +21,7 @@ interface Props {
 export function ItemRenderer({ item, valor, onChange, index, total, shopId }: Props) {
   const preg = `${index + 1}. ${item.texto}` + (item.requerido ? ' *' : '')
   const tipoColor =
-    item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'CHECKLIST' ? 5 : 4
+    item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'CHECKLIST' ? 5 : item.tipo === 'LISTA_COLABORADORES' || item.tipo === 'UNIDAD_CHECKLIST' ? 1 : 4
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -50,6 +50,8 @@ function estaVacio(item: Item, valor: unknown): boolean {
     }
     case 'LISTA_COLABORADORES':
       return !((valor as ValorListaColaboradores | null)?.colaboradores?.length)
+    case 'UNIDAD_CHECKLIST':
+      return !((valor as ValorUnidadChecklist | null)?.unidades?.length)
     default:
       return false
   }
@@ -159,6 +161,8 @@ function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unkno
       return <ConciliacionEditor valor={valor} onChange={onChange} shopId={shopId} />
     case 'LISTA_COLABORADORES':
       return <ColaboradoresEditor item={item} valor={valor} onChange={onChange} shopId={shopId} />
+    case 'UNIDAD_CHECKLIST':
+      return <UnidadesEditor item={item} valor={valor} onChange={onChange} />
     default:
       return null
   }
@@ -518,6 +522,133 @@ function ColaboradoresEditor({ item, valor, onChange, shopId }: { item: Item; va
         </div>
       ) : (
         <p className="text-sm text-slate-400">Aún no hay colaboradores cargados. Pulsa “Cargar colaboradores” para traerlos de la tienda.</p>
+      )}
+    </div>
+  )
+}
+
+function UnidadesEditor({ item, valor, onChange }: { item: Item; valor: unknown; onChange: (v: unknown) => void }) {
+  const [info, setInfo] = useState('')
+  const [codigo, setCodigo] = useState('')
+  const [abiertoIdx, setAbiertoIdx] = useState<number | null>(null)
+
+  const v = (valor as ValorUnidadChecklist | null) ?? { unidades: [] }
+  const unidades = v.unidades ?? []
+  const opts = (item.opciones ?? []) as Opcion[]
+
+  const actualizar = (unids: UnidadChecklist[]) => onChange({ ...v, unidades: unids })
+
+  const agregar = () => {
+    const c = codigo.trim()
+    setInfo('')
+    if (!c) {
+      setInfo('Escribe un valor para la unidad.')
+      return
+    }
+    if (unidades.some((u) => u.codigo.toLowerCase() === c.toLowerCase())) {
+      setInfo(`La unidad "${c}" ya está agregada.`)
+      return
+    }
+    if (!opts.length) {
+      setInfo('Este ítem no tiene checklist definido. El Líder debe configurarlo desde Ítems de evaluación.')
+      return
+    }
+    actualizar([...unidades, { codigo: c, selected: [] }])
+    setCodigo('')
+    setAbiertoIdx(unidades.length)
+  }
+
+  const quitar = (idx: number) => {
+    actualizar(unidades.filter((_, i) => i !== idx))
+    setAbiertoIdx(null)
+  }
+
+  const toggleCheck = (idx: number, opcionId: string) => {
+    actualizar(unidades.map((u, i) => {
+      if (i !== idx) return u
+      const sel = u.selected.includes(opcionId) ? u.selected.filter((x) => x !== opcionId) : [...u.selected, opcionId]
+      return { ...u, selected: sel }
+    }))
+  }
+
+  const cumplidos = unidades.filter((u) => unidadCumple(u, opts)).length
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Agregar unidad</p>
+        <div className="mt-2 flex items-center gap-2">
+          <Input
+            placeholder="Valor alfanumérico (ej. PATIO-01)"
+            value={codigo}
+            onChange={(e) => setCodigo(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregar() } }}
+          />
+          <Button type="button" variant="primary" className="shrink-0 min-h-0 px-3 py-2" disabled={!codigo.trim()} onClick={agregar}>
+            Agregar
+          </Button>
+        </div>
+        {info ? <p className="mt-2 text-xs font-medium text-amber-600">{info}</p> : null}
+      </div>
+
+      {unidades.length ? (
+        <>
+          <p className="text-sm text-slate-600">
+            {unidades.length} unidades en cuenta · {cumplidos}/{unidades.length} con checklist completo
+          </p>
+          <div className="space-y-2">
+            {unidades.map((u, i) => {
+              const abierto = abiertoIdx === i
+              const cumple = unidadCumple(u, opts)
+              return (
+                <div key={`${u.codigo}-${i}`} className="rounded-xl border border-slate-200 bg-white">
+                  <div className="flex items-center gap-2 px-3 py-2.5">
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">{u.codigo}</span>
+                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
+                      {cumple ? 'Cumple' : `${u.selected.length}/${opts.length}`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { setAbiertoIdx(abierto ? null : i) }}
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100"
+                      title={abierto ? 'Cerrar checklist' : 'Abrir checklist'}
+                    >
+                      <ChevronDown className={cn('h-4 w-4 transition-transform', abierto ? 'rotate-180' : '')} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => quitar(i)}
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-red-400 hover:bg-red-50 hover:text-red-500"
+                      title="Quitar unidad"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {abierto ? (
+                    <div className="space-y-1 border-t border-slate-100 px-3 pb-3 pt-2">
+                      {opts.map((o) => {
+                        const esta = u.selected.includes(o.id)
+                        return (
+                          <label key={o.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-50">
+                            <input
+                              type="checkbox"
+                              className="h-5 w-5 shrink-0 accent-primary"
+                              checked={esta}
+                              onChange={() => toggleCheck(i, o.id)}
+                            />
+                            <span className="text-sm text-slate-700">{o.etiqueta}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-slate-400">Aún no hay unidades. Agrega la primera para comenzar.</p>
       )}
     </div>
   )

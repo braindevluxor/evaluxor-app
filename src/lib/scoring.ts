@@ -2,7 +2,8 @@ const ETIQUETAS_TIPO: Record<string, string> = {
   CHECKLIST: 'Check list',
   CUMPLE_NO_CUMPLE: 'Cumple / No cumple',
   CONCILIACION: 'Conciliación',
-  LISTA_COLABORADORES: 'Listado de colaboradores'
+  LISTA_COLABORADORES: 'Listado de colaboradores',
+  UNIDAD_CHECKLIST: 'Unidad check list'
 }
 
 export function etiquetaTipo(tipo: string): string {
@@ -56,10 +57,26 @@ export interface ValorListaColaboradores {
   loadedAt?: number
 }
 
+export interface UnidadChecklist {
+  codigo: string
+  selected: string[]
+}
+
+export interface ValorUnidadChecklist {
+  unidades: UnidadChecklist[]
+  informativo?: boolean
+}
+
 export function colaboradorCumple(colab: ColaboradorItem, opciones: { id: string }[] | null | undefined): boolean {
   const opts = (opciones ?? []) as { id: string }[]
   if (!opts.length) return false
   return opts.every((o) => (colab.selected ?? []).includes(o.id))
+}
+
+export function unidadCumple(unidad: UnidadChecklist, opciones: { id: string }[] | null | undefined): boolean {
+  const opts = (opciones ?? []) as { id: string }[]
+  if (!opts.length) return false
+  return opts.every((o) => (unidad.selected ?? []).includes(o.id))
 }
 
 export function conciliacionPorcentaje(p: { teorica?: number | null; fisica?: number | null } | null | undefined): number | null {
@@ -110,6 +127,15 @@ if (item.tipo === 'CHECKLIST') {
     const opts = (item.opciones ?? []) as { id: string }[]
     if (!opts.length) return null
     return aplican.every((c) => colaboradorCumple(c, opts))
+  }
+  if (item.tipo === 'UNIDAD_CHECKLIST') {
+    const v = valor as ValorUnidadChecklist | null
+    if (v?.informativo) return null
+    const unidades = v?.unidades ?? []
+    if (!unidades.length) return null
+    const opts = (item.opciones ?? []) as { id: string }[]
+    if (!opts.length) return null
+    return unidades.every((u) => unidadCumple(u, opts))
   }
   return null
 }

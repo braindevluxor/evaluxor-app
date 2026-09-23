@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, FileDown } from 'lucide-react'
 import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { descargarPdf } from '../lib/pdf'
-import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores } from '../lib/scoring'
+import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Puntaje, Spinner, cn } from '../components/ui'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
@@ -120,6 +120,44 @@ function ValorRespuesta({ item, valor }: { item: Item; valor: unknown }) {
                     </span>
                   </div>
                   {c.aplica && marcadas.length ? (
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {marcadas.map((l) => (
+                        <span key={l} className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-semibold text-primary-700">{l}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )
+    }
+    case 'UNIDAD_CHECKLIST': {
+      const v = valor as ValorUnidadChecklist | null
+      const unids = v?.unidades ?? []
+      if (!unids.length) return <p className="text-sm text-slate-400">Sin unidades</p>
+      const opts = (item.opciones ?? []) as Opcion[]
+      const cumplen = unids.filter((u) => unidadCumple(u, opts)).length
+      return (
+        <div className="space-y-2">
+          {v?.informativo ? (
+            <p className="text-xs font-bold text-amber-700">Informativo · no descuenta puntos</p>
+          ) : null}
+          <p className="text-sm font-semibold text-slate-700">{unids.length} unidades en cuenta · {cumplen}/{unids.length} completas</p>
+          <ul className="space-y-1">
+            {unids.map((u, i) => {
+              const cumple = unidadCumple(u, opts)
+              const marcadas = (u.selected ?? []).map((id) => opts.find((o) => o.id === id)?.etiqueta ?? id)
+              return (
+                <li key={`${u.codigo}-${i}`} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate font-medium text-slate-800">{u.codigo}</span>
+                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
+                      {cumple ? 'Cumple' : 'Incompleto'}
+                    </span>
+                  </div>
+                  {marcadas.length ? (
                     <div className="mt-1 flex flex-wrap gap-1.5">
                       {marcadas.map((l) => (
                         <span key={l} className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-semibold text-primary-700">{l}</span>

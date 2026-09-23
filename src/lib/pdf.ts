@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable'
 import type { Item } from './types'
 import type { DetalleEvaluacion } from './data/indicadores'
 import { obtenerEvaluacion, resumirEvaluacion } from './data/indicadores'
-import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores } from './scoring'
+import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from './scoring'
 
 const MARINO: [number, number, number] = [11, 37, 69]
 const MARINO_CLARO: [number, number, number] = [238, 244, 251]
@@ -86,6 +86,25 @@ function textoValor(item: Item, valor: unknown): string {
           return o ? o.etiqueta : id
         })
         resumen.push(`${c.name} ${c.lastname} · C.I. ${c.nationality ?? ''}${c.dni} · ${c.role_name || 'Sin rol'} — ${estado}${marcadas.length ? ` (${marcadas.join(', ')})` : ''}`)
+      }
+      return resumen.join('\n')
+    }
+    case 'UNIDAD_CHECKLIST': {
+      const v = valor as ValorUnidadChecklist | null
+      const unids = v?.unidades ?? []
+      if (!unids.length) return 'Sin unidades'
+      const opts = (item.opciones ?? []) as { id: string; etiqueta?: string }[]
+      const resumen: string[] = []
+      if (v?.informativo) resumen.push('INFORMATIVO (no descuenta)')
+      const cumplen = unids.filter((u) => unidadCumple(u, opts)).length
+      resumen.push(`${unids.length} unidades en cuenta · ${cumplen}/${unids.length} completas`)
+      for (const u of unids) {
+        const estado = unidadCumple(u, opts) ? 'Cumple' : 'Incompleto'
+        const marcadas = (u.selected ?? []).map((id) => {
+          const o = opts.find((x) => x.id === id)
+          return o ? o.etiqueta : id
+        })
+        resumen.push(`${u.codigo} — ${estado}${marcadas.length ? ` (${marcadas.join(', ')})` : ''}`)
       }
       return resumen.join('\n')
     }

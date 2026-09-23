@@ -5,6 +5,7 @@ export type TipoItem =
   | 'CUMPLE_NO_CUMPLE'
   | 'CONCILIACION'
   | 'LISTA_COLABORADORES'
+  | 'UNIDAD_CHECKLIST'
 
 export type FiltroColaboradores = 'ACTIVOS' | 'INACTIVOS' | 'TODOS'
 
