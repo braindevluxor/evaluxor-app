@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { listarModulosAdmin, listarSucursalConfigAdmin, configurarSucursalModulos, configurarSucursalItems } from '../../lib/data/catalog'
+import { listarModulosAdmin, listarSucursalConfigAdmin, configurarSucursalModulos, configurarSucursalItems, configurarSucursalOpciones } from '../../lib/data/catalog'
 import type { Sucursal, Modulo, Item } from '../../lib/types'
 import { Button, Modal, Spinner, cn } from '../../components/ui'
 
@@ -13,6 +13,7 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
   const [modulos, setModulos] = useState<(Modulo & { _items: Item[] })[]>([])
   const [selModulos, setSelModulos] = useState<Set<string>>(new Set())
   const [selItems, setSelItems] = useState<Set<string>>(new Set())
+  const [selOpciones, setSelOpciones] = useState<Map<string, Set<string>>>(new Map())
   const [cargando, setCargando] = useState(true)
   const [guardando, setGuardando] = useState(false)
   const [msg, setMsg] = useState('')
@@ -23,7 +24,16 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
       const [mods, conf] = await Promise.all([listarModulosAdmin(), listarSucursalConfigAdmin(sucursal.id)])
       setModulos(mods)
       setSelModulos(new Set(conf.modulos))
-      setSelItems(new Set(conf.items))
+      const itemsSeleccionados = new Set(conf.items)
+      setSelItems(itemsSeleccionados)
+      const porItem = new Map<string, Set<string>>()
+      for (const o of conf.opciones) {
+        if (!itemsSeleccionados.has(o.item_id)) continue
+        const s = porItem.get(o.item_id) ?? new Set<string>()
+        s.add(o.opcion_id)
+        porItem.set(o.item_id, s)
+      }
+      setSelOpciones(porItem)
       setCargando(false)
     })()
   }, [sucursal])
@@ -38,10 +48,30 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
   }
 
   function toggleItem(id: string) {
-    setSelItems((prev) => {
-      const n = new Set(prev)
-      if (n.has(id)) n.delete(id)
-      else n.add(id)
+    if (selItems.has(id)) {
+      setSelItems((prev) => {
+        const n = new Set(prev)
+        n.delete(id)
+        return n
+      })
+      setSelOpciones((prev) => {
+        const n = new Map(prev)
+        n.delete(id)
+        return n
+      })
+    } else {
+      setSelItems((prev) => new Set(prev).add(id))
+    }
+  }
+
+  function toggleOpcion(itemId: string, opcionId: string) {
+    setSelOpciones((prev) => {
+      const n = new Map(prev)
+      const s = new Set(n.get(itemId) ?? [])
+      if (s.has(opcionId)) s.delete(opcionId)
+      else s.add(opcionId)
+      if (s.size) n.set(itemId, s)
+      else n.delete(itemId)
       return n
     })
   }
@@ -53,6 +83,10 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
     try {
       await configurarSucursalModulos(sucursal.id, [...selModulos])
       await configurarSucursalItems(sucursal.id, [...selItems])
+      const opciones = Array.from(selOpciones.entries()).flatMap(([itemId, ids]) =>
+        Array.from(ids).map((opcion_id) => ({ item_id: itemId, opcion_id }))
+      )
+      await configurarSucursalOpciones(sucursal.id, opciones)
       setMsg('Configuración guardada. Los evaluadores verán los cambios al sincronizar el catálogo.')
       onGuardado()
     } finally {
@@ -66,7 +100,7 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
         <div className="space-y-6">
           <p className="rounded-xl bg-primary-50 px-3 py-2 text-[11px] leading-relaxed text-primary-700">
             Si no marcas módulos, aplican todos los módulos activos. Si no marcas ítems de un módulo, aplican todos sus ítems.
-            Un módulo o ítem marcado es el único que aplica para esta sucursal.
+            En un ítem tipo check list puedes marcar qué puntos aplican; si no marcas ninguno, aplican todos sus puntos.
           </p>
 
           <div>
@@ -112,17 +146,44 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
                     <div className="space-y-1">
                       {m._items.map((i) => {
                         const sel = selItems.has(i.id)
+                        const esChecklist = i.tipo === 'CHECKLIST' && !!i.opciones?.length
                         return (
-                          <label key={i.id} className={cn('flex items-start gap-2 rounded-lg px-2 py-1 text-sm', !moduloActivo ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50')}>
-                            <input
-                              type="checkbox"
-                              className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-                              checked={sel}
-                              disabled={!moduloActivo}
-                              onChange={() => toggleItem(i.id)}
-                            />
-                            <span className="leading-snug text-slate-700">{i.texto}</span>
-                          </label>
+                          <div key={i.id}>
+                            <label className={cn('flex items-start gap-2 rounded-lg px-2 py-1 text-sm', !moduloActivo ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-slate-50')}>
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                                checked={sel}
+                                disabled={!moduloActivo}
+                                onChange={() => toggleItem(i.id)}
+                              />
+                              <span className="flex-1 leading-snug text-slate-700">{i.texto}</span>
+                              {esChecklist ? (
+                                <span className={cn('shrink-0 text-[11px] font-medium', sel ? 'text-primary' : 'text-slate-400')}>
+                                  puntos
+                                </span>
+                              ) : null}
+                            </label>
+                            {esChecklist && sel ? (
+                              <div className="ml-7 rounded-xl bg-slate-50 p-2">
+                                <p className="mb-1 px-1 text-[11px] font-semibold text-slate-500">Puntos que aplican a esta sucursal</p>
+                                {i.opciones!.map((o) => {
+                                  const marcada = selOpciones.get(i.id)?.has(o.id) ?? false
+                                  return (
+                                    <label key={o.id} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1 text-sm hover:bg-white">
+                                      <input
+                                        type="checkbox"
+                                        className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                                        checked={marcada}
+                                        onChange={() => toggleOpcion(i.id, o.id)}
+                                      />
+                                      <span className="leading-snug text-slate-600">{o.etiqueta}</span>
+                                    </label>
+                                  )
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
                         )
                       })}
                     </div>

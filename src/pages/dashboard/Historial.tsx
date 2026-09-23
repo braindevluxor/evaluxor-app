@@ -163,7 +163,7 @@ export function Historial() {
     setGestionando(true)
     try {
       const det = await obtenerEvaluacion(ev.id)
-      const puntaje = det ? resumirEvaluacion(det.evaluacion, det.respuestas, det.items).puntaje : ev.puntuacion
+      const puntaje = det ? resumirEvaluacion(det.evaluacion, det.respuestas, det.items, det.sucursalOpciones).puntaje : ev.puntuacion
       const comentario = window.prompt('Comentario de cierre (opcional):', '') ?? ''
       await cerrarEvaluacion(ev.id, puntaje, comentario.trim() || null)
       await cargar()

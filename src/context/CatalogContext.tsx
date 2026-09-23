@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import type { Modulo, Item, Sucursal, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem } from '../lib/types'
+import type { Modulo, Item, Sucursal, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem, SucursalOpcion } from '../lib/types'
 import { obtenerCacheLocal, refrescarCatalogo } from '../lib/data/catalog'
 import { useAuth } from './AuthContext'
 
@@ -11,6 +11,7 @@ interface CatalogContextValue {
   asignacionesModulos: AsignacionModulo[]
   sucursalModulos: SucursalModulo[]
   sucursalItems: SucursalItem[]
+  sucursalOpciones: SucursalOpcion[]
   cargado: boolean
   cacheFecha: number | null
   refresh: () => Promise<void>
@@ -27,6 +28,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   const [asignacionesModulos, setAsignacionesModulos] = useState<AsignacionModulo[]>([])
   const [sucursalModulos, setSucursalModulos] = useState<SucursalModulo[]>([])
   const [sucursalItems, setSucursalItems] = useState<SucursalItem[]>([])
+  const [sucursalOpciones, setSucursalOpciones] = useState<SucursalOpcion[]>([])
   const [cargado, setCargado] = useState(false)
   const [cacheFecha, setCacheFecha] = useState<number | null>(null)
 
@@ -41,6 +43,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       setAsignacionesModulos(data.asignacionesModulos)
       setSucursalModulos(data.sucursalModulos)
       setSucursalItems(data.sucursalItems)
+      setSucursalOpciones(data.sucursalOpciones)
       setCacheFecha(data.updated_at)
       setCargado(true)
     } catch {
@@ -53,6 +56,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         setAsignacionesModulos(local.asignacionesModulos ?? [])
         setSucursalModulos(local.sucursalModulos ?? [])
         setSucursalItems(local.sucursalItems ?? [])
+        setSucursalOpciones(local.sucursalOpciones ?? [])
         setCacheFecha(local.updated_at)
       }
       setCargado(true)
@@ -71,6 +75,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         setAsignacionesModulos(local.asignacionesModulos ?? [])
         setSucursalModulos(local.sucursalModulos ?? [])
         setSucursalItems(local.sucursalItems ?? [])
+        setSucursalOpciones(local.sucursalOpciones ?? [])
         setCacheFecha(local.updated_at)
         setCargado(true)
       }
@@ -87,6 +92,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     asignacionesModulos,
     sucursalModulos,
     sucursalItems,
+    sucursalOpciones,
     cargado,
     cacheFecha,
     refresh
@@ -102,7 +108,7 @@ export function useCatalog(): CatalogContextValue {
 }
 
 export function useModulosActivos(sucursalId?: string | null): { modulosActivos: Modulo[]; itemsDe: (m: Modulo) => Item[] } {
-  const { modulos, items, asignacionesModulos, sucursalModulos, sucursalItems } = useCatalog()
+  const { modulos, items, asignacionesModulos, sucursalModulos, sucursalItems, sucursalOpciones } = useCatalog()
   const { profile } = useAuth()
   const activos = modulos.filter((m) => m.activo)
   const idsAsignados = asignacionesModulos.filter((a) => a.activa).map((a) => a.modulo_id)
@@ -111,13 +117,23 @@ export function useModulosActivos(sucursalId?: string | null): { modulosActivos:
     const idsConfig = sucursalModulos.filter((a) => a.activa && a.sucursal_id === sucursalId).map((a) => a.modulo_id)
     if (idsConfig.length) visibles = visibles.filter((m) => idsConfig.includes(m.id))
   }
+  const opcionesSucursal = sucursalId
+    ? sucursalOpciones.filter((a) => a.activa && a.sucursal_id === sucursalId)
+    : []
   return {
     modulosActivos: visibles,
     itemsDe: (m) => {
       const base = items.filter((i) => i.modulo_id === m.id && i.activo).sort((a, b) => a.orden - b.orden)
       if (!sucursalId) return base
       const idsConfig = sucursalItems.filter((a) => a.activa && a.sucursal_id === sucursalId).map((a) => a.item_id)
-      return idsConfig.length ? base.filter((i) => idsConfig.includes(i.id)) : base
+      const filtrados = idsConfig.length ? base.filter((i) => idsConfig.includes(i.id)) : base
+      const setItems = new Set(idsConfig)
+      return filtrados.map((i) => {
+        if (!setItems.has(i.id)) return i
+        const aplicaId = opcionesSucursal.filter((o) => o.item_id === i.id).map((o) => o.opcion_id)
+        if (!i.opciones?.length || !aplicaId.length) return i
+        return { ...i, opciones: i.opciones.filter((o) => aplicaId.includes(o.id)) }
+      })
     }
   }
 }

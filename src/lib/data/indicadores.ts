@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion, EstadoEvaluacion } from '../types'
+import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion } from '../types'
 import { valorBinario } from '../scoring'
 
 export interface FiltrosIndicadores {
@@ -15,6 +15,7 @@ export interface ConjuntoDatos {
   items: Item[]
   modulos: Modulo[]
   fotos: Foto[]
+  sucursalOpciones: SucursalOpcion[]
 }
 
 export interface DetalleEvaluacion {
@@ -23,6 +24,7 @@ export interface DetalleEvaluacion {
   items: Item[]
   modulos: Modulo[]
   fotos: Foto[]
+  sucursalOpciones: SucursalOpcion[]
 }
 
 const SELECT_EVALUACION = '*, sucursal:sucursales(id,nombre,shop_id,direccion), aperturador:profiles!evaluaciones_aperturada_por_fkey(id,nombre)'
@@ -36,7 +38,7 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
   if (!ev) return null
   const evaluacion = ev as VistaEvaluacion
 
-  const [resp, itemsResp, mods, fotos] = await Promise.all([
+  const [resp, itemsResp, mods, fotos, opciones] = await Promise.all([
     supabase.from('respuestas').select('*').eq('evaluacion_id', id),
     (async () => {
       const rr = (await supabase.from('respuestas').select('item_id').eq('evaluacion_id', id)).data ?? []
@@ -45,7 +47,8 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
       return ((await supabase.from('items').select('*').in('id', itemIds)).data ?? []) as Item[]
     })(),
     supabase.from('modulos').select('*').order('orden'),
-    supabase.from('fotos').select('*').eq('evaluacion_id', id)
+    supabase.from('fotos').select('*').eq('evaluacion_id', id),
+    supabase.from('sucursal_opciones').select('*').eq('sucursal_id', evaluacion.sucursal_id).eq('activa', true)
   ])
 
   const modulos = ((mods.data ?? []) as Modulo[]).filter((m) => itemsResp.some((i) => i.modulo_id === m.id))
@@ -55,7 +58,8 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
     respuestas: (resp.data ?? []) as Respuesta[],
     items: itemsResp,
     modulos,
-    fotos: (fotos.data ?? []) as Foto[]
+    fotos: (fotos.data ?? []) as Foto[],
+    sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[]
   }
 }
 
@@ -72,12 +76,13 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
 
   const { data: evals } = await query
   const evaluaciones = (evals ?? []) as VistaEvaluacion[]
-  const vacio: ConjuntoDatos = { evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [] }
+  const vacio: ConjuntoDatos = { evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [] }
   if (!evaluaciones.length) return vacio
 
   const ids = evaluaciones.map((e) => e.id)
+  const sucursalIds = Array.from(new Set(evaluaciones.map((e) => e.sucursal_id)))
 
-  const [resp, fot, mods, itemsResp] = await Promise.all([
+  const [resp, fot, mods, itemsResp, opciones] = await Promise.all([
     supabase.from('respuestas').select('*').in('evaluacion_id', ids),
     supabase.from('fotos').select('*').in('evaluacion_id', ids).order('created_at', { ascending: false }),
     supabase.from('modulos').select('*').order('orden'),
@@ -87,7 +92,10 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
       if (!itemIds.length) return [] as Item[]
       const it = await supabase.from('items').select('*').in('id', itemIds)
       return (it.data ?? []) as Item[]
-    })()
+    })(),
+    sucursalIds.length
+      ? supabase.from('sucursal_opciones').select('*').in('sucursal_id', sucursalIds).eq('activa', true)
+      : Promise.resolve({ data: [] })
   ])
 
   let items = itemsResp
@@ -102,7 +110,8 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
       respuestas,
       items,
       modulos: ((mods.data ?? []) as Modulo[]).filter((m) => m.id === f.modulo_id),
-      fotos: (fot.data ?? []) as Foto[]
+      fotos: (fot.data ?? []) as Foto[],
+      sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[]
     }
   }
 
@@ -111,7 +120,8 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
     respuestas: (resp.data ?? []) as Respuesta[],
     items,
     modulos: (mods.data ?? []) as Modulo[],
-    fotos: (fot.data ?? []) as Foto[]
+    fotos: (fot.data ?? []) as Foto[],
+    sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[]
   }
 }
 
@@ -121,11 +131,21 @@ export interface ResumenEvaluacion {
   itemsBinariosOk: number
 }
 
-export function resumirEvaluacion(ev: Evaluacion, resps: Respuesta[], items: Item[]): ResumenEvaluacion {
+function aplicarOpcionesSucursal(item: Item, sucursalId: string, sucursalOpciones: SucursalOpcion[]): Item {
+  if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
+  const ids = sucursalOpciones.filter((o) => o.sucursal_id === sucursalId && o.item_id === item.id).map((o) => o.opcion_id)
+  if (!ids.length) return item
+  return { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) }
+}
+
+export function resumirEvaluacion(ev: Evaluacion, resps: Respuesta[], items: Item[], sucursalOpciones: SucursalOpcion[] = []): ResumenEvaluacion {
   const rr = resps
     .filter((r) => r.evaluacion_id === ev.id)
-    .map((r) => ({ item: items.find((i) => i.id === r.item_id), valor: r.valor }))
-    .filter((x): x is { item: Item; valor: unknown } => !!x.item)
+    .map((r) => {
+      const item = items.find((i) => i.id === r.item_id)
+      return item ? { item: aplicarOpcionesSucursal(item, ev.sucursal_id, sucursalOpciones), valor: r.valor } : null
+    })
+    .filter((x): x is { item: Item; valor: unknown } => !!x)
 
   const binarios = rr.map((r) => valorBinario(r.item, r.valor)).filter((x) => x !== null) as boolean[]
   const puntaje = binarios.length
@@ -145,11 +165,13 @@ export interface PuntajeModulo {
 export function puntajePorModulo(
   datos: ConjuntoDatos
 ): PuntajeModulo[] {
+  const sucursalDeEval = new Map(datos.evaluaciones.map((e) => [e.id, e.sucursal_id]))
   const acum = new Map<string, { modulo_id: string; nombre: string; ok: number; total: number; evals: Set<string> }>()
   for (const r of datos.respuestas) {
     const item = datos.items.find((i) => i.id === r.item_id)
     if (!item) continue
-    const bin = valorBinario(item, r.valor)
+    const sucursalId = sucursalDeEval.get(r.evaluacion_id)
+    const bin = valorBinario(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item, r.valor)
     if (bin === null) continue
     const nombre = datos.modulos.find((mm) => mm.id === item.modulo_id)?.nombre ?? 'Módulo'
     let a = acum.get(item.modulo_id)
@@ -180,7 +202,7 @@ export function rankingSucursales(
     porSuc.set(t.id, { sucursal_id: t.id, puntajes: [], completadas: 0, nombre: t.nombre })
   }
   for (const ev of datos.evaluaciones) {
-    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items)
+    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones)
     const s = porSuc.get(ev.sucursal_id)
     if (s) {
       if (puntaje != null) s.puntajes.push(puntaje)
@@ -214,7 +236,7 @@ export function evolucionMensual(datos: ConjuntoDatos): SerieMes[] {
   const porMes = new Map<string, { puntajes: number[]; completadas: number }>()
   for (const ev of datos.evaluaciones) {
     const key = ev.fecha.slice(0, 7)
-    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items)
+    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones)
     const m = porMes.get(key)
     if (m) {
       if (puntaje != null) m.puntajes.push(puntaje)
@@ -237,11 +259,13 @@ export function evolucionMensual(datos: ConjuntoDatos): SerieMes[] {
 }
 
 export function peoresItems(datos: ConjuntoDatos): { item_id: string; texto: string; modulo_id: string; ok: number; total: number; ratio: number }[] {
+  const sucursalDeEval = new Map(datos.evaluaciones.map((e) => [e.id, e.sucursal_id]))
   const porItem = new Map<string, { item_id: string; texto: string; modulo_id: string; ok: number; total: number }>()
   for (const r of datos.respuestas) {
     const item = datos.items.find((i) => i.id === r.item_id)
     if (!item) continue
-    const v = valorBinario(item, r.valor)
+    const sucursalId = sucursalDeEval.get(r.evaluacion_id)
+    const v = valorBinario(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item, r.valor)
     if (v === null) continue
     const e = porItem.get(r.item_id)
     if (e) {
@@ -266,7 +290,7 @@ export function peoresItems(datos: ConjuntoDatos): { item_id: string; texto: str
 export function porEvaluador(datos: ConjuntoDatos): { evaluador_id: string; nombre: string; puntaje: number | null; evaluaciones: number }[] {
   const porE = new Map<string, { nombre: string; puntajes: number[]; n: number }>()
   for (const ev of datos.evaluaciones) {
-    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items)
+    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones)
     const key = ev.aperturada_por || ev.id
     const e = porE.get(key)
     if (e) {
@@ -296,7 +320,7 @@ export function matrizModuloSucursal(
     for (const r of datos.respuestas.filter((x) => x.evaluacion_id === ev.id)) {
       const item = datos.items.find((i) => i.id === r.item_id)
       if (!item) continue
-      const bin = valorBinario(item, r.valor)
+      const bin = valorBinario(aplicarOpcionesSucursal(item, ev.sucursal_id, datos.sucursalOpciones), r.valor)
       if (bin === null) continue
       const c = celdas[ev.sucursal_id]?.[item.modulo_id] ?? { ok: 0, n: 0 }
       c.n++

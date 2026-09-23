@@ -4,7 +4,7 @@ import { ArrowLeft, FileDown } from 'lucide-react'
 import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { descargarPdf } from '../lib/pdf'
 import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, type ValorConciliacion, type ValorCumple, type ValorChecklist } from '../lib/scoring'
-import type { Item, Opcion } from '../lib/types'
+import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Puntaje, Spinner, cn } from '../components/ui'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
 
@@ -20,6 +20,16 @@ function estadoBadge(puntaje: number | null): { texto: string; color: number } {
   if (puntaje >= 80) return { texto: 'Cumple', color: 2 }
   if (puntaje >= 60) return { texto: 'En riesgo', color: 3 }
   return { texto: 'No cumple', color: 4 }
+}
+
+function opcionesQueAplican(sucursalId: string, sucursalOpciones: SucursalOpcion[]): Map<string, string[]> {
+  const mapa = new Map<string, string[]>()
+  for (const o of sucursalOpciones.filter((x) => x.sucursal_id === sucursalId && x.activa)) {
+    const arr = mapa.get(o.item_id) ?? []
+    arr.push(o.opcion_id)
+    mapa.set(o.item_id, arr)
+  }
+  return mapa
 }
 
 function ValorRespuesta({ item, valor }: { item: Item; valor: unknown }) {
@@ -146,9 +156,16 @@ export function EvaluacionDetalle() {
     )
   }
 
-  const { evaluacion, respuestas, items, modulos, fotos } = detalle
-  const { puntaje } = resumirEvaluacion(evaluacion, respuestas, items)
+  const { evaluacion, respuestas, items, modulos, fotos, sucursalOpciones } = detalle
+  const { puntaje } = resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones)
   const est = estadoBadge(puntaje)
+  const aplicaOpciones = opcionesQueAplican(evaluacion.sucursal_id, sucursalOpciones)
+  const aplicarOpciones = (item: Item) => {
+    if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
+    const ids = aplicaOpciones.get(item.id)
+    if (!ids?.length) return item
+    return { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) }
+  }
 
   const descargar = async () => {
     setError('')
@@ -220,7 +237,7 @@ export function EvaluacionDetalle() {
             .filter((r) => itemMod.some((i) => i.id === r.item_id))
             .map((r) => ({ item: itemMod.find((i) => i.id === r.item_id), valor: r.valor }))
             .filter((x): x is { item: Item; valor: unknown } => !!x.item)
-          const bin = vals.map((v) => valorBinario(v.item, v.valor)).filter((x): x is boolean => x !== null)
+          const bin = vals.map((v) => valorBinario(aplicarOpciones(v.item), v.valor)).filter((x): x is boolean => x !== null)
           const punteo = bin.length ? Math.round((bin.filter(Boolean).length / bin.length) * 10000) / 100 : null
           return (
             <section key={m.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

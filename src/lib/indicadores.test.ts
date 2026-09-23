@@ -23,7 +23,8 @@ const datos: ConjuntoDatos = {
     { id: 'r3', evaluacion_id: 'e1', item_id: 'i3', valor: { value: true }, respondido_por: 'u2', created_at: '' },
     { id: 'r4', evaluacion_id: 'e1', item_id: 'i4', valor: { value: false }, respondido_por: 'u2', created_at: '' }
   ],
-  fotos: []
+  fotos: [],
+  sucursalOpciones: []
 }
 
 describe('puntajePorModulo', () => {
@@ -52,5 +53,32 @@ describe('puntajePorModulo', () => {
     const porModulo = puntajePorModulo(conCualitativo)
     const m2 = porModulo.find((m) => m.modulo_id === 'm2')
     expect(m2?.puntaje).toBe(50)
+  })
+
+  it('cuenta solo las opciones del checklist que aplican a la sucursal', () => {
+    const conChecklist: ConjuntoDatos = {
+      ...datos,
+      modulos: [
+        ...datos.modulos,
+        { id: 'm3', nombre: 'Módulo 3', descripcion: '', orden: 3, activo: true, created_at: '' }
+      ],
+      items: [
+        ...datos.items,
+        { id: 'i6', modulo_id: 'm3', tipo: 'CHECKLIST', texto: 'check', opciones: [
+          { id: 'o1', etiqueta: 'Punto A' },
+          { id: 'o2', etiqueta: 'Punto B' }
+        ], orden: 1, requerido: true, activo: true, created_at: '' }
+      ],
+      respuestas: [
+        ...datos.respuestas,
+        { id: 'r6', evaluacion_id: 'e1', item_id: 'i6', valor: { selected: ['o1'] }, respondido_por: 'u2', created_at: '' }
+      ],
+      sucursalOpciones: [
+        { id: 'so1', sucursal_id: 's1', item_id: 'i6', opcion_id: 'o1', activa: true, created_at: '' }
+      ]
+    }
+    const porModulo = puntajePorModulo(conChecklist)
+    const m3 = porModulo.find((m) => m.modulo_id === 'm3')
+    expect(m3?.puntaje).toBe(100)
   })
 })

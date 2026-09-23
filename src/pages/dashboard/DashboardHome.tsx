@@ -53,7 +53,7 @@ export function DashboardHome() {
         })
         if (activo) setDatos(d)
       } catch {
-        if (activo) setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [] })
+        if (activo) setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [] })
       } finally {
         if (activo) setCargando(false)
       }

@@ -1,20 +1,21 @@
 import { supabase } from '../supabase'
 import { getCache, putCache, type CacheData } from '../offline/db'
-import type { Modulo, Item, Sucursal, SucursalModulo, SucursalItem } from '../types'
+import type { Modulo, Item, Sucursal, SucursalModulo, SucursalItem, SucursalOpcion } from '../types'
 
 export async function obtenerCacheLocal(): Promise<CacheData | undefined> {
   return getCache()
 }
 
 export async function refrescarCatalogo(evaluadorId: string): Promise<CacheData> {
-  const [modulos, items, sucursales, asignaciones, asignacionesModulos, sucursalModulos, sucursalItems] = await Promise.all([
+  const [modulos, items, sucursales, asignaciones, asignacionesModulos, sucursalModulos, sucursalItems, sucursalOpciones] = await Promise.all([
     selectSeguro(supabase.from('modulos').select('*').eq('activo', true).order('orden').order('nombre')),
     selectSeguro(supabase.from('items').select('*').eq('activo', true)),
     selectSeguro(supabase.from('sucursales').select('*').eq('activa', true).order('nombre')),
     selectSeguro(supabase.from('asignaciones').select('*').eq('evaluador_id', evaluadorId).eq('activa', true)),
     selectSeguro(supabase.from('asignaciones_modulos').select('*').eq('evaluador_id', evaluadorId).eq('activa', true)),
     selectSeguro(supabase.from('sucursal_modulos').select('*').eq('activa', true)),
-    selectSeguro(supabase.from('sucursal_items').select('*').eq('activa', true))
+    selectSeguro(supabase.from('sucursal_items').select('*').eq('activa', true)),
+    selectSeguro(supabase.from('sucursal_opciones').select('*').eq('activa', true))
   ])
 
   const data: CacheData = {
@@ -25,6 +26,7 @@ export async function refrescarCatalogo(evaluadorId: string): Promise<CacheData>
     asignacionesModulos: asignacionesModulos as CacheData['asignacionesModulos'],
     sucursalModulos: sucursalModulos as SucursalModulo[],
     sucursalItems: sucursalItems as SucursalItem[],
+    sucursalOpciones: sucursalOpciones as SucursalOpcion[],
     updated_at: Date.now()
   }
   await putCache(data)
@@ -113,14 +115,16 @@ export async function eliminarItem(id: string): Promise<void> {
   await supabase.from('items').delete().eq('id', id)
 }
 
-export async function listarSucursalConfigAdmin(sucursalId: string): Promise<{ modulos: string[]; items: string[] }> {
-  const [mods, items] = await Promise.all([
+export async function listarSucursalConfigAdmin(sucursalId: string): Promise<{ modulos: string[]; items: string[]; opciones: { item_id: string; opcion_id: string }[] }> {
+  const [mods, items, opciones] = await Promise.all([
     supabase.from('sucursal_modulos').select('modulo_id').eq('sucursal_id', sucursalId).eq('activa', true),
-    supabase.from('sucursal_items').select('item_id').eq('sucursal_id', sucursalId).eq('activa', true)
+    supabase.from('sucursal_items').select('item_id').eq('sucursal_id', sucursalId).eq('activa', true),
+    supabase.from('sucursal_opciones').select('item_id, opcion_id').eq('sucursal_id', sucursalId).eq('activa', true)
   ])
   return {
     modulos: (mods.data ?? []).map((r) => r.modulo_id as string),
-    items: (items.data ?? []).map((r) => r.item_id as string)
+    items: (items.data ?? []).map((r) => r.item_id as string),
+    opciones: (opciones.data ?? []).map((r) => ({ item_id: r.item_id as string, opcion_id: r.opcion_id as string }))
   }
 }
 
@@ -149,5 +153,19 @@ export async function configurarSucursalItems(sucursalId: string, itemsIds: stri
   if (aInsertar.length) ops.push(Promise.resolve(supabase.from('sucursal_items').insert(aInsertar.map((item_id) => ({ sucursal_id: sucursalId, item_id })))).then(() => undefined))
   if (aActivar.length) ops.push(Promise.resolve(supabase.from('sucursal_items').update({ activa: true }).in('id', aActivar)).then(() => undefined))
   if (aDesactivar.length) ops.push(Promise.resolve(supabase.from('sucursal_items').update({ activa: false }).in('id', aDesactivar)).then(() => undefined))
+  await Promise.all(ops)
+}
+
+export async function configurarSucursalOpciones(sucursalId: string, opciones: { item_id: string; opcion_id: string }[]): Promise<void> {
+  const { data: actuales } = await supabase.from('sucursal_opciones').select('id, item_id, opcion_id, activa').eq('sucursal_id', sucursalId)
+  const rows = (actuales ?? []) as { id: string; item_id: string; opcion_id: string; activa: boolean }[]
+  const pares = new Set(opciones.map((o) => `${o.item_id}:${o.opcion_id}`))
+  const aInsertar = opciones.filter((o) => !rows.some((r) => r.item_id === o.item_id && r.opcion_id === o.opcion_id))
+  const aActivar = rows.filter((r) => pares.has(`${r.item_id}:${r.opcion_id}`) && !r.activa).map((r) => r.id)
+  const aDesactivar = rows.filter((r) => !pares.has(`${r.item_id}:${r.opcion_id}`)).map((r) => r.id)
+  const ops: Promise<void>[] = []
+  if (aInsertar.length) ops.push(Promise.resolve(supabase.from('sucursal_opciones').insert(aInsertar.map((o) => ({ sucursal_id: sucursalId, item_id: o.item_id, opcion_id: o.opcion_id })))).then(() => undefined))
+  if (aActivar.length) ops.push(Promise.resolve(supabase.from('sucursal_opciones').update({ activa: true }).in('id', aActivar)).then(() => undefined))
+  if (aDesactivar.length) ops.push(Promise.resolve(supabase.from('sucursal_opciones').update({ activa: false }).in('id', aDesactivar)).then(() => undefined))
   await Promise.all(ops)
 }

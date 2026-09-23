@@ -81,8 +81,21 @@ export async function descargarPdf(id: string): Promise<void> {
 }
 
 export function generarPdfResultado(d: DetalleEvaluacion): void {
-  const { evaluacion: ev, respuestas, items, modulos } = d
-  const { puntaje } = resumirEvaluacion(ev, respuestas, items)
+  const { evaluacion: ev, respuestas, items, modulos, sucursalOpciones } = d
+  const { puntaje } = resumirEvaluacion(ev, respuestas, items, sucursalOpciones)
+
+  const aplicaOpciones = new Map<string, string[]>()
+  for (const o of sucursalOpciones.filter((x) => x.sucursal_id === ev.sucursal_id && x.activa)) {
+    const arr = aplicaOpciones.get(o.item_id) ?? []
+    arr.push(o.opcion_id)
+    aplicaOpciones.set(o.item_id, arr)
+  }
+  const aplicarOpciones = (item: Item) => {
+    if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
+    const ids = aplicaOpciones.get(item.id)
+    if (!ids?.length) return item
+    return { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) }
+  }
 
   const doc = new jsPDF()
   const W = doc.internal.pageSize.getWidth()
@@ -157,7 +170,7 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
         const vals = respuestas
           .map((r) => {
             const it = itemMod.find((i) => i.id === r.item_id)
-            return it ? valorBinario(it, r.valor) : null
+            return it ? valorBinario(aplicarOpciones(it), r.valor) : null
           })
           .filter((x): x is boolean => x !== null)
         const ok = vals.filter(Boolean).length
@@ -193,7 +206,7 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
         vals.push({ item: it, valor: r.valor })
       }
     }
-    const bin = vals.map((x) => valorBinario(x.item, x.valor)).filter((x): x is boolean => x !== null)
+    const bin = vals.map((x) => valorBinario(aplicarOpciones(x.item), x.valor)).filter((x): x is boolean => x !== null)
     const punteo = bin.length ? Math.round((bin.filter(Boolean).length / bin.length) * 10000) / 100 : null
 
     doc.addPage()

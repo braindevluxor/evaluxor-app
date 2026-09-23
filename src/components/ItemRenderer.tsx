@@ -282,8 +282,8 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <ResumenConciliacion etiqueta="SKU agregados" valor={String(productos.length)} color="text-primary-900" />
-            <ResumenConciliacion etiqueta="Conciliaciones" valor={String(conciliadas)} color="text-green-600" />
-            <ResumenConciliacion etiqueta="Desconciliaciones" valor={String(desconciliadas)} color={desconciliadas > 0 ? 'text-red-600' : 'text-slate-400'} />
+            <ResumenConciliacion etiqueta="Match" valor={String(conciliadas)} color="text-green-600" />
+            <ResumenConciliacion etiqueta="No Match" valor={String(desconciliadas)} color={desconciliadas > 0 ? 'text-red-600' : 'text-slate-400'} />
             <ResumenConciliacion etiqueta="Prom. conciliación" valor={promedio != null ? `${promedio}%` : '—'} color={promedio != null && promedio < 100 ? 'text-red-600' : 'text-green-600'} />
           </div>
 
@@ -361,7 +361,7 @@ function ResumenConciliacion({ etiqueta, valor, color }: { etiqueta: string; val
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-center">
       <p className={cn('text-lg font-extrabold tabular-nums', color)}>{valor}</p>
-      <p className="mt-0.5 text-[11px] font-medium text-slate-500">{etiqueta}</p>
+      <p className="mt-0.5 break-words text-[11px] font-medium leading-tight text-slate-500">{etiqueta}</p>
     </div>
   )
 }

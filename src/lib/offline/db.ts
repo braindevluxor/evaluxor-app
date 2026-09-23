@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Modulo, Item, Sucursal, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem } from '../types'
+import type { Modulo, Item, Sucursal, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem, SucursalOpcion } from '../types'
 
 export interface DraftResp {
   valor: unknown
@@ -41,6 +41,7 @@ export interface CacheData {
   asignacionesModulos: AsignacionModulo[]
   sucursalModulos: SucursalModulo[]
   sucursalItems: SucursalItem[]
+  sucursalOpciones: SucursalOpcion[]
   updated_at: number
 }
 
@@ -52,7 +53,7 @@ interface EvaluxorDB extends DBSchema {
 }
 
 const DB_NAME = 'evaluxor-db'
-const DB_VERSION = 3
+const DB_VERSION = 4
 
 let dbPromise: Promise<IDBPDatabase<EvaluxorDB>> | null = null
 
@@ -64,7 +65,7 @@ export function getDB(): Promise<IDBPDatabase<EvaluxorDB>> {
         if (!db.objectStoreNames.contains('drafts')) db.createObjectStore('drafts')
         if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos')
         if (!db.objectStoreNames.contains('queue')) db.createObjectStore('queue')
-        if (oldVersion > 0 && oldVersion < 3) {
+        if (oldVersion > 0 && oldVersion < 4) {
           db.deleteObjectStore('cache')
           db.createObjectStore('cache')
           db.deleteObjectStore('queue')

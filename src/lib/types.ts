@@ -73,6 +73,15 @@ export interface SucursalItem {
   created_at: string
 }
 
+export interface SucursalOpcion {
+  id: string
+  sucursal_id: string
+  item_id: string
+  opcion_id: string
+  activa: boolean
+  created_at: string
+}
+
 export interface Modulo {
   id: string
   nombre: string
