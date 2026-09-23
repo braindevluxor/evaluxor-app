@@ -7,11 +7,14 @@ const CORS = {
   'Content-Type': 'application/json'
 }
 
-const RESPUESTA = (cuerpo: unknown, httpStatus: number, respuestaStatus = 200) =>
-  new Response(JSON.stringify({ ok: httpStatus >= 200 && httpStatus < 300, status: httpStatus, data: cuerpo }), {
-    status: respuestaStatus,
-    headers: CORS
-  })
+const RESPUESTA = (cuerpo: unknown, httpStatus: number, respuestaStatus = 200, error?: string) =>
+  new Response(
+    JSON.stringify({ ok: httpStatus >= 200 && httpStatus < 300, status: httpStatus, data: cuerpo, error }),
+    {
+      status: respuestaStatus,
+      headers: CORS
+    }
+  )
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -37,7 +40,7 @@ Deno.serve(async (req) => {
     }
 
     return RESPUESTA(cuerpo, res.status)
-  } catch {
-    return RESPUESTA(null, 500, 200)
+  } catch (e) {
+    return RESPUESTA(null, 500, 200, e instanceof Error ? e.message : String(e))
   }
 })
