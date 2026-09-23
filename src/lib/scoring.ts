@@ -140,6 +140,54 @@ if (item.tipo === 'CHECKLIST') {
   return null
 }
 
+export interface AcumuladoResponsable {
+  responsable: string
+  puntos: number
+}
+
+export function incumplimientosPorResponsable(
+  item: { tipo: string; opciones?: string[] | { id: string; responsable?: string }[] | null },
+  valor: unknown
+): AcumuladoResponsable[] {
+  if (valorBinario(item, valor) === null) return []
+  const puntos = ((item.opciones ?? []) as { id?: string; responsable?: string }[]).filter((o) => o.id && (o.responsable ?? '').trim())
+  const acum = new Map<string, number>()
+  const sumar = (responsable: string) => {
+    const r = (responsable ?? '').trim()
+    if (!r) return
+    acum.set(r, (acum.get(r) ?? 0) + 1)
+  }
+  if (puntos.length) {
+    if (item.tipo === 'CHECKLIST') {
+      const v = valor as ValorChecklist | null
+      const sel = v?.selected ?? []
+      const informativos = v?.informativos ?? []
+      for (const o of puntos) {
+        if (!informativos.includes(o.id as string) && !sel.includes(o.id as string)) sumar(o.responsable ?? '')
+      }
+    } else if (item.tipo === 'LISTA_COLABORADORES') {
+      const v = valor as ValorListaColaboradores | null
+      for (const c of (v?.colaboradores ?? []).filter((x) => x.aplica)) {
+        const sel = c.selected ?? []
+        for (const o of puntos) {
+          if (!sel.includes(o.id as string)) sumar(o.responsable ?? '')
+        }
+      }
+    } else if (item.tipo === 'UNIDAD_CHECKLIST') {
+      const v = valor as ValorUnidadChecklist | null
+      for (const u of v?.unidades ?? []) {
+        const sel = u.selected ?? []
+        for (const o of puntos) {
+          if (!sel.includes(o.id as string)) sumar(o.responsable ?? '')
+        }
+      }
+    }
+  }
+  return Array.from(acum.entries())
+    .map(([responsable, n]) => ({ responsable: responsable as string, puntos: n }))
+    .sort((a, b) => b.puntos - a.puntos || a.responsable.localeCompare(b.responsable))
+}
+
 export function calcularPuntaje(
   respuestas: { item: { tipo: string; opciones?: string[] | { id: string }[] | null }; valor: unknown }[]
 ): number | null {

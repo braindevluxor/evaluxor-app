@@ -106,6 +106,7 @@ export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: 
       texto: i.texto,
       opciones: i.opciones ?? [],
       colaboradores_filtro: i.colaboradores_filtro ?? null,
+      responsables: i.responsables ?? [],
       orden: i.orden ?? 0,
       requerido: i.requerido ?? false
     })

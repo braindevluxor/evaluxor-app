@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Target, CheckCircle2, Store, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
-import { consultarEvaluaciones, peoresItems, puntajePorModulo, rankingSucursales } from '../../lib/data/indicadores'
+import { consultarEvaluaciones, peoresItems, puntajePorModulo, rankingSucursales, acumuladoResponsables } from '../../lib/data/indicadores'
 import type { ConjuntoDatos } from '../../lib/data/indicadores'
 import { KpiCard } from '../../components/dashboard/Kpi'
 import { Card, Field, Input, Puntaje, Select, Spinner } from '../../components/ui'
@@ -65,6 +65,7 @@ export function DashboardHome() {
   const ranking = useMemo(() => (datos ? rankingSucursales(datos, sucursalesVisibles) : []), [datos, sucursalesVisibles])
   const porModulo = useMemo(() => (datos ? puntajePorModulo(datos) : []), [datos])
   const peores = useMemo(() => (datos ? peoresItems(datos) : []), [datos])
+  const responsables = useMemo(() => (datos ? acumuladoResponsables(datos) : []), [datos])
 
   const kpis = useMemo(() => {
     if (!datos) return { global: null as number | null, completadas: 0, cobertura: 0, incumplimientos: 0 }
@@ -180,6 +181,33 @@ export function DashboardHome() {
                 </div>
               </div>
             ) : <p className="text-sm text-slate-400">Se necesitan al menos 3 módulos con datos.</p>}
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <h3 className="mb-1 font-bold text-primary-900">Incumplimientos por responsable</h3>
+            <p className="mb-3 text-xs text-slate-400">Puntos del checklist sin cumplir acumulados al responsable asignado en el ítem</p>
+            {responsables.length ? (
+              <div className="space-y-2">
+                {responsables.slice(0, 12).map((r, i) => (
+                  <div key={r.responsable} className="flex items-center gap-3">
+                    <span className="w-5 shrink-0 text-center text-xs font-bold text-slate-400">{i + 1}</span>
+                    <span className="w-40 truncate text-sm font-semibold text-slate-700">{r.responsable}</span>
+                    <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-red-500"
+                        style={{ width: `${Math.max(4, Math.round((r.puntos / responsables[0].puntos) * 100))}%` }}
+                      />
+                    </div>
+                    <span className="w-14 shrink-0 text-right text-sm font-bold tabular-nums text-red-600">{r.puntos}</span>
+                  </div>
+                ))}
+                {responsables.length > 12 ? (
+                  <p className="text-xs text-slate-400">…y {responsables.length - 12} responsables más.</p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">Sin puntos asignados a responsables en el rango. Configura responsables en cada ítem para ver este reporte.</p>
+            )}
           </Card>
         </div>
       ) : null}

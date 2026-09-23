@@ -5,8 +5,10 @@ import { listarUsuarios, type ProfileVista } from '../../lib/data/usuarios'
 import type { Sucursal } from '../../lib/types'
 import { Button, Field, Input, Modal, Spinner, Badge, Select } from '../../components/ui'
 import { SucursalConfigModal } from './SucursalConfig'
+import { useCatalog } from '../../context/CatalogContext'
 
 export function SucursalesPage() {
+  const { refresh: refrescarCatalogo } = useCatalog()
   const [sucursales, setSucursales] = useState<SucursalVista[]>([])
   const [cargando, setCargando] = useState(true)
   const [modal, setModal] = useState(false)
@@ -79,13 +81,14 @@ export function SucursalesPage() {
             setMsg('Guardado correctamente.')
             setModal(false)
             await cargar()
+            await refrescarCatalogo()
           }}
         />
       </Modal>
       <SucursalConfigModal
         sucursal={configurando}
         onClose={() => setConfigurando(null)}
-        onGuardado={() => { void cargar() }}
+        onGuardado={() => { void cargar(); void refrescarCatalogo() }}
       />
       {msg ? <p className="text-sm font-medium text-green-700">{msg}</p> : null}
     </div>

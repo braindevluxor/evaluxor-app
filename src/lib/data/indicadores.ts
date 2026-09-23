@@ -1,6 +1,6 @@
 import { supabase } from '../supabase'
 import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion } from '../types'
-import { valorBinario } from '../scoring'
+import { valorBinario, incumplimientosPorResponsable, type AcumuladoResponsable } from '../scoring'
 
 export interface FiltrosIndicadores {
   sucursal_ids: string[] | null
@@ -285,6 +285,23 @@ export function peoresItems(datos: ConjuntoDatos): { item_id: string; texto: str
     .map((x) => ({ ...x, ratio: x.total ? x.ok / x.total : 0 }))
     .sort((a, b) => a.ratio - b.ratio)
     .slice(0, 10)
+}
+
+export function acumuladoResponsables(datos: ConjuntoDatos): AcumuladoResponsable[] {
+  const sucursalDeEval = new Map(datos.evaluaciones.map((e) => [e.id, e.sucursal_id]))
+  const acum = new Map<string, number>()
+  for (const r of datos.respuestas) {
+    const item = datos.items.find((i) => i.id === r.item_id)
+    if (!item) continue
+    const sucursalId = sucursalDeEval.get(r.evaluacion_id)
+    const it = sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item
+    for (const a of incumplimientosPorResponsable(it, r.valor)) {
+      acum.set(a.responsable, (acum.get(a.responsable) ?? 0) + a.puntos)
+    }
+  }
+  return Array.from(acum.entries())
+    .map(([responsable, puntos]) => ({ responsable, puntos }))
+    .sort((a, b) => b.puntos - a.puntos || a.responsable.localeCompare(b.responsable))
 }
 
 export function porEvaluador(datos: ConjuntoDatos): { evaluador_id: string; nombre: string; puntaje: number | null; evaluaciones: number }[] {

@@ -126,6 +126,7 @@ function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unkno
                       onChange={() => toggle(o.id)}
                     />
                     <span className="text-sm text-slate-700">{o.etiqueta}</span>
+                    {o.responsable ? <span className="ml-1 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{o.responsable}</span> : null}
                   </label>
                   <button
                     type="button"
@@ -511,6 +512,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId }: { item: Item; va
                             onChange={() => toggleCheck(c.dni, o.id)}
                           />
                           <span className={cn('text-sm', c.aplica ? 'text-slate-700' : 'text-slate-400')}>{o.etiqueta}</span>
+                          {o.responsable ? <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{o.responsable}</span> : null}
                         </label>
                       )
                     })}
@@ -636,7 +638,8 @@ function UnidadesEditor({ item, valor, onChange }: { item: Item; valor: unknown;
                               checked={esta}
                               onChange={() => toggleCheck(i, o.id)}
                             />
-                            <span className="text-sm text-slate-700">{o.etiqueta}</span>
+<span className="text-sm text-slate-700">{o.etiqueta}</span>
+                            {o.responsable ? <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{o.responsable}</span> : null}
                           </label>
                         )
                       })}

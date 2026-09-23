@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable'
 import type { Item } from './types'
 import type { DetalleEvaluacion } from './data/indicadores'
 import { obtenerEvaluacion, resumirEvaluacion } from './data/indicadores'
-import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from './scoring'
+import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from './scoring'
 
 const MARINO: [number, number, number] = [11, 37, 69]
 const MARINO_CLARO: [number, number, number] = [238, 244, 251]
@@ -278,6 +278,41 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
         0: { cellWidth: 90 },
         1: { cellWidth: 45, halign: 'center' },
         2: { cellWidth: 'auto' }
+      }
+    })
+  }
+
+  const acumResp = new Map<string, number>()
+  for (const r of respuestas) {
+    const it = items.find((i) => i.id === r.item_id)
+    if (!it) continue
+    for (const a of incumplimientosPorResponsable(aplicarOpciones(it), r.valor)) {
+      acumResp.set(a.responsable, (acumResp.get(a.responsable) ?? 0) + a.puntos)
+    }
+  }
+  if (acumResp.size) {
+    doc.addPage()
+    doc.setFillColor(...MARINO_CLARO)
+    doc.roundedRect(M, 14, W - M * 2, 14, 2, 2, 'F')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.setTextColor(...MARINO)
+    doc.text('Incumplimientos por responsable', M + 5, 23)
+    const filasResp = Array.from(acumResp.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([responsable, n], i) => [i + 1, responsable, n])
+    autoTable(doc, {
+      startY: 32,
+      margin: { left: M, right: M },
+      head: [['#', 'Responsable', 'Puntos sin cumplir']],
+      body: filasResp,
+      theme: 'striped',
+      headStyles: { fillColor: MARINO, textColor: 255, fontSize: 9.5, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 9, textColor: MARINO },
+      columnStyles: {
+        0: { cellWidth: 12, halign: 'center' },
+        1: { cellWidth: 'auto' },
+        2: { halign: 'right', fontStyle: 'bold' }
       }
     })
   }

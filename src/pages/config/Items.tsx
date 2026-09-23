@@ -153,6 +153,9 @@ function FormItem({
   const [requerido, setRequerido] = useState(inicial?.requerido ?? false)
   const [activo, setActivo] = useState(inicial?.activo ?? true)
   const [filtroColaboradores, setFiltroColaboradores] = useState<FiltroColaboradores>(inicial?.colaboradores_filtro ?? 'ACTIVOS')
+  const [responsables, setResponsables] = useState<string[]>(inicial?.responsables?.length ? inicial.responsables : [])
+
+  const conChecklist = tipo === 'CHECKLIST' || tipo === 'LISTA_COLABORADORES' || tipo === 'UNIDAD_CHECKLIST'
 
   return (
     <form
@@ -164,8 +167,9 @@ function FormItem({
           modulo_id: inicial?.modulo_id ?? moduloId,
           tipo,
           texto,
-          opciones: tipo === 'CHECKLIST' || tipo === 'LISTA_COLABORADORES' || tipo === 'UNIDAD_CHECKLIST' ? opciones.filter((o) => o.etiqueta.trim()) : [],
+          opciones: conChecklist ? opciones.filter((o) => o.etiqueta.trim()) : [],
           colaboradores_filtro: tipo === 'LISTA_COLABORADORES' ? filtroColaboradores : null,
+          responsables: conChecklist ? responsables.filter((r) => r.trim()) : undefined,
           requerido,
           activo
         })
@@ -181,13 +185,13 @@ function FormItem({
       </Field>
       {tipo === 'CHECKLIST' ? (
         <Field label="Lista de opciones (el ítem cumple al marcar todas)">
-          <EditorOpciones opciones={opciones} onChange={setOpciones} />
+          <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} />
         </Field>
       ) : null}
       {tipo === 'LISTA_COLABORADORES' ? (
         <>
           <Field label="Checklist de cada colaborador (se aplica a todos los colaboradores de la tienda)">
-            <EditorOpciones opciones={opciones} onChange={setOpciones} />
+            <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} />
           </Field>
           <Field label="Colaboradores en cuenta">
             <Select value={filtroColaboradores} onChange={(e) => setFiltroColaboradores(e.target.value as FiltroColaboradores)}>
@@ -204,12 +208,15 @@ function FormItem({
       {tipo === 'UNIDAD_CHECKLIST' ? (
         <>
           <Field label="Checklist de cada unidad (se aplica a todas las unidades que se agreguen)">
-            <EditorOpciones opciones={opciones} onChange={setOpciones} />
+            <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} />
           </Field>
           <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
             En la evaluación el evaluador agrega cada unidad (valor alfanumérico) una a una y marca este mismo checklist para cada una. El ítem cumple cuando todas las unidades agregadas tienen su checklist completo.
           </p>
         </>
+      ) : null}
+      {conChecklist ? (
+        <EditorResponsables responsables={responsables} onChange={setResponsables} />
       ) : null}
       {tipo === 'CONCILIACION' ? (
         <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
@@ -229,12 +236,16 @@ function FormItem({
   )
 }
 
-function EditorOpciones({ opciones, onChange }: { opciones: Opcion[]; onChange: (o: Opcion[]) => void }) {
+function EditorOpciones({ opciones, onChange, responsables = [] }: { opciones: Opcion[]; onChange: (o: Opcion[]) => void; responsables?: string[] }) {
   const [arrastrando, setArrastrando] = useState<number | null>(null)
   const [sobre, setSobre] = useState<number | null>(null)
 
   const cambiar = (i: number, etiqueta: string) => {
     const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, etiqueta } : o))
+    onChange(nuevo)
+  }
+  const cambiarResponsable = (i: number, responsable: string) => {
+    const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, responsable: responsable.trim() || undefined } : o))
     onChange(nuevo)
   }
   const agregar = () => onChange([...opciones, { id: `o${Date.now()}`, etiqueta: '' }])
@@ -280,10 +291,56 @@ function EditorOpciones({ opciones, onChange }: { opciones: Opcion[]; onChange: 
           </button>
           <span className="w-5 shrink-0 text-center text-sm font-bold text-slate-400">{i + 1}</span>
           <Input value={o.etiqueta} onChange={(e) => cambiar(i, e.target.value)} placeholder={`Opción ${i + 1}`} />
+          {responsables.length ? (
+            <Select value={o.responsable ?? ''} onChange={(e) => cambiarResponsable(i, e.target.value)} className="w-44 shrink-0">
+              <option value="">(Sin asignar)</option>
+              {responsables.map((r) => <option key={r} value={r}>{r}</option>)}
+            </Select>
+          ) : null}
           <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
         </div>
       ))}
       <Button type="button" variant="secondary" onClick={agregar}>+ Agregar opción</Button>
     </div>
+  )
+}
+
+function EditorResponsables({ responsables, onChange }: { responsables: string[]; onChange: (r: string[]) => void }) {
+  const [nuevo, setNuevo] = useState('')
+
+  const agregar = () => {
+    const r = nuevo.trim()
+    if (!r) return
+    if (responsables.some((x) => x.toLowerCase() === r.toLowerCase())) {
+      setNuevo('')
+      return
+    }
+    onChange([...responsables, r])
+    setNuevo('')
+  }
+
+  return (
+    <Field label="Responsables" hint="Nombres que podrás asignar a cada punto con el selector de la derecha. Los puntos que no se cumplan se acumulan a su responsable.">
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Input value={nuevo} onChange={(e) => setNuevo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregar() } }} placeholder="Ej. Mecánico, Chofer…" />
+          <Button type="button" variant="secondary" className="shrink-0" onClick={agregar} disabled={!nuevo.trim()}>Agregar</Button>
+        </div>
+        {responsables.length ? (
+          <div className="flex flex-wrap gap-2">
+            {responsables.map((r) => (
+              <span key={r} className="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2.5 py-1 text-xs font-bold text-primary-900">
+                {r}
+                <button type="button" onClick={() => onChange(responsables.filter((x) => x !== r))} className="text-primary-400 hover:text-red-500" title="Quitar responsable">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400">Sin responsables configurados. Los puntos quedarán sin responsable y no se acumularán incumplimientos.</p>
+        )}
+      </div>
+    </Field>
   )
 }

@@ -98,6 +98,7 @@ export interface Modulo {
 export interface Opcion {
   id: string
   etiqueta: string
+  responsable?: string
 }
 
 export interface Item {
@@ -107,6 +108,7 @@ export interface Item {
   texto: string
   opciones: Opcion[] | null
   colaboradores_filtro?: FiltroColaboradores | null
+  responsables?: string[]
   orden: number
   requerido: boolean
   activo: boolean

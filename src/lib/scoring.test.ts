@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, conciliacionPorcentaje, conciliacionTotal } from './scoring'
+import { calcularPuntaje, valorBinario, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable } from './scoring'
 
 describe('valorBinario', () => {
   it('cumple/no cumple', () => {
@@ -110,5 +110,59 @@ describe('calcularPuntaje', () => {
   it('null sin binarios', () => {
     expect(calcularPuntaje([{ item: { tipo: 'OTRO' }, valor: 'x' }])).toBe(null)
     expect(calcularPuntaje([])).toBe(null)
+  })
+})
+
+describe('incumplimientosPorResponsable', () => {
+  it('checklist acumula cada punto sin marcar a su responsable', () => {
+    const item = {
+      tipo: 'CHECKLIST',
+      opciones: [
+        { id: 'a', etiqueta: 'A', responsable: 'Mecanico' },
+        { id: 'b', etiqueta: 'B', responsable: 'Chofer' },
+        { id: 'c', etiqueta: 'C' }
+      ]
+    }
+    expect(incumplimientosPorResponsable(item, { selected: ['a'] })).toEqual([{ responsable: 'Chofer', puntos: 1 }])
+    expect(incumplimientosPorResponsable(item, { selected: [] })).toEqual([])
+    expect(incumplimientosPorResponsable(item, null)).toEqual([])
+  })
+  it('checklist no acumula puntos informativos ni los ya marcados', () => {
+    const item = {
+      tipo: 'CHECKLIST',
+      opciones: [
+        { id: 'a', etiqueta: 'A', responsable: 'Mecanico' },
+        { id: 'b', etiqueta: 'B', responsable: 'Chofer' }
+      ]
+    }
+    expect(incumplimientosPorResponsable(item, { selected: ['a'], informativos: ['b'] })).toEqual([])
+    expect(incumplimientosPorResponsable(item, { selected: ['a', 'b'], informativos: [] })).toEqual([])
+  })
+  it('unidad checklist suma el punto faltante por cada unidad', () => {
+    const item = {
+      tipo: 'UNIDAD_CHECKLIST',
+      opciones: [
+        { id: 'a', etiqueta: 'A', responsable: 'Mecanico' },
+        { id: 'b', etiqueta: 'B', responsable: 'Chofer' }
+      ]
+    }
+    const v = { unidades: [{ codigo: 'U1', selected: ['a'] }, { codigo: 'U2', selected: ['a'] }] }
+    expect(incumplimientosPorResponsable(item, v)).toEqual([{ responsable: 'Chofer', puntos: 2 }])
+  })
+  it('lista de colaboradores ignora a los que no aplican', () => {
+    const item = {
+      tipo: 'LISTA_COLABORADORES',
+      opciones: [
+        { id: 'a', etiqueta: 'A', responsable: 'Mecanico' },
+        { id: 'b', etiqueta: 'B', responsable: 'Chofer' }
+      ]
+    }
+    const col = (aplica: boolean, selected: string[]) => ({ dni: 1, name: 'A', lastname: 'B', active: true, aplica, selected })
+    const v = { colaboradores: [col(true, ['a']), col(false, [])] }
+    expect(incumplimientosPorResponsable(item, v)).toEqual([{ responsable: 'Chofer', puntos: 1 }])
+  })
+  it('tipos sin puntos con responsable no acumulan', () => {
+    expect(incumplimientosPorResponsable({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: false })).toEqual([])
+    expect(incumplimientosPorResponsable({ tipo: 'CONCILIACION', opciones: [{ id: 'a', responsable: 'X' }] }, { productos: [{ sku: 'A', teorica: 2, fisica: 1 }] })).toEqual([])
   })
 })
