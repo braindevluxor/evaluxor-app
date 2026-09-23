@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, FileDown } from 'lucide-react'
 import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { descargarPdf } from '../lib/pdf'
-import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Puntaje, Spinner, cn } from '../components/ui'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
@@ -247,6 +247,16 @@ export function EvaluacionDetalle() {
     return { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) }
   }
 
+  const incumplimientos = new Map<string, number>()
+  for (const r of respuestas) {
+    const it = items.find((i) => i.id === r.item_id)
+    if (!it) continue
+    for (const a of incumplimientosPorResponsable(aplicarOpciones(it), r.valor)) {
+      incumplimientos.set(a.responsable, (incumplimientos.get(a.responsable) ?? 0) + a.puntos)
+    }
+  }
+  const filasResponsables = Array.from(incumplimientos.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+
   const descargar = async () => {
     setError('')
     setDescargando(true)
@@ -310,6 +320,21 @@ export function EvaluacionDetalle() {
             </div>
           ) : null}
         </section>
+
+        {filasResponsables.length ? (
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="font-bold text-primary-900">Resumen de responsables</p>
+            <p className="mb-3 text-xs text-slate-400">Fallas acumuladas en esta evaluación (puntos del checklist que no se cumplieron)</p>
+            <div className="space-y-2">
+              {filasResponsables.map(([nombre, n]) => (
+                <div key={nombre} className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
+                  <span className="min-w-0 truncate text-sm font-semibold text-slate-700">{nombre}</span>
+                  <span className="shrink-0 rounded-full bg-red-50 px-2.5 py-0.5 text-sm font-bold tabular-nums text-red-600">{n} falla{n !== 1 ? 's' : ''}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {modulos.map((m) => {
           const itemMod = items.filter((i) => i.modulo_id === m.id)
