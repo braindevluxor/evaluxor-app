@@ -1,5 +1,4 @@
-const BASE_URL = 'https://desarrolloluxor.lat/api/talentohumano/employee/samir'
-const API_KEY = 'PBDFeysVkGLa0zRfq5bYEUtNbmV0akhtN3hFakRES3E2cU82TVE9PQ=='
+import { supabase } from '../supabase'
 
 export interface ColaboradorAPI {
   nationality?: string
@@ -18,32 +17,36 @@ export interface ResultadoColaboradores {
   mensaje: string | null
 }
 
-export async function listarColaboradores(shopId: string): Promise<ResultadoColaboradores> {
-  const url = new URL(BASE_URL)
-  url.searchParams.set('branchID', shopId)
+interface RespuestaFuncion {
+  ok?: boolean
+  status?: number
+  data?: unknown
+}
 
-  let res: Response
+export async function listarColaboradores(shopId: string): Promise<ResultadoColaboradores> {
+  let respuesta: { data: unknown; error: unknown }
   try {
-    res = await fetch(url.toString(), { headers: { API_KEY } })
+    respuesta = await supabase.functions.invoke('listar-colaboradores', {
+      body: { branchID: shopId }
+    })
   } catch {
     return { colaboradores: [], mensaje: 'Sin conexión para consultar los colaboradores.' }
   }
 
-  let body: unknown
-  try {
-    body = await res.json()
-  } catch {
-    body = null
+  const cuerpo = (respuesta?.data ?? null) as RespuestaFuncion | null
+
+  if (respuesta?.error || !cuerpo || cuerpo.ok === false) {
+    const status = cuerpo?.status
+    return {
+      colaboradores: [],
+      mensaje: status ? `Error ${status} al consultar los colaboradores.` : 'No se pudo consultar los colaboradores.'
+    }
   }
 
-  if (!res.ok) {
-    return { colaboradores: [], mensaje: `Error ${res.status} al consultar los colaboradores.` }
-  }
-
-  const arr = Array.isArray(body)
-    ? body
-    : Array.isArray((body as { data?: unknown } | null)?.data)
-      ? (body as { data: unknown }).data
+  const arr = Array.isArray(cuerpo.data)
+    ? cuerpo.data
+    : Array.isArray((cuerpo.data as { data?: unknown } | null)?.data)
+      ? (cuerpo.data as { data: unknown }).data
       : null
 
   if (!arr) {
