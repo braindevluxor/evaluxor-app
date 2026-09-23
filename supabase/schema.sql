@@ -164,6 +164,7 @@ create table if not exists public.items (
   )),
   texto text not null,
   opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"..."}]; LISTA_COLABORADORES: checklist compartido por cada colaborador
+  colaboradores_filtro text not null default 'ACTIVOS' check (colaboradores_filtro in ('ACTIVOS','INACTIVOS','TODOS')), -- LISTA_COLABORADORES: filtro aplicado al cargar colaboradores
   orden integer not null default 0,
   requerido boolean not null default false,
   activo boolean not null default true,

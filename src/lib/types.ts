@@ -6,6 +6,8 @@ export type TipoItem =
   | 'CONCILIACION'
   | 'LISTA_COLABORADORES'
 
+export type FiltroColaboradores = 'ACTIVOS' | 'INACTIVOS' | 'TODOS'
+
 export interface Sucursal {
   id: string
   nombre: string
@@ -103,6 +105,7 @@ export interface Item {
   tipo: TipoItem
   texto: string
   opciones: Opcion[] | null
+  colaboradores_filtro?: FiltroColaboradores | null
   orden: number
   requerido: boolean
   activo: boolean

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { X } from 'lucide-react'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
 import { etiquetaTipo, ETIQUETAS_TIPO } from '../../lib/scoring'
-import type { Item, Modulo, Opcion, TipoItem } from '../../lib/types'
+import type { FiltroColaboradores, Item, Modulo, Opcion, TipoItem } from '../../lib/types'
 import { Button, Field, Input, Modal, Select, Textarea, Badge, Spinner } from '../../components/ui'
 
 const TIPOS = Object.keys(ETIQUETAS_TIPO) as TipoItem[]
@@ -152,6 +152,7 @@ function FormItem({
   const [opciones, setOpciones] = useState<Opcion[]>(inicial?.opciones?.length ? inicial.opciones : [{ id: 'o1', etiqueta: '' }, { id: 'o2', etiqueta: '' }])
   const [requerido, setRequerido] = useState(inicial?.requerido ?? false)
   const [activo, setActivo] = useState(inicial?.activo ?? true)
+  const [filtroColaboradores, setFiltroColaboradores] = useState<FiltroColaboradores>(inicial?.colaboradores_filtro ?? 'ACTIVOS')
 
   return (
     <form
@@ -164,6 +165,7 @@ function FormItem({
           tipo,
           texto,
           opciones: tipo === 'CHECKLIST' || tipo === 'LISTA_COLABORADORES' ? opciones.filter((o) => o.etiqueta.trim()) : [],
+          colaboradores_filtro: tipo === 'LISTA_COLABORADORES' ? filtroColaboradores : null,
           requerido,
           activo
         })
@@ -183,12 +185,21 @@ function FormItem({
         </Field>
       ) : null}
       {tipo === 'LISTA_COLABORADORES' ? (
-        <Field label="Checklist de cada colaborador (se aplica a todos los colaboradores de la tienda)">
-          <EditorOpciones opciones={opciones} onChange={setOpciones} />
-          <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-            En la evaluación se cargan los colaboradores de la tienda desde la API de talento humano y este mismo checklist se marca para cada uno. El ítem cumple cuando todos los colaboradores en cuenta tienen su checklist completo.
+        <>
+          <Field label="Checklist de cada colaborador (se aplica a todos los colaboradores de la tienda)">
+            <EditorOpciones opciones={opciones} onChange={setOpciones} />
+          </Field>
+          <Field label="Colaboradores en cuenta">
+            <Select value={filtroColaboradores} onChange={(e) => setFiltroColaboradores(e.target.value as FiltroColaboradores)}>
+              <option value="ACTIVOS">Solo activos</option>
+              <option value="INACTIVOS">Solo inactivos</option>
+              <option value="TODOS">Activos e inactivos</option>
+            </Select>
+          </Field>
+          <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+            En la evaluación se cargan los colaboradores de la tienda desde la API de talento humano (aplicando el filtro elegido) y este mismo checklist se marca para cada uno. El ítem cumple cuando todos los colaboradores en cuenta tienen su checklist completo.
           </p>
-        </Field>
+        </>
       ) : null}
       {tipo === 'CONCILIACION' ? (
         <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">

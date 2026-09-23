@@ -365,20 +365,17 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
 function ColaboradoresEditor({ item, valor, onChange, shopId }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
   const [cargando, setCargando] = useState(false)
   const [info, setInfo] = useState('')
-  const [abiertos, setAbiertos] = useState<Set<number>>(new Set())
+  const [abiertoDni, setAbiertoDni] = useState<number | null>(null)
 
   const v = (valor as ValorListaColaboradores | null) ?? { colaboradores: [] }
   const colaboradores = v.colaboradores ?? []
   const opts = (item.opciones ?? []) as Opcion[]
+  const filtro = item.colaboradores_filtro ?? 'ACTIVOS'
+  const etiquetaFiltro = filtro === 'TODOS' ? 'activos e inactivos' : filtro === 'ACTIVOS' ? 'solo activos' : 'solo inactivos'
 
   const actualizar = (cols: ColaboradorItem[]) => onChange({ ...v, colaboradores: cols })
   const toggleAbierto = (dni: number) => {
-    setAbiertos((prev) => {
-      const n = new Set(prev)
-      if (n.has(dni)) n.delete(dni)
-      else n.add(dni)
-      return n
-    })
+    setAbiertoDni((prev) => (prev === dni ? null : dni))
   }
 
   const cargar = async () => {
@@ -398,26 +395,26 @@ function ColaboradoresEditor({ item, valor, onChange, shopId }: { item: Item; va
       setInfo(r.mensaje)
       return
     }
-    const nuevos: ColaboradorItem[] = r.colaboradores.map((c) => ({
-      dni: typeof c.dni === 'number' ? c.dni : Number(c.dni ?? 0),
-      nationality: c.nationality,
-      name: c.name ?? '',
-      lastname: c.lastname ?? '',
-      role_id: c.role_id,
-      role_name: c.role_name ?? '',
-      branch_id: c.branch_id,
-      branch_name: c.branch_name ?? '',
-      active: c.active !== false,
-      aplica: true,
-      selected: []
-    }))
+    const nuevos: ColaboradorItem[] = r.colaboradores
+      .filter((c) => filtro === 'TODOS' || c.active === (filtro === 'ACTIVOS'))
+      .map((c) => ({
+        dni: typeof c.dni === 'number' ? c.dni : Number(c.dni ?? 0),
+        nationality: c.nationality,
+        name: c.name ?? '',
+        lastname: c.lastname ?? '',
+        role_id: c.role_id,
+        role_name: c.role_name ?? '',
+        branch_id: c.branch_id,
+        branch_name: c.branch_name ?? '',
+        active: c.active !== false,
+        aplica: true,
+        selected: []
+      }))
+    if (!nuevos.length) {
+      setInfo(`No hay colaboradores para el filtro configurado (${etiquetaFiltro}).`)
+    }
     actualizar(nuevos)
-    setAbiertos(new Set())
-  }
-
-  const aplicarATodos = (activos: boolean | null) => {
-    const cols = colaboradores.map((c) => (activos === null ? { ...c, aplica: true } : { ...c, aplica: c.active === activos }))
-    actualizar(cols)
+    setAbiertoDni(null)
   }
 
   const marcarAplica = (dni: number) => {
@@ -446,22 +443,13 @@ function ColaboradoresEditor({ item, valor, onChange, shopId }: { item: Item; va
         {colaboradores.length ? (
           <>
             <p className="mt-1 text-sm text-slate-600">
-              {aplicando.length} colaboradores en cuenta · {cumplidos}/{aplicando.length} con checklist completo
+              {aplicando.length} colaboradores en cuenta ({etiquetaFiltro}) · {cumplidos}/{aplicando.length} con checklist completo
             </p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <button type="button" onClick={() => aplicarATodos(true)} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:border-primary">
-                Solo activos
-              </button>
-              <button type="button" onClick={() => aplicarATodos(false)} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:border-primary">
-                Solo inactivos
-              </button>
-              <button type="button" onClick={() => aplicarATodos(null)} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:border-primary">
-                Todos
-              </button>
-            </div>
           </>
         ) : (
-          <p className="mt-1 text-xs text-slate-500">El ítem cumple cuando todos los colaboradores en cuenta tienen su checklist completo.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            El ítem cumple cuando todos los colaboradores en cuenta ({etiquetaFiltro}) tienen su checklist completo.
+          </p>
         )}
         <div className="mt-3 flex items-center gap-2">
           <Button type="button" variant="secondary" className="shrink-0 min-h-0 px-3 py-2" disabled={cargando} onClick={() => void cargar()}>
@@ -479,7 +467,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId }: { item: Item; va
       {colaboradores.length ? (
         <div className="space-y-2">
           {colaboradores.map((c) => {
-            const abierto = abiertos.has(c.dni)
+            const abierto = abiertoDni === c.dni
             const cumple = colaboradorCumple(c, opts)
             return (
               <div key={c.dni} className={cn('rounded-xl border transition-colors', c.aplica ? (cumple ? 'border-green-200 bg-white' : 'border-slate-200 bg-white') : 'border-slate-100 bg-slate-50')}>
