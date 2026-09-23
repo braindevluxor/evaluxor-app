@@ -160,7 +160,7 @@ create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
   modulo_id uuid not null references public.modulos(id) on delete cascade,
   tipo text not null check (tipo in (
-    'CHECKLIST','COMENTARIO','FOTO','CUMPLE_NO_CUMPLE','DESCRIPCION','CANTIDAD','CONCILIACION'
+    'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION'
   )),
   texto text not null,
   opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"..."}]
@@ -171,10 +171,11 @@ create table if not exists public.items (
 );
 create index if not exists idx_items_modulo on public.items(modulo_id, orden);
 
--- compatibilidad con bases previas
+-- compatibilidad con bases previas (se eliminan los tipos ya retirados)
+delete from public.items where tipo in ('COMENTARIO','FOTO','DESCRIPCION','CANTIDAD');
 alter table public.items drop constraint if exists items_tipo_check;
 alter table public.items add constraint items_tipo_check check (tipo in (
-  'CHECKLIST','COMENTARIO','FOTO','CUMPLE_NO_CUMPLE','DESCRIPCION','CANTIDAD','CONCILIACION'
+  'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION'
 ));
 
 -- ----------------------------------------------------------------------------
@@ -463,15 +464,10 @@ cross join (
   values
     ('Aseo y limpieza', 'CHECKLIST', 'Pisos limpios y secos', '[{"id":"a1","etiqueta":"Main entrada"},{"id":"a2","etiqueta":"Pasillos"},{"id":"a3","etiqueta":"Linea de cajas"}]'::text, 1, true),
     ('Aseo y limpieza', 'CUMPLE_NO_CUMPLE', 'Servicios sanitarios en condiciones', NULL, 2, true),
-    ('Aseo y limpieza', 'FOTO', 'Evidencia fotografica del area', NULL, 3, false),
-    ('Aseo y limpieza', 'COMENTARIO', 'Observaciones de aseo', NULL, 4, false),
     ('Presentacion', 'CUMPLE_NO_CUMPLE', 'Uniforme completo y limpio', NULL, 1, true),
     ('Presentacion', 'CUMPLE_NO_CUMPLE', 'Identificacion visible', NULL, 2, true),
-    ('Presentacion', 'DESCRIPCION', 'Describir hallazgos de presentacion', NULL, 3, false),
-    ('Frescos', 'CANTIDAD', 'Contenedores de madurez con fruta dañada (cantidad)', NULL, 1, false),
-    ('Frescos', 'CUMPLE_NO_CUMPLE', 'Temperatura de vitrinas adecuada', NULL, 2, true),
-    ('Atencion al cliente', 'CUMPLE_NO_CUMPLE', 'Colaboradores disponibles en la tienda', NULL, 1, true),
-    ('Atencion al cliente', 'COMENTARIO', 'Comentario sobre el trato recibido', NULL, 2, false)
+    ('Frescos', 'CUMPLE_NO_CUMPLE', 'Temperatura de vitrinas adecuada', NULL, 1, true),
+    ('Atencion al cliente', 'CUMPLE_NO_CUMPLE', 'Colaboradores disponibles en la tienda', NULL, 1, true)
   ) as it(modulo_nombre, tipo, texto, opciones, orden, requerido)
 where mod.nombre = it.modulo_nombre
   and not exists (select 1 from public.items);

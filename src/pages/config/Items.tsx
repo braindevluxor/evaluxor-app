@@ -135,7 +135,7 @@ export function ItemsPage() {
 }
 
 function tipoColor(t: TipoItem): number {
-  return t === 'CUMPLE_NO_CUMPLE' ? 3 : t === 'CONCILIACION' ? 6 : t === 'FOTO' ? 0 : t === 'CHECKLIST' ? 5 : 4
+  return t === 'CUMPLE_NO_CUMPLE' ? 3 : t === 'CONCILIACION' ? 6 : t === 'CHECKLIST' ? 5 : 4
 }
 
 function FormItem({

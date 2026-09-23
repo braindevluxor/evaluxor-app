@@ -16,10 +16,23 @@ describe('valorBinario', () => {
     expect(valorBinario(item, null)).toBe(null)
     expect(valorBinario(item, { selected: [] })).toBe(null)
   })
-  it('tipos cualitativos no puntuan', () => {
-    expect(valorBinario({ tipo: 'COMENTARIO' }, 'texto')).toBe(null)
-    expect(valorBinario({ tipo: 'FOTO' }, { photoIds: ['x'] })).toBe(null)
-    expect(valorBinario({ tipo: 'CANTIDAD' }, 5)).toBe(null)
+  it('tipos no puntuables no puntuan', () => {
+    expect(valorBinario({ tipo: 'OTRO' }, 'texto')).toBe(null)
+    expect(valorBinario({ tipo: 'OTRO' }, { photoIds: ['x'] })).toBe(null)
+    expect(valorBinario({ tipo: 'OTRO' }, 5)).toBe(null)
+  })
+  it('informativo no descuenta puntos', () => {
+    expect(valorBinario({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: false, informativo: true })).toBe(null)
+    expect(valorBinario({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: true, informativo: true })).toBe(null)
+    expect(valorBinario({ tipo: 'CONCILIACION' }, { productos: [{ sku: 'A', teorica: 10, fisica: 9 }], informativo: true })).toBe(null)
+  })
+  it('checklist excluye opciones informativas', () => {
+    const item = { tipo: 'CHECKLIST', opciones: [{ id: 'a' }, { id: 'b' }] }
+    expect(valorBinario(item, { selected: ['a'], informativos: ['b'] })).toBe(true)
+    expect(valorBinario(item, { selected: ['a', 'b'], informativos: ['b'] })).toBe(true)
+    expect(valorBinario(item, { selected: ['a'], informativos: ['a'] })).toBe(false)
+    expect(valorBinario(item, { selected: ['a', 'b'], informativos: ['a', 'b'] })).toBe(null)
+    expect(valorBinario(item, { selected: [], informativos: ['b'] })).toBe(null)
   })
   it('informativo no descuenta puntos', () => {
     expect(valorBinario({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: false, informativo: true })).toBe(null)
@@ -64,7 +77,7 @@ describe('calcularPuntaje', () => {
       { item: { tipo: 'CUMPLE_NO_CUMPLE' }, valor: { value: true } },
       { item: { tipo: 'CUMPLE_NO_CUMPLE' }, valor: { value: true } },
       { item: { tipo: 'CUMPLE_NO_CUMPLE' }, valor: { value: false } },
-      { item: { tipo: 'COMENTARIO' }, valor: 'zona de frescos' }
+      { item: { tipo: 'OTRO' }, valor: 'zona de frescos' }
     ]
     expect(calcularPuntaje(resps)).toBe(66.67)
   })
@@ -76,7 +89,7 @@ describe('calcularPuntaje', () => {
     expect(calcularPuntaje(resps)).toBe(100)
   })
   it('null sin binarios', () => {
-    expect(calcularPuntaje([{ item: { tipo: 'COMENTARIO' }, valor: 'x' }])).toBe(null)
+    expect(calcularPuntaje([{ item: { tipo: 'OTRO' }, valor: 'x' }])).toBe(null)
     expect(calcularPuntaje([])).toBe(null)
   })
 })

@@ -25,7 +25,7 @@ const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ defau
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
 const AsignacionesPage = lazy(() => import('./pages/config/Asignaciones').then((m) => ({ default: m.AsignacionesPage })))
 
-const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH']
+const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH', 'EVALUADOR']
 
 function Susp() {
   return (

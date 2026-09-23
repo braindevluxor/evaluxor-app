@@ -101,15 +101,6 @@ function ValorRespuesta({ item, valor }: { item: Item; valor: unknown }) {
         </div>
       )
     }
-    case 'FOTO':
-      return <p className="text-sm text-slate-400">{extraerPaths(valor).length > 0 ? 'Ver evidencia fotográfica' : 'Sin evidencia'}</p>
-    case 'COMENTARIO':
-    case 'DESCRIPCION': {
-      const t = typeof valor === 'string' ? valor.trim() : ''
-      return t ? <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{t}</p> : <p className="text-sm text-slate-400">Sin respuesta</p>
-    }
-    case 'CANTIDAD':
-      return typeof valor === 'number' ? <p className="text-sm font-bold text-primary-900">{valor}</p> : <p className="text-sm text-slate-400">Sin respuesta</p>
     default:
       return <p className="text-sm text-slate-400">Sin respuesta</p>
   }

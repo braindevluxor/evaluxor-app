@@ -2,11 +2,7 @@ export type Rol = 'SIN_ROL' | 'LIDER' | 'EVALUADOR' | 'GERENTE_S' | 'GERENTE_C' 
 
 export type TipoItem =
   | 'CHECKLIST'
-  | 'COMENTARIO'
-  | 'FOTO'
   | 'CUMPLE_NO_CUMPLE'
-  | 'DESCRIPCION'
-  | 'CANTIDAD'
   | 'CONCILIACION'
 
 export interface Sucursal {

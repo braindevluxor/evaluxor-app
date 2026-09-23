@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Camera, Check, Info, ScanLine, X } from 'lucide-react'
+import { Camera, Check, ChevronDown, Info, ScanLine, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
 import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple } from '../lib/scoring'
 import { buscarProducto } from '../lib/data/precios'
@@ -20,7 +20,7 @@ interface Props {
 export function ItemRenderer({ item, valor, onChange, index, total, shopId }: Props) {
   const preg = `${index + 1}. ${item.texto}` + (item.requerido ? ' *' : '')
   const tipoColor =
-    item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'FOTO' ? 0 : item.tipo === 'CHECKLIST' ? 5 : 4
+    item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'CHECKLIST' ? 5 : 4
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -43,17 +43,10 @@ function estaVacio(item: Item, valor: unknown): boolean {
       return (valor as ValorCumple | null)?.value !== true && (valor as ValorCumple | null)?.value !== false
     case 'CHECKLIST':
       return !((valor as { selected?: string[] } | null)?.selected?.length)
-    case 'COMENTARIO':
-    case 'DESCRIPCION':
-      return !(typeof valor === 'string' && valor.trim())
-    case 'CANTIDAD':
-      return !(typeof valor === 'number')
     case 'CONCILIACION': {
       const ps = (valor as ValorConciliacion | null)?.productos ?? []
       return ps.length === 0 || ps.some((p) => !p.sku.trim() || p.teorica == null || p.fisica == null)
     }
-    case 'FOTO':
-      return !((valor as { photoIds?: string[] } | null)?.photoIds?.length)
     default:
       return false
   }
@@ -159,81 +152,60 @@ function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unkno
         </div>
       )
     }
-    case 'COMENTARIO':
-      return (
-        <Textarea
-          rows={3}
-          placeholder="Escribe un comentario…"
-          value={typeof valor === 'string' ? valor : ''}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )
-    case 'DESCRIPCION':
-      return (
-        <Textarea
-          rows={4}
-          placeholder="Describe la situación…"
-          value={typeof valor === 'string' ? valor : ''}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )
-    case 'CANTIDAD':
-      return (
-        <Input
-          type="number"
-          inputMode="decimal"
-          min={0}
-          placeholder="0"
-          value={typeof valor === 'number' ? valor : ''}
-          onChange={(e) => {
-            const n = Number(e.target.value)
-            onChange(Number.isFinite(n) && e.target.value !== '' ? n : null)
-          }}
-        />
-      )
     case 'CONCILIACION':
       return <ConciliacionEditor valor={valor} onChange={onChange} shopId={shopId} />
-    case 'FOTO': {
-      const ids = (valor as { photoIds?: string[] } | null)?.photoIds ?? []
-      return <PhotoCapture photoIds={ids} onChange={(photoIds) => onChange({ photoIds })} />
-    }
     default:
       return null
   }
 }
 
 function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
-  const [escaneandoIndice, setEscaneandoIndice] = useState<number | null>(null)
-  const [consultando, setConsultando] = useState<Record<number, boolean>>({})
-  const [info, setInfo] = useState<Record<number, string>>({})
+  const [escaneando, setEscaneando] = useState(false)
+  const [consultando, setConsultando] = useState(false)
+  const [info, setInfo] = useState('')
+  const [verLista, setVerLista] = useState(false)
+  const [borrador, setBorrador] = useState<ProductoConciliacion>({ sku: '', nombre: null, teorica: null, fisica: null })
+
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
   const productos = v.productos ?? []
   const informativo = v.informativo ?? false
 
   const actualizar = (items: ProductoConciliacion[]) => onChange({ ...v, productos: items })
-  const actualizarUno = (i: number, patch: Partial<ProductoConciliacion>) =>
-    actualizar(productos.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))
-  const total = conciliacionTotal(v)
+  const promedio = conciliacionTotal(v)
 
-  const aplicarCodigo = async (i: number, codigo: string) => {
-    const p = productos[i]
-    actualizarUno(i, { sku: codigo, nombre: null })
-    setInfo((old) => ({ ...old, [i]: '' }))
+  const conciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && (p.teorica ?? 0) > 0 && p.fisica === p.teorica).length
+  const desconciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && (p.teorica ?? 0) > 0 && p.fisica !== p.teorica).length
+
+  const aplicarCodigo = async () => {
+    const codigo = borrador.sku.trim()
+    setInfo('')
+    if (!codigo) return
     if (!shopId) {
-      setInfo((old) => ({ ...old, [i]: 'Nº tienda (shop_id) no configurado en la sucursal.' }))
+      setInfo('Nº tienda (shop_id) no configurado en la sucursal.')
       return
     }
-    if (p?.nombre && p.nombre !== '') return
-    setConsultando((old) => ({ ...old, [i]: true }))
+    setConsultando(true)
     const r = await buscarProducto(codigo, shopId)
-    setConsultando((old) => ({ ...old, [i]: false }))
+    setConsultando(false)
     if (r.nombre) {
-      actualizarUno(i, { sku: codigo, nombre: r.nombre })
-      setInfo((old) => ({ ...old, [i]: '' }))
+      setBorrador((b) => ({ ...b, nombre: r.nombre }))
     } else {
-      setInfo((old) => ({ ...old, [i]: r.mensaje ?? 'Producto no encontrado.' }))
+      setInfo(r.mensaje ?? 'Producto no encontrado.')
     }
   }
+
+  const agregar = () => {
+    const sku = borrador.sku.trim()
+    if (!sku || borrador.teorica == null || borrador.fisica == null) {
+      setInfo('Completa el SKU y ambas cantidades para agregar.')
+      return
+    }
+    actualizar([...productos, { sku, nombre: borrador.nombre, teorica: borrador.teorica, fisica: borrador.fisica }])
+    setBorrador({ sku: '', nombre: null, teorica: null, fisica: null })
+    setInfo('')
+  }
+
+  const pctBorrador = conciliacionPorcentaje(borrador)
 
   return (
     <div className="space-y-3">
@@ -242,97 +214,154 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
           Informativo · no descuenta puntos
         </BotonInformativo>
       </div>
-      {productos.length === 0 ? (
-        <p className="text-sm text-slate-400">Agrega productos para conciliar (escanea o escribe el código).</p>
+
+      <div className="space-y-2 rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Escanea y agrega un producto</p>
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="SKU / código interno del producto"
+            value={borrador.sku}
+            onChange={(e) => setBorrador((b) => ({ ...b, sku: e.target.value, nombre: null }))}
+            onKeyDown={(e) => { if (e.key === 'Enter') void aplicarCodigo() }}
+          />
+          <button
+            type="button"
+            onClick={() => setEscaneando(true)}
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-200 text-slate-600 hover:bg-slate-300"
+            title="Escanear código de barras"
+          >
+            <ScanLine className="h-5 w-5" />
+          </button>
+          <Button type="button" variant="secondary" className="shrink-0 min-h-0 px-3 py-2" disabled={!borrador.sku.trim()} onClick={() => void aplicarCodigo()}>
+            Buscar
+          </Button>
+        </div>
+        {consultando ? (
+          <p className="flex items-center gap-2 text-xs text-slate-500"><Spinner /> Consultando producto…</p>
+        ) : info ? (
+          <p className="text-xs font-medium text-amber-600">{info}</p>
+        ) : null}
+        <Input
+          placeholder="Nombre del producto (se autocompleta al buscar)"
+          value={borrador.nombre ?? ''}
+          onChange={(e) => setBorrador((b) => ({ ...b, nombre: e.target.value }))}
+        />
+        <div className="flex gap-2">
+          <CampoConciliacion
+            etiqueta="Teórica (sistema)"
+            valor={borrador.teorica}
+            onChange={(n) => setBorrador((b) => ({ ...b, teorica: n }))}
+          />
+          <CampoConciliacion
+            etiqueta="Física (contada)"
+            valor={borrador.fisica}
+            onChange={(n) => setBorrador((b) => ({ ...b, fisica: n }))}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          {pctBorrador != null ? (
+            <p className={cn('text-sm font-bold', pctBorrador >= 100 ? 'text-green-600' : 'text-red-600')}>
+              Conciliación: {pctBorrador}%
+            </p>
+          ) : (
+            <p className="text-xs text-slate-400">Ingresa ambas cantidades para ver el %.</p>
+          )}
+          <Button
+            type="button"
+            variant="primary"
+            className="shrink-0 min-h-0 px-4 py-2"
+            disabled={!borrador.sku.trim() || borrador.teorica == null || borrador.fisica == null}
+            onClick={agregar}
+          >
+            <Check className="h-4 w-4" /> Agregar
+          </Button>
+        </div>
+      </div>
+
+      {productos.length > 0 ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <ResumenConciliacion etiqueta="SKU agregados" valor={String(productos.length)} color="text-primary-900" />
+            <ResumenConciliacion etiqueta="Conciliaciones" valor={String(conciliadas)} color="text-green-600" />
+            <ResumenConciliacion etiqueta="Desconciliaciones" valor={String(desconciliadas)} color={desconciliadas > 0 ? 'text-red-600' : 'text-slate-400'} />
+            <ResumenConciliacion etiqueta="Prom. conciliación" valor={promedio != null ? `${promedio}%` : '—'} color={promedio != null && promedio < 100 ? 'text-red-600' : 'text-green-600'} />
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white">
+            <button
+              type="button"
+              onClick={() => setVerLista((x) => !x)}
+              className="flex w-full items-center justify-between gap-2 px-4 py-3 text-sm font-bold text-primary-900"
+            >
+              <span>Productos agregados ({productos.length})</span>
+              <ChevronDown className={cn('h-4 w-4 transition-transform', verLista ? 'rotate-180' : '')} />
+            </button>
+            {verLista ? (
+              <ul className="space-y-2 border-t border-slate-100 p-3">
+                {productos.map((p, i) => {
+                  const pct = conciliacionPorcentaje(p)
+                  return (
+                    <li key={i} className="flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm">
+                      <span className="font-semibold text-slate-800">{p.sku}</span>
+                      {p.nombre ? <span className="min-w-0 flex-1 truncate text-slate-500">{p.nombre}</span> : <span className="flex-1" />}
+                      <span className="text-xs text-slate-400">T: {p.teorica ?? '—'}</span>
+                      <span className="text-xs text-slate-400">F: {p.fisica ?? '—'}</span>
+                      <span className={cn('font-bold', pct != null && pct >= 100 ? 'text-green-600' : 'text-red-600')}>
+                        {pct ?? '—'}%
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => actualizar(productos.filter((_, idx) => idx !== i))}
+                        className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500"
+                        title="Quitar producto"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : null}
+          </div>
+        </>
       ) : (
-        productos.map((p, i) => {
-          const pct = conciliacionPorcentaje(p)
-          return (
-            <div key={i} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center gap-2">
-                <Input
-                  placeholder="SKU / código interno del producto"
-                  value={p.sku}
-                  onChange={(e) => actualizarUno(i, { sku: e.target.value })}
-                  onBlur={() => {
-                    const codigo = p.sku.trim()
-                    if (codigo && codigo !== p.nombre) void aplicarCodigo(i, codigo)
-                  }}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setEscaneandoIndice(i)}
-                  className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-200 text-slate-600 hover:bg-slate-300"
-                  title="Escanear código de barras"
-                >
-                  <ScanLine className="h-5 w-5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => actualizar(productos.filter((_, idx) => idx !== i))}
-                  className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-500"
-                  title="Quitar producto"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              {consultando[i] ? (
-                <p className="flex items-center gap-2 text-xs text-slate-500"><Spinner /> Consultando producto…</p>
-              ) : info[i] && !p.nombre ? (
-                <p className="text-xs font-medium text-amber-600">{info[i]}</p>
-              ) : null}
-              <Input
-                placeholder="Nombre del producto (se autocompleta al buscar)"
-                value={p.nombre ?? ''}
-                onChange={(e) => actualizarUno(i, { nombre: e.target.value })}
-              />
-              <div className="flex gap-2">
-                <CampoConciliacion
-                  etiqueta="Teórica (sistema)"
-                  valor={p.teorica}
-                  onChange={(n) => actualizarUno(i, { teorica: n })}
-                />
-                <CampoConciliacion
-                  etiqueta="Física (contada)"
-                  valor={p.fisica}
-                  onChange={(n) => actualizarUno(i, { fisica: n })}
-                />
-              </div>
-              {pct != null ? (
-                <p className={cn('text-sm font-bold', pct >= 100 ? 'text-green-600' : 'text-red-600')}>
-                  Conciliación: {pct}%
-                </p>
-              ) : (
-                <p className="text-xs text-slate-400">Ingresa ambas cantidades.</p>
-              )}
-            </div>
-          )
-        })
+        <p className="text-sm text-slate-400">Aún no hay productos agregados. Escanea el primer código para comenzar.</p>
       )}
 
-      <Button type="button" variant="secondary" className="w-full" onClick={() => actualizar([...productos, { sku: '', nombre: null, teorica: null, fisica: null }])}>
-        + Agregar producto
-      </Button>
-
-      {total != null ? (
-        <div className="flex items-center justify-between rounded-xl border px-4 py-3">
-          <span className="text-sm text-slate-500">Conciliación total</span>
-          <span className={cn('text-lg font-extrabold', total >= 100 ? 'text-green-600' : 'text-red-600')}>{total}%</span>
-        </div>
-      ) : null}
-
-      {escaneandoIndice != null ? (
+      {escaneando ? (
         <BarcodeScanner
-          open={escaneandoIndice != null}
-          onClose={() => setEscaneandoIndice(null)}
+          open={escaneando}
+          onClose={() => setEscaneando(false)}
           onDetect={(codigo) => {
-            const i = escaneandoIndice
-            setEscaneandoIndice(null)
-            if (i != null) void aplicarCodigo(i, codigo)
+            setEscaneando(false)
+            setBorrador((b) => ({ ...b, sku: codigo }))
+            void (async () => {
+              setInfo('')
+              if (!shopId) {
+                setInfo('Nº tienda (shop_id) no configurado en la sucursal.')
+                return
+              }
+              setConsultando(true)
+              const r = await buscarProducto(codigo, shopId)
+              setConsultando(false)
+              if (r.nombre) {
+                setBorrador((b) => ({ ...b, nombre: r.nombre }))
+              } else {
+                setInfo(r.mensaje ?? 'Producto no encontrado.')
+              }
+            })()
           }}
         />
       ) : null}
+    </div>
+  )
+}
+
+function ResumenConciliacion({ etiqueta, valor, color }: { etiqueta: string; valor: string; color: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-center">
+      <p className={cn('text-lg font-extrabold tabular-nums', color)}>{valor}</p>
+      <p className="mt-0.5 text-[11px] font-medium text-slate-500">{etiqueta}</p>
     </div>
   )
 }

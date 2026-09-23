@@ -1,10 +1,6 @@
 const ETIQUETAS_TIPO: Record<string, string> = {
   CHECKLIST: 'Check list',
-  COMENTARIO: 'Comentario',
-  FOTO: 'Foto',
   CUMPLE_NO_CUMPLE: 'Cumple / No cumple',
-  DESCRIPCION: 'Descripción',
-  CANTIDAD: 'Cantidad',
   CONCILIACION: 'Conciliación'
 }
 
@@ -27,9 +23,6 @@ export interface ValorCumple {
   value: boolean | null
   evidencias: EvidenciaCumple[]
   informativo?: boolean
-}
-export interface ValorFoto {
-  photoIds: string[]
 }
 export interface ValorConciliacion {
   productos: ProductoConciliacion[]

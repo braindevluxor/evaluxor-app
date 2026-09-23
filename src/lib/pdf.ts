@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable'
 import type { Item } from './types'
 import type { DetalleEvaluacion } from './data/indicadores'
 import { obtenerEvaluacion, resumirEvaluacion } from './data/indicadores'
-import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorFoto } from './scoring'
+import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, type ValorConciliacion, type ValorCumple, type ValorChecklist } from './scoring'
 
 const MARINO: [number, number, number] = [11, 37, 69]
 const MARINO_CLARO: [number, number, number] = [238, 244, 251]
@@ -69,17 +69,6 @@ function textoValor(item: Item, valor: unknown): string {
       if (total != null) lineas.push(`Total: ${total}%`)
       return lineas.join('\n')
     }
-    case 'FOTO': {
-      const n = ((valor as ValorFoto | null)?.photoIds ?? []).length
-      return n > 0 ? `${n} foto(s)` : 'Sin evidencia'
-    }
-    case 'COMENTARIO':
-    case 'DESCRIPCION': {
-      const t = typeof valor === 'string' ? valor.trim() : ''
-      return t || 'Sin respuesta'
-    }
-    case 'CANTIDAD':
-      return typeof valor === 'number' ? String(valor) : 'Sin respuesta'
     default:
       return 'Sin respuesta'
   }

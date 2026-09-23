@@ -37,16 +37,16 @@ describe('puntajePorModulo', () => {
     expect(m2?.evaluaciones).toBe(1)
   })
 
-  it('ignora índices no binarios en el módulo', () => {
+  it('ignora ítems sin respuesta binaria en el módulo', () => {
     const conCualitativo: ConjuntoDatos = {
       ...datos,
       items: [
         ...datos.items,
-        { id: 'i5', modulo_id: 'm2', tipo: 'COMENTARIO', texto: 'nota', opciones: null, orden: 3, requerido: false, activo: true, created_at: '' }
+        { id: 'i5', modulo_id: 'm2', tipo: 'CUMPLE_NO_CUMPLE', texto: 'nota', opciones: null, orden: 3, requerido: false, activo: true, created_at: '' }
       ],
       respuestas: [
         ...datos.respuestas,
-        { id: 'r5', evaluacion_id: 'e1', item_id: 'i5', valor: 'sin lleno', respondido_por: 'u2', created_at: '' }
+        { id: 'r5', evaluacion_id: 'e1', item_id: 'i5', valor: null, respondido_por: 'u2', created_at: '' }
       ]
     }
     const porModulo = puntajePorModulo(conCualitativo)

@@ -52,18 +52,24 @@ interface EvaluxorDB extends DBSchema {
 }
 
 const DB_NAME = 'evaluxor-db'
-const DB_VERSION = 1
+const DB_VERSION = 3
 
 let dbPromise: Promise<IDBPDatabase<EvaluxorDB>> | null = null
 
 export function getDB(): Promise<IDBPDatabase<EvaluxorDB>> {
   if (!dbPromise) {
     dbPromise = openDB<EvaluxorDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
+      upgrade(db, oldVersion) {
         if (!db.objectStoreNames.contains('cache')) db.createObjectStore('cache')
         if (!db.objectStoreNames.contains('drafts')) db.createObjectStore('drafts')
         if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos')
         if (!db.objectStoreNames.contains('queue')) db.createObjectStore('queue')
+        if (oldVersion > 0 && oldVersion < 3) {
+          db.deleteObjectStore('cache')
+          db.createObjectStore('cache')
+          db.deleteObjectStore('queue')
+          db.createObjectStore('queue')
+        }
       }
     })
   }
