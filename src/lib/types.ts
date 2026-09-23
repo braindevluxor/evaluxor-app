@@ -103,15 +103,20 @@ export interface Item {
   created_at: string
 }
 
+export type EstadoEvaluacion = 'PROGRAMADA' | 'ACTIVA' | 'CERRADA'
+
 export interface Evaluacion {
   id: string
   offline_uuid: string
   sucursal_id: string
-  evaluador_id: string
+  aperturada_por: string
   fecha: string
+  estado: EstadoEvaluacion
   puntuacion: number | null
   comentario_general: string | null
-  completed_at: string
+  abierta_en: string | null
+  cerrada_en: string | null
+  created_at: string
 }
 
 export interface Respuesta {
@@ -119,6 +124,7 @@ export interface Respuesta {
   evaluacion_id: string
   item_id: string
   valor: unknown
+  respondido_por: string | null
   created_at: string
 }
 
@@ -132,5 +138,5 @@ export interface Foto {
 
 export type VistaEvaluacion = Evaluacion & {
   sucursal?: Pick<Sucursal, 'id' | 'nombre' | 'shop_id' | 'direccion'> | null
-  evaluador?: Pick<Profile, 'id' | 'nombre'> | null
+  aperturador?: Pick<Profile, 'id' | 'nombre'> | null
 }

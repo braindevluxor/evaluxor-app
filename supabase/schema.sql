@@ -226,16 +226,23 @@ create table if not exists public.sucursal_items (
 
 -- ----------------------------------------------------------------------------
 -- EVALUACIONES / RESPUESTAS / FOTOS
+-- Evaluación compartida: la apertura/programa el LIDER (estado) y todos los
+-- evaluadores llenan esa misma evaluación, cada uno sus módulos asignados.
 -- ----------------------------------------------------------------------------
 create table if not exists public.evaluaciones (
   id uuid primary key default gen_random_uuid(),
   offline_uuid uuid not null unique,          -- generado en el dispositivo (idem-potencia en sync)
   sucursal_id uuid not null references public.sucursales(id) on delete cascade,
-  evaluador_id uuid not null references public.profiles(id) on delete cascade,
+  aperturada_por uuid references public.profiles(id) on delete set null,
   fecha date not null default current_date,
+  estado text not null default 'PROGRAMADA'
+    check (estado in ('PROGRAMADA','ACTIVA','CERRADA')),
   puntuacion numeric(5,2),
   comentario_general text,
-  completed_at timestamptz not null default now()
+  abierta_en timestamptz,
+  cerrada_en timestamptz,
+  created_at timestamptz not null default now(),
+  unique (sucursal_id, fecha)
 );
 create index if not exists idx_evaluaciones_sucursal on public.evaluaciones(sucursal_id, fecha);
 
@@ -244,6 +251,7 @@ create table if not exists public.respuestas (
   evaluacion_id uuid not null references public.evaluaciones(id) on delete cascade,
   item_id uuid not null references public.items(id) on delete cascade,
   valor jsonb not null default 'null'::jsonb,
+  respondido_por uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
   unique (evaluacion_id, item_id)
 );
@@ -285,9 +293,37 @@ returns boolean language sql stable security definer set search_path = public as
   select exists (
     select 1 from public.profiles p
       where p.id = auth.uid() and p.activo and (
-        e.evaluador_id = p.id
-        or p.rol in ('LIDER','GERENTE_C','GERENTE_TH')
+        p.rol in ('LIDER','GERENTE_C','GERENTE_TH')
         or (p.rol = 'GERENTE_S' and e.sucursal_id = p.sucursal_id)
+        or (p.rol = 'EVALUADOR' and exists (
+              select 1
+              from public.asignaciones_modulos am
+              join public.modulos m on m.id = am.modulo_id and m.activo
+              where am.evaluador_id = p.id and am.activa
+                and (
+                  not exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = e.sucursal_id and sm.activa)
+                  or exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = e.sucursal_id and sm.activa and sm.modulo_id = am.modulo_id)
+                )
+            )
+        )
+      )
+  );
+$$;
+
+-- Quién puede responder: LIDER siempre; EVALUADOR solo en evaluación ACTIVA y
+-- de ítems cuyo módulo le está asignado y aplica a la sucursal.
+create or replace function public.puede_responder(ev_id uuid, it_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.es_lider() or exists (
+    select 1
+    from public.evaluaciones ev
+    join public.items i on i.id = it_id and i.activo
+    join public.asignaciones_modulos am
+      on am.modulo_id = i.modulo_id and am.evaluador_id = auth.uid() and am.activa
+    where ev.id = ev_id and ev.estado = 'ACTIVA'
+      and (
+        not exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = ev.sucursal_id and sm.activa)
+        or exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = ev.sucursal_id and sm.activa and sm.modulo_id = i.modulo_id)
       )
   );
 $$;
@@ -341,68 +377,54 @@ drop policy if exists sucursal_items_lider on public.sucursal_items;
 create policy sucursal_items_lider on public.sucursal_items for all using (public.es_lider()) with check (public.es_lider());
 
 -- EVALUACIONES -----------------------------------------------------------------
+-- Select: según rol + módulos asignados. Insert/Update/Delete: solo LIDER.
 drop policy if exists evaluaciones_select on public.evaluaciones;
 create policy evaluaciones_select on public.evaluaciones for select using (public.puede_ver_evaluacion(evaluaciones));
 drop policy if exists evaluaciones_insert on public.evaluaciones;
-create policy evaluaciones_insert on public.evaluaciones for insert with check (
-  exists (
-    select 1 from public.profiles p
-      where p.id = auth.uid() and p.activo
-        and p.rol in ('EVALUADOR','LIDER')
-        and p.id = evaluador_id
-  )
-);
--- Inmutables: no update. Eliminación: LIDER o el propio evaluador (cascade a respuestas/fotos).
+create policy evaluaciones_insert on public.evaluaciones for insert with check (public.es_lider());
+drop policy if exists evaluaciones_update on public.evaluaciones;
+create policy evaluaciones_update on public.evaluaciones for update using (public.es_lider()) with check (public.es_lider());
 drop policy if exists evaluaciones_delete on public.evaluaciones;
-create policy evaluaciones_delete on public.evaluaciones for delete using (
-  exists (
-    select 1 from public.profiles p
-      where p.id = auth.uid() and p.activo
-        and (p.rol = 'LIDER' or p.id = evaluador_id)
-  )
-);
+create policy evaluaciones_delete on public.evaluaciones for delete using (public.es_lider());
 
 -- RESPUESTAS -------------------------------------------------------------------
 drop policy if exists respuestas_select on public.respuestas;
 create policy respuestas_select on public.respuestas for select using (
   exists (
     select 1 from public.evaluaciones e
-      where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
+    join public.profiles p on p.id = auth.uid() and p.activo
+    where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
+      and (p.rol in ('LIDER','GERENTE_S','GERENTE_C','GERENTE_TH') or respondido_por = p.id)
   )
 );
 drop policy if exists respuestas_insert on public.respuestas;
 create policy respuestas_insert on public.respuestas for insert with check (
-  exists (
-    select 1 from public.evaluaciones e
-      where e.id = evaluacion_id
-        and exists (
-          select 1 from public.profiles p
-            where p.id = auth.uid() and p.activo
-              and p.rol in ('EVALUADOR','LIDER') and p.id = e.evaluador_id
-        )
-  )
+  public.puede_responder(evaluacion_id, item_id)
+  and (respondido_por = auth.uid() or public.es_lider())
 );
+drop policy if exists respuestas_update on public.respuestas;
+create policy respuestas_update on public.respuestas for update
+  using (public.puede_responder(evaluacion_id, item_id))
+  with check (public.puede_responder(evaluacion_id, item_id)
+    and (respondido_por = auth.uid() or public.es_lider()));
 
 -- FOTOS -------------------------------------------------------------------------
 drop policy if exists fotos_select on public.fotos;
 create policy fotos_select on public.fotos for select using (
   exists (
     select 1 from public.evaluaciones e
-      where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
+    join public.profiles p on p.id = auth.uid() and p.activo
+    where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
+      and (p.rol in ('LIDER','GERENTE_S','GERENTE_C','GERENTE_TH')
+           or exists (
+             select 1 from public.items i
+             join public.asignaciones_modulos am on am.modulo_id = i.modulo_id
+             where i.id = fotos.item_id and am.evaluador_id = p.id and am.activa
+           ))
   )
 );
 drop policy if exists fotos_insert on public.fotos;
-create policy fotos_insert on public.fotos for insert with check (
-  exists (
-    select 1 from public.evaluaciones e
-      where e.id = evaluacion_id
-        and exists (
-          select 1 from public.profiles p
-            where p.id = auth.uid() and p.activo
-              and p.rol in ('EVALUADOR','LIDER') and p.id = e.evaluador_id
-        )
-  )
-);
+create policy fotos_insert on public.fotos for insert with check (public.puede_responder(evaluacion_id, item_id));
 
 -- ============================================================================
 -- STORAGE: bucket de evidencias (privado)

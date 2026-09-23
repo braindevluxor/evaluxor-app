@@ -25,10 +25,12 @@ function estadoPuntaje(p: number): { texto: string; color: [number, number, numb
 function textoValor(item: Item, valor: unknown): string {
   switch (item.tipo) {
     case 'CUMPLE_NO_CUMPLE': {
-      const v = (valor as ValorCumple | null)?.value
-      const ev = (valor as ValorCumple | null)?.evidencias ?? []
-      if (v === null || v === undefined) return 'Sin responder'
-      const partes = [v ? 'Cumple' : 'No cumple']
+      const v = valor as ValorCumple | null
+      const ev = v?.evidencias ?? []
+      if (v?.value === null || v?.value === undefined) return 'Sin responder'
+      const partes: string[] = []
+      if (v.informativo) partes.push('INFORMATIVO (no descuenta)')
+      partes.push(v.value ? 'Cumple' : 'No cumple')
       const c = ev.find((e) => e.comentario.trim())
       if (c) partes.push(`Comentario: ${c.comentario}`)
       const nFotos = ev.reduce((a, e) => a + e.photoIds.length, 0)
@@ -44,7 +46,14 @@ function textoValor(item: Item, valor: unknown): string {
       })
       const nFotos = Object.values(v?.evidencias ?? {}).reduce((a, e) => a + e.photoIds.length, 0)
       if (!sel.length) return 'Ninguna opción marcada'
-      return `${etiquetas.join(', ')}${nFotos > 0 ? `  (${nFotos} foto(s))` : ''}`
+      const informativos = (v?.informativos ?? []).map((id) => {
+        const o = (item.opciones ?? []).find((x) => typeof x === 'object' && x.id === id)
+        return o ? o.etiqueta : id
+      })
+      const partes = [etiquetas.join(', ')]
+      if (informativos.length) partes.push(`Informativo: ${informativos.join(', ')}`)
+      if (nFotos > 0) partes.push(`${nFotos} foto(s)`)
+      return partes.join('  ·  ')
     }
     case 'CONCILIACION': {
       const v = valor as ValorConciliacion | null
@@ -56,6 +65,7 @@ function textoValor(item: Item, valor: unknown): string {
           `${p.sku}${p.nombre ? ` — ${p.nombre}` : ''}` +
           `  Teórica: ${p.teorica ?? '—'} · Física: ${p.fisica ?? '—'} (${conciliacionPorcentaje(p) ?? '—'}%)`
       )
+      if (v?.informativo) lineas.unshift('INFORMATIVO (no descuenta)')
       if (total != null) lineas.push(`Total: ${total}%`)
       return lineas.join('\n')
     }
@@ -123,7 +133,7 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
   if (suc?.shop_id) lineaEtiquetaValor('Nº tienda', suc.shop_id)
   if (suc?.direccion) lineaEtiquetaValor('Dirección', suc.direccion)
   lineaEtiquetaValor('Fecha de evaluación', formatoFecha(ev.fecha))
-  lineaEtiquetaValor('Evaluador', ev.evaluador?.nombre ?? '—')
+  lineaEtiquetaValor('Aperturada por', ev.aperturador?.nombre ?? '—')
 
   if (puntaje != null) {
     doc.setDrawColor(226, 232, 240)

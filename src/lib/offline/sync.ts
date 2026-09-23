@@ -1,20 +1,17 @@
 import { supabase } from '../supabase'
-import { getDraft, deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, type SyncJob, type DraftEval } from './db'
+import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, type SyncJob, type DraftEval } from './db'
 import { photoPath, convertirValor, extraerPhotoIds } from './transform'
 
-export async function guardarBorradorEnCola(draft: DraftEval): Promise<void> {
-  const offlineUuid = crypto.randomUUID()
+export async function encolarRespuestas(draft: DraftEval): Promise<void> {
   const respuestas = Object.entries(draft.respuestas).map(([item_id, r]) => ({ item_id, valor: r.valor }))
   const photoIds = Array.from(
     new Set(respuestas.flatMap((r) => extraerPhotoIds(r.valor)))
   )
   const job: SyncJob = {
-    offline_uuid: offlineUuid,
+    id: crypto.randomUUID(),
     sucursal_id: draft.sucursal_id,
     evaluador_id: draft.evaluador_id,
     fecha: draft.fecha,
-    comentario_general: draft.comentario_general,
-    puntuacion: draft.puntuacion,
     respuestas,
     photoIds,
     status: 'pending',
@@ -32,13 +29,25 @@ export async function procesarCola(): Promise<{ ok: number; fail: number }> {
     if (job.status === 'processing') continue
     await putJob({ ...job, status: 'processing' })
 
-    let evaluacionId: string | null = null
     try {
+      // La evaluación ya existe (la apertura/abre el Líder). Se resuelve por
+      // sucursal + fecha y debe estar ACTIVA para recibir respuestas.
+      const { data: ev, error: evErr } = await supabase
+        .from('evaluaciones')
+        .select('id')
+        .eq('sucursal_id', job.sucursal_id)
+        .eq('fecha', job.fecha)
+        .eq('estado', 'ACTIVA')
+        .maybeSingle()
+      if (evErr) throw evErr
+      if (!ev) throw new Error('La evaluación no está activa. El Líder debe abrirla antes de sincronizar respuestas.')
+      const evaluacionId = ev.id as string
+
       const map = new Map<string, string>()
       for (const id of job.photoIds) {
         const rec = await getPhotos([id]).then((r) => r[0])
         if (!rec) continue
-        const path = photoPath(job.offline_uuid, 'evidencia', id)
+        const path = photoPath(job.id, 'evidencia', id)
         const { error: upErr } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
           contentType: rec.mime,
           upsert: true
@@ -47,41 +56,11 @@ export async function procesarCola(): Promise<{ ok: number; fail: number }> {
         map.set(id, path)
       }
 
-      const ins = {
-        offline_uuid: job.offline_uuid,
-        sucursal_id: job.sucursal_id,
-        evaluador_id: job.evaluador_id,
-        fecha: job.fecha,
-        comentario_general: job.comentario_general || null,
-        puntuacion: job.puntuacion
-      }
-
-      const { data: nueva, error: evErr } = await supabase
-        .from('evaluaciones')
-        .insert(ins)
-        .select('id')
-        .single()
-
-      if (evErr) {
-        if (evErr.code === '23505') {
-          const { data: existente, error: exErr } = await supabase
-            .from('evaluaciones')
-            .select('id')
-            .eq('offline_uuid', job.offline_uuid)
-            .single()
-          if (exErr) throw exErr
-          evaluacionId = existente.id
-        } else {
-          throw evErr
-        }
-      } else {
-        evaluacionId = nueva.id
-      }
-
       const rows = job.respuestas.map((r) => ({
-        evaluacion_id: evaluacionId as string,
+        evaluacion_id: evaluacionId,
         item_id: r.item_id,
-        valor: convertirValor(r.valor, map)
+        valor: convertirValor(r.valor, map),
+        respondido_por: job.evaluador_id
       }))
       const { error: rErr } = await supabase
         .from('respuestas')
@@ -101,7 +80,7 @@ export async function procesarCola(): Promise<{ ok: number; fail: number }> {
       }
 
       for (const id of job.photoIds) await deletePhoto(id)
-      await deleteJob(job.offline_uuid)
+      await deleteJob(job.id)
       ok++
     } catch {
       await putJob({ ...job, status: 'pending' })
@@ -109,18 +88,4 @@ export async function procesarCola(): Promise<{ ok: number; fail: number }> {
     }
   }
   return { ok, fail }
-}
-
-export async function crearBorradorRaw(sucursalId: string, evaluadorId: string): Promise<DraftEval> {
-  const existing = await getDraft(sucursalId)
-  if (existing) return existing
-  return {
-    sucursal_id: sucursalId,
-    evaluador_id: evaluadorId,
-    fecha: new Date().toISOString().slice(0, 10),
-    comentario_general: '',
-    puntuacion: null,
-    respuestas: {},
-    updated_at: Date.now()
-  }
 }

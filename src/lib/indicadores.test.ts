@@ -3,8 +3,9 @@ import { puntajePorModulo, type ConjuntoDatos } from './data/indicadores'
 
 const datos: ConjuntoDatos = {
   evaluaciones: [{
-    id: 'e1', offline_uuid: 'x', sucursal_id: 's1', evaluador_id: 'u1',
-    fecha: '2026-01-01', puntuacion: 90, comentario_general: null, completed_at: '2026-01-01T00:00:00'
+    id: 'e1', offline_uuid: 'x', sucursal_id: 's1', aperturada_por: 'u1',
+    fecha: '2026-01-01', estado: 'CERRADA', puntuacion: 90, comentario_general: null,
+    abierta_en: null, cerrada_en: null, created_at: ''
   }],
   modulos: [
     { id: 'm1', nombre: 'Módulo 1', descripcion: '', orden: 1, activo: true, created_at: '' },
@@ -17,10 +18,10 @@ const datos: ConjuntoDatos = {
     { id: 'i4', modulo_id: 'm2', tipo: 'CUMPLE_NO_CUMPLE', texto: 'd', opciones: null, orden: 2, requerido: true, activo: true, created_at: '' }
   ],
   respuestas: [
-    { id: 'r1', evaluacion_id: 'e1', item_id: 'i1', valor: { value: true }, created_at: '' },
-    { id: 'r2', evaluacion_id: 'e1', item_id: 'i2', valor: { value: true }, created_at: '' },
-    { id: 'r3', evaluacion_id: 'e1', item_id: 'i3', valor: { value: true }, created_at: '' },
-    { id: 'r4', evaluacion_id: 'e1', item_id: 'i4', valor: { value: false }, created_at: '' }
+    { id: 'r1', evaluacion_id: 'e1', item_id: 'i1', valor: { value: true }, respondido_por: 'u1', created_at: '' },
+    { id: 'r2', evaluacion_id: 'e1', item_id: 'i2', valor: { value: true }, respondido_por: 'u1', created_at: '' },
+    { id: 'r3', evaluacion_id: 'e1', item_id: 'i3', valor: { value: true }, respondido_por: 'u2', created_at: '' },
+    { id: 'r4', evaluacion_id: 'e1', item_id: 'i4', valor: { value: false }, respondido_por: 'u2', created_at: '' }
   ],
   fotos: []
 }
@@ -45,7 +46,7 @@ describe('puntajePorModulo', () => {
       ],
       respuestas: [
         ...datos.respuestas,
-        { id: 'r5', evaluacion_id: 'e1', item_id: 'i5', valor: 'sin lleno', created_at: '' }
+        { id: 'r5', evaluacion_id: 'e1', item_id: 'i5', valor: 'sin lleno', respondido_por: 'u2', created_at: '' }
       ]
     }
     const porModulo = puntajePorModulo(conCualitativo)

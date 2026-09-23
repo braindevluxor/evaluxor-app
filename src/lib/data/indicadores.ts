@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion } from '../types'
+import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion, EstadoEvaluacion } from '../types'
 import { valorBinario } from '../scoring'
 
 export interface FiltrosIndicadores {
@@ -25,10 +25,12 @@ export interface DetalleEvaluacion {
   fotos: Foto[]
 }
 
+const SELECT_EVALUACION = '*, sucursal:sucursales(id,nombre,shop_id,direccion), aperturador:profiles!evaluaciones_aperturada_por_fkey(id,nombre)'
+
 export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion | null> {
   const { data: ev } = await supabase
     .from('evaluaciones')
-    .select('*, sucursal:sucursales(id,nombre,shop_id,direccion), evaluador:profiles(id,nombre)')
+    .select(SELECT_EVALUACION)
     .eq('id', id)
     .maybeSingle()
   if (!ev) return null
@@ -60,7 +62,7 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
 export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<ConjuntoDatos> {
   let query = supabase
     .from('evaluaciones')
-    .select('*, sucursal:sucursales(id,nombre,shop_id,direccion), evaluador:profiles(id,nombre)')
+    .select(SELECT_EVALUACION)
     .order('fecha', { ascending: false })
 
   const sucursales = f.sucursal_ids && f.sucursal_ids.length ? f.sucursal_ids : null
@@ -265,12 +267,13 @@ export function porEvaluador(datos: ConjuntoDatos): { evaluador_id: string; nomb
   const porE = new Map<string, { nombre: string; puntajes: number[]; n: number }>()
   for (const ev of datos.evaluaciones) {
     const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items)
-    const e = porE.get(ev.evaluador_id)
+    const key = ev.aperturada_por || ev.id
+    const e = porE.get(key)
     if (e) {
       if (puntaje != null) e.puntajes.push(puntaje)
       e.n++
     } else {
-      porE.set(ev.evaluador_id, { nombre: ev.evaluador?.nombre || 'Sin nombre', puntajes: puntaje != null ? [puntaje] : [], n: 1 })
+      porE.set(key, { nombre: ev.aperturador?.nombre ?? 'Sin nombre', puntajes: puntaje != null ? [puntaje] : [], n: 1 })
     }
   }
   return Array.from(porE.values()).map((e) => ({
@@ -323,4 +326,45 @@ export async function eliminarEvaluacion(id: string): Promise<void> {
     // Se eliminan los archivos del bucket; si falla, solo quedan huérfanos en storage.
     await supabase.storage.from('evidencias').remove(paths).catch(() => null)
   }
+}
+
+export async function listarEvaluacionesActivas(): Promise<VistaEvaluacion[]> {
+  const { data } = await supabase
+    .from('evaluaciones')
+    .select(SELECT_EVALUACION)
+    .eq('estado', 'ACTIVA')
+  return (data ?? []) as VistaEvaluacion[]
+}
+
+export async function crearEvaluacion(args: {
+  sucursal_id: string
+  fecha: string
+  estado: EstadoEvaluacion
+  aperturada_por: string
+}): Promise<void> {
+  const { error } = await supabase.from('evaluaciones').insert({
+    offline_uuid: crypto.randomUUID(),
+    sucursal_id: args.sucursal_id,
+    fecha: args.fecha,
+    estado: args.estado,
+    aperturada_por: args.aperturada_por,
+    abierta_en: args.estado === 'ACTIVA' ? new Date().toISOString() : null
+  })
+  if (error) throw new Error(error.message)
+}
+
+export async function abrirEvaluacion(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('evaluaciones')
+    .update({ estado: 'ACTIVA', abierta_en: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+export async function cerrarEvaluacion(id: string, puntuacion: number | null, comentario: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('evaluaciones')
+    .update({ estado: 'CERRADA', cerrada_en: new Date().toISOString(), puntuacion, comentario_general: comentario })
+    .eq('id', id)
+  if (error) throw new Error(error.message)
 }

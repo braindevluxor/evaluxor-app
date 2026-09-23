@@ -23,12 +23,10 @@ export interface PhotoRecord {
 }
 
 export interface SyncJob {
-  offline_uuid: string
+  id: string
   sucursal_id: string
   evaluador_id: string
   fecha: string
-  comentario_general: string
-  puntuacion: number | null
   respuestas: { item_id: string; valor: unknown }[]
   photoIds: string[]
   status: 'pending' | 'processing'
@@ -129,7 +127,7 @@ export async function listQueue(): Promise<SyncJob[]> {
 
 export async function putJob(job: SyncJob): Promise<void> {
   const db = await getDB()
-  await db.put('queue', job, job.offline_uuid)
+  await db.put('queue', job, job.id)
 }
 
 export async function deleteJob(uuid: string): Promise<void> {

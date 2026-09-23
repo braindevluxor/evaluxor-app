@@ -3,10 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, Send } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useModulosActivos } from '../../context/CatalogContext'
-import { getDraft, putDraft, type DraftEval } from '../../lib/offline/db'
-import { guardarBorradorEnCola } from '../../lib/offline/sync'
+import { getDraft, type DraftEval } from '../../lib/offline/db'
+import { encolarRespuestas } from '../../lib/offline/sync'
 import { calcularPuntaje } from '../../lib/scoring'
-import { Button, Field, Puntaje, Textarea } from '../../components/ui'
+import { Button, Puntaje } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import { cn } from '../../components/ui'
 
@@ -48,9 +48,7 @@ export function EvaluarResumen() {
       return
     }
     setEnviando(true)
-    const final: DraftEval = { ...draft, puntuacion: detalles.puntaje }
-    await putDraft(final)
-    await guardarBorradorEnCola(final)
+    await encolarRespuestas(draft)
     sessionStorage.removeItem(`evx:${sucursalId}:mod`)
     sessionStorage.setItem('evx:ok', '1')
     navigate('/evaluar', { replace: true })
@@ -64,7 +62,7 @@ export function EvaluarResumen() {
     <MobileLayout titulo="Resumen de evaluación" subtitulo={`Total de ${countItems()} ítems`}>
       <div className="space-y-4">
         <div className="rounded-2xl bg-primary text-white p-5 text-center shadow-md">
-          <p className="text-sm opacity-80">Cumplimiento general</p>
+          <p className="text-sm opacity-80">Cumplimiento en tus módulos</p>
           <Puntaje value={detalles.puntaje} className="text-5xl text-white" />
           <p className="mt-1 text-xs opacity-80">
             {detalles.incompletos > 0 ? `${detalles.incompletos} ítems obligatorios pendientes` : 'Listo para enviar'}
@@ -92,21 +90,8 @@ export function EvaluarResumen() {
           })}
         </div>
 
-        <Field label="Comentario general (opcional)">
-          <Textarea
-            rows={3}
-            value={draft.comentario_general}
-            placeholder="Observaciones globales de la visita…"
-            onChange={(e) => {
-              const n = { ...draft, comentario_general: e.target.value }
-              setDraft(n)
-              void putDraft(n)
-            }}
-          />
-        </Field>
-
         <p className="text-center text-xs text-slate-400">
-          Al enviar, la evaluación se guarda en este dispositivo y se sincroniza cuando haya conexión.
+          Tus respuestas se guardarán dentro de la evaluación abierta para esta sucursal (la apertura el Líder) y se sincronizan cuando haya conexión.
         </p>
 
         {error ? <div className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-600">{error}</div> : null}

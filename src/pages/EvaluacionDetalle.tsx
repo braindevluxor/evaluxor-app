@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, FileDown } from 'lucide-react'
 import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { descargarPdf } from '../lib/pdf'
-import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, type ValorConciliacion } from '../lib/scoring'
+import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, type ValorConciliacion, type ValorCumple, type ValorChecklist } from '../lib/scoring'
 import type { Item, Opcion } from '../lib/types'
 import { Badge, Button, Puntaje, Spinner, cn } from '../components/ui'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
@@ -25,14 +25,19 @@ function estadoBadge(puntaje: number | null): { texto: string; color: number } {
 function ValorRespuesta({ item, valor }: { item: Item; valor: unknown }) {
   switch (item.tipo) {
     case 'CUMPLE_NO_CUMPLE': {
-      const v = valor as { value?: boolean | null; evidencias?: { comentario?: string; paths?: unknown }[] } | null
+      const v = valor as ValorCumple | null
       if (v?.value == null) return <p className="text-sm text-slate-400">Sin responder</p>
       const comentarios = (v.evidencias ?? []).map((e) => e.comentario?.trim()).filter(Boolean) as string[]
       return (
         <div className="space-y-2">
-          <span className={cn('inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold', v.value ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700')}>
-            {v.value ? 'Cumple' : 'No cumple'}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {v.informativo ? (
+              <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800">Informativo · no descuenta</span>
+            ) : null}
+            <span className={cn('inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold', v.value ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700')}>
+              {v.value ? 'Cumple' : 'No cumple'}
+            </span>
+          </div>
           {comentarios.length ? (
             <div className="space-y-1">
               {comentarios.map((c, i) => (
@@ -44,18 +49,32 @@ function ValorRespuesta({ item, valor }: { item: Item; valor: unknown }) {
       )
     }
     case 'CHECKLIST': {
-      const v = valor as { selected?: string[]; evidencias?: Record<string, { paths?: unknown }> } | null
+      const v = valor as ValorChecklist | null
       const sel = v?.selected ?? []
-      if (!sel.length) return <p className="text-sm text-slate-400">Ninguna opción marcada</p>
+      const informativos = v?.informativos ?? []
+      if (!sel.length && !informativos.length) return <p className="text-sm text-slate-400">Ninguna opción marcada</p>
       const opciones = (item.opciones ?? []) as Opcion[]
       const labels = sel.map((id) => opciones.find((o) => o.id === id)?.etiqueta ?? id)
+      const labelsInfo = informativos.map((id) => opciones.find((o) => o.id === id)?.etiqueta ?? id)
       return (
         <div className="space-y-2">
-          <div className="flex flex-wrap gap-1.5">
-            {labels.map((l) => (
-              <span key={l} className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-semibold text-primary-700">{l}</span>
-            ))}
-          </div>
+          {sel.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {labels.map((l) => (
+                <span key={l} className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-semibold text-primary-700">{l}</span>
+              ))}
+            </div>
+          ) : null}
+          {informativos.length ? (
+            <div className="space-y-1">
+              <p className="text-[11px] font-bold text-amber-700">Informativo · no descuenta puntos</p>
+              <div className="flex flex-wrap gap-1.5">
+                {labelsInfo.map((l) => (
+                  <span key={l} className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">{l}</span>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {Object.entries(v?.evidencias ?? {}).filter(([, e]) => extraerPaths(e).length > 0).length ? (
             <p className="text-xs font-medium text-slate-500">Con evidencia fotográfica en {Object.values(v?.evidencias ?? {}).filter((e) => extraerPaths(e).length > 0).length} opción(es).</p>
           ) : null}
@@ -63,12 +82,15 @@ function ValorRespuesta({ item, valor }: { item: Item; valor: unknown }) {
       )
     }
     case 'CONCILIACION': {
-      const v = valor as { productos?: { sku: string; nombre: string | null; teorica: number | null; fisica: number | null }[] } | null
+      const v = valor as ValorConciliacion | null
       const ps = v?.productos ?? []
       if (!ps.length) return <p className="text-sm text-slate-400">Sin productos</p>
-      const total = conciliacionTotal(v as ValorConciliacion | null | undefined)
+      const total = conciliacionTotal(v)
       return (
         <div className="space-y-1">
+          {v?.informativo ? (
+            <p className="text-xs font-bold text-amber-700">Informativo · no descuenta puntos</p>
+          ) : null}
           {ps.map((p, i) => (
             <p key={i} className="text-sm text-slate-700">
               <span className="font-medium">{p.sku}</span>
@@ -183,7 +205,7 @@ export function EvaluacionDetalle() {
                 {[evaluacion.sucursal?.shop_id ? `Nº tienda ${evaluacion.sucursal.shop_id}` : '', evaluacion.sucursal?.direccion ?? ''].filter(Boolean).join(' · ') || 'Sin datos de tienda'}
               </p>
               <p className="mt-1 text-xs text-slate-400">
-                {new Date(`${evaluacion.fecha}T12:00:00`).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {evaluacion.evaluador?.nombre ?? '—'}
+                {new Date(`${evaluacion.fecha}T12:00:00`).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {evaluacion.aperturador?.nombre ?? '—'}
               </p>
             </div>
             <div className="text-right">

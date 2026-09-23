@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Camera, Check, ScanLine, X } from 'lucide-react'
+import { Camera, Check, Info, ScanLine, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
 import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple } from '../lib/scoring'
 import { buscarProducto } from '../lib/data/precios'
@@ -65,27 +65,37 @@ function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unkno
       const v = (valor as ValorCumple | null) ?? { value: null, evidencias: [] }
       const value = v.value ?? null
       const evidencias = v.evidencias ?? []
+      const informativo = v.informativo ?? false
       const setValue = (valor2: boolean) => onChange({ ...v, value: valor2 })
       const setEvidencias = (evs: EvidenciaCumple[]) => onChange({ ...v, evidencias: evs })
+      const setInformativo = (b: boolean) => onChange({ ...v, informativo: b })
       return (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <BotonCumple activo={value === true} onPick={() => setValue(true)} />
             <BotonNoCumple activo={value === false} onPick={() => setValue(false)} />
           </div>
+          <BotonInformativo activo={informativo} onClick={() => setInformativo(!informativo)}>
+            Informativo · no descuenta puntos
+          </BotonInformativo>
           <EvidenciasEditor evidencias={evidencias} onChange={setEvidencias} />
         </div>
       )
     }
     case 'CHECKLIST': {
-      const value = ((valor as ValorChecklist | null) ?? { selected: [], evidencias: {} })
+      const value = ((valor as ValorChecklist | null) ?? { selected: [], informativos: [], evidencias: {} })
       const seleccion = value.selected ?? []
+      const informativos = value.informativos ?? []
       const evidencias = value.evidencias ?? {}
       const opts = (item.opciones ?? []) as Opcion[]
       if (!opts.length) return <p className="text-sm text-slate-400">Sin opciones definidas.</p>
       const toggle = (id: string) => {
         const existe = seleccion.includes(id)
         onChange({ ...value, selected: existe ? seleccion.filter((x) => x !== id) : [...seleccion, id] })
+      }
+      const toggleInformativo = (id: string) => {
+        const existe = informativos.includes(id)
+        onChange({ ...value, informativos: existe ? informativos.filter((x) => x !== id) : [...informativos, id] })
       }
       const setEvidencia = (id: string, photoIds: string[]) => {
         onChange({ ...value, evidencias: { ...evidencias, [id]: { photoIds } } })
@@ -96,15 +106,17 @@ function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unkno
       }
       return (
         <div className="space-y-2">
+          <p className="text-xs text-slate-400">Marca “Informativo” en la opción cuya falla corresponde a otra área; no descontará puntos.</p>
           {opts.map((o) => {
             const activo = seleccion.includes(o.id)
+            const esInformativo = informativos.includes(o.id)
             const idsEv = evidencias[o.id]?.photoIds ?? []
             return (
               <div
                 key={o.id}
                 className={cn(
                   'rounded-xl border transition-colors',
-                  activo ? 'border-primary bg-primary-50' : 'border-slate-200 bg-white'
+                  esInformativo ? 'border-amber-200 bg-amber-50' : activo ? 'border-primary bg-primary-50' : 'border-slate-200 bg-white'
                 )}
               >
                 <div className="flex items-center gap-2 px-3 py-2.5">
@@ -117,6 +129,18 @@ function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unkno
                     />
                     <span className="text-sm text-slate-700">{o.etiqueta}</span>
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => toggleInformativo(o.id)}
+                    title="Informativo: no descuenta puntos (falla de otra área)"
+                    className={cn(
+                      'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors',
+                      esInformativo ? 'bg-amber-100 text-amber-800' : 'text-slate-400 hover:bg-amber-50 hover:text-amber-600'
+                    )}
+                  >
+                    <Info className="h-3 w-3" />
+                    {esInformativo ? 'Informativo' : 'Marcar'}
+                  </button>
                   {!activo ? (
                     <FotoOpcion
                       photoIds={idsEv}
@@ -184,8 +208,9 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
   const [info, setInfo] = useState<Record<number, string>>({})
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
   const productos = v.productos ?? []
+  const informativo = v.informativo ?? false
 
-  const actualizar = (items: ProductoConciliacion[]) => onChange({ productos: items })
+  const actualizar = (items: ProductoConciliacion[]) => onChange({ ...v, productos: items })
   const actualizarUno = (i: number, patch: Partial<ProductoConciliacion>) =>
     actualizar(productos.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))
   const total = conciliacionTotal(v)
@@ -212,6 +237,11 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
 
   return (
     <div className="space-y-3">
+      <div className="flex justify-end">
+        <BotonInformativo activo={informativo} onClick={() => onChange({ ...v, informativo: !informativo })}>
+          Informativo · no descuenta puntos
+        </BotonInformativo>
+      </div>
       {productos.length === 0 ? (
         <p className="text-sm text-slate-400">Agrega productos para conciliar (escanea o escribe el código).</p>
       ) : (
@@ -379,6 +409,24 @@ function BotonNoCumple({ activo, onPick }: { activo: boolean; onPick: () => void
     >
       <X className="text-2xl" strokeWidth={2.5} />
       <span className="text-sm font-bold">No cumple</span>
+    </button>
+  )
+}
+
+function BotonInformativo({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors',
+        activo
+          ? 'border-amber-300 bg-amber-100 text-amber-800'
+          : 'border-slate-200 bg-white text-slate-400 hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700'
+      )}
+    >
+      <Info className="h-3.5 w-3.5" />
+      {children}
     </button>
   )
 }

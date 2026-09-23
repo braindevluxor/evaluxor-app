@@ -16,6 +16,7 @@ export { ETIQUETAS_TIPO }
 
 export interface ValorChecklist {
   selected: string[]
+  informativos?: string[]
   evidencias?: Record<string, { photoIds: string[] }>
 }
 export interface EvidenciaCumple {
@@ -25,12 +26,14 @@ export interface EvidenciaCumple {
 export interface ValorCumple {
   value: boolean | null
   evidencias: EvidenciaCumple[]
+  informativo?: boolean
 }
 export interface ValorFoto {
   photoIds: string[]
 }
 export interface ValorConciliacion {
   productos: ProductoConciliacion[]
+  informativo?: boolean
 }
 export interface ProductoConciliacion {
   sku: string
@@ -58,11 +61,13 @@ export function conciliacionTotal(v: ValorConciliacion | null | undefined): numb
 
 export function valorBinario(item: { tipo: string; opciones?: string[] | { id: string }[] | null }, valor: unknown): boolean | null {
   if (item.tipo === 'CUMPLE_NO_CUMPLE') {
-    const v = (valor as ValorCumple | null)?.value
-    return typeof v === 'boolean' ? v : null
+    const v = valor as ValorCumple | null
+    if (v?.informativo) return null
+    return typeof v?.value === 'boolean' ? v.value : null
   }
   if (item.tipo === 'CONCILIACION') {
     const v = valor as ValorConciliacion | null
+    if (v?.informativo) return null
     const ps = v?.productos ?? []
     if (!ps.length) return null
     for (const p of ps) {
@@ -72,7 +77,7 @@ export function valorBinario(item: { tipo: string; opciones?: string[] | { id: s
     return true
   }
   if (item.tipo === 'CHECKLIST') {
-    const opts = (item.opciones ?? []) as { id: string }[]
+    const opts = ((item.opciones ?? []) as { id: string }[]).filter((o) => !((valor as ValorChecklist | null)?.informativos ?? []).includes(o.id))
     const sel = (valor as ValorChecklist | null)?.selected ?? []
     if (!opts.length || sel.length === 0) return null
     return opts.every((o) => sel.includes(o.id))

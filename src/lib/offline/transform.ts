@@ -41,26 +41,30 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
   if (ids) return { paths: ids.map((id) => map.get(id) ?? `.local/${id}`) }
   const cumpleIds = isCumpleValor(valor)
   if (cumpleIds) {
-    const v = valor as { value?: boolean | null; evidencias?: { photoIds?: string[]; comentario?: string }[] }
-    return {
+    const v = valor as { value?: boolean | null; evidencias?: { photoIds?: string[]; comentario?: string }[]; informativo?: boolean }
+    const out: Record<string, unknown> = {
       value: v.value ?? null,
       evidencias: (v.evidencias ?? []).map((e, i) => ({
         comentario: e.comentario ?? '',
         paths: (cumpleIds[i] ?? []).map((id) => map.get(id) ?? `.local/${id}`)
       }))
     }
+    if (v.informativo) out.informativo = true
+    return out
   }
   const checklistIds = isChecklistValor(valor)
   if (checklistIds) {
-    const v = valor as { selected?: string[]; evidencias?: Record<string, { photoIds?: string[] } | null> }
+    const v = valor as { selected?: string[]; informativos?: string[]; evidencias?: Record<string, { photoIds?: string[] } | null> }
     const evidencias: Record<string, unknown> = {}
     for (const [optId, ids] of Object.entries(checklistIds)) {
       evidencias[optId] = { paths: ids.map((id) => map.get(id) ?? `.local/${id}`) }
     }
-    return {
+    const out: Record<string, unknown> = {
       selected: v.selected ?? [],
       evidencias
     }
+    if ((v.informativos ?? []).length) out.informativos = v.informativos
+    return out
   }
   return valor
 }

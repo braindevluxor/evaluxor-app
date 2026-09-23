@@ -1,18 +1,38 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Eye, FileDown, History, Trash2 } from 'lucide-react'
+import { CalendarPlus, Eye, FileDown, History, Lock, Play, Trash2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
-import { consultarEvaluaciones, eliminarEvaluacion } from '../../lib/data/indicadores'
-import type { VistaEvaluacion } from '../../lib/types'
+import {
+  consultarEvaluaciones,
+  eliminarEvaluacion,
+  crearEvaluacion,
+  abrirEvaluacion,
+  cerrarEvaluacion,
+  obtenerEvaluacion,
+  resumirEvaluacion
+} from '../../lib/data/indicadores'
+import type { EstadoEvaluacion, VistaEvaluacion } from '../../lib/types'
 import { descargarPdf } from '../../lib/pdf'
-import { puedeConfigurar, verTodo } from '../../lib/roles'
+import { verTodo } from '../../lib/roles'
 import { Badge, Button, Card, Confirmar, Field, Input, Puntaje, Select, Spinner } from '../../components/ui'
 
 function haceMeses(n: number): string {
   const d = new Date()
   d.setMonth(d.getMonth() - n)
   return d.toISOString().slice(0, 10)
+}
+
+const COLOR_ESTADO: Record<EstadoEvaluacion, number> = {
+  PROGRAMADA: 4,
+  ACTIVA: 2,
+  CERRADA: 3
+}
+
+const ETIQUETA_ESTADO: Record<EstadoEvaluacion, string> = {
+  PROGRAMADA: 'Programada',
+  ACTIVA: 'Activa',
+  CERRADA: 'Cerrada'
 }
 
 export function Historial() {
@@ -26,6 +46,8 @@ export function Historial() {
     return null
   }, [profile])
 
+  const esLider = profile?.rol === 'LIDER'
+
   const [desde, setDesde] = useState(haceMeses(6))
   const [hasta, setHasta] = useState('')
   const [sucursalSel, setSucursalSel] = useState('')
@@ -34,7 +56,26 @@ export function Historial() {
   const [aEliminar, setAEliminar] = useState<VistaEvaluacion | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Apertura / programación
+  const [sucursalAbrir, setSucursalAbrir] = useState('')
+  const [fechaAbrir, setFechaAbrir] = useState(new Date().toISOString().slice(0, 10))
+  const [gestionando, setGestionando] = useState(false)
+
   const sucursalesVisibles = scope ? sucursales.filter((s) => scope.includes(s.id)) : sucursales
+
+  const cargar = async () => {
+    setEvals(null)
+    try {
+      const d = await consultarEvaluaciones({
+        sucursal_ids: sucursalSel ? [sucursalSel] : scope,
+        desde: desde || undefined,
+        hasta: hasta || undefined
+      })
+      setEvals(d.evaluaciones)
+    } catch {
+      setEvals([])
+    }
+  }
 
   useEffect(() => {
     let activo = true
@@ -80,14 +121,103 @@ export function Historial() {
     }
   }
 
+  const hoy = new Date().toISOString().slice(0, 10)
+
+  const aperturar = async () => {
+    if (!profile || !sucursalAbrir || !fechaAbrir) {
+      setError('Selecciona la sucursal y la fecha.')
+      return
+    }
+    setError(null)
+    setGestionando(true)
+    try {
+      const esHoy = fechaAbrir === hoy
+      await crearEvaluacion({
+        sucursal_id: sucursalAbrir,
+        fecha: fechaAbrir,
+        estado: esHoy ? 'ACTIVA' : 'PROGRAMADA',
+        aperturada_por: profile.id
+      })
+      setSucursalAbrir('')
+      await cargar()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo crear la evaluación.')
+    }
+    setGestionando(false)
+  }
+
+  const abrir = async (ev: VistaEvaluacion) => {
+    setError(null)
+    setGestionando(true)
+    try {
+      await abrirEvaluacion(ev.id)
+      await cargar()
+    } catch {
+      setError('No se pudo abrir la evaluación.')
+    }
+    setGestionando(false)
+  }
+
+  const cerrar = async (ev: VistaEvaluacion) => {
+    setError(null)
+    setGestionando(true)
+    try {
+      const det = await obtenerEvaluacion(ev.id)
+      const puntaje = det ? resumirEvaluacion(det.evaluacion, det.respuestas, det.items).puntaje : ev.puntuacion
+      const comentario = window.prompt('Comentario de cierre (opcional):', '') ?? ''
+      await cerrarEvaluacion(ev.id, puntaje, comentario.trim() || null)
+      await cargar()
+    } catch {
+      setError('No se pudo cerrar la evaluación.')
+    }
+    setGestionando(false)
+  }
+
+  const activas = useMemo(() => evals?.filter((e) => e.estado === 'ACTIVA').length ?? 0, [evals])
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="flex items-center gap-2 text-xl font-extrabold text-primary-900">
           <History className="h-5 w-5" /> Historial de evaluaciones
         </h2>
-        <p className="text-sm text-slate-500">Todas las evaluaciones enviadas y sus resultados</p>
+        <p className="text-sm text-slate-500">
+          El Lider apertura/programa la evaluación; los evaluadores llenan sus módulos en la misma evaluación.
+        </p>
       </div>
+
+      {esLider ? (
+        <Card>
+          <div className="flex items-center gap-2">
+            <CalendarPlus className="h-5 w-5 text-primary" />
+            <h3 className="font-bold text-primary-900">Aperturar evaluación</h3>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Si la fecha es de hoy la evaluación queda <b>Activa</b> para que los evaluadores llenen; si es futura queda <b>Programada</b>. Una por sucursal y fecha.
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <Field label="Sucursal">
+              <Select value={sucursalAbrir} onChange={(e) => setSucursalAbrir(e.target.value)} disabled={!!scope}>
+                <option value="">Selecciona…</option>
+                {sucursalesVisibles.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+              </Select>
+            </Field>
+            <Field label="Fecha">
+              <Input type="date" value={fechaAbrir} onChange={(e) => setFechaAbrir(e.target.value)} />
+            </Field>
+            <div className="flex items-end">
+              <Button variant="primary" className="w-full" disabled={gestionando || !sucursalAbrir} onClick={() => void aperturar()}>
+                {gestionando ? 'Guardando…' : fechaAbrir === hoy ? 'Aperturar ahora' : 'Programar'}
+              </Button>
+            </div>
+          </div>
+          {activas > 0 ? (
+            <p className="mt-2 text-xs font-medium text-green-600">
+              Hay {activas} evaluación(es) activa(s) en el rango mostrado.
+            </p>
+          ) : null}
+        </Card>
+      ) : null}
 
       <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
         <Field label="Desde">
@@ -114,7 +244,7 @@ export function Historial() {
         <Card>
           <div className="py-10 text-center">
             <p className="text-lg font-bold text-primary-900">Sin evaluaciones en el rango</p>
-            <p className="text-sm text-slate-500">Ajusta los filtros o espera a que se sincronicen evaluaciones.</p>
+            <p className="text-sm text-slate-500">Ajusta los filtros o apertura una evaluación con el botón superior.</p>
           </div>
         </Card>
       ) : (
@@ -125,7 +255,7 @@ export function Historial() {
                 <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase text-slate-400">
                   <th className="px-4 py-3">Fecha</th>
                   <th className="px-4 py-3">Sucursal</th>
-                  <th className="px-4 py-3">Evaluador</th>
+                  <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3 text-right">Puntaje</th>
                   <th className="px-4 py-3" />
                 </tr>
@@ -140,17 +270,36 @@ export function Historial() {
                       <p className="font-semibold text-primary-900">{ev.sucursal?.nombre ?? 'Sucursal'}</p>
                       {ev.sucursal?.direccion ? <p className="text-xs text-slate-400">{ev.sucursal.direccion}</p> : null}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">{ev.evaluador?.nombre ?? '—'}</td>
+                    <td className="px-4 py-3">
+                      <Badge color={COLOR_ESTADO[ev.estado]}>{ETIQUETA_ESTADO[ev.estado]}</Badge>
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
                         <Puntaje value={ev.puntuacion} />
-                        <Badge color={ev.puntuacion != null && ev.puntuacion >= 80 ? 2 : ev.puntuacion != null && ev.puntuacion >= 60 ? 3 : 4}>
-                          {ev.puntuacion != null ? (ev.puntuacion >= 80 ? 'Cumple' : ev.puntuacion >= 60 ? 'Riesgo' : 'No cumple') : 'Sin puntaje'}
-                        </Badge>
+                        {ev.puntuacion != null ? (
+                          <Badge color={ev.puntuacion >= 80 ? 2 : ev.puntuacion >= 60 ? 3 : 4}>
+                            {ev.puntuacion >= 80 ? 'Cumple' : ev.puntuacion >= 60 ? 'Riesgo' : 'No cumple'}
+                          </Badge>
+                        ) : null}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {esLider && ev.estado === 'PROGRAMADA' && ev.fecha <= hoy ? (
+                          <Button variant="primary" className="min-h-0 gap-1.5 px-3 py-1.5" disabled={gestionando} onClick={() => void abrir(ev)}>
+                            <Play className="h-4 w-4" /> Abrir
+                          </Button>
+                        ) : null}
+                        {esLider && ev.estado === 'PROGRAMADA' && ev.fecha > hoy ? (
+                          <span className="text-xs font-semibold text-slate-400">
+                            Se abre el {new Date(`${ev.fecha}T12:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short' })}
+                          </span>
+                        ) : null}
+                        {esLider && ev.estado === 'ACTIVA' ? (
+                          <Button variant="success" className="min-h-0 gap-1.5 px-3 py-1.5" disabled={gestionando} onClick={() => void cerrar(ev)}>
+                            <Lock className="h-4 w-4" /> Cerrar
+                          </Button>
+                        ) : null}
                         <Link
                           to={`/evaluaciones/${ev.id}`}
                           className="inline-flex min-h-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-primary hover:underline"
@@ -166,7 +315,7 @@ export function Historial() {
                           {descargando === ev.id ? <Spinner className="h-4 w-4" /> : <FileDown className="h-4 w-4" />}
                           {descargando === ev.id ? 'Generando…' : 'PDF'}
                         </Button>
-                        {puedeConfigurar(profile?.rol ?? 'SIN_ROL') ? (
+                        {esLider ? (
                           <button
                             onClick={() => setAEliminar(ev)}
                             className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
@@ -187,7 +336,7 @@ export function Historial() {
 
       <Confirmar
         open={aEliminar != null}
-        texto={`¿Eliminar la evaluación de ${aEliminar?.sucursal?.nombre ?? 'esta sucursal'} (${aEliminar?.evaluador?.nombre ?? '…'})? Se borrarán sus respuestas y fotografías.`}
+        texto={`¿Eliminar la evaluación de ${aEliminar?.sucursal?.nombre ?? 'esta sucursal'} (${new Date(`${aEliminar?.fecha}T12:00:00`).toLocaleDateString('es')})? Se borrarán sus respuestas y fotografías.`}
         onConfirm={() => void eliminar()}
         onCancel={() => setAEliminar(null)}
       />

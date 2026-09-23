@@ -4,8 +4,9 @@ import { ArrowLeft, ArrowRight, Check } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { getDraft, putDraft, type DraftEval } from '../../lib/offline/db'
+import { listarEvaluacionesActivas } from '../../lib/data/indicadores'
 import { ItemRenderer } from '../../components/ItemRenderer'
-import { Button, ProgressBar } from '../../components/ui'
+import { Button, ProgressBar, EmptyState } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 
 export function EvaluarSucursal() {
@@ -17,6 +18,7 @@ export function EvaluarSucursal() {
   const sucursal = sucursales.find((s) => s.id === sucursalId)
 
   const [draft, setDraft] = useState<DraftEval | null>(null)
+  const [sinActiva, setSinActiva] = useState(false)
   const [cargando, setCargando] = useState(true)
   const [idxModulo, setIdxModulo] = useState(() => {
     const raw = sessionStorage.getItem(`evx:${sucursalId}:mod`)
@@ -33,16 +35,25 @@ export function EvaluarSucursal() {
   useEffect(() => {
     if (!profile) return
     void (async () => {
-      const existente = await getDraft(sucursalId)
-      const d: DraftEval = existente ?? {
-        sucursal_id: sucursalId,
-        evaluador_id: profile.id,
-        fecha: new Date().toISOString().slice(0, 10),
-        comentario_general: '',
-        puntuacion: null,
-        respuestas: {},
-        updated_at: Date.now()
+      const activas = await listarEvaluacionesActivas().catch(() => [])
+      const activa = activas.find((e) => e.sucursal_id === sucursalId)
+      if (!activa) {
+        setSinActiva(true)
+        setCargando(false)
+        return
       }
+      const existente = await getDraft(sucursalId)
+      const d: DraftEval = existente && existente.fecha === activa.fecha
+        ? existente
+        : {
+            sucursal_id: sucursalId,
+            evaluador_id: profile.id,
+            fecha: activa.fecha,
+            comentario_general: '',
+            puntuacion: null,
+            respuestas: {},
+            updated_at: Date.now()
+          }
       setDraft(d)
       setCargando(false)
     })()
@@ -53,11 +64,26 @@ export function EvaluarSucursal() {
     if (idxModulo >= modulos.length) setIdxModulo(modulos.length - 1)
   }, [modulos, idxModulo])
 
-  if (cargando || !draft) {
+  if (cargando) {
     return <MobileLayout titulo="Cargando…"><div className="py-20 text-center text-slate-400">Cargando evaluación…</div></MobileLayout>
   }
 
-  const actual = draft
+  if (sinActiva) {
+    return (
+      <MobileLayout titulo="Evaluación">
+        <EmptyState
+          title="No hay evaluación abierta"
+          subtitle="El Líder aún no ha abierto la evaluación de esta sucursal. Cuando la aperture podrás llenar tus módulos."
+        />
+        <div className="text-center">
+          <Link to="/evaluar" className="inline-flex items-center gap-1 text-sm font-semibold text-primary"><ArrowLeft className="h-4 w-4" /> Volver</Link>
+        </div>
+      </MobileLayout>
+    )
+  }
+
+  const actual = draft!
+  if (!actual) return <MobileLayout titulo="Evaluación"><div className="py-20 text-center text-slate-400">Cargando…</div></MobileLayout>
 
   if (!modulos.length) {
     return (
