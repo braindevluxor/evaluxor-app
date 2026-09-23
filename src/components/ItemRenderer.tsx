@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
-import { Camera, Check, ChevronDown, Info, ScanLine, X } from 'lucide-react'
+import { Camera, Check, ChevronDown, Info, ScanLine, RefreshCw, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem } from '../lib/scoring'
 import { buscarProducto } from '../lib/data/precios'
+import { listarColaboradores } from '../lib/data/colaboradores'
 import { Badge, cn, Input, Textarea, Button, Spinner } from './ui'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
 import { BarcodeScanner } from './BarcodeScanner'
@@ -47,6 +48,8 @@ function estaVacio(item: Item, valor: unknown): boolean {
       const ps = (valor as ValorConciliacion | null)?.productos ?? []
       return ps.length === 0 || ps.some((p) => !p.sku.trim() || p.teorica == null || p.fisica == null)
     }
+    case 'LISTA_COLABORADORES':
+      return !((valor as ValorListaColaboradores | null)?.colaboradores?.length)
     default:
       return false
   }
@@ -154,6 +157,8 @@ function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unkno
     }
     case 'CONCILIACION':
       return <ConciliacionEditor valor={valor} onChange={onChange} shopId={shopId} />
+    case 'LISTA_COLABORADORES':
+      return <ColaboradoresEditor item={item} valor={valor} onChange={onChange} shopId={shopId} />
     default:
       return null
   }
@@ -353,6 +358,179 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
           }}
         />
       ) : null}
+    </div>
+  )
+}
+
+function ColaboradoresEditor({ item, valor, onChange, shopId }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
+  const [cargando, setCargando] = useState(false)
+  const [info, setInfo] = useState('')
+  const [abiertos, setAbiertos] = useState<Set<number>>(new Set())
+
+  const v = (valor as ValorListaColaboradores | null) ?? { colaboradores: [] }
+  const colaboradores = v.colaboradores ?? []
+  const opts = (item.opciones ?? []) as Opcion[]
+
+  const actualizar = (cols: ColaboradorItem[]) => onChange({ ...v, colaboradores: cols })
+  const toggleAbierto = (dni: number) => {
+    setAbiertos((prev) => {
+      const n = new Set(prev)
+      if (n.has(dni)) n.delete(dni)
+      else n.add(dni)
+      return n
+    })
+  }
+
+  const cargar = async () => {
+    setInfo('')
+    if (!shopId) {
+      setInfo('Nº tienda (shop_id) no configurado en la sucursal.')
+      return
+    }
+    if (!opts.length) {
+      setInfo('Este ítem no tiene checklist definido. El Líder debe configurarlo desde Ítems de evaluación.')
+      return
+    }
+    setCargando(true)
+    const r = await listarColaboradores(shopId)
+    setCargando(false)
+    if (r.mensaje) {
+      setInfo(r.mensaje)
+      return
+    }
+    const nuevos: ColaboradorItem[] = r.colaboradores.map((c) => ({
+      dni: typeof c.dni === 'number' ? c.dni : Number(c.dni ?? 0),
+      nationality: c.nationality,
+      name: c.name ?? '',
+      lastname: c.lastname ?? '',
+      role_id: c.role_id,
+      role_name: c.role_name ?? '',
+      branch_id: c.branch_id,
+      branch_name: c.branch_name ?? '',
+      active: c.active !== false,
+      aplica: true,
+      selected: []
+    }))
+    actualizar(nuevos)
+    setAbiertos(new Set())
+  }
+
+  const aplicarATodos = (activos: boolean | null) => {
+    const cols = colaboradores.map((c) => (activos === null ? { ...c, aplica: true } : { ...c, aplica: c.active === activos }))
+    actualizar(cols)
+  }
+
+  const marcarAplica = (dni: number) => {
+    actualizar(colaboradores.map((c) => (c.dni === dni ? { ...c, aplica: !c.aplica } : c)))
+  }
+
+  const toggleCheck = (dni: number, opcionId: string) => {
+    actualizar(colaboradores.map((c) => {
+      if (c.dni !== dni) return c
+      const sel = c.selected.includes(opcionId) ? c.selected.filter((x) => x !== opcionId) : [...c.selected, opcionId]
+      return { ...c, selected: sel }
+    }))
+  }
+
+  const aplicando = colaboradores.filter((c) => c.aplica)
+  const cumplidos = aplicando.filter((c) => colaboradorCumple(c, opts)).length
+
+  if (!opts.length) {
+    return <p className="text-sm text-slate-400">Sin checklist definido para cada colaborador. El Líder debe configurarlo al crear el ítem.</p>
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Colaboradores de la tienda</p>
+        {colaboradores.length ? (
+          <>
+            <p className="mt-1 text-sm text-slate-600">
+              {aplicando.length} colaboradores en cuenta · {cumplidos}/{aplicando.length} con checklist completo
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <button type="button" onClick={() => aplicarATodos(true)} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:border-primary">
+                Solo activos
+              </button>
+              <button type="button" onClick={() => aplicarATodos(false)} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:border-primary">
+                Solo inactivos
+              </button>
+              <button type="button" onClick={() => aplicarATodos(null)} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:border-primary">
+                Todos
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="mt-1 text-xs text-slate-500">El ítem cumple cuando todos los colaboradores en cuenta tienen su checklist completo.</p>
+        )}
+        <div className="mt-3 flex items-center gap-2">
+          <Button type="button" variant="secondary" className="shrink-0 min-h-0 px-3 py-2" disabled={cargando} onClick={() => void cargar()}>
+            {colaboradores.length ? <RefreshCw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+            {cargando ? 'Cargando…' : colaboradores.length ? 'Actualizar listado' : 'Cargar colaboradores'}
+          </Button>
+        </div>
+        {cargando ? (
+          <p className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Spinner /> Consultando colaboradores…</p>
+        ) : info ? (
+          <p className="mt-2 text-xs font-medium text-amber-600">{info}</p>
+        ) : null}
+      </div>
+
+      {colaboradores.length ? (
+        <div className="space-y-2">
+          {colaboradores.map((c) => {
+            const abierto = abiertos.has(c.dni)
+            const cumple = colaboradorCumple(c, opts)
+            return (
+              <div key={c.dni} className={cn('rounded-xl border transition-colors', c.aplica ? (cumple ? 'border-green-200 bg-white' : 'border-slate-200 bg-white') : 'border-slate-100 bg-slate-50')}>
+                <div className="flex items-center gap-2 px-3 py-2.5">
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                    <input type="checkbox" className="h-5 w-5 shrink-0 accent-primary" checked={c.aplica} onChange={() => marcarAplica(c.dni)} title="Cuenta para el puntaje" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-slate-800">{c.name} {c.lastname}</span>
+                      <span className="block text-[11px] text-slate-500">
+                        C.I. {c.nationality ?? ''}{c.dni} · {c.role_name || 'Sin rol'}
+                        <span className={cn('ml-1.5 font-semibold', c.active ? 'text-green-600' : 'text-slate-400')}>{c.active ? '· Activo' : '· Inactivo'}</span>
+                      </span>
+                    </span>
+                  </label>
+                  <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
+                    {cumple ? 'Cumple' : `${c.selected.length}/${opts.length}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => toggleAbierto(c.dni)}
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100"
+                    title={abierto ? 'Cerrar checklist' : 'Abrir checklist'}
+                  >
+                    <ChevronDown className={cn('h-4 w-4 transition-transform', abierto ? 'rotate-180' : '')} />
+                  </button>
+                </div>
+                {abierto ? (
+                  <div className="space-y-1 border-t border-slate-100 px-3 pb-3 pt-2">
+                    {opts.map((o) => {
+                      const esta = c.selected.includes(o.id)
+                      return (
+                        <label key={o.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-50">
+                          <input
+                            type="checkbox"
+                            className="h-5 w-5 shrink-0 accent-primary"
+                            checked={esta}
+                            onChange={() => toggleCheck(c.dni, o.id)}
+                          />
+                          <span className={cn('text-sm', c.aplica ? 'text-slate-700' : 'text-slate-400')}>{o.etiqueta}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-400">Aún no hay colaboradores cargados. Pulsa “Cargar colaboradores” para traerlos de la tienda.</p>
+      )}
     </div>
   )
 }

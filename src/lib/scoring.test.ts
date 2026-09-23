@@ -57,6 +57,16 @@ describe('valorBinario', () => {
     expect(valorBinario({ tipo: 'CONCILIACION' }, { productos: [] })).toBe(null)
     expect(valorBinario({ tipo: 'CONCILIACION' }, null)).toBe(null)
   })
+  it('listado de colaboradores cumple cuando todos los que aplican tienen su checklist completo', () => {
+    const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a' }, { id: 'b' }] }
+    const col = (selected: string[], aplica = true) => ({ dni: 1, name: 'A', lastname: 'B', active: true, aplica, selected })
+    expect(valorBinario(item, { colaboradores: [col(['a', 'b']), col(['a', 'b'])] })).toBe(true)
+    expect(valorBinario(item, { colaboradores: [col(['a', 'b']), col(['a'])] })).toBe(false)
+    expect(valorBinario(item, { colaboradores: [col(['a', 'b']), col([], false)] })).toBe(true)
+    expect(valorBinario(item, { colaboradores: [] })).toBe(null)
+    expect(valorBinario(item, null)).toBe(null)
+    expect(valorBinario(item, { colaboradores: [col(['a', 'b'])], informativo: true })).toBe(null)
+  })
   it('conciliacion porcentaje redondea a maximo 100', () => {
     expect(conciliacionPorcentaje({ teorica: 10, fisica: 10 })).toBe(100)
     expect(conciliacionPorcentaje({ teorica: 10, fisica: 5 })).toBe(50)

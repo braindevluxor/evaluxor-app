@@ -160,10 +160,10 @@ create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
   modulo_id uuid not null references public.modulos(id) on delete cascade,
   tipo text not null check (tipo in (
-    'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION'
+    'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES'
   )),
   texto text not null,
-  opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"..."}]
+  opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"..."}]; LISTA_COLABORADORES: checklist compartido por cada colaborador
   orden integer not null default 0,
   requerido boolean not null default false,
   activo boolean not null default true,
@@ -175,7 +175,7 @@ create index if not exists idx_items_modulo on public.items(modulo_id, orden);
 delete from public.items where tipo in ('COMENTARIO','FOTO','DESCRIPCION','CANTIDAD');
 alter table public.items drop constraint if exists items_tipo_check;
 alter table public.items add constraint items_tipo_check check (tipo in (
-  'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION'
+  'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES'
 ));
 
 -- ----------------------------------------------------------------------------

@@ -135,7 +135,7 @@ export function ItemsPage() {
 }
 
 function tipoColor(t: TipoItem): number {
-  return t === 'CUMPLE_NO_CUMPLE' ? 3 : t === 'CONCILIACION' ? 6 : t === 'CHECKLIST' ? 5 : 4
+  return t === 'CUMPLE_NO_CUMPLE' ? 3 : t === 'CONCILIACION' ? 6 : t === 'CHECKLIST' ? 5 : t === 'LISTA_COLABORADORES' ? 1 : 4
 }
 
 function FormItem({
@@ -163,7 +163,7 @@ function FormItem({
           modulo_id: inicial?.modulo_id ?? moduloId,
           tipo,
           texto,
-          opciones: tipo === 'CHECKLIST' ? opciones.filter((o) => o.etiqueta.trim()) : [],
+          opciones: tipo === 'CHECKLIST' || tipo === 'LISTA_COLABORADORES' ? opciones.filter((o) => o.etiqueta.trim()) : [],
           requerido,
           activo
         })
@@ -180,6 +180,14 @@ function FormItem({
       {tipo === 'CHECKLIST' ? (
         <Field label="Lista de opciones (el ítem cumple al marcar todas)">
           <EditorOpciones opciones={opciones} onChange={setOpciones} />
+        </Field>
+      ) : null}
+      {tipo === 'LISTA_COLABORADORES' ? (
+        <Field label="Checklist de cada colaborador (se aplica a todos los colaboradores de la tienda)">
+          <EditorOpciones opciones={opciones} onChange={setOpciones} />
+          <p className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+            En la evaluación se cargan los colaboradores de la tienda desde la API de talento humano y este mismo checklist se marca para cada uno. El ítem cumple cuando todos los colaboradores en cuenta tienen su checklist completo.
+          </p>
         </Field>
       ) : null}
       {tipo === 'CONCILIACION' ? (

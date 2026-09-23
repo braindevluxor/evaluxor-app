@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, FileDown } from 'lucide-react'
 import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { descargarPdf } from '../lib/pdf'
-import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, type ValorConciliacion, type ValorCumple, type ValorChecklist } from '../lib/scoring'
+import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores } from '../lib/scoring'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Puntaje, Spinner, cn } from '../components/ui'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
@@ -88,6 +88,48 @@ function ValorRespuesta({ item, valor }: { item: Item; valor: unknown }) {
           {Object.entries(v?.evidencias ?? {}).filter(([, e]) => extraerPaths(e).length > 0).length ? (
             <p className="text-xs font-medium text-slate-500">Con evidencia fotográfica en {Object.values(v?.evidencias ?? {}).filter((e) => extraerPaths(e).length > 0).length} opción(es).</p>
           ) : null}
+        </div>
+      )
+    }
+    case 'LISTA_COLABORADORES': {
+      const v = valor as ValorListaColaboradores | null
+      const cols = v?.colaboradores ?? []
+      if (!cols.length) return <p className="text-sm text-slate-400">Sin colaboradores</p>
+      const opts = (item.opciones ?? []) as Opcion[]
+      const aplican = cols.filter((c) => c.aplica)
+      const cumplen = aplican.filter((c) => colaboradorCumple(c, opts)).length
+      return (
+        <div className="space-y-2">
+          {v?.informativo ? (
+            <p className="text-xs font-bold text-amber-700">Informativo · no descuenta puntos</p>
+          ) : null}
+          <p className="text-sm font-semibold text-slate-700">{aplican.length} colaboradores en cuenta · {cumplen}/{aplican.length} completos</p>
+          <ul className="space-y-1">
+            {cols.map((c) => {
+              const cumple = colaboradorCumple(c, opts)
+              const marcadas = (c.selected ?? []).map((id) => opts.find((o) => o.id === id)?.etiqueta ?? id)
+              return (
+                <li key={c.dni} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate font-medium text-slate-800">
+                      {c.name} {c.lastname}
+                      <span className="ml-1.5 text-xs font-normal text-slate-500">C.I. {c.nationality ?? ''}{c.dni} · {c.role_name || 'Sin rol'}</span>
+                    </span>
+                    <span className="shrink-0">
+                      <EstadoColaborador aplica={c.aplica} cumple={cumple} />
+                    </span>
+                  </div>
+                  {c.aplica && marcadas.length ? (
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {marcadas.map((l) => (
+                        <span key={l} className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-semibold text-primary-700">{l}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                </li>
+              )
+            })}
+          </ul>
         </div>
       )
     }
@@ -268,4 +310,9 @@ export function EvaluacionDetalle() {
       </main>
     </div>
   )
+}
+
+function EstadoColaborador({ aplica, cumple }: { aplica: boolean; cumple: boolean }) {
+  if (!aplica) return <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-500">No aplica</span>
+  return <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700')}>{cumple ? 'Cumple' : 'Incompleto'}</span>
 }

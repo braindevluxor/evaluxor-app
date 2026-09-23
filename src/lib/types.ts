@@ -4,6 +4,7 @@ export type TipoItem =
   | 'CHECKLIST'
   | 'CUMPLE_NO_CUMPLE'
   | 'CONCILIACION'
+  | 'LISTA_COLABORADORES'
 
 export interface Sucursal {
   id: string

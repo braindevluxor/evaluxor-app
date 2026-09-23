@@ -1,7 +1,8 @@
 const ETIQUETAS_TIPO: Record<string, string> = {
   CHECKLIST: 'Check list',
   CUMPLE_NO_CUMPLE: 'Cumple / No cumple',
-  CONCILIACION: 'Conciliación'
+  CONCILIACION: 'Conciliación',
+  LISTA_COLABORADORES: 'Listado de colaboradores'
 }
 
 export function etiquetaTipo(tipo: string): string {
@@ -33,6 +34,32 @@ export interface ProductoConciliacion {
   nombre: string | null
   teorica: number | null
   fisica: number | null
+}
+
+export interface ColaboradorItem {
+  dni: number
+  nationality?: string
+  name: string
+  lastname: string
+  role_id?: string
+  role_name?: string
+  branch_id?: number
+  branch_name?: string
+  active: boolean
+  aplica: boolean
+  selected: string[]
+}
+
+export interface ValorListaColaboradores {
+  colaboradores: ColaboradorItem[]
+  informativo?: boolean
+  loadedAt?: number
+}
+
+export function colaboradorCumple(colab: ColaboradorItem, opciones: { id: string }[] | null | undefined): boolean {
+  const opts = (opciones ?? []) as { id: string }[]
+  if (!opts.length) return false
+  return opts.every((o) => (colab.selected ?? []).includes(o.id))
 }
 
 export function conciliacionPorcentaje(p: { teorica?: number | null; fisica?: number | null } | null | undefined): number | null {
@@ -69,11 +96,20 @@ export function valorBinario(item: { tipo: string; opciones?: string[] | { id: s
     }
     return true
   }
-  if (item.tipo === 'CHECKLIST') {
+if (item.tipo === 'CHECKLIST') {
     const opts = ((item.opciones ?? []) as { id: string }[]).filter((o) => !((valor as ValorChecklist | null)?.informativos ?? []).includes(o.id))
     const sel = (valor as ValorChecklist | null)?.selected ?? []
     if (!opts.length || sel.length === 0) return null
     return opts.every((o) => sel.includes(o.id))
+  }
+  if (item.tipo === 'LISTA_COLABORADORES') {
+    const v = valor as ValorListaColaboradores | null
+    if (v?.informativo) return null
+    const aplican = (v?.colaboradores ?? []).filter((c) => c.aplica)
+    if (!aplican.length) return null
+    const opts = (item.opciones ?? []) as { id: string }[]
+    if (!opts.length) return null
+    return aplican.every((c) => colaboradorCumple(c, opts))
   }
   return null
 }
