@@ -226,12 +226,22 @@ function EditorOpciones({ opciones, onChange }: { opciones: Opcion[]; onChange: 
   }
   const agregar = () => onChange([...opciones, { id: `o${Date.now()}`, etiqueta: '' }])
   const quitar = (i: number) => onChange(opciones.filter((_, idx) => idx !== i))
+  const mover = (i: number, dir: -1 | 1) => {
+    const j = i + dir
+    if (j < 0 || j >= opciones.length) return
+    const nuevo = [...opciones]
+    ;[nuevo[i], nuevo[j]] = [nuevo[j], nuevo[i]]
+    onChange(nuevo)
+  }
 
   return (
     <div className="space-y-2">
       {opciones.map((o, i) => (
         <div key={o.id} className="flex items-center gap-2">
+          <span className="w-6 shrink-0 text-center text-sm font-bold text-slate-400">{i + 1}</span>
           <Input value={o.etiqueta} onChange={(e) => cambiar(i, e.target.value)} placeholder={`Opción ${i + 1}`} />
+          <button type="button" onClick={() => mover(i, -1)} disabled={i === 0} title="Subir" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-30">↑</button>
+          <button type="button" onClick={() => mover(i, 1)} disabled={i === opciones.length - 1} title="Bajar" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-30">↓</button>
           <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
         </div>
       ))}
