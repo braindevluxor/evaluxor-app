@@ -1,4 +1,5 @@
-const BASE_URL = 'https://deliveryluxor.store/api/pricing/evaluxor/scan'
+const BASE_URL = 'https://deliveryluxor.store/api/pricing/samir/scan'
+const API_KEY = import.meta.env.VITE_PRECIOS_API_KEY ?? 'szf2b1BGCVpobIRfLbt7qHlEOE5LWTZWcDlHdzI3eDV3RVJ0NEE9PQ=='
 
 export interface ResultadoScan {
   nombre: string | null
@@ -9,11 +10,10 @@ export async function buscarProducto(barcode: string, shopId: string): Promise<R
   const url = new URL(BASE_URL)
   url.searchParams.set('barcode', barcode)
   url.searchParams.set('shop_id', shopId)
-  url.searchParams.set('device', 'mobile')
 
   let res: Response
   try {
-    res = await fetch(url.toString(), { headers: { Accept: 'application/json' } })
+    res = await fetch(url.toString(), { headers: { Accept: 'application/json', API_KEY } })
   } catch {
     return { nombre: null, mensaje: 'Sin conexión para consultar el producto.' }
   }
