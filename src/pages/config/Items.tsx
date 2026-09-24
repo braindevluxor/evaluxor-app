@@ -1,8 +1,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { GripVertical, X } from 'lucide-react'
+import { FolderOpen, GripVertical, Plus, X } from 'lucide-react'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
 import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem } from '../../lib/scoring'
+import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
 import type { FiltroColaboradores, Item, Modulo, Opcion, TipoItem } from '../../lib/types'
 import { Button, Field, Input, Modal, Select, Textarea, Badge, Spinner, cn } from '../../components/ui'
 
@@ -15,6 +16,7 @@ export function ItemsPage() {
   const [moduloId, setModuloId] = useState(() => params.get('modulo') ?? '')
   const [modal, setModal] = useState(false)
   const [editando, setEditando] = useState<Item | null>(null)
+  const [nuevoPadreId, setNuevoPadreId] = useState<string | null>(null)
   const [aBorrar, setABorrar] = useState<Item | null>(null)
   const [borrando, setBorrando] = useState(false)
   const [arrastrando, setArrastrando] = useState<number | null>(null)
@@ -36,7 +38,8 @@ export function ItemsPage() {
   }, [modulos.length])
 
   const actual = useMemo(() => modulos.find((m) => m.id === moduloId), [modulos, moduloId])
-  const items = useMemo(() => actual?._items ?? [], [actual])
+  const items = useMemo(() => itemsEnOrdenJerarquico(actual?._items ?? []), [actual])
+  const secciones = useMemo(() => items.filter((i) => i.tipo === 'CONTENEDOR'), [items])
   const sumaModulo = useMemo(() => items.reduce((a, i) => a + pesoItem(i), 0), [items])
 
   async function soltarEn(hasta: number) {
@@ -46,6 +49,16 @@ export function ItemsPage() {
       return
     }
     const original = arrastrando
+    const movido = items[original]
+    // El arrastre reordena dentro de la misma sección/nivel; el cambio de sección se hace con el selector.
+    const grupoId = movido.padre_id ?? '__raiz'
+    const offset = items.findIndex((i) => (i.padre_id ?? '__raiz') === grupoId)
+    const grupoLargo = items.filter((i) => (i.padre_id ?? '__raiz') === grupoId).length
+    if (hasta < offset || hasta > offset + grupoLargo) {
+      setArrastrando(null)
+      setSobre(null)
+      return
+    }
     const rel = original < hasta ? hasta - 1 : hasta
     if (original === rel) {
       setArrastrando(null)
@@ -53,16 +66,31 @@ export function ItemsPage() {
       return
     }
     const nuevo = [...items]
-    const [movido] = nuevo.splice(original, 1)
-    nuevo.splice(rel, 0, movido)
+    const [movidoGlobal] = nuevo.splice(original, 1)
+    nuevo.splice(rel, 0, movidoGlobal)
     setArrastrando(null)
     setSobre(null)
     // Re-numera el orden de todo el módulo para que coincida con el nuevo orden de la lista
     await Promise.all(
       nuevo.map((it, idx) =>
-        guardarItem({ id: it.id, modulo_id: it.modulo_id, tipo: it.tipo, texto: it.texto, orden: idx })
+        guardarItem({ id: it.id, modulo_id: it.modulo_id, tipo: it.tipo, texto: it.texto, orden: idx, padre_id: it.padre_id ?? null })
       )
     )
+    await cargar()
+  }
+
+  async function moverASeccion(it: Item, padre: string | null) {
+    await guardarItem({
+      id: it.id,
+      modulo_id: it.modulo_id,
+      tipo: it.tipo,
+      texto: it.texto,
+      orden: it.orden,
+      requerido: it.requerido,
+      activo: it.activo,
+      puntaje: it.puntaje ?? 0,
+      padre_id: padre
+    })
     await cargar()
   }
 
@@ -83,7 +111,7 @@ export function ItemsPage() {
             </Select>
           </Field>
         </div>
-        <Button onClick={() => { setEditando(null); setModal(true) }} disabled={!moduloId}>+ Nuevo ítem</Button>
+        <Button onClick={() => { setEditando(null); setNuevoPadreId(null); setModal(true) }} disabled={!moduloId}>+ Nuevo ítem</Button>
       </div>
 
       {cargando ? <div className="flex justify-center py-16"><Spinner /></div> : !actual ? (
@@ -96,66 +124,98 @@ export function ItemsPage() {
             <span>Puntos asignados en el módulo</span>
             <span>{sumaModulo} / 100{sumaModulo > 100 ? ' — supera el máximo' : ''}</span>
           </div>
-          {items.map((it, idx) => (
-            <Fragment key={it.id}>
-              {insertAt === idx ? (
-                <div className="flex items-center gap-1.5 px-1" aria-hidden="true">
-                  <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
-                  <span className="h-0.5 flex-1 animate-pulse rounded-full bg-primary/60" />
-                </div>
-              ) : null}
-              <div
-                onDragOver={(e) => e.preventDefault()}
-                onDragEnter={(e) => {
-                  if (arrastrando === null || arrastrando === idx) return
-                  const rect = e.currentTarget.getBoundingClientRect()
-                  const lado = e.clientY < rect.top + rect.height / 2 ? 'arriba' : 'abajo'
-                  setSobre({ idx, lado })
-                }}
-                onDrop={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect()
-                  const lado = e.clientY < rect.top + rect.height / 2 ? 'arriba' : 'abajo'
-                  void soltarEn(lado === 'arriba' ? idx : idx + 1)
-                }}
-                className={cn(
-                  'flex flex-wrap items-center gap-3 rounded-xl border bg-white p-3 transition-[border-color,background-color,opacity] duration-150',
-                  arrastrando === idx ? 'border-primary bg-primary-50 opacity-60' : 'border-slate-200',
-                  sobre?.idx === idx ? 'bg-primary-50/50' : ''
-                )}
-              >
-                <button
-                  type="button"
-                  draggable
-                  onDragStart={(e) => {
-                    setArrastrando(idx)
-                    setSobre(null)
-                    e.dataTransfer.effectAllowed = 'move'
-                    e.dataTransfer.setData('text/plain', String(idx))
+          {items.map((it, idx) => {
+            const esSeccion = it.tipo === 'CONTENEDOR'
+            const esHijo = !!it.padre_id
+            const nHijos = hijosDe(items, it.id).length
+            return (
+              <Fragment key={it.id}>
+                {insertAt === idx ? (
+                  <div className={cn('flex items-center gap-1.5', esHijo ? 'pl-12' : 'px-1')} aria-hidden="true">
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+                    <span className="h-0.5 flex-1 animate-pulse rounded-full bg-primary/60" />
+                  </div>
+                ) : null}
+                <div
+                  onDragOver={(e) => e.preventDefault()}
+                  onDragEnter={(e) => {
+                    if (arrastrando === null || arrastrando === idx) return
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const lado = e.clientY < rect.top + rect.height / 2 ? 'arriba' : 'abajo'
+                    setSobre({ idx, lado })
                   }}
-                  onDragEnd={() => { setArrastrando(null); setSobre(null) }}
-                  className="grid h-10 w-8 shrink-0 cursor-grab touch-none place-items-center rounded-xl text-slate-400 transition-colors hover:bg-primary-50 hover:text-primary active:cursor-grabbing"
-                  title="Arrastrar para reordenar"
-                  aria-label={`Reordenar ítem: ${it.texto}`}
+                  onDrop={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const lado = e.clientY < rect.top + rect.height / 2 ? 'arriba' : 'abajo'
+                    void soltarEn(lado === 'arriba' ? idx : idx + 1)
+                  }}
+                  className={cn(
+                    'flex flex-wrap items-center gap-3 rounded-xl border p-3 transition-[border-color,background-color,opacity] duration-150',
+                    esHijo && !esSeccion && 'ml-10 border-slate-100 bg-slate-50/40',
+                    esSeccion && 'border-primary-200 bg-primary-50',
+                    !esSeccion && !esHijo && 'border-slate-200 bg-white',
+                    arrastrando === idx ? 'border-primary bg-primary-50 opacity-60' : '',
+                    sobre?.idx === idx ? 'bg-primary-50/50' : ''
+                  )}
                 >
-                  <GripVertical className="h-5 w-5" />
-                </button>
-                <p className="min-w-[24px] text-center text-sm font-bold text-slate-400">{idx + 1}</p>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-slate-700">{it.texto}</p>
-                  <div className="mt-1 flex items-center gap-2">
-                    <Badge color={tipoColor(it.tipo)}>{etiquetaTipo(it.tipo)}</Badge>
-                    {it.requerido ? <Badge color={0}>Obligatorio</Badge> : null}
-                    {!it.activo ? <Badge color={4}>Inactivo</Badge> : null}
-                    {pesoItem(it) > 0 ? <Badge color={2}>{pesoItem(it)} pts</Badge> : <Badge color={4}>Sin puntos</Badge>}
+                  <button
+                    type="button"
+                    draggable
+                    onDragStart={(e) => {
+                      setArrastrando(idx)
+                      setSobre(null)
+                      e.dataTransfer.effectAllowed = 'move'
+                      e.dataTransfer.setData('text/plain', String(idx))
+                    }}
+                    onDragEnd={() => { setArrastrando(null); setSobre(null) }}
+                    className="grid h-10 w-8 shrink-0 cursor-grab touch-none place-items-center rounded-xl text-slate-400 transition-colors hover:bg-primary-50 hover:text-primary active:cursor-grabbing"
+                    title="Arrastrar para reordenar"
+                    aria-label={`Reordenar ítem: ${it.texto}`}
+                  >
+                    <GripVertical className="h-5 w-5" />
+                  </button>
+                  <p className="min-w-[24px] text-center text-sm font-bold text-slate-400">{idx + 1}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className={cn('text-sm font-medium', esSeccion ? 'font-bold text-primary-900' : 'text-slate-700')}>
+                      {esSeccion ? <FolderOpen className="mr-1.5 inline h-4 w-4 text-primary" /> : null}
+                      {it.texto}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <Badge color={tipoColor(it.tipo)}>{etiquetaTipo(it.tipo)}</Badge>
+                      {esSeccion && nHijos > 0 ? <Badge color={0}>{nHijos} ítem(s) dentro</Badge> : null}
+                      {it.requerido ? <Badge color={0}>Obligatorio</Badge> : null}
+                      {!it.activo ? <Badge color={4}>Inactivo</Badge> : null}
+                      {esSeccion ? null : pesoItem(it) > 0 ? <Badge color={2}>{pesoItem(it)} pts</Badge> : <Badge color={4}>Sin puntos</Badge>}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {!esSeccion ? (
+                      <Select
+                        value={it.padre_id ?? ''}
+                        onChange={(e) => void moverASeccion(it, e.target.value || null)}
+                        className="w-36 shrink-0"
+                        aria-label={`Sección de ${it.texto}`}
+                        title="Sección a la que pertenece este ítem"
+                      >
+                        <option value="">(Sin sección)</option>
+                        {secciones.map((s) => <option key={s.id} value={s.id}>{s.texto}</option>)}
+                      </Select>
+                    ) : null}
+                    {esSeccion ? (
+                      <button
+                        onClick={() => { setEditando(null); setNuevoPadreId(it.id); setModal(true) }}
+                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-primary-200 px-3 text-sm font-semibold text-primary hover:bg-primary-50"
+                      >
+                        <Plus className="h-4 w-4" /> Ítem dentro
+                      </button>
+                    ) : null}
+                    <button onClick={() => { setEditando(it); setNuevoPadreId(null); setModal(true) }} className="grid h-8 place-items-center rounded-lg border border-slate-200 px-3 text-sm font-semibold text-primary">Editar</button>
+                    <button onClick={() => setABorrar(it)} className="grid h-8 place-items-center rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-600 hover:bg-red-50">Eliminar</button>
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => { setEditando(it); setModal(true) }} className="grid h-8 place-items-center rounded-lg border border-slate-200 px-3 text-sm font-semibold text-primary">Editar</button>
-                  <button onClick={() => setABorrar(it)} className="grid h-8 place-items-center rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-600 hover:bg-red-50">Eliminar</button>
-                </div>
-              </div>
-            </Fragment>
-          ))}
+              </Fragment>
+            )
+          })}
           {insertAt === items.length ? (
             <div className="flex items-center gap-1.5 px-1" aria-hidden="true">
               <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
@@ -165,12 +225,13 @@ export function ItemsPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => setModal(false)} title={editando ? 'Editar ítem' : 'Nuevo ítem'} wide sinCerrarFuera>
+      <Modal open={modal} onClose={() => { setModal(false); setNuevoPadreId(null) }} title={editando ? 'Editar ítem' : nuevoPadreId ? 'Nuevo ítem dentro de la sección' : 'Nuevo ítem'} wide sinCerrarFuera>
         <FormItem
           moduloId={moduloId}
           modulos={modulos}
           inicial={editando}
           items={items}
+          padreIdInicial={nuevoPadreId}
           onGuardar={async (d) => {
             const destino = modulos.find((m) => m.id === d.modulo_id)
             const mover = d.id != null && d.modulo_id !== moduloId
@@ -180,6 +241,7 @@ export function ItemsPage() {
             }
             await guardarItem(d)
             setModal(false)
+            setNuevoPadreId(null)
             if (mover) setModuloId(d.modulo_id)
             await cargar()
           }}
@@ -192,6 +254,11 @@ export function ItemsPage() {
             <p className="text-sm text-slate-600">
               ¿Seguro que deseas eliminar el ítem <strong>{aBorrar.texto}</strong>? Se borrarán también las respuestas asociadas en evaluaciones ya realizadas. Esta acción no se puede deshacer.
             </p>
+            {aBorrar.tipo === 'CONTENEDOR' && hijosDe(items, aBorrar.id).length > 0 ? (
+              <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                Esta sección contiene <strong>{hijosDe(items, aBorrar.id).length} ítem(s)</strong>. También se eliminarán junto con la sección.
+              </p>
+            ) : null}
             <div className="flex gap-2">
               <Button variant="secondary" className="flex-1" onClick={() => setABorrar(null)}>Cancelar</Button>
               <Button
@@ -224,12 +291,14 @@ function FormItem({
   modulos,
   inicial,
   items,
+  padreIdInicial = null,
   onGuardar
 }: {
   moduloId: string
   modulos: (Modulo & { _items: Item[] })[]
   inicial: Item | null
   items: Item[]
+  padreIdInicial?: string | null
   onGuardar: (d: Partial<Item> & { modulo_id: string; tipo: TipoItem; texto: string; sku?: string }) => Promise<void>
 }) {
   const [moduloSel, setModuloSel] = useState<string>(inicial?.modulo_id ?? moduloId)
@@ -241,13 +310,17 @@ function FormItem({
   const [activo, setActivo] = useState(inicial?.activo ?? true)
   const [filtroColaboradores, setFiltroColaboradores] = useState<FiltroColaboradores>(inicial?.colaboradores_filtro ?? 'ACTIVOS')
   const [responsables, setResponsables] = useState<string[]>(inicial?.responsables?.length ? inicial.responsables : [])
+  const [padreId, setPadreId] = useState<string | null>(inicial?.padre_id ?? padreIdInicial)
 
+  const esSeccion = tipo === 'CONTENEDOR'
   const conChecklist = tipo === 'CHECKLIST' || tipo === 'LISTA_COLABORADORES' || tipo === 'UNIDAD_CHECKLIST'
+  const seccionesDisponibles = (modulos.find((m) => m.id === moduloSel)?._items ?? items)
+    .filter((i) => i.tipo === 'CONTENEDOR' && i.id !== inicial?.id)
 
   const otros = (modulos.find((m) => m.id === moduloSel)?._items ?? items)
     .filter((i) => i.id !== inicial?.id)
     .reduce((a, i) => a + pesoItem(i), 0)
-  const sumaConNuevo = otros + (Number(puntos) || 0)
+  const sumaConNuevo = otros + (esSeccion ? 0 : Number(puntos) || 0)
   const excede = sumaConNuevo > 100
   const sumaPuntosOpciones = opciones.reduce((a, o) => a + (o.puntos && o.puntos > 0 ? o.puntos : 0), 0)
   const rangoIncompleto = opciones.some((o) => o.tipo_respuesta === 'RANGO' && o.etiqueta.trim() && typeof o.minimo !== 'number')
@@ -263,16 +336,19 @@ function FormItem({
           modulo_id: moduloSel,
           tipo,
           texto,
-          puntaje: Number(puntos) || 0,
-          opciones: conChecklist
-            ? opciones
-                .filter((o) => o.etiqueta.trim())
-                .map((o) => (tipo === 'CHECKLIST' ? o : { id: o.id, etiqueta: o.etiqueta, responsable: o.responsable }))
-            : [],
-          colaboradores_filtro: tipo === 'LISTA_COLABORADORES' ? filtroColaboradores : null,
-          responsables: conChecklist ? responsables.filter((r) => r.trim()) : undefined,
-          requerido,
-          activo
+          puntaje: esSeccion ? 0 : Number(puntos) || 0,
+          opciones: esSeccion
+            ? []
+            : conChecklist
+              ? opciones
+                  .filter((o) => o.etiqueta.trim())
+                  .map((o) => (tipo === 'CHECKLIST' ? o : { id: o.id, etiqueta: o.etiqueta, responsable: o.responsable }))
+              : [],
+          colaboradores_filtro: !esSeccion && tipo === 'LISTA_COLABORADORES' ? filtroColaboradores : null,
+          responsables: !esSeccion && conChecklist ? responsables.filter((r) => r.trim()) : [],
+          requerido: esSeccion ? false : requerido,
+          activo,
+          padre_id: esSeccion ? null : padreId
         })
       }}
     >
@@ -291,23 +367,46 @@ function FormItem({
           {TIPOS.map((t) => <option key={t} value={t}>{etiquetaTipo(t)}</option>)}
         </Select>
       </Field>
-      <Field label="Pregunta / enunciado">
-        <Textarea rows={2} value={texto} onChange={(e) => setTexto(e.target.value)} required placeholder="Ej. Los pasillos están libres de obstáculos…" />
-      </Field>
-      <Field label="Puntos (ponderación)" hint="Peso del ítem en el módulo. La suma de todos los ítems del módulo no puede superar 100.">
-        <Input
-          type="number"
-          min={0}
-          max={100}
-          step={0.5}
-          value={puntos}
-          onChange={(e) => setPuntos(e.target.value === '' ? '' : Number(e.target.value))}
+      <Field label={esSeccion ? 'Nombre de la sección' : 'Pregunta / enunciado'}>
+        <Textarea
+          rows={esSeccion ? 1 : 2}
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          required
+          placeholder={esSeccion ? 'Ej. Seguridad e higiene…' : 'Ej. Los pasillos están libres de obstáculos…'}
         />
       </Field>
-      {excede ? (
-        <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
-          Con estos puntos el módulo sumaría {sumaConNuevo}/100. Baja el valor para no superar 100.
+      {!esSeccion ? (
+        <Field label="Sección (opcional)" hint="Si elegís una sección, este ítem se mostrará agrupado dentro de ella en la evaluación.">
+          <Select value={padreId ?? ''} onChange={(e) => setPadreId(e.target.value || null)}>
+            <option value="">(Sin sección)</option>
+            {seccionesDisponibles.map((s) => <option key={s.id} value={s.id}>{s.texto}</option>)}
+          </Select>
+        </Field>
+      ) : null}
+      {esSeccion ? (
+        <p className="rounded-xl border border-primary-200 bg-primary-50 p-3 text-xs text-slate-600">
+          Las secciones agrupan visualmente los ítems en la evaluación, el resumen y el PDF, sin puntuar: los ítems que contiene siguen aportando sus propios puntos al módulo.
         </p>
+      ) : null}
+      {!esSeccion ? (
+        <>
+          <Field label="Puntos (ponderación)" hint="Peso del ítem en el módulo. La suma de todos los ítems del módulo no puede superar 100.">
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              value={puntos}
+              onChange={(e) => setPuntos(e.target.value === '' ? '' : Number(e.target.value))}
+            />
+          </Field>
+          {excede ? (
+            <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
+              Con estos puntos el módulo sumaría {sumaConNuevo}/100. Baja el valor para no superar 100.
+            </p>
+          ) : null}
+        </>
       ) : null}
       {tipo === 'CHECKLIST' ? (
         <>
@@ -369,10 +468,12 @@ function FormItem({
           En la evaluación, el evaluador agrega los productos (escaneando o escribiendo el SKU) y registra las cantidades teórica y física por cada uno.
         </p>
       ) : null}
-      <label className="flex items-center gap-2 text-sm text-slate-700">
-        <input type="checkbox" className="h-5 w-5 accent-primary" checked={requerido} onChange={(e) => setRequerido(e.target.checked)} />
-        Ítem obligatorio
-      </label>
+      {!esSeccion ? (
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input type="checkbox" className="h-5 w-5 accent-primary" checked={requerido} onChange={(e) => setRequerido(e.target.checked)} />
+          Ítem obligatorio
+        </label>
+      ) : null}
       <label className="flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
         Ítem activo (visible en evaluaciones)

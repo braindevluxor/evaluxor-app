@@ -1,8 +1,9 @@
 import { jsPDF } from 'jspdf'
-import autoTable from 'jspdf-autotable'
+import autoTable, { type RowInput } from 'jspdf-autotable'
 import type { Item } from './types'
 import type { DetalleEvaluacion } from './data/indicadores'
 import { obtenerEvaluacion, resumirEvaluacion } from './data/indicadores'
+import { itemsEnOrdenJerarquico } from './hierarchy'
 import { etiquetaTipo, itemsProporcion, opcionCumplida, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from './scoring'
 
 const MARINO: [number, number, number] = [11, 37, 69]
@@ -215,7 +216,8 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
     body: (() => {
       const filas: (string | number)[][] = []
       for (const m of modulos) {
-        const itemMod = items.filter((i) => i.modulo_id === m.id)
+        const itemMod = itemsEnOrdenJerarquico(items.filter((i) => i.modulo_id === m.id))
+        const preguntas = itemMod.filter((i) => i.tipo !== 'CONTENEDOR').length
         const pares = respuestas
           .map((r) => {
             const it = itemMod.find((i) => i.id === r.item_id)
@@ -226,7 +228,7 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
         filas.push([
           filas.length + 1,
           m.nombre,
-          itemMod.length,
+          preguntas,
           total ? `${fmt(ok)} de ${total}` : '—',
           total ? `${Math.round((ok / total) * 10000) / 100}%` : '—'
         ])
@@ -244,8 +246,8 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
   })
 
   for (const m of modulos) {
-    const itemMod = items.filter((i) => i.modulo_id === m.id)
-    const filas: (string | number)[][] = []
+    const itemMod = itemsEnOrdenJerarquico(items.filter((i) => i.modulo_id === m.id))
+    const filas: RowInput[] = []
     const impulsos: { evaluacion_id: string; item: Item; valor: unknown }[] = []
     const vals: { item: Item; valor: unknown }[] = []
     for (const r of respuestas) {
@@ -269,8 +271,18 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
     const punteoTexto = punteo != null ? `Puntaje: ${punteo}% (${fmt(ok)}/${total})` : 'Sin ítems puntuables'
     doc.text(punteoTexto, W - M - 5, 23, { align: 'right' })
 
-    for (const x of vals) {
-      filas.push([x.item.texto, etiquetaTipo(x.item.tipo), textoValor(aplicarOpciones(x.item), x.valor)])
+    for (const it of itemMod) {
+      if (it.tipo === 'CONTENEDOR') {
+        filas.push([
+          { content: `Sección: ${it.texto}`, styles: { fontStyle: 'bold', fillColor: MARINO_CLARO, textColor: MARINO } },
+          '',
+          ''
+        ])
+        continue
+      }
+      const r = respuestas.find((x) => x.item_id === it.id)
+      if (!r) continue
+      filas.push([it.texto, etiquetaTipo(it.tipo), textoValor(aplicarOpciones(it), r.valor)])
     }
     if (!filas.length) {
       filas.push(['No hay respuestas en este módulo.', '', ''])

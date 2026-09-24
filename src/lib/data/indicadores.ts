@@ -44,7 +44,11 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
       const rr = (await supabase.from('respuestas').select('item_id').eq('evaluacion_id', id)).data ?? []
       const itemIds = Array.from(new Set((rr as { item_id: string }[]).map((r) => r.item_id)))
       if (!itemIds.length) return [] as Item[]
-      return ((await supabase.from('items').select('*').in('id', itemIds)).data ?? []) as Item[]
+      const it = ((await supabase.from('items').select('*').in('id', itemIds)).data ?? []) as Item[]
+      const padresIds = Array.from(new Set(it.map((i) => i.padre_id).filter((p): p is string => !!p)))
+      if (!padresIds.length) return it
+      const padres = ((await supabase.from('items').select('*').in('id', padresIds)).data ?? []) as Item[]
+      return [...it, ...padres]
     })(),
     supabase.from('modulos').select('*').order('orden'),
     supabase.from('fotos').select('*').eq('evaluacion_id', id),
@@ -91,8 +95,11 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
       const respuestas2 = (await supabase.from('respuestas').select('*').in('evaluacion_id', ids)).data ?? []
       const itemIds = Array.from(new Set(respuestas2.map((r) => r.item_id)))
       if (!itemIds.length) return [] as Item[]
-      const it = await supabase.from('items').select('*').in('id', itemIds)
-      return (it.data ?? []) as Item[]
+      const it = ((await supabase.from('items').select('*').in('id', itemIds)).data ?? []) as Item[]
+      const padresIds = Array.from(new Set(it.map((i) => i.padre_id).filter((p): p is string => !!p)))
+      if (!padresIds.length) return it
+      const padres = ((await supabase.from('items').select('*').in('id', padresIds)).data ?? []) as Item[]
+      return [...it, ...padres]
     })(),
     sucursalIds.length
       ? supabase.from('sucursal_opciones').select('*').in('sucursal_id', sucursalIds).eq('activa', true)

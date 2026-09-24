@@ -246,7 +246,7 @@ create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
   modulo_id uuid not null references public.modulos(id) on delete cascade,
   tipo text not null check (tipo in (
-    'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES','UNIDAD_CHECKLIST'
+    'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES','UNIDAD_CHECKLIST','CONTENEDOR'
   )),
   texto text not null,
   opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"...","puntos":3?,"tipo_respuesta":"CHECK|RANGO","minimo":30?,"unidad":"cm"?}]; puntos por opcion (opcional): si TODAS las opciones del CHECKLIST tienen puntos, la puntuacion del item se reparte entre ellas. tipo_respuesta RANGO: el evaluador ingresa un valor numerico y el punto cumple si alcanza el minimo aceptable. LISTA_COLABORADORES: checklist compartido por cada colaborador
@@ -256,11 +256,13 @@ create table if not exists public.items (
   requerido boolean not null default false,
   activo boolean not null default true,
   puntaje numeric not null default 0 check (puntaje >= 0 and puntaje <= 100), -- puntos ponderados; la suma dentro de un modulo no supera 100
+  padre_id uuid references public.items(id) on delete cascade, -- hijo de una seccion CONTENEDOR (un solo nivel)
   created_at timestamptz not null default now()
 );
 create index if not exists idx_items_modulo on public.items(modulo_id, orden);
 
 -- La suma de los puntajes de los ítems de un módulo no puede exceder 100.
+-- Las secciones (CONTENEDOR) no participan de la suma (tipo <> 'CONTENEDOR').
 create or replace function public.validar_suma_puntaje_items() returns trigger
 language plpgsql
 as $$
@@ -272,14 +274,14 @@ begin
     v_modulo := old.modulo_id;
     v_suma := coalesce((
       select sum(puntaje) from public.items
-       where modulo_id = v_modulo and id <> old.id
+       where modulo_id = v_modulo and id <> old.id and tipo <> 'CONTENEDOR'
     ), 0);
   else
     v_modulo := new.modulo_id;
     v_suma := coalesce((
       select sum(puntaje) from public.items
-       where modulo_id = v_modulo and (new.id is null or id <> new.id)
-    ), 0) + coalesce(new.puntaje, 0);
+       where modulo_id = v_modulo and (new.id is null or id <> new.id) and tipo <> 'CONTENEDOR'
+    ), 0) + case when new.tipo = 'CONTENEDOR' then 0 else coalesce(new.puntaje, 0) end;
   end if;
 
   if v_suma > 100 then
@@ -297,9 +299,10 @@ create trigger trg_puntaje_items
 
 -- compatibilidad con bases previas (se eliminan los tipos ya retirados)
 delete from public.items where tipo in ('COMENTARIO','FOTO','DESCRIPCION','CANTIDAD');
+alter table public.items add column if not exists padre_id uuid references public.items(id) on delete cascade;
 alter table public.items drop constraint if exists items_tipo_check;
 alter table public.items add constraint items_tipo_check check (tipo in (
-  'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES','UNIDAD_CHECKLIST'
+  'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES','UNIDAD_CHECKLIST','CONTENEDOR'
 ));
 
 -- ----------------------------------------------------------------------------

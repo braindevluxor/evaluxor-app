@@ -3,7 +3,8 @@ const ETIQUETAS_TIPO: Record<string, string> = {
   CUMPLE_NO_CUMPLE: 'Cumple / No cumple',
   CONCILIACION: 'Conciliación',
   LISTA_COLABORADORES: 'Listado de colaboradores',
-  UNIDAD_CHECKLIST: 'Unidad check list'
+  UNIDAD_CHECKLIST: 'Unidad check list',
+  CONTENEDOR: 'Sección (grupo)'
 }
 
 export function etiquetaTipo(tipo: string): string {
@@ -123,6 +124,7 @@ export function opcionCumplida(
 }
 
 export function valorBinario(item: { tipo: string; opciones?: string[] | { id: string; tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }[] | null }, valor: unknown): boolean | null {
+  if (item.tipo === 'CONTENEDOR') return null
   if (item.tipo === 'CUMPLE_NO_CUMPLE') {
     const v = valor as ValorCumple | null
     if (v?.informativo) return null

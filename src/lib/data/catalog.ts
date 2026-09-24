@@ -110,7 +110,8 @@ export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: 
       responsables: i.responsables ?? [],
       orden: i.orden ?? 0,
       requerido: i.requerido ?? false,
-      puntaje: i.puntaje ?? 0
+      puntaje: i.puntaje ?? 0,
+      padre_id: i.padre_id ?? null
     })
   }
 }

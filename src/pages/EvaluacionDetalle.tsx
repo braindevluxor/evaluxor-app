@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, FileDown } from 'lucide-react'
+import { ArrowLeft, FileDown, FolderOpen } from 'lucide-react'
 import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { descargarPdf } from '../lib/pdf'
 import { supabase } from '../lib/supabase'
+import { itemsEnOrdenJerarquico } from '../lib/hierarchy'
 import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Puntaje, Spinner, cn } from '../components/ui'
@@ -381,7 +382,8 @@ export function EvaluacionDetalle() {
         ) : null}
 
         {modulos.map((m) => {
-          const itemMod = items.filter((i) => i.modulo_id === m.id)
+          const itemMod = itemsEnOrdenJerarquico(items.filter((i) => i.modulo_id === m.id))
+          const respDe = (id: string) => respuestas.find((r) => r.item_id === id)
           const vals = respuestas
             .filter((r) => itemMod.some((i) => i.id === r.item_id))
             .map((r) => ({ item: itemMod.find((i) => i.id === r.item_id), valor: r.valor }))
@@ -397,7 +399,17 @@ export function EvaluacionDetalle() {
                 </p>
               </div>
               <div className="divide-y divide-slate-100">
-                {vals.map(({ item, valor }) => {
+                {itemMod.map((item) => {
+                  if (item.tipo === 'CONTENEDOR') {
+                    return (
+                      <div key={item.id} className="flex items-center gap-2 bg-primary-50 px-4 py-2.5">
+                        <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
+                        <p className="text-sm font-bold text-primary-900">{item.texto}</p>
+                      </div>
+                    )
+                  }
+                  const res = respDe(item.id)
+                  if (!res) return null
                   const fotosItem = fotos.filter((f) => f.item_id === item.id)
                   return (
                     <div key={item.id} className="space-y-2 px-4 py-3">
@@ -405,7 +417,7 @@ export function EvaluacionDetalle() {
                         <p className="text-sm font-semibold text-slate-700">{item.texto}</p>
                         <Badge color={0}>{etiquetaTipo(item.tipo)}</Badge>
                       </div>
-                      <ValorRespuesta item={item} valor={valor} />
+                      <ValorRespuesta item={item} valor={res.valor} />
                       <Fotogaleria fotos={fotosItem} />
                     </div>
                   )

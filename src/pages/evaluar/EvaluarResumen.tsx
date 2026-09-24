@@ -6,6 +6,7 @@ import { useModulosActivos } from '../../context/CatalogContext'
 import { getDraft, type DraftEval } from '../../lib/offline/db'
 import { encolarRespuestas } from '../../lib/offline/sync'
 import { calcularPuntaje } from '../../lib/scoring'
+import { itemsRespondibles } from '../../lib/hierarchy'
 import { Button, Puntaje } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import { cn } from '../../components/ui'
@@ -28,11 +29,11 @@ export function EvaluarResumen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sucursalId])
 
-  const modulos = useMemo(() => modulosActivos.filter((m) => itemsDe(m).length > 0), [modulosActivos, itemsDe])
+  const modulos = useMemo(() => modulosActivos.filter((m) => itemsRespondibles(itemsDe(m)).length > 0), [modulosActivos, itemsDe])
 
   const detalles = useMemo(() => {
     if (!draft) return { puntaje: null as number | null, incompletos: 0, total: 0 }
-    const todas = modulos.flatMap((m) => itemsDe(m).map((i) => ({ m, i })))
+    const todas = modulos.flatMap((m) => itemsRespondibles(itemsDe(m)).map((i) => ({ m, i })))
     const incompletos = todas.filter(({ i }) => i.requerido && !draft.respuestas[i.id]).length
     const binarios = todas.map(({ i }) => i)
     const puntaje = calcularPuntaje(
@@ -71,7 +72,7 @@ export function EvaluarResumen() {
 
         <div className="space-y-3">
           {modulos.map((m) => {
-            const items = itemsDe(m)
+            const items = itemsRespondibles(itemsDe(m))
             const respondidos = items.filter((i) => draft.respuestas[i.id]).length
             const completo = respondidos === items.length
             return (
@@ -109,6 +110,6 @@ export function EvaluarResumen() {
   )
 
   function countItems(): number {
-    return modulos.reduce((a, m) => a + itemsDe(m).length, 0)
+    return modulos.reduce((a, m) => a + itemsRespondibles(itemsDe(m)).length, 0)
   }
 }

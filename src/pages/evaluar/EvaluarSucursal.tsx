@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Check, List } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, FolderOpen, List } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
+import { itemsEnOrdenJerarquico, itemsRespondibles } from '../../lib/hierarchy'
 import { getDraft, putDraft, type DraftEval } from '../../lib/offline/db'
 import { guardarBorradorNube } from '../../lib/offline/sync'
 import { listarEvaluacionesActivas, listarRespuestasEvaluacion } from '../../lib/data/indicadores'
@@ -85,7 +86,7 @@ export function EvaluarSucursal() {
   }, [online])
 
   const modulos = useMemo(
-    () => modulosActivos.filter((m) => itemsDe(m).length > 0),
+    () => modulosActivos.filter((m) => itemsEnOrdenJerarquico(itemsDe(m)).some((i) => i.tipo !== 'CONTENEDOR')),
     [modulosActivos, itemsDe]
   )
 
@@ -124,7 +125,7 @@ export function EvaluarSucursal() {
   useEffect(() => {
     if (!modulos.length) return
     if (idxModulo >= modulos.length) setIdxModulo(modulos.length - 1)
-    const itemsActuales = itemsDe(modulos[Math.min(idxModulo, modulos.length - 1)]).length
+    const itemsActuales = itemsRespondibles(itemsDe(modulos[Math.min(idxModulo, modulos.length - 1)])).length
     if (idxItem >= itemsActuales) setIdxItem(Math.max(0, itemsActuales - 1))
   }, [modulos, idxModulo, idxItem, itemsDe])
 
@@ -165,8 +166,10 @@ export function EvaluarSucursal() {
   }
 
   const modulo = modulos[Math.min(idxModulo, modulos.length - 1)]
-  const items = itemsDe(modulo)
+  const itemsModulo = itemsEnOrdenJerarquico(itemsDe(modulo))
+  const items = itemsModulo.filter((i) => i.tipo !== 'CONTENEDOR')
   const item = items[Math.min(idxItem, items.length - 1)]
+  const seccionActual = item ? itemsModulo.find((i) => i.id === item.padre_id) : undefined
   const itemsEnModulo = items.length
   const ultimoItemModulo = idxItem >= itemsEnModulo - 1
   const ultimoModulo = idxModulo >= modulos.length - 1
@@ -222,8 +225,8 @@ export function EvaluarSucursal() {
   }
 
   const respondidos = Object.keys(actual.respuestas).length
-  const totalItems = modulos.reduce((a, m) => a + itemsDe(m).length, 0)
-  const resumir = (m: typeof modulo) => itemsDe(m).filter((i) => actual.respuestas[i.id]).length
+  const totalItems = modulos.reduce((a, m) => a + itemsRespondibles(itemsDe(m)).length, 0)
+  const resumir = (m: typeof modulo) => itemsRespondibles(itemsDe(m)).filter((i) => actual.respuestas[i.id]).length
 
   return (
     <MobileLayout
@@ -250,7 +253,7 @@ export function EvaluarSucursal() {
                   setIdxItem(0)
                 }}
                 className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  i === idxModulo ? 'bg-primary text-white' : resumir(m) === itemsDe(m).length ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-500'
+                  i === idxModulo ? 'bg-primary text-white' : resumir(m) === itemsRespondibles(itemsDe(m)).length ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-500'
                 }`}
               >
                 {i + 1}. {m.nombre}
@@ -261,6 +264,15 @@ export function EvaluarSucursal() {
         </div>
 
         <div>
+          {seccionActual && seccionActual.tipo === 'CONTENEDOR' ? (
+            <div className="mb-3 flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2">
+              <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-primary-500">Sección</p>
+                <p className="truncate text-sm font-bold text-primary-900">{seccionActual.texto}</p>
+              </div>
+            </div>
+          ) : null}
           <ItemRenderer
             key={`${modulo.id}-${item.id}`}
             item={item}
@@ -316,6 +328,7 @@ export function EvaluarSucursal() {
           {items.map((it, i) => {
             const respondido = !!actual.respuestas[it.id]
             const activo = i === idxItem
+            const padre = itemsModulo.find((x) => x.id === it.padre_id)
             return (
               <li key={it.id}>
                 <button
@@ -338,7 +351,14 @@ export function EvaluarSucursal() {
                   >
                     {respondido ? <Check className="h-3.5 w-3.5" /> : i + 1}
                   </span>
-                  <span className="min-w-0 flex-1 truncate">{it.texto}</span>
+                  <span className="min-w-0 flex-1">
+                    {padre && padre.tipo === 'CONTENEDOR' ? (
+                      <span className={cn('mb-0.5 flex items-center gap-1 text-[10px] font-semibold', activo ? 'text-white/70' : 'text-primary-600')}>
+                        <FolderOpen className="h-3 w-3" /> {padre.texto}
+                      </span>
+                    ) : null}
+                    <span className="block truncate">{it.texto}</span>
+                  </span>
                   {activo ? <span className="shrink-0 text-xs font-semibold">Actual</span> : null}
                 </button>
               </li>

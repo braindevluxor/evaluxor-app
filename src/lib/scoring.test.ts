@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable } from './scoring'
 
 describe('valorBinario', () => {
   it('cumple/no cumple', () => {
@@ -249,6 +249,21 @@ describe('checklist con opciones de rango', () => {
   it('sin minimo configurado el rango no cumple aunque tenga valor', () => {
     const sinMinimo: { tipo: 'CHECKLIST'; opciones: OpcionRango[] } = { tipo: 'CHECKLIST', opciones: [{ id: 'a', tipo_respuesta: 'RANGO', puntos: 4 }] }
     expect(valorBinario(sinMinimo, { selected: ['a'], valores: { a: 50 } })).toBe(false)
+  })
+})
+
+describe('secciones CONTENEDOR', () => {
+  const seccion = { id: 's1', tipo: 'CONTENEDOR', puntaje: 0 }
+
+  it('no puntúan: valorBinario y proporcionItem devuelven null', () => {
+    expect(valorBinario(seccion, null)).toBeNull()
+    expect(proporcionItem(seccion, null)).toBeNull()
+    expect(proporcionItem(seccion, { selected: ['a'] })).toBeNull()
+  })
+
+  it('pesoItem devuelve 0 aunque tengan puntaje residual', () => {
+    expect(pesoItem(seccion)).toBe(0)
+    expect(pesoItem({ puntaje: 50 })).toBe(50)
   })
 })
 

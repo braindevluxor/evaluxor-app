@@ -6,6 +6,7 @@ export type TipoItem =
   | 'CONCILIACION'
   | 'LISTA_COLABORADORES'
   | 'UNIDAD_CHECKLIST'
+  | 'CONTENEDOR'
 
 export type FiltroColaboradores = 'ACTIVOS' | 'INACTIVOS' | 'TODOS'
 
@@ -124,6 +125,8 @@ export interface Item {
   requerido: boolean
   activo: boolean
   puntaje?: number
+  /** Id del ítem CONTENEDOR (sección) que agrupa este ítem. Un solo nivel de anidación. */
+  padre_id?: string | null
   created_at: string
 }
 
