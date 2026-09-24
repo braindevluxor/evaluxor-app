@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import { FolderOpen, X } from 'lucide-react'
 
 export function cn(...cls: (string | false | null | undefined)[]): string {
@@ -125,6 +125,7 @@ export function Modal({
   wide?: boolean
   sinCerrarFuera?: boolean
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null)
   if (!open) return null
   return (
     <div
@@ -132,8 +133,24 @@ export function Modal({
       onClick={sinCerrarFuera ? undefined : onClose}
     >
       <div
-        className={cn('max-h-[92vh] w-full overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-5', wide ? 'sm:max-w-2xl' : 'sm:max-w-md')}
+        ref={scrollRef}
+        className={cn('max-h-[92vh] w-full overflow-y-auto overscroll-contain rounded-t-2xl sm:rounded-2xl bg-white p-5 [overflow-anchor:none]', wide ? 'sm:max-w-2xl' : 'sm:max-w-md')}
         onClick={(e) => e.stopPropagation()}
+        onBlur={(e) => {
+          // Al perder foco un campo interno (clic fuera de él), el navegador puede
+          // reiniciar el scroll del modal al tope (reflow / cierre del teclado).
+          // Conservamos la posición mientras el foco no quede en otro elemento del modal.
+          const destino = e.relatedTarget as Node | null
+          if (destino && scrollRef.current?.contains(destino)) return
+          const top = scrollRef.current?.scrollTop ?? 0
+          const restaurar = () => {
+            if (scrollRef.current && (!document.activeElement || !scrollRef.current.contains(document.activeElement))) {
+              scrollRef.current.scrollTop = top
+            }
+          }
+          requestAnimationFrame(restaurar)
+          window.setTimeout(restaurar, 300)
+        }}
       >
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-bold text-primary-900">{title}</h3>
