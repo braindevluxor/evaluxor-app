@@ -6,7 +6,7 @@ import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
 import { getDraft, putDraft, type DraftEval } from '../../lib/offline/db'
 import { guardarBorradorNube } from '../../lib/offline/sync'
-import { listarEvaluacionesActivas } from '../../lib/data/indicadores'
+import { listarEvaluacionesActivas, listarRespuestasEvaluacion } from '../../lib/data/indicadores'
 import { ItemRenderer } from '../../components/ItemRenderer'
 import { Button, ProgressBar, EmptyState, Modal, cn } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
@@ -101,17 +101,21 @@ export function EvaluarSucursal() {
       }
       evaluacionIdRef.current = activa.id
       const existente = await getDraft(sucursalId)
-      const d: DraftEval = existente && existente.fecha === activa.fecha
-        ? existente
-        : {
-            sucursal_id: sucursalId,
-            evaluador_id: profile.id,
-            fecha: activa.fecha,
-            comentario_general: '',
-            puntuacion: null,
-            respuestas: {},
-            updated_at: Date.now()
-          }
+      const enNube = await listarRespuestasEvaluacion(activa.id).catch(() => [])
+      const nubeMias: DraftEval['respuestas'] = {}
+      for (const r of enNube) {
+        if (r.respondido_por === profile.id) nubeMias[r.item_id] = { valor: r.valor }
+      }
+      const d: DraftEval = {
+        sucursal_id: sucursalId,
+        evaluador_id: profile.id,
+        fecha: activa.fecha,
+        comentario_general: existente?.comentario_general ?? '',
+        puntuacion: existente?.puntuacion ?? null,
+        respuestas: { ...nubeMias, ...(existente?.respuestas ?? {}) },
+        updated_at: Date.now()
+      }
+      await putDraft(d).catch(() => undefined)
       setDraft(d)
       setCargando(false)
     })()

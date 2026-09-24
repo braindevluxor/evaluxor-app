@@ -377,6 +377,14 @@ export async function listarEvaluacionesActivas(): Promise<VistaEvaluacion[]> {
   return (data ?? []) as VistaEvaluacion[]
 }
 
+export async function listarRespuestasEvaluacion(evaluacionId: string): Promise<{ item_id: string; valor: unknown; respondido_por: string }[]> {
+  const { data } = await supabase
+    .from('respuestas')
+    .select('item_id, valor, respondido_por')
+    .eq('evaluacion_id', evaluacionId)
+  return (data ?? []) as { item_id: string; valor: unknown; respondido_por: string }[]
+}
+
 export async function crearEvaluacion(args: {
   sucursal_id: string
   fecha: string
