@@ -17,6 +17,8 @@ export function ItemsPage() {
   const [editando, setEditando] = useState<Item | null>(null)
   const [aBorrar, setABorrar] = useState<Item | null>(null)
   const [borrando, setBorrando] = useState(false)
+  const [arrastrando, setArrastrando] = useState<number | null>(null)
+  const [sobre, setSobre] = useState<number | null>(null)
 
   const cargar = useCallback(async () => {
     const data = await listarModulosAdmin()
@@ -49,6 +51,26 @@ export function ItemsPage() {
     await cargar()
   }
 
+  async function soltarEn(hasta: number) {
+    if (arrastrando == null || arrastrando === hasta) {
+      setArrastrando(null)
+      setSobre(null)
+      return
+    }
+    const nuevo = [...items]
+    const [movido] = nuevo.splice(arrastrando, 1)
+    nuevo.splice(hasta, 0, movido)
+    setArrastrando(null)
+    setSobre(null)
+    // Re-numera el orden de todo el módulo para que coincida con el nuevo orden de la lista
+    await Promise.all(
+      nuevo.map((it, idx) =>
+        guardarItem({ id: it.id, modulo_id: it.modulo_id, tipo: it.tipo, texto: it.texto, orden: idx })
+      )
+    )
+    await cargar()
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -77,7 +99,33 @@ export function ItemsPage() {
             <span>{sumaModulo} / 100{sumaModulo > 100 ? ' — supera el máximo' : ''}</span>
           </div>
           {items.map((it, idx) => (
-            <div key={it.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div
+              key={it.id}
+              onDragOver={(e) => e.preventDefault()}
+              onDragEnter={() => { if (arrastrando !== null && arrastrando !== idx) setSobre(idx) }}
+              onDrop={() => void soltarEn(idx)}
+              className={cn(
+                'flex flex-wrap items-center gap-3 rounded-xl border bg-white p-3 shadow-sm',
+                arrastrando === idx ? 'border-primary opacity-40' : 'border-slate-200',
+                sobre === idx ? 'ring-2 ring-primary/70' : ''
+              )}
+            >
+              <button
+                type="button"
+                draggable
+                onDragStart={(e) => {
+                  setArrastrando(idx)
+                  setSobre(null)
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.dataTransfer.setData('text/plain', String(idx))
+                }}
+                onDragEnd={() => { setArrastrando(null); setSobre(null) }}
+                className="grid h-9 w-6 shrink-0 cursor-grab place-items-center rounded-lg text-slate-300 hover:bg-slate-100 hover:text-slate-500 active:cursor-grabbing"
+                title="Arrastrar para reordenar"
+                aria-label={`Reordenar ítem: ${it.texto}`}
+              >
+                <GripVertical className="h-5 w-5" />
+              </button>
               <p className="min-w-[24px] text-center text-sm font-bold text-slate-400">{idx + 1}</p>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-slate-700">{it.texto}</p>
