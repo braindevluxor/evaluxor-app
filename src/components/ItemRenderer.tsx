@@ -971,7 +971,7 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
         onClick={() => inputRef.current?.click()}
         disabled={subiendo}
         aria-label="Tomar foto de evidencia"
-        className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-white shadow-sm transition-colors hover:bg-primary-700 disabled:opacity-50"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
       >
         {subiendo ? <Spinner className="h-4 w-4 border-white border-t-transparent" /> : <Camera className="h-4 w-4" />}
       </button>

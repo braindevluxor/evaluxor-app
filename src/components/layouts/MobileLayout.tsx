@@ -60,7 +60,7 @@ export function HeaderMini({
 }) {
   const { profile } = useAuth()
   return (
-    <header className="sticky top-0 z-30 bg-primary text-white shadow-md">
+    <header className="sticky top-0 z-30 bg-primary text-white">
       <div className="flex items-center justify-between gap-2 px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           {onClickMenu ? (
@@ -113,7 +113,7 @@ export function MobileLayout({
       {menuAbierto ? (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={cerrar} aria-hidden />
-          <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85%] flex-col bg-white shadow-xl">
+          <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85%] flex-col bg-white">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <span className="text-lg font-extrabold text-primary">EvaLuxor</span>
               <button

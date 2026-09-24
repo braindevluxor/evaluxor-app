@@ -108,7 +108,7 @@ export function PhotoCapture({ photoIds, onChange }: Props) {
         onClick={() => inputRef.current?.click()}
         disabled={subiendo}
         aria-label="Tomar / agregar foto"
-        className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary text-white shadow-md transition-colors hover:bg-primary-700 disabled:opacity-50"
+        className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
       >
         <Camera className="h-5 w-5" />
       </button>

@@ -118,8 +118,8 @@ export function ItemsPage() {
                   void soltarEn(lado === 'arriba' ? idx : idx + 1)
                 }}
                 className={cn(
-                  'flex flex-wrap items-center gap-3 rounded-xl border bg-white p-3 shadow-sm transition-[border-color,background-color,box-shadow,opacity] duration-150',
-                  arrastrando === idx ? 'border-primary bg-primary-50 opacity-60 shadow-md' : 'border-slate-200',
+                  'flex flex-wrap items-center gap-3 rounded-xl border bg-white p-3 transition-[border-color,background-color,opacity] duration-150',
+                  arrastrando === idx ? 'border-primary bg-primary-50 opacity-60' : 'border-slate-200',
                   sobre?.idx === idx ? 'bg-primary-50/50' : ''
                 )}
               >

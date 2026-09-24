@@ -91,7 +91,7 @@ export function EditarConciliacion() {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-10">
-      <header className="sticky top-0 z-30 bg-primary text-white shadow-md">
+      <header className="sticky top-0 z-30 bg-primary text-white">
         <div className="mx-auto flex max-w-2xl items-center gap-2 px-4 py-3">
           <button onClick={() => navigate(-1)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 hover:bg-white/20" title="Volver">
             <ArrowLeft className="h-4 w-4" />
@@ -125,7 +125,7 @@ export function EditarConciliacion() {
           itemsConciliacion.map((item) => {
             const g = guardado[item.id] ?? 'espera'
             return (
-              <section key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <section key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
                 <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
                   <p className="text-sm font-semibold text-primary-900">{item.texto}</p>
                   <Badge color={6}>{etiquetaTipo(item.tipo)}</Badge>

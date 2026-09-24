@@ -38,7 +38,7 @@ export function SucursalesPage() {
       {cargando ? <div className="flex justify-center py-16"><Spinner /></div> : !sucursales.length ? (
         <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-slate-500">Aún no hay sucursales.</div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400">

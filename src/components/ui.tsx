@@ -78,7 +78,7 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
 
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('rounded-2xl border border-slate-200 bg-white p-4 shadow-sm', className)}>
+    <div className={cn('rounded-2xl border border-slate-200 bg-white p-4', className)}>
       {children}
     </div>
   )
@@ -132,7 +132,7 @@ export function Modal({
       onClick={sinCerrarFuera ? undefined : onClose}
     >
       <div
-        className={cn('max-h-[92vh] w-full overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-5 shadow-xl', wide ? 'sm:max-w-2xl' : 'sm:max-w-md')}
+        className={cn('max-h-[92vh] w-full overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-5', wide ? 'sm:max-w-2xl' : 'sm:max-w-md')}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
@@ -161,7 +161,7 @@ export function Confirmar({
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-5">
         <p className="text-sm text-slate-700">{texto}</p>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="ghost" onClick={onCancel}>Cancelar</Button>

@@ -17,7 +17,7 @@ export function KpiCard({
   children?: ReactNode
 }) {
   return (
-    <div className={cn('flex flex-col gap-1 rounded-2xl border border-slate-200 p-4 shadow-sm', color)}>
+    <div className={cn('flex flex-col gap-1 rounded-2xl border border-slate-200 p-4', color)}>
       <div className="flex items-center gap-2 text-sm font-semibold opacity-90">
         {icono ? <span>{icono}</span> : null}
         {titulo}

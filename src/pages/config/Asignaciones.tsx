@@ -102,7 +102,7 @@ export function AsignacionesPage() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {visibles.map((e) => (
-            <div key={e.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div key={e.id} className="rounded-2xl border border-slate-200 bg-white p-4">
               <p className="mb-3 font-bold text-primary-900">{e.nombre || e.email}</p>
               {modulos.length ? (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">

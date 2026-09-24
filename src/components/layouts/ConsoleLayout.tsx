@@ -36,7 +36,7 @@ export function ConsoleLayout() {
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <aside className={cn('fixed inset-y-0 left-0 z-40 w-64 transform bg-primary text-white shadow-xl transition-transform lg:translate-x-0', abierto ? 'translate-x-0' : '-translate-x-full')}>
+      <aside className={cn('fixed inset-y-0 left-0 z-40 w-64 transform bg-primary text-white transition-transform lg:translate-x-0', abierto ? 'translate-x-0' : '-translate-x-full')}>
         <div className="flex items-center justify-between px-5 py-5">
           <div>
             <h1 className="text-xl font-extrabold">EvaLuxor</h1>
@@ -85,7 +85,7 @@ export function ConsoleLayout() {
       {abierto ? <div className="fixed inset-0 z-30 bg-slate-900/40 lg:hidden" onClick={() => setAbierto(false)} /> : null}
 
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3">
           <button onClick={() => setAbierto(true)} className="grid h-10 w-10 place-items-center rounded-xl text-primary hover:bg-primary-50 lg:hidden">
             <Menu className="h-6 w-6" />
           </button>

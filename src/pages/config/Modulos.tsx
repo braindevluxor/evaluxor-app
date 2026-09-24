@@ -36,7 +36,7 @@ export function ModulosPage() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {modulos.map((m) => (
-            <div key={m.id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div key={m.id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4">
               <div className="mb-1 flex items-start justify-between gap-2">
                 <p className="font-bold text-primary-900">{m.nombre}</p>
                 <Badge color={m.activo ? 2 : 4}>{m.activo ? 'Activo' : 'Inactivo'}</Badge>

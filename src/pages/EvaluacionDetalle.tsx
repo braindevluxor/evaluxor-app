@@ -295,7 +295,7 @@ export function EvaluacionDetalle() {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-10">
-      <header className="sticky top-0 z-30 bg-primary text-white shadow-md">
+      <header className="sticky top-0 z-30 bg-primary text-white">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <button onClick={() => navigate(-1)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 hover:bg-white/20" title="Volver">
@@ -320,7 +320,7 @@ export function EvaluacionDetalle() {
           <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
         ) : null}
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-lg font-extrabold text-primary-900">{evaluacion.sucursal?.nombre ?? 'Sucursal'}</p>
@@ -356,7 +356,7 @@ export function EvaluacionDetalle() {
         </section>
 
         {filasResponsables.length ? (
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <p className="font-bold text-primary-900">Resumen de responsables</p>
             <p className="mb-3 text-xs text-slate-400">Fallas acumuladas en esta evaluación (puntos del checklist que no se cumplieron)</p>
             <div className="space-y-2">
@@ -379,7 +379,7 @@ export function EvaluacionDetalle() {
           const bin = vals.map((v) => valorBinario(aplicarOpciones(v.item), v.valor)).filter((x): x is boolean => x !== null)
           const punteo = bin.length ? Math.round((bin.filter(Boolean).length / bin.length) * 10000) / 100 : null
           return (
-            <section key={m.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <section key={m.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
               <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
                 <p className="font-bold text-primary-900">{m.nombre}</p>
                 <p className="text-xs font-semibold text-slate-500">

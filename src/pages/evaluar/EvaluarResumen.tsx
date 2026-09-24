@@ -61,7 +61,7 @@ export function EvaluarResumen() {
   return (
     <MobileLayout titulo="Resumen de evaluación" subtitulo={`Total de ${countItems()} ítems`}>
       <div className="space-y-4">
-        <div className="rounded-2xl bg-primary text-white p-5 text-center shadow-md">
+        <div className="rounded-2xl bg-primary text-white p-5 text-center">
           <p className="text-sm opacity-80">Cumplimiento en tus módulos</p>
           <Puntaje value={detalles.puntaje} className="text-5xl text-white" />
           <p className="mt-1 text-xs opacity-80">
