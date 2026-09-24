@@ -222,6 +222,36 @@ describe('proporcionChecklist', () => {
   })
 })
 
+describe('checklist con opciones de rango', () => {
+  type OpcionRango = { id: string; tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number; puntos?: number }
+  const item: { tipo: 'CHECKLIST'; opciones: OpcionRango[] } = {
+    tipo: 'CHECKLIST',
+    opciones: [
+      { id: 'a', tipo_respuesta: 'RANGO', minimo: 30, puntos: 4 },
+      { id: 'b', puntos: 2 }
+    ]
+  }
+
+  it('valorBinario: el rango solo cumple si el valor alcanza el minimo', () => {
+    expect(valorBinario(item, { selected: ['a', 'b'], valores: { a: 40 } })).toBe(true)
+    expect(valorBinario(item, { selected: ['a', 'b'], valores: { a: 30 } })).toBe(true)
+    expect(valorBinario(item, { selected: ['a', 'b'], valores: { a: 25 } })).toBe(false)
+    expect(valorBinario(item, { selected: ['a', 'b'] })).toBe(false)
+    expect(valorBinario(item, { selected: ['b'], valores: { a: 40 } })).toBe(false)
+  })
+
+  it('proporcionChecklist: el rango cumplido suma sus puntos y el no cumplido no', () => {
+    expect(proporcionChecklist(item, { selected: ['a', 'b'], valores: { a: 40 } })).toBe(1)
+    expect(proporcionChecklist(item, { selected: ['a', 'b'], valores: { a: 10 } })).toBe(2 / 6) // solo b
+    expect(proporcionChecklist(item, { selected: ['a'], valores: { a: 40 } })).toBe(4 / 6) // solo a
+  })
+
+  it('sin minimo configurado el rango no cumple aunque tenga valor', () => {
+    const sinMinimo: { tipo: 'CHECKLIST'; opciones: OpcionRango[] } = { tipo: 'CHECKLIST', opciones: [{ id: 'a', tipo_respuesta: 'RANGO', puntos: 4 }] }
+    expect(valorBinario(sinMinimo, { selected: ['a'], valores: { a: 50 } })).toBe(false)
+  })
+})
+
 describe('calcularPuntaje con checklist proporcional', () => {
   it('reparte el peso del item segun los puntos de las opciones marcadas', () => {
     const checklist = { tipo: 'CHECKLIST', puntaje: 10, opciones: [{ id: 'a', puntos: 3 }, { id: 'b', puntos: 1 }, { id: 'c', puntos: 2 }] }

@@ -250,13 +250,14 @@ function FormItem({
   const sumaConNuevo = otros + (Number(puntos) || 0)
   const excede = sumaConNuevo > 100
   const sumaPuntosOpciones = opciones.reduce((a, o) => a + (o.puntos && o.puntos > 0 ? o.puntos : 0), 0)
+  const rangoIncompleto = opciones.some((o) => o.tipo_respuesta === 'RANGO' && o.etiqueta.trim() && typeof o.minimo !== 'number')
 
   return (
     <form
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
-        if (excede) return
+        if (excede || rangoIncompleto) return
         void onGuardar({
           id: inicial?.id,
           modulo_id: moduloSel,
@@ -312,10 +313,15 @@ function FormItem({
         <>
           <Field
             label="Lista de opciones"
-            hint="El ítem cumple al marcar todas las opciones. Si asignás puntos a TODAS las opciones, la puntuación del ítem se reparte: se otorga el peso proporcional a los puntos de las opciones marcadas."
+            hint="El ítem cumple al marcar todas las opciones. En «Rango de valor» el punto solo cumple si el evaluador ingresa un valor mayor o igual al mínimo aceptable. Si asignás puntos a TODAS las opciones, la puntuación del ítem se reparte."
           >
-            <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} conPuntos />
+            <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} conPuntos conRango />
           </Field>
+          {rangoIncompleto ? (
+            <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
+              Hay opciones de tipo «Rango de valor» sin mínimo aceptable. Definí el mínimo en todas para poder guardar.
+            </p>
+          ) : null}
           {sumaPuntosOpciones > 0 ? (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-primary-50 px-3 py-2">
               <p className="text-xs font-medium text-primary-900">
@@ -371,12 +377,12 @@ function FormItem({
         <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
         Ítem activo (visible en evaluaciones)
       </label>
-      <Button type="submit" className="w-full" disabled={excede}>Guardar ítem</Button>
+      <Button type="submit" className="w-full" disabled={excede || rangoIncompleto}>Guardar ítem</Button>
     </form>
   )
 }
 
-function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = false }: { opciones: Opcion[]; onChange: (o: Opcion[]) => void; responsables?: string[]; conPuntos?: boolean }) {
+function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = false, conRango = false }: { opciones: Opcion[]; onChange: (o: Opcion[]) => void; responsables?: string[]; conPuntos?: boolean; conRango?: boolean }) {
   const [arrastrando, setArrastrando] = useState<number | null>(null)
   const [sobre, setSobre] = useState<number | null>(null)
 
@@ -392,6 +398,26 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
     const n = Number(valor)
     const puntos = valor.trim() !== '' && Number.isFinite(n) && n > 0 ? n : undefined
     const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, puntos } : o))
+    onChange(nuevo)
+  }
+  const cambiarTipoRespuesta = (i: number, tipo: 'CHECK' | 'RANGO') => {
+    const nuevo = opciones.map((o, idx) =>
+      idx === i
+        ? tipo === 'RANGO'
+          ? { ...o, tipo_respuesta: 'RANGO' as const }
+          : { ...o, tipo_respuesta: undefined, minimo: undefined, unidad: undefined }
+        : o
+    )
+    onChange(nuevo)
+  }
+  const cambiarMinimo = (i: number, valor: string) => {
+    const n = Number(valor)
+    const minimo = valor.trim() !== '' && Number.isFinite(n) ? n : undefined
+    const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, minimo } : o))
+    onChange(nuevo)
+  }
+  const cambiarUnidad = (i: number, unidad: string) => {
+    const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, unidad: unidad.trim() || undefined } : o))
     onChange(nuevo)
   }
   const agregar = () => onChange([...opciones, { id: `o${Date.now()}`, etiqueta: '' }])
@@ -415,7 +441,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
           onDragEnter={() => { if (arrastrando !== null && arrastrando !== i) setSobre(i) }}
           onDrop={() => soltarEn(i)}
           className={cn(
-            'flex items-center gap-2 rounded-xl p-1',
+            'flex flex-wrap items-center gap-2 rounded-xl p-1',
             arrastrando === i ? 'bg-slate-100' : '',
             sobre === i ? 'bg-primary/10 ring-1 ring-primary' : ''
           )}
@@ -456,6 +482,39 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
             </Select>
           ) : null}
           <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
+          {conRango ? (
+            <div className="flex w-full flex-wrap items-center gap-2 pl-[60px]">
+              <Select
+                value={o.tipo_respuesta ?? 'CHECK'}
+                onChange={(e) => cambiarTipoRespuesta(i, e.target.value as 'CHECK' | 'RANGO')}
+                className="w-32 shrink-0"
+                aria-label={`Tipo de respuesta de la opción ${i + 1}`}
+              >
+                <option value="CHECK">Check</option>
+                <option value="RANGO">Rango de valor</option>
+              </Select>
+              {o.tipo_respuesta === 'RANGO' ? (
+                <>
+                  <Input
+                    type="number"
+                    step="any"
+                    value={o.minimo ?? ''}
+                    onChange={(e) => cambiarMinimo(i, e.target.value)}
+                    className="w-32 shrink-0"
+                    placeholder="Mín. aceptable"
+                    aria-label={`Mínimo aceptable de la opción ${i + 1}`}
+                  />
+                  <Input
+                    value={o.unidad ?? ''}
+                    onChange={(e) => cambiarUnidad(i, e.target.value)}
+                    className="w-32 shrink-0"
+                    placeholder="Unidad (opcional)"
+                    aria-label={`Unidad de la opción ${i + 1}`}
+                  />
+                </>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ))}
       <Button type="button" variant="secondary" onClick={agregar}>+ Agregar opción</Button>

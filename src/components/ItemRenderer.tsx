@@ -92,7 +92,20 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
       const conPuntos = opts.length > 0 && opts.every((o) => typeof o.puntos === 'number' && o.puntos > 0)
       const toggle = (id: string) => {
         const existe = seleccion.includes(id)
-        onChange({ ...value, selected: existe ? seleccion.filter((x) => x !== id) : [...seleccion, id] })
+        if (existe) {
+          const valores2 = { ...(value.valores ?? {}) }
+          delete valores2[id]
+          onChange({ ...value, selected: seleccion.filter((x) => x !== id), valores: valores2 })
+        } else {
+          onChange({ ...value, selected: [...seleccion, id] })
+        }
+      }
+      const setValorRango = (id: string, texto: string) => {
+        const valores2 = { ...(value.valores ?? {}) }
+        const n = Number(texto)
+        if (texto.trim() === '' || !Number.isFinite(n)) delete valores2[id]
+        else valores2[id] = n
+        onChange({ ...value, valores: valores2 })
       }
       const toggleInformativo = (id: string) => {
         const existe = informativos.includes(id)
@@ -116,12 +129,21 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
             const activo = seleccion.includes(o.id)
             const esInformativo = informativos.includes(o.id)
             const idsEv = evidencias[o.id]?.photoIds ?? []
+            const esRango = o.tipo_respuesta === 'RANGO'
+            const valorRango = activo && esRango ? (value.valores?.[o.id] ?? null) : null
+            const rangoOk = esRango && typeof valorRango === 'number' && typeof o.minimo === 'number' && valorRango >= o.minimo
             return (
               <div
                 key={o.id}
                 className={cn(
                   'rounded-xl border transition-colors',
-                  esInformativo ? 'border-amber-200 bg-amber-50' : activo ? 'border-primary bg-primary-50' : 'border-slate-200 bg-white'
+                  esInformativo
+                    ? 'border-amber-200 bg-amber-50'
+                    : activo && esRango && !rangoOk
+                      ? 'border-red-200 bg-red-50'
+                      : activo
+                        ? 'border-primary bg-primary-50'
+                        : 'border-slate-200 bg-white'
                 )}
               >
                 <div className="flex items-center gap-2 px-3 py-2.5">
@@ -133,6 +155,11 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
                       onChange={() => toggle(o.id)}
                     />
                     <span className="text-sm text-slate-700">{o.etiqueta}</span>
+                    {esRango ? (
+                      <span className="ml-1 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                        {o.tipo_respuesta === 'RANGO' ? `Valor (mín. ${o.minimo ?? '—'}${o.unidad ? ` ${o.unidad}` : ''})` : ''}
+                      </span>
+                    ) : null}
                     {o.responsable ? <span className="ml-1 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{o.responsable}</span> : null}
                     {o.puntos != null && o.puntos > 0 ? <span className="ml-1 shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span> : null}
                   </label>
@@ -155,6 +182,26 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
                     />
                   ) : null}
                 </div>
+                {esRango && activo ? (
+                  <div className="space-y-1.5 px-3 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="shrink-0 text-[11px] font-semibold text-slate-500">Valor ingresado</span>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        step="any"
+                        value={valorRango ?? ''}
+                        onChange={(e) => setValorRango(o.id, e.target.value)}
+                        placeholder={`Mín. ${o.minimo ?? '—'}${o.unidad ? ` ${o.unidad}` : ''}`}
+                        aria-label={`Valor de ${o.etiqueta}`}
+                      />
+                      {o.unidad ? <span className="shrink-0 text-xs text-slate-500">{o.unidad}</span> : null}
+                    </div>
+                    {typeof valorRango === 'number' && typeof o.minimo === 'number' && valorRango < o.minimo ? (
+                      <p className="text-[11px] font-semibold text-red-600">Debe ser ≥ {o.minimo}{o.unidad ? ` ${o.unidad}` : ''} para considerar el punto cumplido.</p>
+                    ) : null}
+                  </div>
+                ) : null}
                 {!activo && idsEv.length > 0 ? (
                   <div className="px-3 pb-3">
                     <MinaFotos photoIds={idsEv} onQuitar={(fid) => quitarEvidencia(o.id, fid)} />

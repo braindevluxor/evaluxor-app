@@ -16,6 +16,8 @@ export interface ValorChecklist {
   selected: string[]
   informativos?: string[]
   evidencias?: Record<string, { photoIds: string[] }>
+  /** Valores numéricos ingresados para las opciones de tipo RANGO (id de la opción → valor). */
+  valores?: Record<string, number>
 }
 export interface EvidenciaCumple {
   photoIds: string[]
@@ -102,7 +104,25 @@ export function conciliacionTotal(v: ValorConciliacion | null | undefined): numb
   return Math.round((suma / pcts.length) * 100) / 100
 }
 
-export function valorBinario(item: { tipo: string; opciones?: string[] | { id: string }[] | null }, valor: unknown): boolean | null {
+/**
+ * ¿Una opción del checklist está cumplida? Para opciones de tipo RANGO requiere
+ * estar marcada y tener un valor numérico mayor o igual al mínimo aceptable.
+ */
+export function opcionCumplida(
+  o: { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number },
+  valor: ValorChecklist | null | undefined,
+  id: string
+): boolean {
+  const sel = (valor?.selected ?? []).includes(id)
+  if (o.tipo_respuesta === 'RANGO') {
+    if (!sel) return false
+    const val = (valor?.valores ?? {})[id]
+    return typeof val === 'number' && typeof o.minimo === 'number' && val >= o.minimo
+  }
+  return sel
+}
+
+export function valorBinario(item: { tipo: string; opciones?: string[] | { id: string; tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }[] | null }, valor: unknown): boolean | null {
   if (item.tipo === 'CUMPLE_NO_CUMPLE') {
     const v = valor as ValorCumple | null
     if (v?.informativo) return null
@@ -120,10 +140,11 @@ export function valorBinario(item: { tipo: string; opciones?: string[] | { id: s
     return true
   }
 if (item.tipo === 'CHECKLIST') {
-    const opts = ((item.opciones ?? []) as { id: string }[]).filter((o) => !((valor as ValorChecklist | null)?.informativos ?? []).includes(o.id))
-    const sel = (valor as ValorChecklist | null)?.selected ?? []
+    const v = valor as ValorChecklist | null
+    const opts = ((item.opciones ?? []) as { id: string; tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }[]).filter((o) => !(v?.informativos ?? []).includes(o.id))
+    const sel = (v?.selected ?? [])
     if (!opts.length || sel.length === 0) return null
-    return opts.every((o) => sel.includes(o.id))
+    return opts.every((o) => opcionCumplida(o, v, o.id))
   }
   if (item.tipo === 'LISTA_COLABORADORES') {
     const v = valor as ValorListaColaboradores | null
@@ -157,7 +178,7 @@ export function proporcionChecklist(
   valor: unknown
 ): number | null {
   const v = valor as ValorChecklist | null
-  const opts = ((item.opciones ?? []) as { id: string; puntos?: number }[])
+  const opts = ((item.opciones ?? []) as { id: string; puntos?: number; tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }[])
   if (!opts.length) return null
   const informativos = v?.informativos ?? []
   const relevantes = opts.filter((o) => !informativos.includes(o.id))
@@ -168,7 +189,7 @@ export function proporcionChecklist(
   if (!sel.length) return null // sin respuesta → excluido del cálculo
   const total = relevantes.reduce((a, o) => a + (o.puntos ?? 0), 0)
   if (!(total > 0)) return null
-  const obtenido = relevantes.filter((o) => sel.includes(o.id)).reduce((a, o) => a + (o.puntos ?? 0), 0)
+  const obtenido = relevantes.filter((o) => opcionCumplida(o, v, o.id)).reduce((a, o) => a + (o.puntos ?? 0), 0)
   return Math.min(1, obtenido / total)
 }
 
@@ -211,10 +232,9 @@ export function incumplimientosPorResponsable(
   if (puntos.length) {
     if (item.tipo === 'CHECKLIST') {
       const v = valor as ValorChecklist | null
-      const sel = v?.selected ?? []
       const informativos = v?.informativos ?? []
       for (const o of puntos) {
-        if (!informativos.includes(o.id as string) && !sel.includes(o.id as string)) sumar(o.responsable ?? '')
+        if (!informativos.includes(o.id as string) && !opcionCumplida(o as { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }, v, o.id as string)) sumar(o.responsable ?? '')
       }
     } else if (item.tipo === 'LISTA_COLABORADORES') {
       const v = valor as ValorListaColaboradores | null

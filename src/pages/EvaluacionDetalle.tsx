@@ -69,7 +69,13 @@ function ValorRespuesta({ item, valor }: { item: Item; valor: unknown }) {
       const informativos = v?.informativos ?? []
       if (!sel.length && !informativos.length) return <p className="text-sm text-slate-400">Ninguna opción marcada</p>
       const opciones = (item.opciones ?? []) as Opcion[]
-      const labels = sel.map((id) => opciones.find((o) => o.id === id)?.etiqueta ?? id)
+      const labels = sel.map((id) => {
+        const o = opciones.find((x) => x.id === id)
+        if (o?.tipo_respuesta === 'RANGO') {
+          return `${o.etiqueta}: ${v?.valores?.[id] ?? '—'}${o.unidad ? ` ${o.unidad}` : ''} (mín. ${o.minimo ?? '—'})`
+        }
+        return o?.etiqueta ?? id
+      })
       const labelsInfo = informativos.map((id) => opciones.find((o) => o.id === id)?.etiqueta ?? id)
       return (
         <div className="space-y-2">

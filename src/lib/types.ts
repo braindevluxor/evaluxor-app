@@ -104,6 +104,12 @@ export interface Opcion {
   responsable?: string
   /** Puntos propios de la opción (solo CHECKLIST). Si TODAS las opciones tienen puntos, la puntuación del ítem se reparte entre ellas. */
   puntos?: number
+  /** Tipo de respuesta (solo CHECKLIST): 'CHECK' (casilla) o 'RANGO' (valor numérico con mínimo aceptable). */
+  tipo_respuesta?: 'CHECK' | 'RANGO'
+  /** Valor mínimo aceptable para considerar cumplida una opción de tipo RANGO. */
+  minimo?: number
+  /** Unidad opcional del valor del rango (ej: cm, litros). */
+  unidad?: string
 }
 
 export interface Item {

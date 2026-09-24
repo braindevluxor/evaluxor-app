@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable'
 import type { Item } from './types'
 import type { DetalleEvaluacion } from './data/indicadores'
 import { obtenerEvaluacion, resumirEvaluacion } from './data/indicadores'
-import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from './scoring'
+import { etiquetaTipo, itemsProporcion, opcionCumplida, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from './scoring'
 
 const MARINO: [number, number, number] = [11, 37, 69]
 const MARINO_CLARO: [number, number, number] = [238, 244, 251]
@@ -45,9 +45,9 @@ function textoValor(item: Item, valor: unknown): string {
       const v = valor as ValorChecklist | null
       const sel = v?.selected ?? []
       const informativos = v?.informativos ?? []
-      const opts = (item.opciones ?? []) as { id: string; etiqueta?: string }[]
+      const opts = (item.opciones ?? []) as { id: string; etiqueta?: string; tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number; unidad?: string }[]
       const aplican = opts.filter((o) => !informativos.includes(o.id))
-      const fallas = aplican.filter((o) => !sel.includes(o.id))
+      const fallas = aplican.filter((o) => !opcionCumplida(o, v, o.id))
       const partes: string[] = []
       if (fallas.length) {
         const nFotos = Object.values(v?.evidencias ?? {}).reduce((a, e) => a + e.photoIds.length, 0)
@@ -56,6 +56,10 @@ function textoValor(item: Item, valor: unknown): string {
       } else {
         partes.push('Sin fallas')
       }
+      const valoresRango = aplican
+        .filter((o) => o.tipo_respuesta === 'RANGO' && sel.includes(o.id))
+        .map((o) => `${o.etiqueta ?? o.id}: ${v?.valores?.[o.id] ?? '—'} (mín. ${o.minimo ?? '—'})${o.unidad ? ` ${o.unidad}` : ''}`)
+      if (valoresRango.length) partes.push(`Valores: ${valoresRango.join(', ')}`)
       if (informativos.length) {
         partes.push(`Informativo: ${informativos.map((id) => opts.find((o) => o.id === id)?.etiqueta ?? id).join(', ')}`)
       }
