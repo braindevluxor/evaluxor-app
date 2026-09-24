@@ -268,6 +268,7 @@ export function EvaluarSucursal() {
             total={itemsEnModulo}
             valor={actual.respuestas[item.id]?.valor}
             shopId={sucursal?.shop_id}
+            branchId={sucursal?.branch_id}
             onChange={(v) => cambiarValor(item.id, v)}
           />
         </div>

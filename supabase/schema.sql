@@ -27,6 +27,8 @@ alter table public.sucursales add column if not exists shop_id text;
 alter table public.sucursales drop column if exists codigo;
 -- Migracion: GERENTE S a cargo de la sucursal (opcional)
 alter table public.sucursales add column if not exists gerente_id uuid references public.profiles(id) on delete set null;
+-- Migracion: ID de sucursal para la API de trabajadores (branchID del edge listar-colaboradores)
+alter table public.sucursales add column if not exists branch_id text;
 
 -- ----------------------------------------------------------------------------
 -- PROFILES (1:1 con auth.users; el rol y sucursal se asignan desde invitacion)

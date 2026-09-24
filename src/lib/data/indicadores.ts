@@ -27,7 +27,7 @@ export interface DetalleEvaluacion {
   sucursalOpciones: SucursalOpcion[]
 }
 
-const SELECT_EVALUACION = '*, sucursal:sucursales(id,nombre,shop_id,direccion), aperturador:profiles!evaluaciones_aperturada_por_fkey(id,nombre)'
+const SELECT_EVALUACION = '*, sucursal:sucursales(id,nombre,shop_id,branch_id,direccion), aperturador:profiles!evaluaciones_aperturada_por_fkey(id,nombre)'
 
 export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion | null> {
   const { data: ev } = await supabase

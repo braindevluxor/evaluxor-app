@@ -44,6 +44,7 @@ export function SucursalesPage() {
               <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400">
                 <th className="px-4 py-3">Nombre</th>
                 <th className="px-4 py-3">Nº tienda</th>
+                <th className="px-4 py-3">ID trabajadores</th>
                 <th className="px-4 py-3">Gerente S</th>
                 <th className="px-4 py-3">Estado</th>
                 <th className="px-4 py-3"></th>
@@ -54,6 +55,7 @@ export function SucursalesPage() {
                 <tr key={s.id} className="border-t border-slate-100">
                   <td className="px-4 py-3 font-semibold text-slate-700">{s.nombre}</td>
                   <td className="px-4 py-3">{s.shop_id ?? '—'}</td>
+                  <td className="px-4 py-3">{s.branch_id ?? '—'}</td>
                   <td className="px-4 py-3">{s.gerente?.nombre || '—'}</td>
                   <td className="px-4 py-3">
                     <Badge color={s.activa ? 2 : 4}>{s.activa ? 'Activa' : 'Inactiva'}</Badge>
@@ -98,6 +100,7 @@ export function SucursalesPage() {
 function FormSucursal({ inicial, onGuardar }: { inicial: Sucursal | null; onGuardar: (d: Partial<Sucursal> & { nombre: string }) => Promise<void> }) {
   const [nombre, setNombre] = useState(inicial?.nombre ?? '')
   const [shopId, setShopId] = useState(inicial?.shop_id ?? '')
+  const [branchId, setBranchId] = useState(inicial?.branch_id ?? '')
   const [direccion, setDireccion] = useState(inicial?.direccion ?? '')
   const [gerenteId, setGerenteId] = useState(inicial?.gerente_id ?? '')
   const [gerentes, setGerentes] = useState<ProfileVista[]>([])
@@ -112,11 +115,12 @@ function FormSucursal({ inicial, onGuardar }: { inicial: Sucursal | null; onGuar
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
-        void onGuardar({ id: inicial?.id, nombre, shop_id: shopId.trim() || null, direccion, gerente_id: gerenteId.trim() || null, activa })
+        void onGuardar({ id: inicial?.id, nombre, shop_id: shopId.trim() || null, branch_id: branchId.trim() || null, direccion, gerente_id: gerenteId.trim() || null, activa })
       }}
     >
       <Field label="Nombre"><Input value={nombre} onChange={(e) => setNombre(e.target.value)} required /></Field>
       <Field label="Nº tienda (shop_id)" hint="Usado para consultar el nombre del producto al escanear (ej. 000)"><Input value={shopId} onChange={(e) => setShopId(e.target.value)} /></Field>
+      <Field label="ID trabajadores (branchID)" hint="Usado para consultar la lista de colaboradores. Es el ID de la sucursal en la API de trabajadores (puede diferir del shop_id)."><Input value={branchId} onChange={(e) => setBranchId(e.target.value)} /></Field>
       <Field label="Dirección"><Input value={direccion} onChange={(e) => setDireccion(e.target.value)} /></Field>
       <Field label="Gerente S a cargo" hint="Opcional. Usuario con rol GERENTE_S responsable de la sucursal.">
         <Select value={gerenteId} onChange={(e) => setGerenteId(e.target.value)}>

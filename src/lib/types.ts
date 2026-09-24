@@ -13,6 +13,7 @@ export interface Sucursal {
   id: string
   nombre: string
   shop_id: string | null
+  branch_id: string | null
   direccion: string | null
   gerente_id: string | null
   activa: boolean
@@ -152,6 +153,6 @@ export interface Foto {
 }
 
 export type VistaEvaluacion = Evaluacion & {
-  sucursal?: Pick<Sucursal, 'id' | 'nombre' | 'shop_id' | 'direccion'> | null
+  sucursal?: Pick<Sucursal, 'id' | 'nombre' | 'shop_id' | 'branch_id' | 'direccion'> | null
   aperturador?: Pick<Profile, 'id' | 'nombre'> | null
 }

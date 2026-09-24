@@ -17,9 +17,10 @@ interface Props {
   index: number
   total: number
   shopId?: string | null
+  branchId?: string | null
 }
 
-export function ItemRenderer({ item, valor, onChange, index, total, shopId }: Props) {
+export function ItemRenderer({ item, valor, onChange, index, total, shopId, branchId }: Props) {
   const preg = `${index + 1}. ${item.texto}` + (item.requerido ? ' *' : '')
   const tipoColor =
     item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'CHECKLIST' ? 5 : item.tipo === 'LISTA_COLABORADORES' || item.tipo === 'UNIDAD_CHECKLIST' ? 1 : 4
@@ -30,7 +31,7 @@ export function ItemRenderer({ item, valor, onChange, index, total, shopId }: Pr
         <p className="font-semibold text-slate-800">{preg}</p>
         <Badge color={tipoColor}>{etiquetaTipo(item.tipo)}</Badge>
       </div>
-      <Contenido item={item} valor={valor} onChange={onChange} shopId={shopId} />
+      <Contenido item={item} valor={valor} onChange={onChange} shopId={shopId} branchId={branchId} />
       {item.requerido && estaVacio(item, valor) ? (
         <p className="mt-2 text-xs font-medium text-red-600">Obligatorio para enviar la evaluación.</p>
       ) : null}
@@ -58,7 +59,7 @@ function estaVacio(item: Item, valor: unknown): boolean {
   }
 }
 
-function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
+function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; branchId?: string | null }) {
   switch (item.tipo) {
     case 'CUMPLE_NO_CUMPLE': {
       const v = (valor as ValorCumple | null) ?? { value: null, evidencias: [] }
@@ -162,7 +163,7 @@ function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unkno
     case 'CONCILIACION':
       return <ConciliacionEditor valor={valor} onChange={onChange} shopId={shopId} />
     case 'LISTA_COLABORADORES':
-      return <ColaboradoresEditor item={item} valor={valor} onChange={onChange} shopId={shopId} />
+      return <ColaboradoresEditor item={item} valor={valor} onChange={onChange} shopId={shopId} branchId={branchId} />
     case 'UNIDAD_CHECKLIST':
       return <UnidadesEditor item={item} valor={valor} onChange={onChange} />
     default:
@@ -525,7 +526,7 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
   )
 }
 
-function ColaboradoresEditor({ item, valor, onChange, shopId }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
+function ColaboradoresEditor({ item, valor, onChange, shopId, branchId }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; branchId?: string | null }) {
   const [cargando, setCargando] = useState(false)
   const [info, setInfo] = useState('')
   const [abiertoDni, setAbiertoDni] = useState<number | null>(null)
@@ -535,6 +536,9 @@ function ColaboradoresEditor({ item, valor, onChange, shopId }: { item: Item; va
   const opts = (item.opciones ?? []) as Opcion[]
   const filtro = item.colaboradores_filtro ?? 'ACTIVOS'
   const etiquetaFiltro = filtro === 'TODOS' ? 'activos e inactivos' : filtro === 'ACTIVOS' ? 'solo activos' : 'solo inactivos'
+  // La API de trabajadores usa un ID de sucursal propio (branch_id) que puede
+  // diferir del shop_id (productos). Si no está configurado, cae al shop_id.
+  const idTrabajadores = branchId ?? shopId
 
   const actualizar = (cols: ColaboradorItem[]) => onChange({ ...v, colaboradores: cols })
   const toggleAbierto = (dni: number) => {
@@ -543,8 +547,8 @@ function ColaboradoresEditor({ item, valor, onChange, shopId }: { item: Item; va
 
   const cargar = async () => {
     setInfo('')
-    if (!shopId) {
-      setInfo('Nº tienda (shop_id) no configurado en la sucursal.')
+    if (!idTrabajadores) {
+      setInfo('No está configurado el ID de trabajadores (branch_id) ni el Nº tienda (shop_id) en la sucursal.')
       return
     }
     if (!opts.length) {
@@ -552,7 +556,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId }: { item: Item; va
       return
     }
     setCargando(true)
-    const r = await listarColaboradores(shopId)
+    const r = await listarColaboradores(idTrabajadores)
     setCargando(false)
     if (r.mensaje) {
       setInfo(r.mensaje)

@@ -62,6 +62,7 @@ export async function guardarSucursal(s: Partial<Sucursal> & { nombre: string })
     await supabase.from('sucursales').insert({
       nombre: s.nombre,
       shop_id: s.shop_id ?? null,
+      branch_id: s.branch_id ?? null,
       direccion: s.direccion,
       gerente_id: s.gerente_id ?? null
     })
