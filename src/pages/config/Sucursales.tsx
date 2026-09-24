@@ -62,8 +62,8 @@ export function SucursalesPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-3">
-                      <button onClick={() => setConfigurando(s)} className="flex items-center gap-1.5 font-semibold text-slate-600 hover:text-primary" title="Configurar módulos e ítems">
-                        <Settings2 className="h-4 w-4" /> Configurar
+                      <button onClick={() => setConfigurando(s)} title="Configurar módulos e ítems" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
+                        <Settings2 className="h-4 w-4" />
                       </button>
                       <button onClick={() => { setEditando(s); setModal(true) }} title="Editar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
                         <Pencil className="h-4 w-4" />

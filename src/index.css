@@ -69,3 +69,15 @@ input[type='date'] {
 .barra-rango:active {
   cursor: grabbing;
 }
+
+/* --- Quitar el borde de foco negro al hacer clic en los gráficos (recharts 3 habilita accesibilidad por defecto) --- */
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus,
+.recharts-surface:focus-visible,
+.recharts-wrapper *:focus,
+.recharts-wrapper *:focus-visible,
+.recharts-surface *:focus,
+.recharts-surface *:focus-visible {
+  outline: none;
+}

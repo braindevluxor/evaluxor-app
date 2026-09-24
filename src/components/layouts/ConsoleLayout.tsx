@@ -1,9 +1,10 @@
-import { Gauge, FolderOpen, History, LogOut, Menu, Settings, Store, Users, X } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, Store, Users, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { puedeConfigurar } from '../../lib/roles'
 import { SyncBanner } from './MobileLayout'
+import { BarraKpis } from '../dashboard/BarraKpis'
 import { cn } from '../ui'
 
 interface EnlaceMenu {
@@ -23,7 +24,12 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
 export function ConsoleLayout() {
   const { profile, signOut } = useAuth()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const navRef = useRef<HTMLElement | null>(null)
   const [abierto, setAbierto] = useState(false)
+  const [colapsado, setColapsado] = useState<boolean>(() => localStorage.getItem('evaluxor:menu_lateral_cerrado') === '1')
+  const [tip, setTip] = useState<{ label: string; top: number } | null>(null)
+  const [barra, setBarra] = useState<{ top: number; height: number } | null>(null)
 
   const config: { seccion: string; items: EnlaceMenu[] }[] = puedeConfigurar(profile?.rol ?? 'SIN_ROL') && profile ? [
     {
@@ -38,20 +44,52 @@ export function ConsoleLayout() {
 
   const secciones = [...enlaces, ...config]
 
+  useEffect(() => {
+    function actualizar() {
+      const nav = navRef.current
+      const activo = nav?.querySelector<HTMLElement>('a[aria-current="page"]')
+      setBarra(activo && !colapsado ? { top: activo.offsetTop, height: activo.offsetHeight } : null)
+    }
+    actualizar()
+    window.addEventListener('resize', actualizar)
+    return () => window.removeEventListener('resize', actualizar)
+  }, [colapsado, pathname])
+
+  function mostrarTip(label: string, el: HTMLElement) {
+    const r = el.getBoundingClientRect()
+    setTip({ label, top: r.top + r.height / 2 })
+  }
+
   return (
     <div className="min-h-screen bg-slate-100">
-      <aside className={cn('fixed inset-y-0 left-0 z-40 flex w-64 transform flex-col border-r border-slate-200 bg-white text-slate-800 transition-transform lg:translate-x-0', abierto ? 'translate-x-0' : '-translate-x-full')}>
-        <div className="flex items-center justify-between px-5 py-5">
-          <div>
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-white text-slate-800 transition-[width,transform]',
+          colapsado && 'lg:w-16',
+          abierto ? 'translate-x-0' : '-translate-x-full',
+          'lg:translate-x-0'
+        )}
+      >
+        <div className={cn('flex items-center justify-between px-5 py-5', colapsado && 'lg:justify-center lg:px-1')}>
+          <div className={cn(colapsado && 'lg:hidden')}>
             <h1 className="text-xl font-extrabold text-primary">EvaLuxor</h1>
             <p className="text-xs text-slate-500">Indicadores de gestión</p>
           </div>
+          <div className={cn('hidden text-lg font-extrabold text-primary', colapsado && 'lg:block')}>E</div>
           <button onClick={() => setAbierto(false)} className="grid h-9 w-9 place-items-center rounded-full text-slate-400 hover:bg-slate-100 lg:hidden"><X className="h-5 w-5" /></button>
         </div>
-        <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-6">
+
+        <nav ref={navRef} className={cn('relative flex-1 space-y-6 overflow-y-auto px-3 pb-6', colapsado && 'lg:px-0')}>
+          {!colapsado && barra ? (
+            <span
+              aria-hidden
+              className="absolute left-3 right-3 z-0 rounded-xl bg-amber-300/40 transition-all duration-300 ease-out"
+              style={{ top: barra.top, height: barra.height }}
+            />
+          ) : null}
           {secciones.length ? secciones.map((s) => (
             <div key={s.seccion}>
-              <p className="px-3 pb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">{s.seccion}</p>
+              <p className={cn('px-3 pb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400', colapsado && 'lg:hidden')}>{s.seccion}</p>
               <ul className="space-y-1">
                 {s.items.map((i) => (
                   <li key={i.to}>
@@ -59,15 +97,24 @@ export function ConsoleLayout() {
                       to={i.to}
                       end={i.end}
                       onClick={() => setAbierto(false)}
+                      onMouseEnter={(e) => mostrarTip(i.label, e.currentTarget)}
+                      onMouseLeave={() => setTip(null)}
+                      onFocus={(e) => mostrarTip(i.label, e.currentTarget)}
+                      onBlur={() => setTip(null)}
                       className={({ isActive }) =>
-                        cn('flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
-                          isActive ? 'bg-primary text-white' : 'text-slate-700 hover:bg-primary-50')
+                        cn('relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                          colapsado && 'lg:justify-center lg:px-0',
+                          isActive ? 'text-slate-900' : 'text-slate-700 hover:bg-primary-50')
                       }
                     >
                       {({ isActive }) => (
                         <>
-                          <span className={cn('shrink-0', isActive ? 'text-white' : 'text-primary')}>{i.icon}</span>
-                          {i.label}
+                          <span className={cn(
+                            'shrink-0 rounded-lg text-primary transition-transform duration-300 ease-out',
+                            isActive ? 'scale-125' : 'scale-100',
+                            isActive && colapsado ? 'bg-amber-300/40 p-1' : ''
+                          )}>{i.icon}</span>
+                          <span className={cn('truncate', colapsado && 'lg:hidden')}>{i.label}</span>
                         </>
                       )}
                     </NavLink>
@@ -77,10 +124,19 @@ export function ConsoleLayout() {
             </div>
           )) : null}
         </nav>
-        <div className="border-t border-slate-200 px-5 py-4">
-          <p className="truncate text-sm font-semibold">{profile?.nombre || profile?.email}</p>
-          <NavLink to="/perfil" className="mt-2 flex items-center gap-2 text-sm font-medium text-primary hover:text-primary-700">
-            <Settings className="h-4 w-4" /> Mi perfil / contraseña
+
+        <div className={cn('border-t border-slate-200 px-5 py-4', colapsado && 'lg:flex lg:flex-col lg:items-center lg:px-0')}>
+          <p className={cn('truncate text-sm font-semibold', colapsado && 'lg:hidden')}>{profile?.nombre || profile?.email}</p>
+          <NavLink
+            to="/perfil"
+            onMouseEnter={(e) => mostrarTip('Mi perfil / contraseña', e.currentTarget)}
+            onMouseLeave={() => setTip(null)}
+            onFocus={(e) => mostrarTip('Mi perfil / contraseña', e.currentTarget)}
+            onBlur={() => setTip(null)}
+            className={cn('mt-2 flex items-center gap-2 text-sm font-medium text-primary hover:text-primary-700', colapsado && 'lg:justify-center lg:px-0')}
+          >
+            <Settings className="h-4 w-4" />
+            <span className={cn(colapsado && 'lg:hidden')}>Mi perfil / contraseña</span>
           </NavLink>
           <button
             onClick={() => void signOut()}
@@ -94,8 +150,33 @@ export function ConsoleLayout() {
 
       {abierto ? <div className="fixed inset-0 z-30 bg-slate-900/40 lg:hidden" onClick={() => setAbierto(false)} /> : null}
 
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3">
+      <span
+        className={cn(
+          'pointer-events-none fixed left-[4.5rem] z-[60] flex -translate-y-1/2 items-center',
+          colapsado && tip ? 'opacity-100' : 'opacity-0'
+        )}
+        style={{ top: tip?.top ?? 0 }}
+      >
+        <span aria-hidden className="h-0 w-0 border-y-[5px] border-r-[6px] border-y-transparent border-r-primary" />
+        <span className="whitespace-nowrap rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-lg">
+          {tip?.label}
+        </span>
+      </span>
+
+      <div className={cn('transition-[padding]', colapsado ? 'lg:pl-16' : 'lg:pl-64')}>
+        <header className="sticky top-0 z-20 flex items-center gap-1 border-b border-slate-200 bg-white px-4 py-3">
+          <button
+            onClick={() => {
+              setColapsado((c) => {
+                localStorage.setItem('evaluxor:menu_lateral_cerrado', c ? '0' : '1')
+                return !c
+              })
+            }}
+            title={colapsado ? 'Mostrar menú completo' : 'Compactar menú'}
+            className="hidden h-10 w-10 place-items-center rounded-full text-primary hover:bg-primary-50 lg:grid"
+          >
+            {colapsado ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+          </button>
           <button onClick={() => setAbierto(true)} className="grid h-10 w-10 place-items-center rounded-full text-primary hover:bg-primary-50 lg:hidden">
             <Menu className="h-6 w-6" />
           </button>
@@ -110,6 +191,7 @@ export function ConsoleLayout() {
             Ir a evaluaciones
           </button>
         </header>
+        {pathname === '/dashboard' ? <BarraKpis /> : null}
         <SyncBanner />
         <main className="mx-auto max-w-7xl px-4 py-6 lg:px-8">
           <Outlet />

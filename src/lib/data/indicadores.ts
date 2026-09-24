@@ -209,6 +209,54 @@ export function puntajePorModulo(
     .sort((a, b) => (b.puntaje ?? 0) - (a.puntaje ?? 0))
 }
 
+export interface FilaSucursalModulo {
+  sucursal_id: string
+  nombre: string
+  /** Clave = nombre del módulo; valor = puntaje ponderado en el rango (0-100) o null si no hay respuestas. */
+  porModulo: Record<string, number | null>
+}
+
+export interface MatrizSucursalModulo {
+  sucursales: FilaSucursalModulo[]
+  modulos: { modulo_id: string; nombre: string }[]
+}
+
+/** Puntaje (ponderación) por sucursal × módulo a partir de los ítems binarios respondidos en el rango. */
+export function puntajePorSucursalModulo(
+  datos: ConjuntoDatos,
+  sucursales: { id: string; nombre: string }[]
+): MatrizSucursalModulo {
+  const sucursalDeEval = new Map(datos.evaluaciones.map((e) => [e.id, e.sucursal_id]))
+  const modulos = datos.modulos.map((m) => ({ modulo_id: m.id, nombre: m.nombre }))
+  const acum = new Map<string, { binarios: { item: Item; cumple: number }[] }>()
+  for (const r of datos.respuestas) {
+    const item = datos.items.find((i) => i.id === r.item_id)
+    if (!item) continue
+    const sucursalId = sucursalDeEval.get(r.evaluacion_id)
+    if (!sucursalId) continue
+    const bin = proporcionItem(aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones), r.valor)
+    if (bin === null) continue
+    const key = `${sucursalId}|${item.modulo_id}`
+    let a = acum.get(key)
+    if (!a) {
+      a = { binarios: [] }
+      acum.set(key, a)
+    }
+    a.binarios.push({ item, cumple: bin })
+  }
+  return {
+    modulos,
+    sucursales: sucursales.map((s) => {
+      const porModulo: Record<string, number | null> = {}
+      for (const m of modulos) {
+        const a = acum.get(`${s.id}|${m.modulo_id}`)
+        porModulo[m.nombre] = a && a.binarios.length ? puntajePonderado(a.binarios) : null
+      }
+      return { sucursal_id: s.id, nombre: s.nombre, porModulo }
+    })
+  }
+}
+
 export function rankingSucursales(
   datos: ConjuntoDatos,
   todas?: { id: string; nombre: string }[]

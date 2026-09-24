@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Target, CheckCircle2, Store, AlertTriangle } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
-import { consultarEvaluaciones, peoresItems, puntajePorModulo, rankingSucursales, acumuladoResponsables } from '../../lib/data/indicadores'
+import { consultarEvaluaciones, peoresItems, puntajePorSucursalModulo, rankingSucursales } from '../../lib/data/indicadores'
 import type { ConjuntoDatos } from '../../lib/data/indicadores'
-import { KpiCard } from '../../components/dashboard/Kpi'
-import { Card, Field, Input, Puntaje, Select, Spinner } from '../../components/ui'
+import { Card, Field, Input, Select, Spinner } from '../../components/ui'
 import { verTodo } from '../../lib/roles'
+import { setKpisGlobal } from '../../lib/kpisGlobal'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
-  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend
 } from 'recharts'
 
 function haceMeses(n: number): string {
@@ -18,7 +17,7 @@ function haceMeses(n: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-const RADAR_COLOR = '#ef4444'
+const COLORES_MODULOS = ['#28315F', '#4f87c7', '#16a34a', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#db2777']
 
 export function DashboardHome() {
   const { profile } = useAuth()
@@ -35,6 +34,8 @@ export function DashboardHome() {
   const [hasta, setHasta] = useState('')
   const [sucursalSel, setSucursalSel] = useState('')
   const [moduloSel, setModuloSel] = useState('')
+  const [lineaActiva, setLineaActiva] = useState<string | null>(null)
+  const [verMasRanking, setVerMasRanking] = useState(false)
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
   const [cargando, setCargando] = useState(true)
 
@@ -63,9 +64,17 @@ export function DashboardHome() {
   }, [desde, hasta, sucursalSel, moduloSel, scope?.join(',')])
 
   const ranking = useMemo(() => (datos ? rankingSucursales(datos, sucursalesVisibles) : []), [datos, sucursalesVisibles])
-  const porModulo = useMemo(() => (datos ? puntajePorModulo(datos) : []), [datos])
+  const matrizModulos = useMemo(
+    () => (datos ? puntajePorSucursalModulo(datos, sucursalesVisibles) : null),
+    [datos, sucursalesVisibles]
+  )
+  const modulosOrden = useMemo(() => {
+    const base = matrizModulos?.modulos ?? []
+    if (!lineaActiva) return base
+    // El módulo "hovered" se dibuja al final para quedar encima de los demás (z-index dinámico).
+    return [...base].sort((a, b) => (a.nombre === lineaActiva ? 1 : 0) - (b.nombre === lineaActiva ? 1 : 0))
+  }, [matrizModulos, lineaActiva])
   const peores = useMemo(() => (datos ? peoresItems(datos) : []), [datos])
-  const responsables = useMemo(() => (datos ? acumuladoResponsables(datos) : []), [datos])
 
   const kpis = useMemo(() => {
     if (!datos) return { global: null as number | null, completadas: 0, cobertura: 0, incumplimientos: 0 }
@@ -83,6 +92,11 @@ export function DashboardHome() {
     }
   }, [datos, peores, sucursalesVisibles.length])
 
+  // Publica los KPIs a la barra global (ancho completo, debajo de la barra de navegación).
+  useEffect(() => {
+    setKpisGlobal(kpis)
+  }, [kpis])
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -98,13 +112,6 @@ export function DashboardHome() {
             <LabelBtn activo={desde === ''} onClick={() => setDesde('')}>Todo</LabelBtn>
           </div>
         ) : null}
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard titulo="Cumplimiento global" valor={<Puntaje value={kpis.global} className="text-3xl text-white" />} icono={<Target className="h-4 w-4" />} />
-        <KpiCard titulo="Evaluaciones completadas" valor={kpis.completadas} icono={<CheckCircle2 className="h-4 w-4" />} color="bg-slate-800 text-white" />
-        <KpiCard titulo="Cobertura de sucursales" valor={`${kpis.cobertura}%`} icono={<Store className="h-4 w-4" />} color="bg-green-700 text-white" />
-        <KpiCard titulo="Ítems incumplidos" valor={kpis.incumplimientos} icono={<AlertTriangle className="h-4 w-4" />} color="bg-red-600 text-white" />
       </div>
 
       <FiltrosBar
@@ -127,87 +134,89 @@ export function DashboardHome() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <Card className="lg:col-span-2">
             <h3 className="mb-1 font-bold text-primary-900">Ranking de sucursales</h3>
-            <p className="mb-3 text-xs text-slate-400">Todas las sucursales, con o sin evaluaciones en el rango</p>
+            <p className="mb-3 text-xs text-slate-400">Posiciones estilo F1: puntaje de cumplimiento de cada sucursal en el rango</p>
             {ranking.length ? (
-              <ResponsiveContainer width="100%" height={360}>
-                <BarChart data={ranking} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                  <XAxis dataKey="nombre" interval={0} angle={-38} textAnchor="end" height={90} tick={{ fontSize: 11, fill: '#475569' }} />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    formatter={(v, _n, item) => {
-                      const d = item?.payload as { puntaje?: number | null; completadas?: number }
-                      return [`${v}%`, d?.puntaje == null ? `Sin evaluaciones (${d?.completadas ?? 0})` : 'Cumplimiento']
-                    }}
-                  />
-                  <Bar dataKey="puntaje" radius={[6, 6, 0, 0]}>
-                    {ranking.map((r, i) => (
-                      <Cell key={r.sucursal_id} fill={r.puntaje == null ? '#e2e8f0' : i === 0 ? '#16a34a' : i === 1 ? '#0B2545' : '#64748b'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <div
+                className="border border-slate-200 bg-white p-3 sm:p-4"
+                style={{ backgroundImage: 'repeating-linear-gradient(135deg, rgb(100 116 139 / 0.12) 0 1px, transparent 1px 12px)' }}
+              >
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {ranking.slice(0, 3).map((r, i) => (
+                    <TarjetaRankingF1
+                      key={r.sucursal_id}
+                      posicion={i + 1}
+                      nombre={r.nombre}
+                      puntaje={r.puntaje}
+                    />
+                  ))}
+                </div>
+
+                {ranking.length > 3 ? (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setVerMasRanking((v) => !v)}
+                      className="mx-auto flex items-center gap-1.5 rounded-full bg-slate-900 px-4 py-1.5 text-xs font-bold text-white transition-colors hover:bg-slate-700"
+                    >
+                      {verMasRanking ? 'Ocultar resto' : `Ver resto (${ranking.length - 3})`}
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${verMasRanking ? 'rotate-180' : ''}`} />
+                    </button>
+                    {verMasRanking ? (
+                      <div className="mt-3 border border-slate-200 bg-white">
+                        {ranking.slice(3).map((r, i) => (
+                          <div key={r.sucursal_id} className={`flex items-center gap-3 px-4 py-2.5 ${i % 2 ? 'bg-slate-50' : ''}`}>
+                            <span className="w-8 shrink-0 text-center text-sm font-black tabular-nums text-slate-500">{i + 4}</span>
+                            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-700">{r.nombre}</span>
+                            <span className="shrink-0 text-sm font-bold tabular-nums text-slate-900">
+                              {r.puntaje == null ? '—' : `${r.puntaje} pts`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             ) : <p className="text-sm text-slate-400">Sin sucursales.</p>}
           </Card>
 
           <Card className="lg:col-span-2">
-            <h3 className="mb-3 font-bold text-primary-900">Gráfico radial (o diagrama de araña)</h3>
-            {porModulo.length > 0 ? (
-              <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,1fr)_auto]">
-                <ResponsiveContainer width="100%" height={320}>
-                  <RadarChart data={porModulo.map((m) => ({ categoria: m.nombre, valor: m.puntaje ?? 0 }))} cx="50%" cy="50%" outerRadius="75%">
-                    <PolarGrid gridType="polygon" stroke="#e2e8f0" />
-                    <PolarAngleAxis dataKey="categoria" tick={{ fontSize: 11, fill: '#334155' }} />
-                    <PolarRadiusAxis
-                      type="number"
-                      domain={[0, 100]}
-                      ticks={[0, 20, 40, 60, 80, 100]}
-                      tickFormatter={(v) => String(Math.round(Number(v) / 20))}
-                      axisLine={false}
-                      tick={{ fontSize: 10, fill: '#94a3b8' }}
+            <h3 className="mb-1 font-bold text-primary-900">Ponderación por sucursal y módulo</h3>
+            <p className="mb-3 text-xs text-slate-400">Curvas por módulo; pasa el cursor sobre la leyenda para elevar una curva (z-index dinámico)</p>
+            {matrizModulos && matrizModulos.modulos.length && matrizModulos.sucursales.length ? (
+              <ResponsiveContainer width="100%" height={380}>
+                <LineChart
+                  data={matrizModulos.sucursales.map((s) => ({ sucursal: s.nombre, ...s.porModulo }))}
+                  margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="sucursal" interval={0} angle={-38} textAnchor="end" height={90} tick={{ fontSize: 11, fill: '#475569' }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    formatter={(v, nombre) => [`${v}%`, String(nombre)]}
+                    contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
+                  />
+                  <Legend
+                    iconType="plainline"
+                    wrapperStyle={{ fontSize: 12 }}
+                    onMouseEnter={(d) => setLineaActiva(d.value ?? null)}
+                    onMouseLeave={() => setLineaActiva(null)}
+                  />
+                  {modulosOrden.map((m, i) => (
+                    <Line
+                      key={m.modulo_id}
+                      type="monotone"
+                      dataKey={m.nombre}
+                      stroke={COLORES_MODULOS[i % COLORES_MODULOS.length]}
+                      strokeWidth={lineaActiva === m.nombre ? 4 : 2}
+                      dot={false}
+                      activeDot={{ r: 5 }}
+                      opacity={lineaActiva && lineaActiva !== m.nombre ? 0.3 : 1}
                     />
-                    <Tooltip formatter={(v) => [`${v}%`, 'Cumplimiento']} />
-                    <Radar dataKey="valor" stroke={RADAR_COLOR} fill={RADAR_COLOR} fillOpacity={0.25} strokeWidth={2} />
-                  </RadarChart>
-                </ResponsiveContainer>
-                <div className="space-y-2">
-                  {porModulo.map((m) => (
-                    <div key={m.modulo_id} className="flex items-center gap-2 text-sm">
-                      <span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: RADAR_COLOR }} />
-                      <span className="font-medium text-slate-700">{m.nombre}</span>
-                      <span className="ml-auto pl-4 font-bold text-primary-900">{m.puntaje != null ? `${m.puntaje}%` : '—'}</span>
-                    </div>
                   ))}
-                </div>
-              </div>
+                </LineChart>
+              </ResponsiveContainer>
             ) : <p className="text-sm text-slate-400">Sin datos de módulos para mostrar en el rango.</p>}
-          </Card>
-
-          <Card className="lg:col-span-2">
-            <h3 className="mb-1 font-bold text-primary-900">Incumplimientos por responsable</h3>
-            <p className="mb-3 text-xs text-slate-400">Puntos del checklist sin cumplir acumulados al responsable asignado en el ítem</p>
-            {responsables.length ? (
-              <div className="space-y-2">
-                {responsables.slice(0, 12).map((r, i) => (
-                  <div key={r.responsable} className="flex items-center gap-3">
-                    <span className="w-5 shrink-0 text-center text-xs font-bold text-slate-400">{i + 1}</span>
-                    <span className="w-40 truncate text-sm font-semibold text-slate-700">{r.responsable}</span>
-                    <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
-                      <div
-                        className="h-full rounded-full bg-red-500"
-                        style={{ width: `${Math.max(4, Math.round((r.puntos / responsables[0].puntos) * 100))}%` }}
-                      />
-                    </div>
-                    <span className="w-14 shrink-0 text-right text-sm font-bold tabular-nums text-red-600">{r.puntos}</span>
-                  </div>
-                ))}
-                {responsables.length > 12 ? (
-                  <p className="text-xs text-slate-400">…y {responsables.length - 12} responsables más.</p>
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-400">Sin puntos asignados a responsables en el rango. Configura responsables en cada ítem para ver este reporte.</p>
-            )}
           </Card>
         </div>
       ) : null}
@@ -223,6 +232,27 @@ function LabelBtn({ activo, onClick, children }: { activo: boolean; onClick: () 
     >
       {children}
     </button>
+  )
+}
+
+function TarjetaRankingF1({ posicion, nombre, puntaje }: { posicion: number; nombre: string; puntaje: number | null }) {
+  return (
+    <div className="flex items-stretch overflow-hidden border border-slate-200 bg-white shadow-sm">
+      {/* Posición */}
+      <div className="flex w-16 shrink-0 items-center justify-center bg-red-600 sm:w-20">
+        <span className="text-2xl font-black text-white sm:text-3xl">{posicion}</span>
+      </div>
+
+      {/* Sucursal */}
+      <div className="flex min-w-0 flex-1 items-center justify-center bg-slate-900 px-3 py-2.5 text-white sm:px-4">
+        <p className="truncate text-xs font-black uppercase tracking-wide text-white sm:text-sm">{nombre}</p>
+      </div>
+
+      {/* Puntaje */}
+      <div className="flex w-16 shrink-0 items-center justify-center bg-amber-400 sm:w-20">
+        <span className="text-2xl font-black text-slate-900 sm:text-3xl">{puntaje == null ? '—' : puntaje}</span>
+      </div>
+    </div>
   )
 }
 
