@@ -32,6 +32,17 @@ export default defineConfig({
       }
     })
   ],
+  server: {
+    proxy: {
+      // Reenvía al backend de precios como servidor (sin CORS). En producción
+      // el mismo path lo resuelve un rewrite en vercel.json.
+      '/api/pricing': {
+        target: 'https://deliveryluxor.store',
+        changeOrigin: true,
+        secure: true
+      }
+    }
+  },
   build: {
     target: 'es2020'
   }

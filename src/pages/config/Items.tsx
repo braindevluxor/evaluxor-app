@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { FolderOpen, GripVertical, Plus, X } from 'lucide-react'
+import { FolderOpen, GripVertical, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
 import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem } from '../../lib/scoring'
 import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
@@ -168,7 +168,7 @@ export function ItemsPage() {
                       e.dataTransfer.setData('text/plain', String(idx))
                     }}
                     onDragEnd={() => { setArrastrando(null); setSobre(null) }}
-                    className="grid h-10 w-8 shrink-0 cursor-grab touch-none place-items-center rounded-xl text-slate-400 transition-colors hover:bg-primary-50 hover:text-primary active:cursor-grabbing"
+                    className="grid h-10 w-8 shrink-0 cursor-grab touch-none place-items-center rounded-full text-slate-400 transition-colors hover:bg-primary-50 hover:text-primary active:cursor-grabbing"
                     title="Arrastrar para reordenar"
                     aria-label={`Reordenar ítem: ${it.texto}`}
                   >
@@ -204,13 +204,13 @@ export function ItemsPage() {
                     {esSeccion ? (
                       <button
                         onClick={() => { setEditando(null); setNuevoPadreId(it.id); setModal(true) }}
-                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-primary-200 px-3 text-sm font-semibold text-primary hover:bg-primary-50"
+                        className="inline-flex h-8 items-center gap-1 rounded-full border border-primary-200 px-3 text-sm font-semibold text-primary hover:bg-primary-50"
                       >
                         <Plus className="h-4 w-4" /> Ítem dentro
                       </button>
                     ) : null}
-                    <button onClick={() => { setEditando(it); setNuevoPadreId(null); setModal(true) }} className="grid h-8 place-items-center rounded-lg border border-slate-200 px-3 text-sm font-semibold text-primary">Editar</button>
-                    <button onClick={() => setABorrar(it)} className="grid h-8 place-items-center rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-600 hover:bg-red-50">Eliminar</button>
+                    <button onClick={() => { setEditando(it); setNuevoPadreId(null); setModal(true) }} title="Editar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700"><Pencil className="h-4 w-4" /></button>
+                    <button onClick={() => setABorrar(it)} title="Eliminar" className="grid h-8 w-8 place-items-center rounded-full bg-red-600 text-white transition-colors hover:bg-red-700"><Trash2 className="h-4 w-4" /></button>
                   </div>
                 </div>
               </Fragment>
@@ -563,7 +563,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
               e.dataTransfer.setData('text/plain', String(i))
             }}
             onDragEnd={() => { setArrastrando(null); setSobre(null) }}
-            className="grid h-10 w-10 shrink-0 cursor-grab place-items-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
+            className="grid h-10 w-10 shrink-0 cursor-grab place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
             title="Arrastrar para reordenar"
           >
             <GripVertical className="h-5 w-5" />
@@ -588,7 +588,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
               {responsables.map((r) => <option key={r} value={r}>{r}</option>)}
             </Select>
           ) : null}
-          <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
+          <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
           {conRango ? (
             <div className="flex w-full flex-wrap items-center gap-2 pl-[60px]">
               <Select

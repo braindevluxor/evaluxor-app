@@ -5,7 +5,7 @@ import type { DetalleEvaluacion } from './data/indicadores'
 import { obtenerEvaluacion, resumirEvaluacion } from './data/indicadores'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from './hierarchy'
 import { raicesDeModulo } from './pasos'
-import { etiquetaTipo, itemsProporcion, opcionCumplida, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from './scoring'
+import { etiquetaTipo, itemsProporcion, opcionCumplida, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, formatearLastSync, formatearPrecioBase, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from './scoring'
 
 const MARINO: [number, number, number] = [11, 37, 69]
 const MARINO_CLARO: [number, number, number] = [238, 244, 251]
@@ -75,7 +75,10 @@ function textoValor(item: Item, valor: unknown): string {
       const lineas = ps.map(
         (p) =>
           `${p.sku}${p.nombre ? ` — ${p.nombre}` : ''}` +
-          `  Teórica: ${p.teorica ?? '—'} · Física: ${p.fisica ?? '—'} (${conciliacionPorcentaje(p) ?? '—'}%)`
+          `  Teórica: ${p.teorica ?? '—'} · Física: ${p.fisica ?? '—'} (${conciliacionPorcentaje(p) ?? '—'}%)` +
+          (p.soh != null || p.lastSync || p.finalBase != null
+            ? `  [SOH: ${p.soh ?? '—'} · Sync: ${formatearLastSync(p.lastSync)} · Precio: ${formatearPrecioBase(p.finalBase)}]`
+            : '')
       )
       if (v?.informativo) lineas.unshift('INFORMATIVO (no descuenta)')
       if (total != null) lineas.push(`Total: ${total}%`)

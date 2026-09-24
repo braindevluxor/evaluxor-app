@@ -25,7 +25,6 @@ const SucursalesPage = lazy(() => import('./pages/config/Sucursales').then((m) =
 const ModulosPage = lazy(() => import('./pages/config/Modulos').then((m) => ({ default: m.ModulosPage })))
 const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ default: m.ItemsPage })))
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
-const AsignacionesPage = lazy(() => import('./pages/config/Asignaciones').then((m) => ({ default: m.AsignacionesPage })))
 
 const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH', 'EVALUADOR']
 
@@ -147,7 +146,6 @@ export default function App() {
                   <Route path="/config/modulos" element={<SoloLider><ModulosPage /></SoloLider>} />
                   <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
                   <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
-                  <Route path="/config/asignaciones" element={<SoloLider><AsignacionesPage /></SoloLider>} />
                 </Route>
 
                 <Route path="*" element={<HomeRedirect />} />

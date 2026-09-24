@@ -40,7 +40,7 @@ export function SyncBanner() {
             })()
           }}
           disabled={sincronizando}
-          className="ml-auto rounded-md bg-white/20 px-2 py-1 font-bold hover:bg-white/30 disabled:opacity-50"
+          className="ml-auto rounded-full bg-white/20 px-2 py-1 font-bold hover:bg-white/30 disabled:opacity-50"
         >
           {msg || 'Sincronizar'}
         </button>
@@ -52,11 +52,13 @@ export function SyncBanner() {
 export function HeaderMini({
   titulo,
   subtitulo,
-  onClickMenu
+  onClickMenu,
+  extra
 }: {
   titulo: string
   subtitulo?: string
   onClickMenu?: () => void
+  extra?: React.ReactNode
 }) {
   const { profile } = useAuth()
   return (
@@ -78,6 +80,7 @@ export function HeaderMini({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {extra}
           <span className="hidden max-w-[140px] truncate text-xs text-primary-200 sm:block">{profile?.nombre}</span>
           <NavLink
             to="/dashboard"
@@ -95,18 +98,20 @@ export function HeaderMini({
 export function MobileLayout({
   children,
   titulo,
-  subtitulo
+  subtitulo,
+  extra
 }: {
   children: React.ReactNode
   titulo?: string
   subtitulo?: string
+  extra?: React.ReactNode
 }) {
   const { profile, signOut } = useAuth()
   const [menuAbierto, setMenuAbierto] = useState(false)
   const cerrar = () => setMenuAbierto(false)
   return (
     <div className="min-h-screen bg-slate-50 pb-6">
-      <HeaderMini titulo={titulo ?? 'EvaLuxor'} subtitulo={subtitulo} onClickMenu={() => setMenuAbierto(true)} />
+      <HeaderMini titulo={titulo ?? 'EvaLuxor'} subtitulo={subtitulo} onClickMenu={() => setMenuAbierto(true)} extra={extra} />
       <SyncBanner />
       <main className="mx-auto w-full max-w-md px-4 py-4">{children}</main>
 
@@ -133,7 +138,7 @@ export function MobileLayout({
               <p className="px-3 pb-2 text-sm font-semibold text-slate-800">{profile?.nombre || 'Usuario'}</p>
               <button
                 onClick={() => void signOut()}
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50"
+                className="flex w-full items-center gap-3 rounded-full px-3 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50"
               >
                 <LogOut className="h-5 w-5" />
                 Cerrar sesión

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Settings2 } from 'lucide-react'
+import { Pencil, Settings2 } from 'lucide-react'
 import { listarSucursalesAdmin, guardarSucursal, type SucursalVista } from '../../lib/data/catalog'
 import { listarUsuarios, type ProfileVista } from '../../lib/data/usuarios'
 import type { Sucursal } from '../../lib/types'
@@ -65,7 +65,9 @@ export function SucursalesPage() {
                       <button onClick={() => setConfigurando(s)} className="flex items-center gap-1.5 font-semibold text-slate-600 hover:text-primary" title="Configurar módulos e ítems">
                         <Settings2 className="h-4 w-4" /> Configurar
                       </button>
-                      <button onClick={() => { setEditando(s); setModal(true) }} className="font-semibold text-primary hover:underline">Editar</button>
+                      <button onClick={() => { setEditando(s); setModal(true) }} title="Editar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
+                        <Pencil className="h-4 w-4" />
+                      </button>
                     </div>
                   </td>
                 </tr>

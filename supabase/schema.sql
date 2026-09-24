@@ -408,8 +408,12 @@ create table if not exists public.respuestas (
   created_at timestamptz not null default now()
 );
 create index if not exists idx_respuestas_evaluacion on public.respuestas(evaluacion_id);
--- Unicidad: una respuesta directa por (evaluación, ítem); y una por (evaluación, ítem, registro).
--- Los índices parciales evitan colisionar: los NULL de instancia_id no se consideran iguales.
+-- Unicidad: una respuesta por (evaluación, ítem, registro). Se usan dos índices
+-- parciales (directas con instancia_id NULL; registros con instancia_id NOT NULL):
+-- PostgREST/ON CONFLICT no infiere índices `NULLS NOT DISTINCT`, pero sí infiere
+-- índices parciales cuando el conflicto declara su predicado. Como PostgREST no
+-- puede enviar predicados en `on_conflict`, el upsert se hace vía la función
+-- `upsert_respuestas` (definida abajo), que declara el predicado exacto.
 create unique index if not exists uniq_respuestas_directas
   on public.respuestas(evaluacion_id, item_id) where instancia_id is null;
 create unique index if not exists uniq_respuestas_instancia
@@ -428,11 +432,46 @@ create index if not exists idx_fotos_evaluacion on public.fotos(evaluacion_id);
 -- compatibilidad con bases previas (secciones repetibles / registros)
 alter table public.respuestas add column if not exists instancia_id uuid references public.instancias_grupo(id) on delete cascade;
 alter table public.respuestas drop constraint if exists respuestas_evaluacion_id_item_id_key;
+alter table public.fotos add column if not exists instancia_id uuid references public.instancias_grupo(id) on delete cascade;
+-- La migración anterior a un único índice `NULLS NOT DISTINCT` no funciona en
+-- todas las versiones de Postgres (no se infiere en ON CONFLICT). Se revierte al
+-- estado correcto: dos índices parciales que sí se infieren declarando su
+-- predicado, y el upsert se hace vía la función `upsert_respuestas`.
+drop index if exists public.uniq_respuestas_por_instancia;
 create unique index if not exists uniq_respuestas_directas
   on public.respuestas(evaluacion_id, item_id) where instancia_id is null;
 create unique index if not exists uniq_respuestas_instancia
   on public.respuestas(evaluacion_id, item_id, instancia_id) where instancia_id is not null;
-alter table public.fotos add column if not exists instancia_id uuid references public.instancias_grupo(id) on delete cascade;
+
+-- Upsert transaccional de respuestas (directas y por registro). Recibe un arreglo
+-- jsonb; por cada fila ejecuta INSERT ... ON CONFLICT declarando el predicado
+-- exacto del índice parcial correspondiente, así la inferencia encuentra el índice
+-- en cualquier versión de Postgres (9.5+). Con `security invoker` se aplican las
+-- políticas RLS de respuestas (insert/update), igual que con el upsert de PostgREST.
+create or replace function public.upsert_respuestas(rows jsonb)
+returns void
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  r jsonb;
+begin
+  for r in select jsonb_array_elements(rows) loop
+    if (r->>'instancia_id') is null then
+      insert into public.respuestas (evaluacion_id, item_id, valor, respondido_por)
+      values ((r->>'evaluacion_id')::uuid, (r->>'item_id')::uuid, r->'valor', (r->>'respondido_por')::uuid)
+      on conflict (evaluacion_id, item_id) where instancia_id is null
+      do update set valor = excluded.valor, respondido_por = excluded.respondido_por;
+    else
+      insert into public.respuestas (evaluacion_id, item_id, instancia_id, valor, respondido_por)
+      values ((r->>'evaluacion_id')::uuid, (r->>'item_id')::uuid, (r->>'instancia_id')::uuid, r->'valor', (r->>'respondido_por')::uuid)
+      on conflict (evaluacion_id, item_id, instancia_id) where instancia_id is not null
+      do update set valor = excluded.valor, respondido_por = excluded.respondido_por;
+    end if;
+  end loop;
+end;
+$$;
 
 -- ============================================================================
 -- ROW LEVEL SECURITY

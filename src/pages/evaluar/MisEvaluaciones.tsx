@@ -93,7 +93,7 @@ export function MisEvaluaciones() {
                 </Button>
                 <Link
                   to={`/evaluaciones/${ev.id}`}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-3 py-2.5 text-sm font-bold text-white"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-primary px-3 py-2.5 text-sm font-bold text-white"
                 >
                   <Eye className="h-4 w-4" /> Ver detalle
                 </Link>

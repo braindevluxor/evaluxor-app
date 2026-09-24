@@ -86,9 +86,15 @@ it('conciliacion porcentaje: si pasa de 100 se resta el excedente, si no queda c
     expect(conciliacionPorcentaje(null)).toBe(null)
   })
 
-  it('conciliacion total es el promedio de las conciliaciones de cada SKU', () => {
-    expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: 10 }, { sku: 'B', nombre: null, teorica: 10, fisica: 5 }] })).toBe(75)
-    expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 150, fisica: 160 }, { sku: 'B', nombre: null, teorica: 48, fisica: 39 }] })).toBe(87.5)
+  it('conciliacion total es la tasa de productos sin coincidir sobre los escaneados', () => {
+    // A coincide (10/10) y B no (10/5) → 1 de 2 sin coincidir = 50
+    expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: 10 }, { sku: 'B', nombre: null, teorica: 10, fisica: 5 }] })).toBe(50)
+    // Ninguno coincide → 100
+    expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 150, fisica: 160 }, { sku: 'B', nombre: null, teorica: 48, fisica: 39 }] })).toBe(100)
+    // Todos coinciden (incluido stock 0/0) → 0
+    expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: 10 }, { sku: 'B', nombre: null, teorica: 0, fisica: 0 }] })).toBe(0)
+    // Solo cuentan los escaneados con ambas cantidades cargadas
+    expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: null }] })).toBe(null)
     expect(conciliacionTotal({ productos: [] })).toBe(null)
     expect(conciliacionTotal(null)).toBe(null)
   })

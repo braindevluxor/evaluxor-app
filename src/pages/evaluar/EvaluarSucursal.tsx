@@ -11,7 +11,7 @@ import { guardarBorradorNube, instanciasDeDraft, respuestasConInstancia } from '
 import { listarEvaluacionesActivas, listarRespuestasEvaluacion, listarInstanciasEvaluacion } from '../../lib/data/indicadores'
 import { supabase } from '../../lib/supabase'
 import { ItemRenderer } from '../../components/ItemRenderer'
-import { Button, ProgressBar, EmptyState, Modal, cn } from '../../components/ui'
+import { Button, EmptyState, Modal, cn } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import type { Item } from '../../lib/types'
 
@@ -34,6 +34,7 @@ export function EvaluarSucursal() {
   const [sinActiva, setSinActiva] = useState(false)
   const [cargando, setCargando] = useState(true)
   const [navAbierta, setNavAbierta] = useState(false)
+  const [modulosAbierta, setModulosAbierta] = useState(false)
   const [idxModulo, setIdxModulo] = useState(() => {
     const raw = sessionStorage.getItem(`evx:${sucursalId}:mod`)
     return raw ? Number(raw) : 0
@@ -215,11 +216,11 @@ export function EvaluarSucursal() {
   const instanciaIndex = registro ? instanciasDeSeccion(registro.seccionId).findIndex((i) => i.id === registro.instanciaId) : -1
   const ultimoHijo = registro ? idxRegistro >= hijosSeccion.length - 1 : false
 
-  const pasosGlobal = modulos.flatMap((m) => pasosDeModulo(itemsDe(m), instanciasPlanasDe(actual)))
-  const respondidos = pasosGlobal.filter((p) => actual.respuestas[p.key]).length
-  const totalItems = pasosGlobal.length
   const pasosDe = (m: typeof modulo) => pasosDeModulo(itemsDe(m), instanciasPlanasDe(actual))
   const resumir = (m: typeof modulo) => pasosDe(m).filter((p) => actual.respuestas[p.key]).length
+  const hechoModulo = resumir(modulo)
+  const totalModulo = pasosDe(modulo).length
+  const pctModulo = totalModulo ? Math.round((hechoModulo / totalModulo) * 100) : 0
 
   const guardarPaso = (mod: number, item: number) => {
     sessionStorage.setItem(`evx:${sucursalId}:mod`, String(mod))
@@ -349,48 +350,28 @@ export function EvaluarSucursal() {
     }
   }
 
+  const burbuja = (
+    <button
+      type="button"
+      onClick={() => setModulosAbierta(true)}
+      aria-label="Progreso por módulos"
+      title="Progreso por módulos"
+      className="flex shrink-0 items-center gap-2 rounded-full bg-white/15 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-white/25"
+    >
+      <span className="grid h-6 min-w-6 place-items-center rounded-full bg-white px-1 text-[11px] font-extrabold text-primary">
+        {idxModulo + 1}
+      </span>
+      {pctModulo}%
+    </button>
+  )
+
   return (
     <MobileLayout
       titulo="Evaluación"
       subtitulo={`Módulo ${idxModulo + 1} de ${modulos.length} · ${new Date(`${actual.fecha}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })}`}
+      extra={burbuja}
     >
       <div className="space-y-4">
-        <div className="rounded-2xl bg-white p-4">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-bold text-primary-900">Progreso</p>
-            <p className="text-xs text-slate-500">
-              {registro ? `Registro ${instanciaIndex + 1} · ${hijoActual ? idxRegistro + 1 : 0}/${hijosSeccion.length} ítems` : `${respondidos}/${totalItems} ítems`}
-            </p>
-          </div>
-          <ProgressBar
-            value={registro ? ((idxRegistro + 1) / Math.max(hijosSeccion.length, 1)) * 100 : (respondidos / Math.max(totalItems, 1)) * 100}
-            className="mt-2"
-          />
-          <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
-            {modulos.map((m, i) => {
-              const total = pasosDe(m).length
-              const hecho = resumir(m)
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => {
-                    guardarPaso(i, 0)
-                    setIdxModulo(i)
-                    setIdxItem(0)
-                    if (registro) setRegistro(null)
-                  }}
-                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    i === idxModulo ? 'bg-primary text-white' : hecho === total && total > 0 ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-500'
-                  }`}
-                >
-                  {i + 1}. {m.nombre}
-                  <span className="ml-1 opacity-70">({hecho}/{total})</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
         {registro && seccion && hijoActual ? (
           <div>
             <div className="mb-3 flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2">
@@ -580,7 +561,7 @@ export function EvaluarSucursal() {
                         setNavAbierta(false)
                       }}
                       className={cn(
-                        'flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors',
+                        'flex w-full items-center gap-2 rounded-full px-3 py-2 text-left text-sm transition-colors',
                         activo ? 'bg-primary text-white' : 'text-slate-700 hover:bg-slate-50'
                       )}
                     >
@@ -607,7 +588,7 @@ export function EvaluarSucursal() {
                         setNavAbierta(false)
                       }}
                       className={cn(
-                        'flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors',
+                        'flex w-full items-center gap-2 rounded-full px-3 py-2 text-left text-sm transition-colors',
                         activo ? 'bg-primary text-white' : 'text-slate-700 hover:bg-slate-50'
                       )}
                     >
@@ -634,6 +615,53 @@ export function EvaluarSucursal() {
               })}
         </ul>
         <p className="mt-3 text-center text-xs text-slate-400">Toca un elemento para ir directo a él.</p>
+      </Modal>
+
+      <Modal open={modulosAbierta} onClose={() => setModulosAbierta(false)} title="Módulos de la evaluación">
+        <ul className="space-y-1">
+          {modulos.map((m, i) => {
+            const total = pasosDe(m).length
+            const hecho = resumir(m)
+            const pct = total ? Math.round((hecho / total) * 100) : 0
+            const activo = i === idxModulo
+            const completo = total > 0 && hecho === total
+            return (
+              <li key={m.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    guardarPaso(i, 0)
+                    setIdxModulo(i)
+                    setIdxItem(0)
+                    if (registro) setRegistro(null)
+                    setModulosAbierta(false)
+                  }}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-full px-3 py-2 text-left text-sm transition-colors',
+                    activo ? 'bg-primary text-white' : 'text-slate-700 hover:bg-slate-50'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold',
+                      activo ? 'bg-white/20' : completo ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
+                    )}
+                  >
+                    {!activo && completo ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold">{m.nombre}</span>
+                    <span className={cn('block text-[11px]', activo ? 'text-white/70' : 'text-slate-400')}>
+                      {hecho}/{total} ítems · {pct}%
+                    </span>
+                  </span>
+                  {activo ? <span className="shrink-0 text-xs font-semibold">Actual</span> : null}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+        <p className="mt-3 text-center text-xs text-slate-400">Toca un módulo para ir directo a él.</p>
       </Modal>
 
       <Modal open={!!confirmarBorrar} onClose={() => setConfirmarBorrar(null)} title="Eliminar registro">

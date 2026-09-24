@@ -38,6 +38,12 @@ export interface ProductoConciliacion {
   nombre: string | null
   teorica: number | null
   fisica: number | null
+  /** Cantidad teórica (soh) reportada por el sistema al escanear. */
+  soh?: number | null
+  /** Última sincronización del producto reportada por el sistema. */
+  lastSync?: string | null
+  /** Precio base final (pricing.finalBase) reportado por el sistema. */
+  finalBase?: number | null
 }
 
 export interface ColaboradorItem {
@@ -98,11 +104,28 @@ export function conciliacionPorcentaje(p: { teorica?: number | null; fisica?: nu
 }
 
 export function conciliacionTotal(v: ValorConciliacion | null | undefined): number | null {
+  // Tasa de productos sin coincidir: (productos donde física ≠ teórica) / (total
+  // escaneados con ambas cantidades) × 100. Por lo tanto 0% = todo concilia y
+  // 100% = ningún producto coincide.
   const ps = v?.productos ?? []
-  const pcts = ps.map((p) => conciliacionPorcentaje(p)).filter((x): x is number => x !== null)
-  if (!pcts.length) return null
-  const suma = pcts.reduce((a, x) => a + x, 0)
-  return Math.round((suma / pcts.length) * 100) / 100
+  const escaneados = ps.filter((p) => typeof p?.teorica === 'number' && typeof p?.fisica === 'number')
+  if (!escaneados.length) return null
+  const sinCoincidir = escaneados.filter((p) => p.fisica !== p.teorica).length
+  return Math.round((sinCoincidir / escaneados.length) * 10000) / 100
+}
+
+/** Formatea el precio base final (pricing.finalBase) del sistema para mostrarlo en conciliación. */
+export function formatearPrecioBase(n: number | null | undefined): string {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
+  return `$${new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`
+}
+
+/** Formatea la última sincronización (lastSync) del sistema; vuelve el texto crudo si no es una fecha válida. */
+export function formatearLastSync(fecha: string | null | undefined): string {
+  if (!fecha) return '—'
+  const d = new Date(fecha)
+  if (Number.isNaN(d.getTime())) return fecha
+  return d.toLocaleString('es-VE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 /**

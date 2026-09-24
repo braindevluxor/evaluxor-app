@@ -6,7 +6,7 @@ import { descargarPdf } from '../lib/pdf'
 import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
-import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, formatearLastSync, formatearPrecioBase, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Puntaje, Spinner, cn } from '../components/ui'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
@@ -194,12 +194,22 @@ function ValorRespuesta({ item, valor }: { item: Item; valor: unknown }) {
           {v?.informativo ? (
             <p className="text-xs font-bold text-amber-700">Informativo · no descuenta puntos</p>
           ) : null}
-          {ps.map((p, i) => (
-            <p key={i} className="text-sm text-slate-700">
-              <span className="font-medium">{p.sku}</span>
-              {p.nombre ? ` — ${p.nombre}` : ''} · Teórica: {p.teorica ?? '—'} · Física: {p.fisica ?? '—'} ({conciliacionPorcentaje(p) ?? '—'}%)
-            </p>
-          ))}
+          {ps.map((p, i) => {
+            const infoSistema = p.soh != null || p.lastSync || p.finalBase != null
+            return (
+              <div key={i} className="text-sm text-slate-700">
+                <p>
+                  <span className="font-medium">{p.sku}</span>
+                  {p.nombre ? ` — ${p.nombre}` : ''} · Teórica: {p.teorica ?? '—'} · Física: {p.fisica ?? '—'} ({conciliacionPorcentaje(p) ?? '—'}%)
+                </p>
+                {infoSistema ? (
+                  <p className="text-[11px] text-slate-400">
+                    SOH: {p.soh ?? '—'} · Últ. sync: {formatearLastSync(p.lastSync)} · Precio: {formatearPrecioBase(p.finalBase)}
+                  </p>
+                ) : null}
+              </div>
+            )
+          })}
           {total != null ? <p className="text-sm font-bold text-primary-900">Total: {total}%</p> : null}
         </div>
       )

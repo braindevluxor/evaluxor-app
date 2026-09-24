@@ -34,18 +34,12 @@ export async function encolarRespuestas(draft: DraftEval): Promise<void> {
 
 async function upsertRespuestas(rows: { evaluacion_id: string; item_id: string; instancia_id: string | null; valor: unknown; respondido_por: string }[]): Promise<void> {
   if (!rows.length) return
-  const directas = rows
-    .filter((r) => !r.instancia_id)
-    .map((r) => ({ evaluacion_id: r.evaluacion_id, item_id: r.item_id, valor: r.valor, respondido_por: r.respondido_por }))
-  if (directas.length) {
-    const { error } = await supabase.from('respuestas').upsert(directas, { onConflict: 'evaluacion_id,item_id' })
-    if (error) throw error
-  }
-  const conInstancia = rows.filter((r) => r.instancia_id)
-  if (conInstancia.length) {
-    const { error } = await supabase.from('respuestas').upsert(conInstancia, { onConflict: 'evaluacion_id,item_id,instancia_id' })
-    if (error) throw error
-  }
+  // El upsert se hace vía la RPC `upsert_respuestas` (schema.sql): declara el
+  // predicado exacto de cada índice parcial (directas y por registro), algo que
+  // PostgREST no puede expresar con `on_conflict`. Aplica las políticas RLS de
+  // respuestas igual que un upsert directo.
+  const { error } = await supabase.rpc('upsert_respuestas', { rows })
+  if (error) throw error
 }
 
 export async function guardarBorradorNube(

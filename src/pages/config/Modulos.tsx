@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { listarModulosAdmin, guardarModulo, eliminarModulo } from '../../lib/data/catalog'
 import type { Modulo, Item } from '../../lib/types'
 import { Button, Field, Input, Modal, Spinner, Badge, Textarea } from '../../components/ui'
+import { List, Pencil, Trash2 } from 'lucide-react'
 
 export function ModulosPage() {
   const [modulos, setModulos] = useState<(Modulo & { _items: Item[] })[]>([])
@@ -43,15 +44,15 @@ export function ModulosPage() {
               </div>
               <p className="mb-3 line-clamp-2 text-sm text-slate-500">{m.descripcion || 'Sin descripción'}</p>
               <p className="mb-3 text-xs text-slate-400">{m._items.length} ítem(s) configurados</p>
-              <div className="mt-auto flex gap-2">
-                <Link to={`/config/items?modulo=${m.id}`} className="flex-1 rounded-xl bg-primary px-3 py-2 text-center text-sm font-semibold text-white hover:bg-primary-700">
-                  Ítems
+              <div className="mt-auto flex items-center justify-end gap-2">
+                <Link to={`/config/items?modulo=${m.id}`} title="Ver ítems" className="grid h-9 w-9 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
+                  <List className="h-4 w-4" />
                 </Link>
-                <button onClick={() => { setEditando(m); setModal(true) }} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">
-                  Editar
+                <button onClick={() => { setEditando(m); setModal(true) }} title="Editar" className="grid h-9 w-9 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
+                  <Pencil className="h-4 w-4" />
                 </button>
-                <button onClick={() => setABorrar(m)} className="rounded-xl border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50">
-                  Eliminar
+                <button onClick={() => setABorrar(m)} title="Eliminar" className="grid h-9 w-9 place-items-center rounded-full bg-red-600 text-white transition-colors hover:bg-red-700">
+                  <Trash2 className="h-4 w-4" />
                 </button>
               </div>
             </div>

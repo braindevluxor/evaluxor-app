@@ -299,7 +299,7 @@ export function Historial() {
                           <>
                             <Link
                               to={`/evaluaciones/${ev.id}/conciliacion`}
-                              className="inline-flex min-h-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-primary hover:underline"
+                              className="inline-flex min-h-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-primary hover:underline"
                               title="Editar los productos de conciliación ya escaneados"
                             >
                               <Pencil className="h-4 w-4" /> Editar
@@ -311,7 +311,7 @@ export function Historial() {
                         ) : null}
                         <Link
                           to={`/evaluaciones/${ev.id}`}
-                          className="inline-flex min-h-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-primary hover:underline"
+                          className="inline-flex min-h-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-primary hover:underline"
                         >
                           <Eye className="h-4 w-4" /> Ver
                         </Link>
@@ -327,7 +327,7 @@ export function Historial() {
                         {esLider ? (
                           <button
                             onClick={() => setAEliminar(ev)}
-                            className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            className="grid h-8 w-8 place-items-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-600"
                             title="Eliminar evaluación"
                           >
                             <Trash2 className="h-4 w-4" />

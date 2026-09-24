@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { crearInvitacion, actualizarUsuario, desbloquearUsuario, type ProfileVista } from '../../lib/data/usuarios'
+import { crearInvitacion, actualizarUsuario, desbloquearUsuario, listarAsignacionesModulosAdmin, asignarModulo, desasignarModulo, type ProfileVista } from '../../lib/data/usuarios'
+import { listarModulosAdmin } from '../../lib/data/catalog'
 import { supabase } from '../../lib/supabase'
 import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
-import type { Invitacion, Rol, Sucursal } from '../../lib/types'
-import { Badge, Button, Field, Input, Modal, Select, Spinner } from '../../components/ui'
+import type { Invitacion, Modulo, Rol, Sucursal } from '../../lib/types'
+import { Badge, Button, Field, Input, Modal, Select, Spinner, cn } from '../../components/ui'
+import { Copy, FolderOpen, Pencil, Unlock } from 'lucide-react'
 
 export function UsuariosPage() {
-  const navigate = useNavigate()
   const [usuarios, setUsuarios] = useState<ProfileVista[]>([])
   const [invitaciones, setInvitaciones] = useState<Invitacion[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
@@ -20,6 +20,11 @@ export function UsuariosPage() {
   const [passProv, setPassProv] = useState('')
   const [msgDes, setMsgDes] = useState<{ tipo: 'ok' | 'err'; texto: string } | null>(null)
   const [cargandoDes, setCargandoDes] = useState(false)
+  const [modulos, setModulos] = useState<Modulo[]>([])
+  const [asignados, setAsignados] = useState<Set<string>>(new Set())
+  const [asignando, setAsignando] = useState<ProfileVista | null>(null)
+  const [cargandoMod, setCargandoMod] = useState(false)
+  const [guardandoMod, setGuardandoMod] = useState<string | null>(null)
 
   const cargar = useCallback(async () => {
     setErr(null)
@@ -47,6 +52,51 @@ export function UsuariosPage() {
   }, [cargar])
 
   const pendientes = useMemo(() => invitaciones.filter((i) => !i.usado), [invitaciones])
+
+  const duenos = useMemo(() => {
+    const m = new Map<string, { id: string; nombre: string }>()
+    for (const k of asignados) {
+      const [eid, mid] = k.split('|')
+      const ev = usuarios.find((x) => x.id === eid)
+      if (!m.has(mid)) m.set(mid, { id: eid, nombre: ev?.nombre || ev?.email || 'Otro evaluador' })
+    }
+    return m
+  }, [asignados, usuarios])
+
+  const cargarModulos = useCallback(async () => {
+    setCargandoMod(true)
+    try {
+      const [mods, asig] = await Promise.all([listarModulosAdmin(), listarAsignacionesModulosAdmin()])
+      setModulos(mods)
+      setAsignados(new Set(asig.filter((a) => a.activa).map((a) => `${a.evaluador_id}|${a.modulo_id}`)))
+    } finally {
+      setCargandoMod(false)
+    }
+  }, [])
+
+  function abrirAsignacion(u: ProfileVista) {
+    setAsignando(u)
+    void cargarModulos()
+  }
+
+  async function toggleModulo(moduloId: string) {
+    if (!asignando) return
+    const key = `${asignando.id}|${moduloId}`
+    const activo = asignados.has(key)
+    setGuardandoMod(key)
+    try {
+      if (activo) await desasignarModulo(asignando.id, moduloId)
+      else await asignarModulo(asignando.id, moduloId)
+      setAsignados((prev) => {
+        const n = new Set(prev)
+        if (n.has(key)) n.delete(key)
+        else n.add(key)
+        return n
+      })
+    } finally {
+      setGuardandoMod(null)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -105,13 +155,21 @@ export function UsuariosPage() {
                     {u.bloqueado ? <Badge color={4}>Bloqueado</Badge> : u.activo ? <Badge color={2}>Activo</Badge> : <Badge color={0}>Inactivo</Badge>}
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
-                    {u.bloqueado ? (
-                      <>
-                        <button onClick={() => { setDesbloqueando(u); setPassProv(''); setMsgDes(null) }} className="font-semibold text-green-700 hover:underline">Desbloquear</button>
-                        <span className="mx-1 text-slate-300">·</span>
-                      </>
-                    ) : null}
-                    <button onClick={() => setEditando(u)} className="font-semibold text-primary hover:underline">Editar</button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      {u.bloqueado ? (
+                        <button onClick={() => { setDesbloqueando(u); setPassProv(''); setMsgDes(null) }} title="Desbloquear" className="grid h-8 w-8 place-items-center rounded-full bg-emerald-600 text-white transition-colors hover:bg-emerald-700">
+                          <Unlock className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                      {u.rol === 'EVALUADOR' ? (
+                        <button onClick={() => abrirAsignacion(u)} title="Asignar módulos" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
+                          <FolderOpen className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                      <button onClick={() => setEditando(u)} title="Editar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -130,7 +188,6 @@ export function UsuariosPage() {
               setEditando(null)
               await cargar()
             }}
-            onVer={(email) => navigate(`/config/asignaciones?evaluador=${encodeURIComponent(email)}`)}
           />
         ) : null}
       </Modal>
@@ -152,9 +209,10 @@ export function UsuariosPage() {
             <code className="block break-all rounded-xl bg-slate-50 px-3 py-2 text-xs text-primary">{linkInv}</code>
             <button
               onClick={() => void navigator.clipboard.writeText(linkInv)}
-              className="mt-2 text-sm font-semibold text-primary hover:underline"
+              title="Copiar enlace"
+              className="mt-2 grid h-9 w-9 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700"
             >
-              Copiar enlace
+              <Copy className="h-4 w-4" />
             </button>
           </div>
         ) : null}
@@ -202,6 +260,49 @@ export function UsuariosPage() {
           </form>
         ) : null}
       </Modal>
+
+      <Modal open={!!asignando} onClose={() => setAsignando(null)} title={`Módulos de ${asignando?.nombre || asignando?.email || 'evaluador'}`}>
+        {cargandoMod ? (
+          <div className="flex justify-center py-12"><Spinner /></div>
+        ) : modulos.length ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {modulos.map((m) => {
+              if (!asignando) return null
+              const key = `${asignando.id}|${m.id}`
+              const activo = asignados.has(key)
+              const dueno = duenos.get(m.id)
+              const ajeno = dueno !== undefined && dueno.id !== asignando.id
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  disabled={guardandoMod === key || ajeno}
+                  onClick={() => void toggleModulo(m.id)}
+                  title={ajeno ? `Asignado a ${dueno.nombre}` : undefined}
+                  className={cn(
+                    'truncate rounded-full border-2 px-3 py-2.5 text-center text-xs font-semibold transition-colors disabled:opacity-50',
+                    activo
+                      ? 'border-primary bg-primary text-white'
+                      : ajeno
+                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-primary'
+                  )}
+                >
+                  {m.nombre}
+                  <span className="mt-0.5 block text-[10px] opacity-70">
+                    {activo ? 'Asignado' : ajeno ? `Otra persona · ${dueno.nombre}` : 'Sin asignar'}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-400">No hay módulos creados.</p>
+        )}
+        <p className="mt-4 rounded-xl bg-primary-50 px-3 py-2 text-[11px] leading-relaxed text-primary-700">
+          Regla de negocio: un módulo solo puede estar asignado a un evaluador a la vez. Si un módulo muestra «Otra persona · X», ya está en uso por ese evaluador.
+        </p>
+      </Modal>
     </div>
   )
 
@@ -226,14 +327,13 @@ function RolBadge({ rol }: { rol: Rol }) {
 function FormUsuario({
   usuario: usuarioActual,
   sucursales,
-  onGuardar,
-  onVer
+  onGuardar
 }: {
   usuario: ProfileVista
   sucursales: Sucursal[]
   onGuardar: (c: { usuario: string; rol: Rol; sucursal_id: string | null; activo: boolean; nombre: string }) => Promise<void>
-  onVer: (email: string) => void
 }) {
+  const [nombre, setNombre] = useState(usuarioActual.nombre ?? '')
   const [usuario, setUsuario] = useState(usuarioActual.usuario)
   const [rol, setRol] = useState<Rol>(usuarioActual.rol)
   const [sucursal, setSucursal] = useState(usuarioActual.sucursal_id ?? '')
@@ -245,14 +345,17 @@ function FormUsuario({
       onSubmit={(e) => {
         e.preventDefault()
         void onGuardar({
+          nombre,
           usuario,
           rol,
           sucursal_id: rol === 'GERENTE_S' || rol === 'EVALUADOR' ? sucursal || null : null,
-          activo,
-          nombre: usuarioActual.nombre
+          activo
         })
       }}
     >
+      <Field label="Nombre">
+        <Input type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre y apellido" />
+      </Field>
       <Field label="Usuario de acceso">
         <Input type="text" value={usuario} onChange={(e) => setUsuario(e.target.value)} required />
       </Field>
@@ -271,11 +374,6 @@ function FormUsuario({
         <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
         Usuario activo
       </label>
-      {usuarioActual.rol === 'EVALUADOR' ? (
-        <Button type="button" variant="secondary" className="w-full" onClick={() => onVer(usuarioActual.email)}>
-          Ir a asignaciones
-        </Button>
-      ) : null}
       <Button type="submit" className="w-full">Guardar cambios</Button>
     </form>
   )

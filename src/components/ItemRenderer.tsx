@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
 import { Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
-import { buscarProducto } from '../lib/data/precios'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, formatearLastSync, formatearPrecioBase, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
+import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores } from '../lib/data/colaboradores'
 import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar } from './ui'
 import { SwipeAcciones } from './SwipeAcciones'
@@ -212,6 +212,23 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
   }
 }
 
+/** Aplica el resultado del escaneo a la API al borrador: autocompleta la Teórica (sistema) con el SOH reportado y conserva la info consultada. */
+function aplicarResultadoScan(b: ProductoConciliacion, r: ResultadoScan): ProductoConciliacion {
+  return {
+    ...b,
+    nombre: r.nombre ?? b.nombre,
+    teorica: typeof r.soh === 'number' ? r.soh : b.teorica,
+    soh: r.soh,
+    lastSync: r.lastSync,
+    finalBase: r.finalBase
+  }
+}
+
+/** ¿El borrador tiene info consultada del sistema (SOH / última sync / precio) para mostrar? */
+function tieneInfoSistema(p: { soh?: number | null; lastSync?: string | null; finalBase?: number | null } | null | undefined): boolean {
+  return !!(p && (p.soh != null || p.lastSync || p.finalBase != null))
+}
+
 export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
   const [escaneando, setEscaneando] = useState(false)
   const [consultando, setConsultando] = useState(false)
@@ -232,8 +249,8 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
     actualizar(productos.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))
   const promedio = conciliacionTotal(v)
 
-  const conciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && (p.teorica ?? 0) > 0 && p.fisica === p.teorica).length
-  const desconciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && (p.teorica ?? 0) > 0 && p.fisica !== p.teorica).length
+  const conciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && p.fisica === p.teorica).length
+  const desconciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && p.fisica !== p.teorica).length
 
   const codigoActual = borrador.sku.trim()
   const existenteIdx = codigoActual ? productos.findIndex((p) => p.sku === codigoActual) : -1
@@ -254,7 +271,7 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
     if (ya) {
       // Ya fue escaneado en esta evaluación: trae el producto con su teórica y
       // deja la física vacía para cargar solo el nuevo conteo (se sumará al guardar).
-      setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null })
+      setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase })
       return
     }
     if (!shopId) {
@@ -265,7 +282,7 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
     const r = await buscarProducto(codigo, shopId)
     setConsultando(false)
     if (r.nombre) {
-      setBorrador((b) => ({ ...b, nombre: r.nombre }))
+      setBorrador((b) => aplicarResultadoScan(b, r))
     } else {
       setInfo(r.mensaje ?? 'Producto no encontrado.')
     }
@@ -283,12 +300,33 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
       const total = previo + borrador.fisica
       actualizar(
         productos.map((p, idx) =>
-          idx === existenteIdx ? { ...p, nombre: borrador.nombre ?? p.nombre, teorica: borrador.teorica, fisica: total } : p
+          idx === existenteIdx
+            ? {
+                ...p,
+                nombre: borrador.nombre ?? p.nombre,
+                teorica: borrador.teorica,
+                fisica: total,
+                soh: borrador.soh ?? p.soh,
+                lastSync: borrador.lastSync ?? p.lastSync,
+                finalBase: borrador.finalBase ?? p.finalBase
+              }
+            : p
         )
       )
       setExito(`Sumado: FP ${previo} + ${borrador.fisica} = ${total}`)
     } else {
-      actualizar([...productos, { sku, nombre: borrador.nombre, teorica: borrador.teorica, fisica: borrador.fisica }])
+      actualizar([
+        ...productos,
+        {
+          sku,
+          nombre: borrador.nombre,
+          teorica: borrador.teorica,
+          fisica: borrador.fisica,
+          soh: borrador.soh,
+          lastSync: borrador.lastSync,
+          finalBase: borrador.finalBase
+        }
+      ])
       setExito('')
     }
     setBorrador({ sku: '', nombre: null, teorica: null, fisica: null })
@@ -319,7 +357,7 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
               setExito('')
               setBorrador(
                 ya
-                  ? { sku, nombre: ya.nombre, teorica: ya.teorica, fisica: null }
+                  ? { sku, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase }
                   : { sku, nombre: null, teorica: null, fisica: null }
               )
             }}
@@ -328,7 +366,7 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
           <button
             type="button"
             onClick={() => setEscaneando(true)}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-200 text-slate-600 hover:bg-slate-300"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-200 text-slate-600 hover:bg-slate-300"
             title="Escanear código de barras"
           >
             <ScanLine className="h-5 w-5" />
@@ -341,6 +379,12 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
           <p className="flex items-center gap-2 text-xs text-slate-500"><Spinner /> Consultando producto…</p>
         ) : info ? (
           <p className="text-xs font-medium text-amber-600">{info}</p>
+        ) : null}
+        {tieneInfoSistema(borrador) ? (
+          <p className="text-[11px] leading-relaxed text-slate-400">
+            SOH (sistema): <strong className="text-slate-600">{borrador.soh ?? '—'}</strong> · Últ. sync:{' '}
+            {formatearLastSync(borrador.lastSync)} · Precio: {formatearPrecioBase(borrador.finalBase)}
+          </p>
         ) : null}
         {existente ? (
           <div className="rounded-xl border border-primary-200 bg-primary-50 p-2.5 text-xs leading-relaxed">
@@ -400,7 +444,7 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
             <ResumenConciliacion etiqueta="SKU agregados" valor={String(productos.length)} color="text-primary-900" />
             <ResumenConciliacion etiqueta="Match" valor={String(conciliadas)} color="text-green-600" />
             <ResumenConciliacion etiqueta="No Match" valor={String(desconciliadas)} color={desconciliadas > 0 ? 'text-red-600' : 'text-slate-400'} />
-            <ResumenConciliacion etiqueta="Prom. conciliación" valor={promedio != null ? `${promedio}%` : '—'} color={promedio != null ? (promedio === 100 ? 'text-green-600' : 'text-red-600') : 'text-slate-400'} />
+            <ResumenConciliacion etiqueta="Prom. conciliación" valor={promedio != null ? `${promedio}%` : '—'} color={promedio != null ? (promedio === 0 ? 'text-green-600' : 'text-red-600') : 'text-slate-400'} />
           </div>
 
           <div className="rounded-xl bg-white">
@@ -461,7 +505,7 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
                                   onClick={editar}
                                   title="Editar"
                                   aria-label="Editar"
-                                  className="flex w-full items-center justify-center border-0 bg-primary text-white"
+                                  className="flex w-full items-center justify-center rounded-full border-0 bg-primary text-white"
                                 >
                                   <Pencil className="h-5 w-5" />
                                 </button>
@@ -476,7 +520,7 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
                                   onClick={eliminar}
                                   title="Eliminar"
                                   aria-label="Eliminar"
-                                  className="flex w-full items-center justify-center border-0 bg-red-600 text-white"
+                                  className="flex w-full items-center justify-center rounded-full border-0 bg-red-600 text-white"
                                 >
                                   <Trash2 className="h-5 w-5" />
                                 </button>
@@ -501,6 +545,11 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
                                 {pct != null ? `${pct}%` : '—'}
                               </span>
                             </div>
+                            {tieneInfoSistema(p) ? (
+                              <p className="mt-0.5 text-[10px] leading-tight text-slate-400">
+                                SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · Precio: {formatearPrecioBase(p.finalBase)}
+                              </p>
+                            ) : null}
                           </div>
                         </SwipeAcciones>
                       </li>
@@ -527,7 +576,7 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
             if (ya) {
               // Ya escaneado en esta evaluación: trae el producto y deja la física
               // vacía para el nuevo conteo (se sumará al guardar).
-              setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null })
+              setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase })
               return
             }
             const mismo = borrador.sku.trim() === codigo
@@ -543,7 +592,7 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
               const r = await buscarProducto(codigo, shopId)
               setConsultando(false)
               if (r.nombre) {
-                setBorrador((b) => ({ ...b, nombre: r.nombre }))
+                setBorrador((b) => aplicarResultadoScan(b, r))
               } else {
                 setInfo(r.mensaje ?? 'Producto no encontrado.')
               }
@@ -696,7 +745,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId }: { item
                   <button
                     type="button"
                     onClick={() => toggleAbierto(c.dni)}
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100"
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 hover:bg-slate-100"
                     title={abierto ? 'Cerrar checklist' : 'Abrir checklist'}
                   >
                     <ChevronDown className={cn('h-4 w-4 transition-transform', abierto ? 'rotate-180' : '')} />
@@ -815,7 +864,7 @@ function UnidadesEditor({ item, valor, onChange }: { item: Item; valor: unknown;
                     <button
                       type="button"
                       onClick={() => { setAbiertoIdx(abierto ? null : i) }}
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100"
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 hover:bg-slate-100"
                       title={abierto ? 'Cerrar checklist' : 'Abrir checklist'}
                     >
                       <ChevronDown className={cn('h-4 w-4 transition-transform', abierto ? 'rotate-180' : '')} />
@@ -823,7 +872,7 @@ function UnidadesEditor({ item, valor, onChange }: { item: Item; valor: unknown;
                     <button
                       type="button"
                       onClick={() => quitar(i)}
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-red-400 hover:bg-red-50 hover:text-red-500"
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-red-400 hover:bg-red-50 hover:text-red-500"
                       title="Quitar unidad"
                     >
                       <X className="h-4 w-4" />
@@ -892,7 +941,7 @@ function EvidenciasEditor({ evidencias, onChange }: { evidencias: EvidenciaCumpl
             <button
               type="button"
               onClick={() => quitar(i)}
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-400 hover:bg-red-50 hover:text-red-500"
+              className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-slate-400 hover:bg-red-50 hover:text-red-500"
             >
               <X className="h-3.5 w-3.5" /> Quitar
             </button>
@@ -919,7 +968,7 @@ function BotonCumple({ activo, onPick }: { activo: boolean; onPick: () => void }
       type="button"
       onClick={onPick}
       className={cn(
-        'flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-xl border-2 px-3 py-3 transition-colors',
+        'flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-full border-2 px-3 py-3 transition-colors',
         activo ? 'border-green-600 bg-green-50 text-green-800' : 'border-slate-200 bg-white text-slate-500'
       )}
     >
@@ -935,7 +984,7 @@ function BotonNoCumple({ activo, onPick }: { activo: boolean; onPick: () => void
       type="button"
       onClick={onPick}
       className={cn(
-        'flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-xl border-2 px-3 py-3 transition-colors',
+        'flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-full border-2 px-3 py-3 transition-colors',
         activo ? 'border-red-600 bg-red-50 text-red-700' : 'border-slate-200 bg-white text-slate-500'
       )}
     >

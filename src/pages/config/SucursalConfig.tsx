@@ -117,7 +117,7 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
                     type="button"
                     onClick={() => toggleModulo(m.id)}
                     className={cn(
-                      'truncate rounded-xl border-2 px-3 py-2.5 text-center text-xs font-semibold transition-colors',
+                      'truncate rounded-full border-2 px-3 py-2.5 text-center text-xs font-semibold transition-colors',
                       activo
                         ? 'border-primary bg-primary text-white'
                         : 'border-slate-200 bg-white text-slate-600 hover:border-primary'

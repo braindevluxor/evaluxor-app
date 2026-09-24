@@ -23,7 +23,7 @@ export function PendientePage() {
         </p>
         <button
           onClick={() => void signOut()}
-          className="mt-5 w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-700"
+          className="mt-5 w-full rounded-full bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-700"
         >
           Cerrar sesión
         </button>
