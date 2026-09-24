@@ -506,7 +506,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
       idx === i
         ? tipo === 'RANGO'
           ? { ...o, tipo_respuesta: 'RANGO' as const }
-          : { ...o, tipo_respuesta: undefined, minimo: undefined, unidad: undefined }
+          : { ...o, tipo_respuesta: undefined, minimo: undefined, maximo: undefined, unidad: undefined }
         : o
     )
     onChange(nuevo)
@@ -515,6 +515,12 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
     const n = Number(valor)
     const minimo = valor.trim() !== '' && Number.isFinite(n) ? n : undefined
     const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, minimo } : o))
+    onChange(nuevo)
+  }
+  const cambiarMaximo = (i: number, valor: string) => {
+    const n = Number(valor)
+    const maximo = valor.trim() !== '' && Number.isFinite(n) && n > 0 ? n : undefined
+    const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, maximo } : o))
     onChange(nuevo)
   }
   const cambiarUnidad = (i: number, unidad: string) => {
@@ -604,6 +610,16 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
                     className="w-32 shrink-0"
                     placeholder="Mín. aceptable"
                     aria-label={`Mínimo aceptable de la opción ${i + 1}`}
+                  />
+                  <Input
+                    type="number"
+                    step="any"
+                    value={o.maximo ?? ''}
+                    onChange={(e) => cambiarMaximo(i, e.target.value)}
+                    className="w-32 shrink-0"
+                    placeholder="Máx. (opt.)"
+                    title="Tope derecho de la barra. Si se omite, máximo = 2 × mínimo (mínimo 100)."
+                    aria-label={`Máximo de la opción ${i + 1}`}
                   />
                   <Input
                     value={o.unidad ?? ''}

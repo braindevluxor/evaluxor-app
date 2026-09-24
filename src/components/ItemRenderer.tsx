@@ -100,12 +100,8 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
           onChange({ ...value, selected: [...seleccion, id] })
         }
       }
-      const setValorRango = (id: string, texto: string) => {
-        const valores2 = { ...(value.valores ?? {}) }
-        const n = Number(texto)
-        if (texto.trim() === '' || !Number.isFinite(n)) delete valores2[id]
-        else valores2[id] = n
-        onChange({ ...value, valores: valores2 })
+      const setValorRango = (id: string, n: number) => {
+        onChange({ ...value, valores: { ...(value.valores ?? {}), [id]: n } })
       }
       const toggleInformativo = (id: string) => {
         const existe = informativos.includes(id)
@@ -183,23 +179,15 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
                   ) : null}
                 </div>
                 {esRango && activo ? (
-                  <div className="space-y-1.5 px-3 pb-3">
-                    <div className="flex items-center gap-2">
-                      <span className="shrink-0 text-[11px] font-semibold text-slate-500">Valor ingresado</span>
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        step="any"
-                        value={valorRango ?? ''}
-                        onChange={(e) => setValorRango(o.id, e.target.value)}
-                        placeholder={`Mín. ${o.minimo ?? '—'}${o.unidad ? ` ${o.unidad}` : ''}`}
-                        aria-label={`Valor de ${o.etiqueta}`}
-                      />
-                      {o.unidad ? <span className="shrink-0 text-xs text-slate-500">{o.unidad}</span> : null}
-                    </div>
-                    {typeof valorRango === 'number' && typeof o.minimo === 'number' && valorRango < o.minimo ? (
-                      <p className="text-[11px] font-semibold text-red-600">Debe ser ≥ {o.minimo}{o.unidad ? ` ${o.unidad}` : ''} para considerar el punto cumplido.</p>
-                    ) : null}
+                  <div className="space-y-2 px-3 pb-3 pt-1">
+                    <BarraRango
+                      etiqueta={o.etiqueta}
+                      minimo={o.minimo}
+                      maximo={o.maximo}
+                      unidad={o.unidad}
+                      valor={typeof valorRango === 'number' ? valorRango : null}
+                      onChange={(n) => setValorRango(o.id, n)}
+                    />
                   </div>
                 ) : null}
                 {!activo && idsEv.length > 0 ? (
@@ -1028,6 +1016,69 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
       >
         {subiendo ? <Spinner className="h-4 w-4 border-white border-t-transparent" /> : <Camera className="h-4 w-4" />}
       </button>
+    </>
+  )
+}
+
+/** Deslizador horizontal con degradado difuminado rojo → amarillo → verde.
+ *  El tope derecho es `maximo` (o un máximo derivado); el color del pulgar y el
+ *  veredicto dependen del `minimo` configurado. */
+function BarraRango({ etiqueta, minimo, maximo, unidad, valor, onChange }: { etiqueta: string; minimo?: number; maximo?: number; unidad?: string; valor: number | null; onChange: (n: number) => void }) {
+  const min = typeof minimo === 'number' && minimo >= 0 ? minimo : 0
+  // Máximo: el configurado si supera al mínimo; si no, un tope derivado sensible.
+  const max = typeof maximo === 'number' && maximo > min ? maximo : Math.max(100, min * 2, min + 1)
+  // Posición del mínimo sobre la barra (allí empieza a "teñirse" de verde).
+  const pctMin = Math.max(8, Math.min(90, (min / max) * 100))
+  const gradiente = `linear-gradient(90deg, #dc2626 0%, #f59e0b ${pctMin}%, #22c55e 100%)`
+  const fmt = (n: number) => `${Math.round(n * 10) / 10}`
+  const cumple = valor != null && min > 0 ? valor >= min : valor != null
+  const colorThumb = valor == null ? '#64748b' : cumple ? '#16a34a' : '#dc2626'
+  const sufijo = unidad ? ` ${unidad}` : ''
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold text-slate-500">Indicá el valor sobre la barra</p>
+        <span
+          className={cn(
+            'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold',
+            valor == null ? 'bg-slate-100 text-slate-500' : cumple ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+          )}
+        >
+          {valor == null ? 'Sin valor' : cumple ? 'Cumple' : 'No alcanza el mínimo'}
+        </span>
+      </div>
+
+      <div className="relative flex h-7 items-center">
+        <div className="absolute inset-x-0 top-1/2 h-3.5 -translate-y-1/2 rounded-full opacity-70 blur-[5px]" style={{ background: gradiente }} aria-hidden />
+        <div className="absolute inset-x-0 top-1/2 h-3.5 -translate-y-1/2 rounded-full" style={{ background: gradiente }} aria-hidden />
+        <div
+          className="absolute top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-white shadow ring-1 ring-slate-800/30"
+          style={{ left: `calc(${pctMin}% - 1px)` }}
+          title={min > 0 ? `Mínimo: ${fmt(min)}${sufijo}` : 'Valor mínimo: 0'}
+          aria-hidden
+        />
+        <input
+          type="range"
+          className="barra-rango relative"
+          min={0}
+          max={max}
+          step="any"
+          value={valor ?? 0}
+          onChange={(e) => onChange(Number(e.target.value))}
+          aria-label={`Valor de ${etiqueta}`}
+          style={{ '--barra-thumb': colorThumb } as React.CSSProperties}
+        />
+      </div>
+
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[11px] text-slate-400">
+          Mín. aceptable: {fmt(min)}{sufijo} · escala 0–{fmt(max)}{sufijo}
+        </span>
+        <span className="text-sm font-extrabold tabular-nums text-slate-800">
+          {valor != null ? `${fmt(valor)}${sufijo}` : '—'}
+        </span>
+      </div>
     </>
   )
 }

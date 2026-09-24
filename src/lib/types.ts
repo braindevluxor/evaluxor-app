@@ -109,6 +109,8 @@ export interface Opcion {
   tipo_respuesta?: 'CHECK' | 'RANGO'
   /** Valor mínimo aceptable para considerar cumplida una opción de tipo RANGO. */
   minimo?: number
+  /** Tope derecho de la barra de rango (0 → máximo). Si se omite, se usa el máximo por defecto (2× mínimo, mínimo 100). */
+  maximo?: number
   /** Unidad opcional del valor del rango (ej: cm, litros). */
   unidad?: string
 }
