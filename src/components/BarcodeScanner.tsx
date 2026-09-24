@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Html5Qrcode } from 'html5-qrcode'
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 import { Button, Modal, Spinner } from './ui'
 
 interface Props {
@@ -17,7 +17,19 @@ export function BarcodeScanner({ open, onClose, onDetect }: Props) {
     if (!open) return
     setEstado('iniciando')
     setCodigoManual('')
-    const scanner = new Html5Qrcode('barcode-scanner-region')
+    const scanner = new Html5Qrcode('barcode-scanner-region', {
+      verbose: false,
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.ITF
+      ],
+      useBarCodeDetectorIfSupported: true
+    })
     scanRef.current = scanner
 
     scanner
@@ -25,7 +37,14 @@ export function BarcodeScanner({ open, onClose, onDetect }: Props) {
         { facingMode: 'environment' },
         {
           fps: 10,
-          qrbox: { width: 260, height: 130 }
+          aspectRatio: 1.7778,
+          qrbox: (w, h) => {
+            // Banda horizontal amplia y proporcional al encuadre: los códigos de barra son anchos.
+            // Al ser relativa al viewfinder, la zona dibujada coincide con la zona real de escaneo.
+            const ancho = Math.min(Math.round(w * 0.86), 420)
+            const alto = Math.min(Math.max(90, Math.round(ancho * 0.42)), Math.round(h * 0.6))
+            return { width: ancho, height: alto }
+          }
         },
         (texto) => {
           if (!/^\s*$/.test(texto)) onDetect(texto.trim())
