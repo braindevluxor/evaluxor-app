@@ -20,6 +20,7 @@ const EvaluarResumen = lazy(() => import('./pages/evaluar/EvaluarResumen').then(
 const MisEvaluaciones = lazy(() => import('./pages/evaluar/MisEvaluaciones').then((m) => ({ default: m.MisEvaluaciones })))
 const DashboardHome = lazy(() => import('./pages/dashboard/DashboardHome').then((m) => ({ default: m.DashboardHome })))
 const Historial = lazy(() => import('./pages/dashboard/Historial').then((m) => ({ default: m.Historial })))
+const Comparativas = lazy(() => import('./pages/dashboard/Comparativas').then((m) => ({ default: m.Comparativas })))
 const SucursalesPage = lazy(() => import('./pages/config/Sucursales').then((m) => ({ default: m.SucursalesPage })))
 const ModulosPage = lazy(() => import('./pages/config/Modulos').then((m) => ({ default: m.ModulosPage })))
 const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ default: m.ItemsPage })))
@@ -131,6 +132,14 @@ export default function App() {
                     element={
                       <RequireRol roles={ROLES_DASHBOARD}>
                         <Historial />
+                      </RequireRol>
+                    }
+                  />
+                  <Route
+                    path="/dashboard/comparativas"
+                    element={
+                      <RequireRol roles={ROLES_DASHBOARD}>
+                        <Comparativas />
                       </RequireRol>
                     }
                   />

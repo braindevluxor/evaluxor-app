@@ -1,4 +1,4 @@
-import { LayoutDashboard, Link2 as LinkIcon, ClipboardList, FolderOpen, History, Menu, Settings, Store, Users, X } from 'lucide-react'
+import { LayoutDashboard, Link2 as LinkIcon, ClipboardList, FolderOpen, History, Menu, Settings, Store, Users, X, ChartColumn } from 'lucide-react'
 import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -9,7 +9,8 @@ import { cn } from '../ui'
 const enlaces = [
   { seccion: 'Resultados', items: [
     { to: '/dashboard', label: 'Inicio', icon: <LayoutDashboard className="h-5 w-5" /> },
-    { to: '/dashboard/historial', label: 'Historial', icon: <History className="h-5 w-5" /> }
+    { to: '/dashboard/historial', label: 'Historial', icon: <History className="h-5 w-5" /> },
+    { to: '/dashboard/comparativas', label: 'Comparativas', icon: <ChartColumn className="h-5 w-5" /> }
   ]}
 ]
 
