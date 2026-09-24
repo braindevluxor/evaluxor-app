@@ -102,11 +102,19 @@ export function ItemsPage() {
       <Modal open={modal} onClose={() => setModal(false)} title={editando ? 'Editar ítem' : 'Nuevo ítem'} wide sinCerrarFuera>
         <FormItem
           moduloId={moduloId}
+          modulos={modulos}
           inicial={editando}
           items={items}
           onGuardar={async (d) => {
+            const destino = modulos.find((m) => m.id === d.modulo_id)
+            const mover = d.id != null && d.modulo_id !== moduloId
+            if (destino) {
+              const maxOrden = destino._items.reduce((a, i) => Math.max(a, i.orden), -1)
+              if (!d.id || mover) d = { ...d, orden: maxOrden + 1 }
+            }
             await guardarItem(d)
             setModal(false)
+            if (mover) setModuloId(d.modulo_id)
             await cargar()
           }}
         />
@@ -147,15 +155,18 @@ function tipoColor(t: TipoItem): number {
 
 function FormItem({
   moduloId,
+  modulos,
   inicial,
   items,
   onGuardar
 }: {
   moduloId: string
+  modulos: (Modulo & { _items: Item[] })[]
   inicial: Item | null
   items: Item[]
   onGuardar: (d: Partial<Item> & { modulo_id: string; tipo: TipoItem; texto: string; sku?: string }) => Promise<void>
 }) {
+  const [moduloSel, setModuloSel] = useState<string>(inicial?.modulo_id ?? moduloId)
   const [tipo, setTipo] = useState<TipoItem>(inicial?.tipo ?? 'CUMPLE_NO_CUMPLE')
   const [texto, setTexto] = useState(inicial?.texto ?? '')
   const [puntos, setPuntos] = useState<number | ''>(inicial?.puntaje ?? 0)
@@ -167,7 +178,9 @@ function FormItem({
 
   const conChecklist = tipo === 'CHECKLIST' || tipo === 'LISTA_COLABORADORES' || tipo === 'UNIDAD_CHECKLIST'
 
-  const otros = items.filter((i) => i.id !== inicial?.id).reduce((a, i) => a + pesoItem(i), 0)
+  const otros = (modulos.find((m) => m.id === moduloSel)?._items ?? items)
+    .filter((i) => i.id !== inicial?.id)
+    .reduce((a, i) => a + pesoItem(i), 0)
   const sumaConNuevo = otros + (Number(puntos) || 0)
   const excede = sumaConNuevo > 100
 
@@ -179,7 +192,7 @@ function FormItem({
         if (excede) return
         void onGuardar({
           id: inicial?.id,
-          modulo_id: inicial?.modulo_id ?? moduloId,
+          modulo_id: moduloSel,
           tipo,
           texto,
           puntaje: Number(puntos) || 0,
@@ -191,6 +204,16 @@ function FormItem({
         })
       }}
     >
+      <Field label="Módulo">
+        <Select value={moduloSel} onChange={(e) => setModuloSel(e.target.value)}>
+          {modulos.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+        </Select>
+      </Field>
+      {inicial && inicial.modulo_id !== moduloSel ? (
+        <p className="rounded-xl bg-primary-50 px-3 py-2 text-xs font-medium text-primary-900">
+          El ítem se moverá al módulo «{modulos.find((m) => m.id === moduloSel)?.nombre ?? ''}» y se añadirá al final de su lista.
+        </p>
+      ) : null}
       <Field label="Tipo de ítem">
         <Select value={tipo} onChange={(e) => setTipo(e.target.value as TipoItem)}>
           {TIPOS.map((t) => <option key={t} value={t}>{etiquetaTipo(t)}</option>)}
