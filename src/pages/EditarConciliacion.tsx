@@ -48,7 +48,7 @@ export function EditarConciliacion() {
     setGuardado((g) => ({ ...g, [itemId]: 'guardando' }))
     if (guardadoRef.current.get(itemId)) window.clearTimeout(guardadoRef.current.get(itemId))
     const timer = window.setTimeout(() => {
-      void guardarBorradorNube(evaluacionId, profile.id, [{ item_id: itemId, valor }])
+      void guardarBorradorNube(evaluacionId, profile.id, [{ item_id: itemId, instancia_id: null, valor }])
         .then(() => setGuardado((g) => ({ ...g, [itemId]: 'ok' })))
         .catch(() => setGuardado((g) => ({ ...g, [itemId]: 'error' })))
     }, 600)

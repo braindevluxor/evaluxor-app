@@ -1,8 +1,17 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import type { Modulo, Item, Sucursal, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem, SucursalOpcion } from '../types'
+import { claveRespuesta, type InstanciaPlana } from '../pasos'
+
+export { claveRespuesta }
 
 export interface DraftResp {
   valor: unknown
+}
+
+export interface DraftInstancia {
+  id: string
+  etiqueta: string
+  orden: number
 }
 
 export interface DraftEval {
@@ -11,8 +20,31 @@ export interface DraftEval {
   fecha: string
   comentario_general: string
   puntuacion: number | null
+  /** Respuestas por clave `item_id::instancia_id` (instancia vacía para ítems directos). */
   respuestas: Record<string, DraftResp>
+  /** Registros creados por ítem CONTENEDOR (sección): item_id → instancias. */
+  instancias: Record<string, DraftInstancia[]>
   updated_at: number
+}
+
+/** Separa una clave de respuesta en ítem e instancia. */
+export function parsearClaveRespuesta(k: string): { item_id: string; instancia_id: string | null } {
+  const sep = k.indexOf('::')
+  if (sep === -1) return { item_id: k, instancia_id: null }
+  return { item_id: k.slice(0, sep), instancia_id: k.slice(sep + 2) || null }
+}
+
+/** Normaliza claves de borradores antiguos (solo `item_id`) al formato actual (`item_id::`). */
+export function normalizarClave(k: string): string {
+  return k.includes('::') ? k : claveRespuesta(k)
+}
+
+/** Registros aplanados del borrador (item_id → orden) para calcular pasos. */
+export function instanciasPlanasDe(d: Pick<DraftEval, 'instancias'> | null): InstanciaPlana[] {
+  const ins = d?.instancias ?? {}
+  return Object.entries(ins).flatMap(([item_id, arr]) =>
+    (arr ?? []).map((x, i) => ({ id: x.id, item_id, orden: typeof x.orden === 'number' ? x.orden : i }))
+  )
 }
 
 export interface PhotoRecord {
@@ -27,7 +59,8 @@ export interface SyncJob {
   sucursal_id: string
   evaluador_id: string
   fecha: string
-  respuestas: { item_id: string; valor: unknown }[]
+  instancias: { id: string; item_id: string; etiqueta: string; orden: number }[]
+  respuestas: { item_id: string; instancia_id: string | null; valor: unknown }[]
   photoIds: string[]
   status: 'pending' | 'processing'
   created_at: number

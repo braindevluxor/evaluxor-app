@@ -36,7 +36,7 @@ export function Comparativas() {
         })
         if (activo) setDatos(d)
       } catch {
-        if (activo) setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [] })
+        if (activo) setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [], instancias: [] })
       } finally {
         if (activo) setCargando(false)
       }

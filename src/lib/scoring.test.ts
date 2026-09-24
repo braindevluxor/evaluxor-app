@@ -283,3 +283,27 @@ describe('calcularPuntaje con checklist proporcional', () => {
     expect(calcularPuntaje([{ item, valor: { selected: ['a'] } }])).toBe(0)
   })
 })
+
+describe('calcularPuntaje con registros (secciones repetibles)', () => {
+  const item = { tipo: 'CUMPLE_NO_CUMPLE', puntaje: 10 }
+
+  it('promedia el mismo ítem entre sus registros', () => {
+    expect(calcularPuntaje([
+      { item, valor: { value: true } },
+      { item, valor: { value: false } }
+    ])).toBe(50)
+  })
+
+  it('un solo registro mantiene el puntaje normal', () => {
+    expect(calcularPuntaje([{ item, valor: { value: true } }])).toBe(100)
+    expect(calcularPuntaje([{ item, valor: { value: false } }])).toBe(0)
+  })
+
+  it('tres registros con dos en regla pesan ~2/3', () => {
+    expect(calcularPuntaje([
+      { item, valor: { value: true } },
+      { item, valor: { value: true } },
+      { item, valor: { value: false } }
+    ])).toBe(66.67)
+  })
+})

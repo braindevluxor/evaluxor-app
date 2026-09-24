@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, Fragment } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, FileDown, FolderOpen } from 'lucide-react'
+import { ArrowLeft, FileDown, FolderOpen, Tag } from 'lucide-react'
 import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { descargarPdf } from '../lib/pdf'
 import { supabase } from '../lib/supabase'
-import { itemsEnOrdenJerarquico } from '../lib/hierarchy'
+import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
+import { raicesDeModulo } from '../lib/pasos'
 import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Puntaje, Spinner, cn } from '../components/ui'
@@ -272,7 +273,7 @@ export function EvaluacionDetalle() {
     )
   }
 
-  const { evaluacion, respuestas, items, modulos, fotos, sucursalOpciones } = detalle
+  const { evaluacion, respuestas, items, modulos, fotos, sucursalOpciones, instancias } = detalle
   const { puntaje } = resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones)
   const est = estadoBadge(puntaje)
   const aplicaOpciones = opcionesQueAplican(evaluacion.sucursal_id, sucursalOpciones)
@@ -383,7 +384,26 @@ export function EvaluacionDetalle() {
 
         {modulos.map((m) => {
           const itemMod = itemsEnOrdenJerarquico(items.filter((i) => i.modulo_id === m.id))
-          const respDe = (id: string) => respuestas.find((r) => r.item_id === id)
+          const respDe = (id: string, insId?: string | null) =>
+            respuestas.find((r) => r.item_id === id && (r.instancia_id ?? null) === (insId ?? null))
+          const raices = raicesDeModulo(itemMod)
+          const instanciasDe = (itemId: string) =>
+            instancias.filter((x) => x.item_id === itemId).sort((a, b) => a.orden - b.orden)
+          const filaRespuesta = (item: Item, res: (typeof respuestas)[number]) => {
+            const fotosItem = fotos.filter(
+              (f) => f.item_id === item.id && (f.instancia_id ?? null) === (res.instancia_id ?? null)
+            )
+            return (
+              <div key={`${res.item_id}-${res.instancia_id ?? ''}-${res.id}`} className="space-y-2 px-4 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-700">{item.texto}</p>
+                  <Badge color={0}>{etiquetaTipo(item.tipo)}</Badge>
+                </div>
+                <ValorRespuesta item={item} valor={res.valor} />
+                <Fotogaleria fotos={fotosItem} />
+              </div>
+            )
+          }
           const vals = respuestas
             .filter((r) => itemMod.some((i) => i.id === r.item_id))
             .map((r) => ({ item: itemMod.find((i) => i.id === r.item_id), valor: r.valor }))
@@ -399,28 +419,40 @@ export function EvaluacionDetalle() {
                 </p>
               </div>
               <div className="divide-y divide-slate-100">
-                {itemMod.map((item) => {
+                {raices.map((item) => {
                   if (item.tipo === 'CONTENEDOR') {
+                    const insts = instanciasDe(item.id)
+                    const hijos = hijosOrdenados(itemMod, item.id)
                     return (
-                      <div key={item.id} className="flex items-center gap-2 bg-primary-50 px-4 py-2.5">
-                        <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
-                        <p className="text-sm font-bold text-primary-900">{item.texto}</p>
-                      </div>
+                      <Fragment key={item.id}>
+                        <div className="flex items-center gap-2 bg-primary-50 px-4 py-2.5">
+                          <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
+                          <p className="text-sm font-bold text-primary-900">{item.texto}</p>
+                          <span className="ml-auto text-[11px] font-semibold text-slate-500">
+                            {insts.length} registro(s) · {hijos.length} ítem(s) c/u
+                          </span>
+                        </div>
+                        {insts.map((inst, i) => (
+                          <Fragment key={inst.id}>
+                            <div className="flex items-center gap-2 border-t border-primary-100 bg-primary-50/60 px-4 py-1.5">
+                              <Tag className="h-3.5 w-3.5 shrink-0 text-primary" />
+                              <p className="truncate text-xs font-bold text-primary-900">
+                                Registro {i + 1} · {inst.etiqueta}
+                              </p>
+                            </div>
+                            {hijos.map((hijo) => {
+                              const res = respDe(hijo.id, inst.id)
+                              if (!res) return null
+                              return filaRespuesta(hijo, res)
+                            })}
+                          </Fragment>
+                        ))}
+                      </Fragment>
                     )
                   }
-                  const res = respDe(item.id)
+                  const res = respDe(item.id, null)
                   if (!res) return null
-                  const fotosItem = fotos.filter((f) => f.item_id === item.id)
-                  return (
-                    <div key={item.id} className="space-y-2 px-4 py-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-slate-700">{item.texto}</p>
-                        <Badge color={0}>{etiquetaTipo(item.tipo)}</Badge>
-                      </div>
-                      <ValorRespuesta item={item} valor={res.valor} />
-                      <Fotogaleria fotos={fotosItem} />
-                    </div>
-                  )
+                  return filaRespuesta(item, res)
                 })}
               </div>
             </section>

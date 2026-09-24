@@ -386,25 +386,53 @@ create table if not exists public.evaluaciones (
 );
 create index if not exists idx_evaluaciones_sucursal on public.evaluaciones(sucursal_id, fecha);
 
+-- Registros repetibles de una sección (CONTENEDOR): cada fila es una "planilla"
+-- del grupo (ej. un vehículo, un producto…) identificada por su etiqueta (texto libre).
+create table if not exists public.instancias_grupo (
+  id uuid primary key default gen_random_uuid(),
+  evaluacion_id uuid not null references public.evaluaciones(id) on delete cascade,
+  item_id uuid not null references public.items(id) on delete cascade, -- el CONTENEDOR
+  etiqueta text not null default '',
+  orden integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_instancias_grupo_evaluacion on public.instancias_grupo(evaluacion_id, item_id, orden);
+
 create table if not exists public.respuestas (
   id uuid primary key default gen_random_uuid(),
   evaluacion_id uuid not null references public.evaluaciones(id) on delete cascade,
   item_id uuid not null references public.items(id) on delete cascade,
+  instancia_id uuid references public.instancias_grupo(id) on delete cascade, -- null = ítem respondido directo
   valor jsonb not null default 'null'::jsonb,
   respondido_por uuid references public.profiles(id) on delete set null,
-  created_at timestamptz not null default now(),
-  unique (evaluacion_id, item_id)
+  created_at timestamptz not null default now()
 );
 create index if not exists idx_respuestas_evaluacion on public.respuestas(evaluacion_id);
+-- Unicidad: una respuesta directa por (evaluación, ítem); y una por (evaluación, ítem, registro).
+-- Los índices parciales evitan colisionar: los NULL de instancia_id no se consideran iguales.
+create unique index if not exists uniq_respuestas_directas
+  on public.respuestas(evaluacion_id, item_id) where instancia_id is null;
+create unique index if not exists uniq_respuestas_instancia
+  on public.respuestas(evaluacion_id, item_id, instancia_id) where instancia_id is not null;
 
 create table if not exists public.fotos (
   id uuid primary key default gen_random_uuid(),
   evaluacion_id uuid not null references public.evaluaciones(id) on delete cascade,
   item_id uuid not null references public.items(id) on delete cascade,
+  instancia_id uuid references public.instancias_grupo(id) on delete cascade,
   path text not null,
   created_at timestamptz not null default now()
 );
 create index if not exists idx_fotos_evaluacion on public.fotos(evaluacion_id);
+
+-- compatibilidad con bases previas (secciones repetibles / registros)
+alter table public.respuestas add column if not exists instancia_id uuid references public.instancias_grupo(id) on delete cascade;
+alter table public.respuestas drop constraint if exists respuestas_evaluacion_id_item_id_key;
+create unique index if not exists uniq_respuestas_directas
+  on public.respuestas(evaluacion_id, item_id) where instancia_id is null;
+create unique index if not exists uniq_respuestas_instancia
+  on public.respuestas(evaluacion_id, item_id, instancia_id) where instancia_id is not null;
+alter table public.fotos add column if not exists instancia_id uuid references public.instancias_grupo(id) on delete cascade;
 
 -- ============================================================================
 -- ROW LEVEL SECURITY
@@ -458,6 +486,24 @@ returns boolean language sql stable security definer set search_path = public as
     select 1
     from public.evaluaciones ev
     join public.items i on i.id = it_id and i.activo
+    join public.asignaciones_modulos am
+      on am.modulo_id = i.modulo_id and am.evaluador_id = auth.uid() and am.activa
+    where ev.id = ev_id and ev.estado = 'ACTIVA'
+      and (
+        not exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = ev.sucursal_id and sm.activa)
+        or exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = ev.sucursal_id and sm.activa and sm.modulo_id = i.modulo_id)
+      )
+  );
+$$;
+
+-- Quién puede crear/editar registros de una sección: LIDER siempre; EVALUADOR
+-- solo en evaluación ACTIVA y cuando el módulo de la sección le está asignado.
+create or replace function public.puede_manejar_instancia(ev_id uuid, it_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.es_lider() or exists (
+    select 1
+    from public.evaluaciones ev
+    join public.items i on i.id = it_id
     join public.asignaciones_modulos am
       on am.modulo_id = i.modulo_id and am.evaluador_id = auth.uid() and am.activa
     where ev.id = ev_id and ev.estado = 'ACTIVA'
@@ -550,6 +596,30 @@ create policy respuestas_update on public.respuestas for update
   with check (public.puede_responder(evaluacion_id, item_id)
     and (respondido_por = auth.uid() or public.es_lider()));
 
+-- INSTANCIAS_GRUPO --------------------------------------------------------------
+-- Select: quien puede ver la evaluación. Insert/Update/Delete: quien puede
+-- manejar el módulo de la sección (el delete en cascada limpia sus respuestas).
+alter table public.instancias_grupo enable row level security;
+drop policy if exists instancias_grupo_select on public.instancias_grupo;
+create policy instancias_grupo_select on public.instancias_grupo for select using (
+  exists (
+    select 1 from public.evaluaciones e
+    where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
+  )
+);
+drop policy if exists instancias_grupo_insert on public.instancias_grupo;
+create policy instancias_grupo_insert on public.instancias_grupo for insert with check (
+  public.puede_manejar_instancia(evaluacion_id, item_id)
+);
+drop policy if exists instancias_grupo_update on public.instancias_grupo;
+create policy instancias_grupo_update on public.instancias_grupo for update
+  using (public.puede_manejar_instancia(evaluacion_id, item_id))
+  with check (public.puede_manejar_instancia(evaluacion_id, item_id));
+drop policy if exists instancias_grupo_delete on public.instancias_grupo;
+create policy instancias_grupo_delete on public.instancias_grupo for delete using (
+  public.puede_manejar_instancia(evaluacion_id, item_id)
+);
+
 -- FOTOS -------------------------------------------------------------------------
 drop policy if exists fotos_select on public.fotos;
 create policy fotos_select on public.fotos for select using (
@@ -570,6 +640,12 @@ begin
     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'respuestas'
   ) then
     alter publication supabase_realtime add table public.respuestas;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'instancias_grupo'
+  ) then
+    alter publication supabase_realtime add table public.instancias_grupo;
   end if;
 end $$;
 

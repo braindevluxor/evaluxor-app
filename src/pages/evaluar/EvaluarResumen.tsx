@@ -3,13 +3,12 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, Send } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useModulosActivos } from '../../context/CatalogContext'
-import { getDraft, type DraftEval } from '../../lib/offline/db'
+import { getDraft, instanciasPlanasDe, type DraftEval } from '../../lib/offline/db'
 import { encolarRespuestas } from '../../lib/offline/sync'
+import { pasosDeModulo } from '../../lib/pasos'
 import { calcularPuntaje } from '../../lib/scoring'
-import { itemsRespondibles } from '../../lib/hierarchy'
-import { Button, Puntaje } from '../../components/ui'
+import { Button, Puntaje, cn } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
-import { cn } from '../../components/ui'
 
 export function EvaluarResumen() {
   const { sucursalId = '' } = useParams()
@@ -29,17 +28,17 @@ export function EvaluarResumen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sucursalId])
 
-  const modulos = useMemo(() => modulosActivos.filter((m) => itemsRespondibles(itemsDe(m)).length > 0), [modulosActivos, itemsDe])
+  const modulos = useMemo(
+    () => modulosActivos.filter((m) => itemsDe(m).some((i) => i.tipo !== 'CONTENEDOR')),
+    [modulosActivos, itemsDe]
+  )
 
   const detalles = useMemo(() => {
     if (!draft) return { puntaje: null as number | null, incompletos: 0, total: 0 }
-    const todas = modulos.flatMap((m) => itemsRespondibles(itemsDe(m)).map((i) => ({ m, i })))
-    const incompletos = todas.filter(({ i }) => i.requerido && !draft.respuestas[i.id]).length
-    const binarios = todas.map(({ i }) => i)
-    const puntaje = calcularPuntaje(
-      binarios.map((i) => ({ item: i, valor: draft.respuestas[i.id]?.valor }))
-    )
-    return { puntaje, incompletos, total: todas.length }
+    const pasos = modulos.flatMap((m) => pasosDeModulo(itemsDe(m), instanciasPlanasDe(draft)))
+    const incompletos = pasos.filter((p) => p.item.requerido && !draft.respuestas[p.key]).length
+    const puntaje = calcularPuntaje(pasos.map((p) => ({ item: p.item, valor: draft.respuestas[p.key]?.valor })))
+    return { puntaje, incompletos, total: pasos.length }
   }, [draft, modulos, itemsDe])
 
   async function enviar() {
@@ -72,15 +71,15 @@ export function EvaluarResumen() {
 
         <div className="space-y-3">
           {modulos.map((m) => {
-            const items = itemsRespondibles(itemsDe(m))
-            const respondidos = items.filter((i) => draft.respuestas[i.id]).length
-            const completo = respondidos === items.length
+            const pasos = pasosDeModulo(itemsDe(m), instanciasPlanasDe(draft))
+            const respondidos = pasos.filter((p) => draft.respuestas[p.key]).length
+            const completo = pasos.length > 0 && respondidos === pasos.length
             return (
               <div key={m.id} className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-bold text-primary-900">{m.nombre}</p>
-                    <p className="text-xs text-slate-500">{respondidos}/{items.length} ítems respondidos</p>
+                    <p className="text-xs text-slate-500">{respondidos}/{pasos.length} ítems respondidos</p>
                   </div>
                   <span className={cn('grid h-8 w-8 place-items-center rounded-full text-sm font-bold', completo ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700')}>
                     {completo ? <Check className="h-4 w-4" /> : respondidos ? '…' : '—'}
@@ -110,6 +109,6 @@ export function EvaluarResumen() {
   )
 
   function countItems(): number {
-    return modulos.reduce((a, m) => a + itemsRespondibles(itemsDe(m)).length, 0)
+    return modulos.reduce((a, m) => a + pasosDeModulo(itemsDe(m), instanciasPlanasDe(draft)).length, 0)
   }
 }

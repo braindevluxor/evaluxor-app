@@ -3,7 +3,8 @@ import autoTable, { type RowInput } from 'jspdf-autotable'
 import type { Item } from './types'
 import type { DetalleEvaluacion } from './data/indicadores'
 import { obtenerEvaluacion, resumirEvaluacion } from './data/indicadores'
-import { itemsEnOrdenJerarquico } from './hierarchy'
+import { itemsEnOrdenJerarquico, hijosOrdenados } from './hierarchy'
+import { raicesDeModulo } from './pasos'
 import { etiquetaTipo, itemsProporcion, opcionCumplida, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from './scoring'
 
 const MARINO: [number, number, number] = [11, 37, 69]
@@ -131,7 +132,7 @@ export async function descargarPdf(id: string): Promise<void> {
 }
 
 export function generarPdfResultado(d: DetalleEvaluacion): void {
-  const { evaluacion: ev, respuestas, items, modulos, sucursalOpciones } = d
+  const { evaluacion: ev, respuestas, items, modulos, sucursalOpciones, instancias } = d
   const { puntaje } = resumirEvaluacion(ev, respuestas, items, sucursalOpciones)
 
   const aplicaOpciones = new Map<string, string[]>()
@@ -217,7 +218,15 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
       const filas: (string | number)[][] = []
       for (const m of modulos) {
         const itemMod = itemsEnOrdenJerarquico(items.filter((i) => i.modulo_id === m.id))
-        const preguntas = itemMod.filter((i) => i.tipo !== 'CONTENEDOR').length
+        let preguntas = 0
+        for (const raiz of raicesDeModulo(itemMod)) {
+          if (raiz.tipo === 'CONTENEDOR') {
+            const insts = instancias.filter((x) => x.item_id === raiz.id)
+            preguntas += hijosOrdenados(itemMod, raiz.id).length * insts.length
+          } else {
+            preguntas += 1
+          }
+        }
         const pares = respuestas
           .map((r) => {
             const it = itemMod.find((i) => i.id === r.item_id)
@@ -271,18 +280,32 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
     const punteoTexto = punteo != null ? `Puntaje: ${punteo}% (${fmt(ok)}/${total})` : 'Sin ítems puntuables'
     doc.text(punteoTexto, W - M - 5, 23, { align: 'right' })
 
-    for (const it of itemMod) {
-      if (it.tipo === 'CONTENEDOR') {
+    for (const raiz of raicesDeModulo(itemMod)) {
+      if (raiz.tipo === 'CONTENEDOR') {
         filas.push([
-          { content: `Sección: ${it.texto}`, styles: { fontStyle: 'bold', fillColor: MARINO_CLARO, textColor: MARINO } },
+          { content: `Sección: ${raiz.texto}`, styles: { fontStyle: 'bold', fillColor: MARINO_CLARO, textColor: MARINO } },
           '',
           ''
         ])
+        const insts = instancias.filter((x) => x.item_id === raiz.id).sort((a, b) => a.orden - b.orden)
+        const hijos = hijosOrdenados(itemMod, raiz.id)
+        for (const inst of insts) {
+          filas.push([
+            { content: `  Registro: ${inst.etiqueta}`, styles: { fontStyle: 'bold' } },
+            '',
+            ''
+          ])
+          for (const hijo of hijos) {
+            const r = respuestas.find((x) => x.item_id === hijo.id && (x.instancia_id ?? null) === inst.id)
+            if (!r) continue
+            filas.push([hijo.texto, etiquetaTipo(hijo.tipo), textoValor(aplicarOpciones(hijo), r.valor)])
+          }
+        }
         continue
       }
-      const r = respuestas.find((x) => x.item_id === it.id)
+      const r = respuestas.find((x) => x.item_id === raiz.id && !x.instancia_id)
       if (!r) continue
-      filas.push([it.texto, etiquetaTipo(it.tipo), textoValor(aplicarOpciones(it), r.valor)])
+      filas.push([raiz.texto, etiquetaTipo(raiz.tipo), textoValor(aplicarOpciones(raiz), r.valor)])
     }
     if (!filas.length) {
       filas.push(['No hay respuestas en este módulo.', '', ''])

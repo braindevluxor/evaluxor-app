@@ -1,9 +1,19 @@
 import { supabase } from '../supabase'
-import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, type SyncJob, type DraftEval } from './db'
+import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, parsearClaveRespuesta, type SyncJob, type DraftEval } from './db'
 import { photoPath, convertirValor, extraerPhotoIds, valorSinFotos } from './transform'
 
+export function instanciasDeDraft(draft: DraftEval): { id: string; item_id: string; etiqueta: string; orden: number }[] {
+  return Object.entries(draft.instancias ?? {}).flatMap(([item_id, arr]) =>
+    arr.map((ins, i) => ({ id: ins.id, item_id, etiqueta: ins.etiqueta, orden: typeof ins.orden === 'number' ? ins.orden : i }))
+  )
+}
+
+export function respuestasConInstancia(draft: DraftEval): { item_id: string; instancia_id: string | null; valor: unknown }[] {
+  return Object.entries(draft.respuestas).map(([k, r]) => ({ ...parsearClaveRespuesta(k), valor: r.valor }))
+}
+
 export async function encolarRespuestas(draft: DraftEval): Promise<void> {
-  const respuestas = Object.entries(draft.respuestas).map(([item_id, r]) => ({ item_id, valor: r.valor }))
+  const respuestas = respuestasConInstancia(draft)
   const photoIds = Array.from(
     new Set(respuestas.flatMap((r) => extraerPhotoIds(r.valor)))
   )
@@ -12,6 +22,7 @@ export async function encolarRespuestas(draft: DraftEval): Promise<void> {
     sucursal_id: draft.sucursal_id,
     evaluador_id: draft.evaluador_id,
     fecha: draft.fecha,
+    instancias: instanciasDeDraft(draft),
     respuestas,
     photoIds,
     status: 'pending',
@@ -21,22 +32,48 @@ export async function encolarRespuestas(draft: DraftEval): Promise<void> {
   await deleteDraft(draft.sucursal_id)
 }
 
+async function upsertRespuestas(rows: { evaluacion_id: string; item_id: string; instancia_id: string | null; valor: unknown; respondido_por: string }[]): Promise<void> {
+  if (!rows.length) return
+  const directas = rows
+    .filter((r) => !r.instancia_id)
+    .map((r) => ({ evaluacion_id: r.evaluacion_id, item_id: r.item_id, valor: r.valor, respondido_por: r.respondido_por }))
+  if (directas.length) {
+    const { error } = await supabase.from('respuestas').upsert(directas, { onConflict: 'evaluacion_id,item_id' })
+    if (error) throw error
+  }
+  const conInstancia = rows.filter((r) => r.instancia_id)
+  if (conInstancia.length) {
+    const { error } = await supabase.from('respuestas').upsert(conInstancia, { onConflict: 'evaluacion_id,item_id,instancia_id' })
+    if (error) throw error
+  }
+}
+
 export async function guardarBorradorNube(
   evaluacionId: string,
   evaluadorId: string,
-  respuestas: { item_id: string; valor: unknown }[]
+  respuestas: { item_id: string; instancia_id: string | null; valor: unknown }[],
+  instancias: { id: string; item_id: string; etiqueta: string; orden: number }[] = []
 ): Promise<void> {
-  if (!respuestas.length) return
+  if (!respuestas.length && !instancias.length) return
+  if (instancias.length) {
+    const rows = instancias.map((ins) => ({
+      id: ins.id,
+      evaluacion_id: evaluacionId,
+      item_id: ins.item_id,
+      etiqueta: ins.etiqueta,
+      orden: ins.orden
+    }))
+    const { error } = await supabase.from('instancias_grupo').upsert(rows, { onConflict: 'id' })
+    if (error) throw error
+  }
   const rows = respuestas.map((r) => ({
     evaluacion_id: evaluacionId,
     item_id: r.item_id,
+    instancia_id: r.instancia_id,
     valor: valorSinFotos(r.valor),
     respondido_por: evaluadorId
   }))
-  const { error } = await supabase
-    .from('respuestas')
-    .upsert(rows, { onConflict: 'evaluacion_id,item_id' })
-  if (error) throw error
+  await upsertRespuestas(rows)
 }
 
 export async function procesarCola(): Promise<{ ok: number; fail: number }> {
@@ -74,16 +111,27 @@ export async function procesarCola(): Promise<{ ok: number; fail: number }> {
         map.set(id, path)
       }
 
+      // Registros (instancias) de secciones repetibles, antes que sus respuestas (FK).
+      if (job.instancias?.length) {
+        const instRows = job.instancias.map((ins) => ({
+          id: ins.id,
+          evaluacion_id: evaluacionId,
+          item_id: ins.item_id,
+          etiqueta: ins.etiqueta,
+          orden: ins.orden
+        }))
+        const { error: iErr } = await supabase.from('instancias_grupo').upsert(instRows, { onConflict: 'id' })
+        if (iErr) throw iErr
+      }
+
       const rows = job.respuestas.map((r) => ({
         evaluacion_id: evaluacionId,
         item_id: r.item_id,
+        instancia_id: r.instancia_id,
         valor: convertirValor(r.valor, map),
         respondido_por: job.evaluador_id
       }))
-      const { error: rErr } = await supabase
-        .from('respuestas')
-        .upsert(rows, { onConflict: 'evaluacion_id,item_id' })
-      if (rErr) throw rErr
+      await upsertRespuestas(rows)
 
       for (const r of job.respuestas) {
         const ids = extraerPhotoIds(r.valor)
@@ -92,7 +140,7 @@ export async function procesarCola(): Promise<{ ok: number; fail: number }> {
           if (!path) continue
           const { error: fErr } = await supabase
             .from('fotos')
-            .insert({ evaluacion_id: evaluacionId, item_id: r.item_id, path })
+            .insert({ evaluacion_id: evaluacionId, item_id: r.item_id, instancia_id: r.instancia_id, path })
           if (fErr && fErr.code !== '23505') throw fErr
         }
       }

@@ -150,8 +150,20 @@ export interface Respuesta {
   id: string
   evaluacion_id: string
   item_id: string
+  /** Instancia (registro) del ítem CONTENEDOR al que pertenece esta respuesta. null = ítem respondido directamente. */
+  instancia_id?: string | null
   valor: unknown
   respondido_por: string | null
+  created_at: string
+}
+
+/** Registro repetible de una sección (CONTENEDOR): ej. un vehículo, un producto… identificado por `etiqueta` (texto libre). */
+export interface InstanciaGrupo {
+  id: string
+  evaluacion_id: string
+  item_id: string
+  etiqueta: string
+  orden: number
   created_at: string
 }
 
@@ -159,6 +171,8 @@ export interface Foto {
   id: string
   evaluacion_id: string
   item_id: string
+  /** Registro (instancia) de la sección repetible al que pertenece la foto, si aplica. */
+  instancia_id?: string | null
   path: string
   created_at: string
 }

@@ -38,3 +38,8 @@ export function hijosDe<T extends { id: string; padre_id?: string | null }>(item
 export function itemsRespondibles<T extends { id: string; orden: number; padre_id?: string | null; tipo: string }>(items: T[]): T[] {
   return itemsEnOrdenJerarquico(items).filter((i) => i.tipo !== 'CONTENEDOR')
 }
+
+/** Hijos de una sección en orden de evaluación. */
+export function hijosOrdenados<T extends { id: string; orden: number; padre_id?: string | null }>(items: T[], padreId: string): T[] {
+  return items.filter((i) => i.padre_id === padreId).sort((a, b) => a.orden - b.orden)
+}

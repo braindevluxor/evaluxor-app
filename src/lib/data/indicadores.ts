@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion } from '../types'
+import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion, InstanciaGrupo } from '../types'
 import { proporcionItem, puntajePonderado, incumplimientosPorResponsable, type AcumuladoResponsable, type BinarioConPuntaje } from '../scoring'
 
 export interface FiltrosIndicadores {
@@ -16,6 +16,7 @@ export interface ConjuntoDatos {
   modulos: Modulo[]
   fotos: Foto[]
   sucursalOpciones: SucursalOpcion[]
+  instancias: InstanciaGrupo[]
 }
 
 export interface DetalleEvaluacion {
@@ -25,6 +26,7 @@ export interface DetalleEvaluacion {
   modulos: Modulo[]
   fotos: Foto[]
   sucursalOpciones: SucursalOpcion[]
+  instancias: InstanciaGrupo[]
 }
 
 const SELECT_EVALUACION = '*, sucursal:sucursales(id,nombre,shop_id,branch_id,direccion), aperturador:profiles!evaluaciones_aperturada_por_fkey(id,nombre)'
@@ -38,7 +40,7 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
   if (!ev) return null
   const evaluacion = ev as VistaEvaluacion
 
-  const [resp, itemsResp, mods, fotos, opciones] = await Promise.all([
+  const [resp, itemsResp, mods, fotos, opciones, instancias] = await Promise.all([
     supabase.from('respuestas').select('*').eq('evaluacion_id', id),
     (async () => {
       const rr = (await supabase.from('respuestas').select('item_id').eq('evaluacion_id', id)).data ?? []
@@ -52,7 +54,8 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
     })(),
     supabase.from('modulos').select('*').order('orden'),
     supabase.from('fotos').select('*').eq('evaluacion_id', id),
-    supabase.from('sucursal_opciones').select('*').eq('sucursal_id', evaluacion.sucursal_id).eq('activa', true)
+    supabase.from('sucursal_opciones').select('*').eq('sucursal_id', evaluacion.sucursal_id).eq('activa', true),
+    supabase.from('instancias_grupo').select('*').eq('evaluacion_id', id).order('orden')
   ])
 
   const items = (itemsResp ?? []) as Item[]
@@ -64,7 +67,8 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
     items,
     modulos,
     fotos: (fotos.data ?? []) as Foto[],
-    sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[]
+    sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[],
+    instancias: (instancias.data ?? []) as InstanciaGrupo[]
   }
 }
 
@@ -81,13 +85,13 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
 
   const { data: evals } = await query
   const evaluaciones = (evals ?? []) as VistaEvaluacion[]
-  const vacio: ConjuntoDatos = { evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [] }
+  const vacio: ConjuntoDatos = { evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [], instancias: [] }
   if (!evaluaciones.length) return vacio
 
   const ids = evaluaciones.map((e) => e.id)
   const sucursalIds = Array.from(new Set(evaluaciones.map((e) => e.sucursal_id)))
 
-  const [resp, fot, mods, itemsResp, opciones] = await Promise.all([
+  const [resp, fot, mods, itemsResp, opciones, instancias] = await Promise.all([
     supabase.from('respuestas').select('*').in('evaluacion_id', ids),
     supabase.from('fotos').select('*').in('evaluacion_id', ids).order('created_at', { ascending: false }),
     supabase.from('modulos').select('*').order('orden'),
@@ -103,7 +107,8 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
     })(),
     sucursalIds.length
       ? supabase.from('sucursal_opciones').select('*').in('sucursal_id', sucursalIds).eq('activa', true)
-      : Promise.resolve({ data: [] })
+      : Promise.resolve({ data: [] }),
+    supabase.from('instancias_grupo').select('*').in('evaluacion_id', ids).order('orden')
   ])
 
   const todosItems = (itemsResp ?? []) as Item[]
@@ -121,7 +126,8 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
       items,
       modulos: todosModulos.filter((m) => m.id === f.modulo_id),
       fotos: ((fot.data ?? []) as Foto[]).filter((f2) => idsItemsModulo.includes(f2.item_id)),
-      sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[]
+      sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[],
+      instancias: ((instancias.data ?? []) as InstanciaGrupo[]).filter((ins) => idsItemsModulo.includes(ins.item_id))
     }
   }
 
@@ -131,7 +137,8 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
     items,
     modulos: todosModulos.filter((m) => items.some((i) => i.modulo_id === m.id)),
     fotos: ((fot.data ?? []) as Foto[]).filter((f2) => items.some((i) => i.id === f2.item_id)),
-    sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[]
+    sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[],
+    instancias: (instancias.data ?? []) as InstanciaGrupo[]
   }
 }
 
@@ -385,12 +392,21 @@ export async function listarEvaluacionesActivas(): Promise<VistaEvaluacion[]> {
   return (data ?? []) as VistaEvaluacion[]
 }
 
-export async function listarRespuestasEvaluacion(evaluacionId: string): Promise<{ item_id: string; valor: unknown; respondido_por: string }[]> {
+export async function listarRespuestasEvaluacion(evaluacionId: string): Promise<{ item_id: string; instancia_id: string | null; valor: unknown; respondido_por: string }[]> {
   const { data } = await supabase
     .from('respuestas')
-    .select('item_id, valor, respondido_por')
+    .select('item_id, instancia_id, valor, respondido_por')
     .eq('evaluacion_id', evaluacionId)
-  return (data ?? []) as { item_id: string; valor: unknown; respondido_por: string }[]
+  return (data ?? []) as { item_id: string; instancia_id: string | null; valor: unknown; respondido_por: string }[]
+}
+
+export async function listarInstanciasEvaluacion(evaluacionId: string): Promise<InstanciaGrupo[]> {
+  const { data } = await supabase
+    .from('instancias_grupo')
+    .select('*')
+    .eq('evaluacion_id', evaluacionId)
+    .order('orden')
+  return (data ?? []) as InstanciaGrupo[]
 }
 
 export async function crearEvaluacion(args: {

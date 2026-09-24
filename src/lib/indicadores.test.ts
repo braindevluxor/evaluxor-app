@@ -24,7 +24,8 @@ const datos: ConjuntoDatos = {
     { id: 'r4', evaluacion_id: 'e1', item_id: 'i4', valor: { value: false }, respondido_por: 'u2', created_at: '' }
   ],
   fotos: [],
-  sucursalOpciones: []
+  sucursalOpciones: [],
+  instancias: []
 }
 
 describe('puntajePorModulo', () => {
@@ -80,5 +81,25 @@ describe('puntajePorModulo', () => {
     const porModulo = puntajePorModulo(conChecklist)
     const m3 = porModulo.find((m) => m.modulo_id === 'm3')
     expect(m3?.puntaje).toBe(100)
+  })
+
+  it('promedia entre registros (instancias) de una sección repetible', () => {
+    const conRegistros: ConjuntoDatos = {
+      ...datos,
+      respuestas: [
+        ...datos.respuestas,
+        // El ítem i1 (módulo 1) se responde en 2 registros: uno cumple, otro no → 50%.
+        { id: 'r1b', evaluacion_id: 'e1', item_id: 'i1', instancia_id: 'ins1', valor: { value: true }, respondido_por: 'u1', created_at: '' },
+        { id: 'r1c', evaluacion_id: 'e1', item_id: 'i1', instancia_id: 'ins2', valor: { value: false }, respondido_por: 'u1', created_at: '' }
+      ],
+      instancias: [
+        { id: 'ins1', evaluacion_id: 'e1', item_id: 'i1', etiqueta: 'ABC-123', orden: 0, created_at: '' },
+        { id: 'ins2', evaluacion_id: 'e1', item_id: 'i1', etiqueta: 'DEF-456', orden: 1, created_at: '' }
+      ]
+    }
+    const porModulo = puntajePorModulo(conRegistros)
+    const m1 = porModulo.find((m) => m.modulo_id === 'm1')
+    // i1: promedio 50% (1×100 + 0×0 entre 2 registros); i2: 100 → total 75.
+    expect(m1?.puntaje).toBe(75)
   })
 })
