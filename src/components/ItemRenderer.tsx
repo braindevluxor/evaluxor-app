@@ -1050,7 +1050,6 @@ function BarraRango({ etiqueta, minimo, maximo, unidad, valor, onChange }: { eti
       </div>
 
       <div className="relative flex h-7 items-center">
-        <div className="absolute inset-x-0 top-1/2 h-3.5 -translate-y-1/2 rounded-full opacity-70 blur-[5px]" style={{ background: gradiente }} aria-hidden />
         <div className="absolute inset-x-0 top-1/2 h-3.5 -translate-y-1/2 rounded-full" style={{ background: gradiente }} aria-hidden />
         <div
           className="absolute top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-white shadow ring-1 ring-slate-800/30"
