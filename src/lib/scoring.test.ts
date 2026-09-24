@@ -115,6 +115,29 @@ describe('calcularPuntaje', () => {
     expect(calcularPuntaje([{ item: { tipo: 'OTRO' }, valor: 'x' }])).toBe(null)
     expect(calcularPuntaje([])).toBe(null)
   })
+  it('pondera por los puntos asignados a cada ítem', () => {
+    const resps = [
+      { item: { tipo: 'CUMPLE_NO_CUMPLE', puntaje: 50 }, valor: { value: true } },
+      { item: { tipo: 'CUMPLE_NO_CUMPLE', puntaje: 30 }, valor: { value: false } },
+      { item: { tipo: 'CUMPLE_NO_CUMPLE', puntaje: 20 }, valor: { value: false } }
+    ]
+    expect(calcularPuntaje(resps)).toBe(50)
+    expect(calcularPuntaje([...resps, { item: { tipo: 'CUMPLE_NO_CUMPLE', puntaje: 50 }, valor: { value: true } }])).toBe(66.67)
+  })
+  it('resta los puntos de ítems informativos aunque tengan puntaje', () => {
+    const resps = [
+      { item: { tipo: 'CUMPLE_NO_CUMPLE', puntaje: 50 }, valor: { value: true } },
+      { item: { tipo: 'CUMPLE_NO_CUMPLE', puntaje: 50 }, valor: { value: false, informativo: true } }
+    ]
+    expect(calcularPuntaje(resps)).toBe(100)
+  })
+  it('sin puntos asignados reparte de forma igualitaria', () => {
+    const resps = [
+      { item: { tipo: 'CUMPLE_NO_CUMPLE' }, valor: { value: true } },
+      { item: { tipo: 'CUMPLE_NO_CUMPLE' }, valor: { value: false } }
+    ]
+    expect(calcularPuntaje(resps)).toBe(50)
+  })
 })
 
 describe('incumplimientosPorResponsable', () => {

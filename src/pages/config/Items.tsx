@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { GripVertical, X } from 'lucide-react'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
-import { etiquetaTipo, ETIQUETAS_TIPO } from '../../lib/scoring'
+import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem } from '../../lib/scoring'
 import type { FiltroColaboradores, Item, Modulo, Opcion, TipoItem } from '../../lib/types'
 import { Button, Field, Input, Modal, Select, Textarea, Badge, Spinner, cn } from '../../components/ui'
 
@@ -34,7 +34,8 @@ export function ItemsPage() {
   }, [modulos.length])
 
   const actual = useMemo(() => modulos.find((m) => m.id === moduloId), [modulos, moduloId])
-  const items = actual?._items ?? []
+  const items = useMemo(() => actual?._items ?? [], [actual])
+  const sumaModulo = useMemo(() => items.reduce((a, i) => a + pesoItem(i), 0), [items])
 
   async function mover(idx: number, dir: -1 | 1) {
     const destino = idx + dir
@@ -71,6 +72,10 @@ export function ItemsPage() {
         <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-slate-500">Este módulo no tiene ítems.</div>
       ) : (
         <div className="space-y-2">
+          <div className={cn('flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm font-semibold', sumaModulo > 100 ? 'bg-red-50 text-red-700 ring-1 ring-red-200' : 'bg-slate-50 text-slate-600')}>
+            <span>Puntos asignados en el módulo</span>
+            <span>{sumaModulo} / 100{sumaModulo > 100 ? ' — supera el máximo' : ''}</span>
+          </div>
           {items.map((it, idx) => (
             <div key={it.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
               <p className="min-w-[24px] text-center text-sm font-bold text-slate-400">{idx + 1}</p>
@@ -80,6 +85,7 @@ export function ItemsPage() {
                   <Badge color={tipoColor(it.tipo)}>{etiquetaTipo(it.tipo)}</Badge>
                   {it.requerido ? <Badge color={0}>Obligatorio</Badge> : null}
                   {!it.activo ? <Badge color={4}>Inactivo</Badge> : null}
+                  {pesoItem(it) > 0 ? <Badge color={2}>{pesoItem(it)} pts</Badge> : <Badge color={4}>Sin puntos</Badge>}
                 </div>
               </div>
               <div className="flex items-center gap-1">
@@ -97,6 +103,7 @@ export function ItemsPage() {
         <FormItem
           moduloId={moduloId}
           inicial={editando}
+          items={items}
           onGuardar={async (d) => {
             await guardarItem(d)
             setModal(false)
@@ -141,14 +148,17 @@ function tipoColor(t: TipoItem): number {
 function FormItem({
   moduloId,
   inicial,
+  items,
   onGuardar
 }: {
   moduloId: string
   inicial: Item | null
+  items: Item[]
   onGuardar: (d: Partial<Item> & { modulo_id: string; tipo: TipoItem; texto: string; sku?: string }) => Promise<void>
 }) {
   const [tipo, setTipo] = useState<TipoItem>(inicial?.tipo ?? 'CUMPLE_NO_CUMPLE')
   const [texto, setTexto] = useState(inicial?.texto ?? '')
+  const [puntos, setPuntos] = useState<number | ''>(inicial?.puntaje ?? 0)
   const [opciones, setOpciones] = useState<Opcion[]>(inicial?.opciones?.length ? inicial.opciones : [{ id: 'o1', etiqueta: '' }, { id: 'o2', etiqueta: '' }])
   const [requerido, setRequerido] = useState(inicial?.requerido ?? false)
   const [activo, setActivo] = useState(inicial?.activo ?? true)
@@ -157,16 +167,22 @@ function FormItem({
 
   const conChecklist = tipo === 'CHECKLIST' || tipo === 'LISTA_COLABORADORES' || tipo === 'UNIDAD_CHECKLIST'
 
+  const otros = items.filter((i) => i.id !== inicial?.id).reduce((a, i) => a + pesoItem(i), 0)
+  const sumaConNuevo = otros + (Number(puntos) || 0)
+  const excede = sumaConNuevo > 100
+
   return (
     <form
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
+        if (excede) return
         void onGuardar({
           id: inicial?.id,
           modulo_id: inicial?.modulo_id ?? moduloId,
           tipo,
           texto,
+          puntaje: Number(puntos) || 0,
           opciones: conChecklist ? opciones.filter((o) => o.etiqueta.trim()) : [],
           colaboradores_filtro: tipo === 'LISTA_COLABORADORES' ? filtroColaboradores : null,
           responsables: conChecklist ? responsables.filter((r) => r.trim()) : undefined,
@@ -183,6 +199,21 @@ function FormItem({
       <Field label="Pregunta / enunciado">
         <Textarea rows={2} value={texto} onChange={(e) => setTexto(e.target.value)} required placeholder="Ej. Los pasillos están libres de obstáculos…" />
       </Field>
+      <Field label="Puntos (ponderación)" hint="Peso del ítem en el módulo. La suma de todos los ítems del módulo no puede superar 100.">
+        <Input
+          type="number"
+          min={0}
+          max={100}
+          step={0.5}
+          value={puntos}
+          onChange={(e) => setPuntos(e.target.value === '' ? '' : Number(e.target.value))}
+        />
+      </Field>
+      {excede ? (
+        <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
+          Con estos puntos el módulo sumaría {sumaConNuevo}/100. Baja el valor para no superar 100.
+        </p>
+      ) : null}
       {tipo === 'CHECKLIST' ? (
         <Field label="Lista de opciones (el ítem cumple al marcar todas)">
           <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} />
@@ -231,7 +262,7 @@ function FormItem({
         <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
         Ítem activo (visible en evaluaciones)
       </label>
-      <Button type="submit" className="w-full">Guardar ítem</Button>
+      <Button type="submit" className="w-full" disabled={excede}>Guardar ítem</Button>
     </form>
   )
 }

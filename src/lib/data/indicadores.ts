@@ -1,6 +1,6 @@
 import { supabase } from '../supabase'
 import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion } from '../types'
-import { valorBinario, incumplimientosPorResponsable, type AcumuladoResponsable } from '../scoring'
+import { valorBinario, puntajePonderado, incumplimientosPorResponsable, type AcumuladoResponsable, type BinarioConPuntaje } from '../scoring'
 
 export interface FiltrosIndicadores {
   sucursal_ids: string[] | null
@@ -150,12 +150,12 @@ export function resumirEvaluacion(ev: Evaluacion, resps: Respuesta[], items: Ite
     })
     .filter((x): x is { item: Item; valor: unknown } => !!x)
 
-  const binarios = rr.map((r) => valorBinario(r.item, r.valor)).filter((x) => x !== null) as boolean[]
-  const puntaje = binarios.length
-    ? Math.round((binarios.filter(Boolean).length / binarios.length) * 10000) / 100
-    : ev.puntuacion
+  const binarios = rr
+    .map((r) => ({ item: r.item, cumple: valorBinario(r.item, r.valor) }))
+    .filter((b): b is { item: Item; cumple: boolean } => b.cumple !== null)
+  const puntaje = binarios.length ? puntajePonderado(binarios) : ev.puntuacion
 
-  return { puntaje, itemsBinarios: binarios.length, itemsBinariosOk: binarios.filter(Boolean).length }
+  return { puntaje, itemsBinarios: binarios.length, itemsBinariosOk: binarios.filter((b) => b.cumple).length }
 }
 
 export interface PuntajeModulo {
@@ -169,7 +169,7 @@ export function puntajePorModulo(
   datos: ConjuntoDatos
 ): PuntajeModulo[] {
   const sucursalDeEval = new Map(datos.evaluaciones.map((e) => [e.id, e.sucursal_id]))
-  const acum = new Map<string, { modulo_id: string; nombre: string; ok: number; total: number; evals: Set<string> }>()
+  const acum = new Map<string, { modulo_id: string; nombre: string; binarios: { item: Item; cumple: boolean }[]; evals: Set<string> }>()
   for (const r of datos.respuestas) {
     const item = datos.items.find((i) => i.id === r.item_id)
     if (!item) continue
@@ -179,18 +179,17 @@ export function puntajePorModulo(
     const nombre = datos.modulos.find((mm) => mm.id === item.modulo_id)?.nombre ?? 'Módulo'
     let a = acum.get(item.modulo_id)
     if (!a) {
-      a = { modulo_id: item.modulo_id, nombre, ok: 0, total: 0, evals: new Set() }
+      a = { modulo_id: item.modulo_id, nombre, binarios: [], evals: new Set() }
       acum.set(item.modulo_id, a)
     }
-    a.total++
-    if (bin) a.ok++
+    a.binarios.push({ item, cumple: bin })
     a.evals.add(r.evaluacion_id)
   }
   return Array.from(acum.values())
-    .map(({ modulo_id, nombre, ok, total, evals }) => ({
+    .map(({ modulo_id, nombre, binarios, evals }) => ({
       modulo_id,
       nombre,
-      puntaje: total ? Math.round((ok / total) * 10000) / 100 : null,
+      puntaje: puntajePonderado(binarios),
       evaluaciones: evals.size
     }))
     .sort((a, b) => (b.puntaje ?? 0) - (a.puntaje ?? 0))
@@ -333,7 +332,7 @@ export function matrizModuloSucursal(
 ): { sucursal: string; filas: { modulo: string; puntaje: number | null }[] }[] {
   const sucursales = Array.from(new Set(datos.evaluaciones.map((e) => e.sucursal_id)))
   const modulos = datos.modulos
-  const celdas: Record<string, Record<string, { ok: number; n: number }>> = {}
+  const celdas: Record<string, Record<string, { binarios: BinarioConPuntaje[] }>> = {}
   const nombresSuc: Record<string, string> = {}
   for (const ev of datos.evaluaciones) {
     nombresSuc[ev.sucursal_id] = ev.sucursal?.nombre ?? ev.sucursal_id
@@ -342,9 +341,8 @@ export function matrizModuloSucursal(
       if (!item) continue
       const bin = valorBinario(aplicarOpcionesSucursal(item, ev.sucursal_id, datos.sucursalOpciones), r.valor)
       if (bin === null) continue
-      const c = celdas[ev.sucursal_id]?.[item.modulo_id] ?? { ok: 0, n: 0 }
-      c.n++
-      if (bin) c.ok++
+      const c = celdas[ev.sucursal_id]?.[item.modulo_id] ?? { binarios: [] }
+      c.binarios.push({ item, cumple: bin })
       if (!celdas[ev.sucursal_id]) celdas[ev.sucursal_id] = {}
       celdas[ev.sucursal_id][item.modulo_id] = c
     }
@@ -355,7 +353,7 @@ export function matrizModuloSucursal(
       const c = celdas[suc]?.[m.id]
       return {
         modulo: m.nombre,
-        puntaje: c && c.n ? Math.round((c.ok / c.n) * 10000) / 100 : null
+        puntaje: c ? puntajePonderado(c.binarios) : null
       }
     })
   }))

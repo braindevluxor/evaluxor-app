@@ -194,11 +194,33 @@ export function incumplimientosPorResponsable(
     .sort((a, b) => b.puntos - a.puntos || a.responsable.localeCompare(b.responsable))
 }
 
-export function calcularPuntaje(
-  respuestas: { item: { tipo: string; opciones?: string[] | { id: string }[] | null }; valor: unknown }[]
-): number | null {
-  const binarios = respuestas.map((r) => valorBinario(r.item, r.valor)).filter((x) => x !== null) as boolean[]
+export function pesoItem(item: { puntaje?: number | null } | null | undefined): number {
+  const p = item?.puntaje ?? 0
+  return typeof p === 'number' && p > 0 ? p : 0
+}
+
+export interface RespuestaItem {
+  item: { tipo: string; opciones?: string[] | { id: string }[] | null; puntaje?: number | null }
+  valor: unknown
+}
+
+export interface BinarioConPuntaje {
+  item: { puntaje?: number | null }
+  cumple: boolean
+}
+
+export function puntajePonderado(binarios: BinarioConPuntaje[]): number | null {
   if (binarios.length === 0) return null
-  const ok = binarios.filter((b) => b).length
-  return Math.round((ok / binarios.length) * 10000) / 100
+  const totalPeso = binarios.reduce((a, b) => a + pesoItem(b.item), 0)
+  const peso = totalPeso > 0 ? (b: BinarioConPuntaje) => pesoItem(b.item) : () => 1
+  const ok = binarios.reduce((a, b) => a + (b.cumple ? peso(b) : 0), 0)
+  const tot = binarios.reduce((a, b) => a + peso(b), 0)
+  return tot > 0 ? Math.round((ok / tot) * 10000) / 100 : null
+}
+
+export function calcularPuntaje(respuestas: RespuestaItem[]): number | null {
+  const binarios = respuestas
+    .map((r) => ({ item: r.item, cumple: valorBinario(r.item, r.valor) }))
+    .filter((b): b is { item: RespuestaItem['item']; cumple: boolean } => b.cumple !== null)
+  return puntajePonderado(binarios)
 }

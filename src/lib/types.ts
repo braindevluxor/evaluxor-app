@@ -114,6 +114,7 @@ export interface Item {
   orden: number
   requerido: boolean
   activo: boolean
+  puntaje?: number
   created_at: string
 }
 

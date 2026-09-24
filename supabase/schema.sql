@@ -169,6 +169,7 @@ create table if not exists public.items (
   orden integer not null default 0,
   requerido boolean not null default false,
   activo boolean not null default true,
+  puntaje numeric not null default 0 check (puntaje >= 0 and puntaje <= 100), -- puntos ponderados; la suma dentro de un modulo no supera 100
   created_at timestamptz not null default now()
 );
 create index if not exists idx_items_modulo on public.items(modulo_id, orden);
@@ -411,9 +412,7 @@ drop policy if exists respuestas_select on public.respuestas;
 create policy respuestas_select on public.respuestas for select using (
   exists (
     select 1 from public.evaluaciones e
-    join public.profiles p on p.id = auth.uid() and p.activo
     where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
-      and (p.rol in ('LIDER','GERENTE_S','GERENTE_C','GERENTE_TH') or respondido_por = p.id)
   )
 );
 drop policy if exists respuestas_insert on public.respuestas;
@@ -432,14 +431,7 @@ drop policy if exists fotos_select on public.fotos;
 create policy fotos_select on public.fotos for select using (
   exists (
     select 1 from public.evaluaciones e
-    join public.profiles p on p.id = auth.uid() and p.activo
     where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
-      and (p.rol in ('LIDER','GERENTE_S','GERENTE_C','GERENTE_TH')
-           or exists (
-             select 1 from public.items i
-             join public.asignaciones_modulos am on am.modulo_id = i.modulo_id
-             where i.id = fotos.item_id and am.evaluador_id = p.id and am.activa
-           ))
   )
 );
 drop policy if exists fotos_insert on public.fotos;

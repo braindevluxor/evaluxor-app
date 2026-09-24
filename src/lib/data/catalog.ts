@@ -108,7 +108,8 @@ export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: 
       colaboradores_filtro: i.colaboradores_filtro ?? null,
       responsables: i.responsables ?? [],
       orden: i.orden ?? 0,
-      requerido: i.requerido ?? false
+      requerido: i.requerido ?? false,
+      puntaje: i.puntaje ?? 0
     })
   }
 }
