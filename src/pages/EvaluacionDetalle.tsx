@@ -4,7 +4,7 @@ import { ArrowLeft, FileDown } from 'lucide-react'
 import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { descargarPdf } from '../lib/pdf'
 import { supabase } from '../lib/supabase'
-import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Puntaje, Spinner, cn } from '../components/ui'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
@@ -21,6 +21,10 @@ function estadoBadge(puntaje: number | null): { texto: string; color: number } {
   if (puntaje >= 80) return { texto: 'Cumple', color: 2 }
   if (puntaje >= 60) return { texto: 'En riesgo', color: 3 }
   return { texto: 'No cumple', color: 4 }
+}
+
+function fmt(n: number): string {
+  return Number.isInteger(n) ? `${n}` : `${Math.round(n * 100) / 100}`
 }
 
 function opcionesQueAplican(sucursalId: string, sucursalOpciones: SucursalOpcion[]): Map<string, string[]> {
@@ -376,14 +380,14 @@ export function EvaluacionDetalle() {
             .filter((r) => itemMod.some((i) => i.id === r.item_id))
             .map((r) => ({ item: itemMod.find((i) => i.id === r.item_id), valor: r.valor }))
             .filter((x): x is { item: Item; valor: unknown } => !!x.item)
-          const bin = vals.map((v) => valorBinario(aplicarOpciones(v.item), v.valor)).filter((x): x is boolean => x !== null)
-          const punteo = bin.length ? Math.round((bin.filter(Boolean).length / bin.length) * 10000) / 100 : null
+          const { ok, total } = itemsProporcion(vals.map((v) => ({ item: aplicarOpciones(v.item), valor: v.valor })))
+          const punteo = total ? Math.round((ok / total) * 10000) / 100 : null
           return (
             <section key={m.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
               <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
                 <p className="font-bold text-primary-900">{m.nombre}</p>
                 <p className="text-xs font-semibold text-slate-500">
-                  {punteo != null ? `${punteo}%${bin.length ? ` (${bin.filter(Boolean).length}/${bin.length})` : ''}` : 'Sin puntuable'}
+                  {punteo != null ? `${punteo}%${total ? ` (${fmt(ok)}/${total})` : ''}` : 'Sin puntuable'}
                 </p>
               </div>
               <div className="divide-y divide-slate-100">

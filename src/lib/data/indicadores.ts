@@ -1,6 +1,6 @@
 import { supabase } from '../supabase'
 import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion } from '../types'
-import { valorBinario, puntajePonderado, incumplimientosPorResponsable, type AcumuladoResponsable, type BinarioConPuntaje } from '../scoring'
+import { proporcionItem, puntajePonderado, incumplimientosPorResponsable, type AcumuladoResponsable, type BinarioConPuntaje } from '../scoring'
 
 export interface FiltrosIndicadores {
   sucursal_ids: string[] | null
@@ -151,11 +151,11 @@ export function resumirEvaluacion(ev: Evaluacion, resps: Respuesta[], items: Ite
     .filter((x): x is { item: Item; valor: unknown } => !!x)
 
   const binarios = rr
-    .map((r) => ({ item: r.item, cumple: valorBinario(r.item, r.valor) }))
-    .filter((b): b is { item: Item; cumple: boolean } => b.cumple !== null)
+    .map((r) => ({ item: r.item, cumple: proporcionItem(r.item, r.valor) }))
+    .filter((b): b is { item: Item; cumple: number } => b.cumple !== null)
   const puntaje = binarios.length ? puntajePonderado(binarios) : ev.puntuacion
 
-  return { puntaje, itemsBinarios: binarios.length, itemsBinariosOk: binarios.filter((b) => b.cumple).length }
+  return { puntaje, itemsBinarios: binarios.length, itemsBinariosOk: binarios.filter((b) => b.cumple === 1).length }
 }
 
 export interface PuntajeModulo {
@@ -169,12 +169,12 @@ export function puntajePorModulo(
   datos: ConjuntoDatos
 ): PuntajeModulo[] {
   const sucursalDeEval = new Map(datos.evaluaciones.map((e) => [e.id, e.sucursal_id]))
-  const acum = new Map<string, { modulo_id: string; nombre: string; binarios: { item: Item; cumple: boolean }[]; evals: Set<string> }>()
+  const acum = new Map<string, { modulo_id: string; nombre: string; binarios: { item: Item; cumple: number }[]; evals: Set<string> }>()
   for (const r of datos.respuestas) {
     const item = datos.items.find((i) => i.id === r.item_id)
     if (!item) continue
     const sucursalId = sucursalDeEval.get(r.evaluacion_id)
-    const bin = valorBinario(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item, r.valor)
+    const bin = proporcionItem(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item, r.valor)
     if (bin === null) continue
     const nombre = datos.modulos.find((mm) => mm.id === item.modulo_id)?.nombre ?? 'Módulo'
     let a = acum.get(item.modulo_id)
@@ -267,18 +267,18 @@ export function peoresItems(datos: ConjuntoDatos): { item_id: string; texto: str
     const item = datos.items.find((i) => i.id === r.item_id)
     if (!item) continue
     const sucursalId = sucursalDeEval.get(r.evaluacion_id)
-    const v = valorBinario(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item, r.valor)
+    const v = proporcionItem(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item, r.valor)
     if (v === null) continue
     const e = porItem.get(r.item_id)
     if (e) {
       e.total++
-      if (v) e.ok++
+      e.ok += v
     } else {
       porItem.set(r.item_id, {
         item_id: r.item_id,
         texto: item.texto,
         modulo_id: item.modulo_id,
-        ok: v ? 1 : 0,
+        ok: v,
         total: 1
       })
     }
@@ -339,7 +339,7 @@ export function matrizModuloSucursal(
     for (const r of datos.respuestas.filter((x) => x.evaluacion_id === ev.id)) {
       const item = datos.items.find((i) => i.id === r.item_id)
       if (!item) continue
-      const bin = valorBinario(aplicarOpcionesSucursal(item, ev.sucursal_id, datos.sucursalOpciones), r.valor)
+      const bin = proporcionItem(aplicarOpcionesSucursal(item, ev.sucursal_id, datos.sucursalOpciones), r.valor)
       if (bin === null) continue
       const c = celdas[ev.sucursal_id]?.[item.modulo_id] ?? { binarios: [] }
       c.binarios.push({ item, cumple: bin })

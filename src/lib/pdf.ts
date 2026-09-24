@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable'
 import type { Item } from './types'
 import type { DetalleEvaluacion } from './data/indicadores'
 import { obtenerEvaluacion, resumirEvaluacion } from './data/indicadores'
-import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from './scoring'
+import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from './scoring'
 
 const MARINO: [number, number, number] = [11, 37, 69]
 const MARINO_CLARO: [number, number, number] = [238, 244, 251]
@@ -14,6 +14,10 @@ const GRIS: [number, number, number] = [100, 116, 139]
 
 function formatoFecha(fecha: string): string {
   return new Date(`${fecha}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+function fmt(n: number): string {
+  return Number.isInteger(n) ? `${n}` : `${Math.round(n * 100) / 100}`
 }
 
 function estadoPuntaje(p: number): { texto: string; color: [number, number, number] } {
@@ -208,19 +212,19 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
       const filas: (string | number)[][] = []
       for (const m of modulos) {
         const itemMod = items.filter((i) => i.modulo_id === m.id)
-        const vals = respuestas
+        const pares = respuestas
           .map((r) => {
             const it = itemMod.find((i) => i.id === r.item_id)
-            return it ? valorBinario(aplicarOpciones(it), r.valor) : null
+            return it ? { item: aplicarOpciones(it), valor: r.valor } : null
           })
-          .filter((x): x is boolean => x !== null)
-        const ok = vals.filter(Boolean).length
+          .filter((x): x is { item: Item; valor: unknown } => !!x)
+        const { ok, total } = itemsProporcion(pares)
         filas.push([
           filas.length + 1,
           m.nombre,
           itemMod.length,
-          vals.length ? `${ok} de ${vals.length}` : '—',
-          vals.length ? `${Math.round((ok / vals.length) * 10000) / 100}%` : '—'
+          total ? `${fmt(ok)} de ${total}` : '—',
+          total ? `${Math.round((ok / total) * 10000) / 100}%` : '—'
         ])
       }
       return filas
@@ -247,8 +251,8 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
         vals.push({ item: it, valor: r.valor })
       }
     }
-    const bin = vals.map((x) => valorBinario(aplicarOpciones(x.item), x.valor)).filter((x): x is boolean => x !== null)
-    const punteo = bin.length ? Math.round((bin.filter(Boolean).length / bin.length) * 10000) / 100 : null
+    const { ok, total } = itemsProporcion(vals.map((x) => ({ item: aplicarOpciones(x.item), valor: x.valor })))
+    const punteo = total ? Math.round((ok / total) * 10000) / 100 : null
 
     doc.addPage()
     doc.setFillColor(...MARINO_CLARO)
@@ -258,7 +262,7 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
     doc.setTextColor(...MARINO)
     doc.text(`Módulo: ${m.nombre}`, M + 5, 23)
     doc.setFontSize(9)
-    const punteoTexto = punteo != null ? `Puntaje: ${punteo}% (${bin.filter(Boolean).length}/${bin.length})` : 'Sin ítems puntuables'
+    const punteoTexto = punteo != null ? `Puntaje: ${punteo}% (${fmt(ok)}/${total})` : 'Sin ítems puntuables'
     doc.text(punteoTexto, W - M - 5, 23, { align: 'right' })
 
     for (const x of vals) {

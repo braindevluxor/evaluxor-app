@@ -146,6 +146,51 @@ if (item.tipo === 'CHECKLIST') {
   return null
 }
 
+/**
+ * Proporción de puntos cumplidos de un CHECKLIST cuya configuración reparte la
+ * puntuación entre sus opciones (todas con `puntos` definidos y > 0).
+ * Devuelve 0..1 (fracción de puntos obtenidos) o null cuando no aplica el modo
+ * proporcional o la respuesta no es puntuable.
+ */
+export function proporcionChecklist(
+  item: { tipo?: string; opciones?: string[] | { id: string; puntos?: number }[] | null },
+  valor: unknown
+): number | null {
+  const v = valor as ValorChecklist | null
+  const opts = ((item.opciones ?? []) as { id: string; puntos?: number }[])
+  if (!opts.length) return null
+  const informativos = v?.informativos ?? []
+  const relevantes = opts.filter((o) => !informativos.includes(o.id))
+  if (!relevantes.length) return null
+  // Solo entra en modo proporcional si TODAS las opciones relevantes tienen puntos.
+  if (relevantes.some((o) => typeof o.puntos !== 'number' || !(o.puntos > 0))) return null
+  const sel = (v?.selected ?? []).filter((id) => relevantes.some((o) => o.id === id))
+  if (!sel.length) return null // sin respuesta → excluido del cálculo
+  const total = relevantes.reduce((a, o) => a + (o.puntos ?? 0), 0)
+  if (!(total > 0)) return null
+  const obtenido = relevantes.filter((o) => sel.includes(o.id)).reduce((a, o) => a + (o.puntos ?? 0), 0)
+  return Math.min(1, obtenido / total)
+}
+
+/** Proporción 0..1 de cumplimiento de un ítem (1 = cumple, 0 = no cumple, parcial para CHECKLIST con puntos). null = no puntuable. */
+export function proporcionItem(
+  item: { tipo: string; opciones?: string[] | { id: string; puntos?: number }[] | null },
+  valor: unknown
+): number | null {
+  if (item.tipo === 'CHECKLIST') {
+    const p = proporcionChecklist(item, valor)
+    if (p !== null) return p
+  }
+  const b = valorBinario(item, valor)
+  return b === null ? null : b ? 1 : 0
+}
+
+/** Suma de proporciones y cantidad de ítems puntuables de una lista de respuestas. */
+export function itemsProporcion(vals: { item: { tipo: string; opciones?: string[] | { id: string; puntos?: number }[] | null }; valor: unknown }[]): { ok: number; total: number } {
+  const props = vals.map((v) => proporcionItem(v.item, v.valor)).filter((x): x is number => x !== null)
+  return { ok: props.reduce((a, b) => a + b, 0), total: props.length }
+}
+
 export interface AcumuladoResponsable {
   responsable: string
   puntos: number
@@ -206,21 +251,22 @@ export interface RespuestaItem {
 
 export interface BinarioConPuntaje {
   item: { puntaje?: number | null }
-  cumple: boolean
+  /** Cumplimiento booleano (0/1) o proporción 0..1 para CHECKLIST con puntos por opción. */
+  cumple: boolean | number
 }
 
 export function puntajePonderado(binarios: BinarioConPuntaje[]): number | null {
   if (binarios.length === 0) return null
   const totalPeso = binarios.reduce((a, b) => a + pesoItem(b.item), 0)
   const peso = totalPeso > 0 ? (b: BinarioConPuntaje) => pesoItem(b.item) : () => 1
-  const ok = binarios.reduce((a, b) => a + (b.cumple ? peso(b) : 0), 0)
+  const ok = binarios.reduce((a, b) => a + peso(b) * (typeof b.cumple === 'number' ? b.cumple : b.cumple ? 1 : 0), 0)
   const tot = binarios.reduce((a, b) => a + peso(b), 0)
   return tot > 0 ? Math.round((ok / tot) * 10000) / 100 : null
 }
 
 export function calcularPuntaje(respuestas: RespuestaItem[]): number | null {
-  const binarios = respuestas
-    .map((r) => ({ item: r.item, cumple: valorBinario(r.item, r.valor) }))
-    .filter((b): b is { item: RespuestaItem['item']; cumple: boolean } => b.cumple !== null)
-  return puntajePonderado(binarios)
+  const conPuntaje = respuestas
+    .map((r) => ({ item: r.item, proporcion: proporcionItem(r.item, r.valor) }))
+    .filter((x): x is { item: RespuestaItem['item']; proporcion: number } => x.proporcion !== null)
+  return puntajePonderado(conPuntaje.map((x) => ({ item: x.item, cumple: x.proporcion })))
 }

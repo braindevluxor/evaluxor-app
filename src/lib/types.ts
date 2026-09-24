@@ -102,6 +102,8 @@ export interface Opcion {
   id: string
   etiqueta: string
   responsable?: string
+  /** Puntos propios de la opción (solo CHECKLIST). Si TODAS las opciones tienen puntos, la puntuación del ítem se reparte entre ellas. */
+  puntos?: number
 }
 
 export interface Item {

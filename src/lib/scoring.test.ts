@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable } from './scoring'
 
 describe('valorBinario', () => {
   it('cumple/no cumple', () => {
@@ -191,5 +191,50 @@ describe('incumplimientosPorResponsable', () => {
   it('tipos sin puntos con responsable no acumulan', () => {
     expect(incumplimientosPorResponsable({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: false })).toEqual([])
     expect(incumplimientosPorResponsable({ tipo: 'CONCILIACION', opciones: [{ id: 'a', responsable: 'X' }] }, { productos: [{ sku: 'A', teorica: 2, fisica: 1 }] })).toEqual([])
+  })
+})
+
+describe('proporcionChecklist', () => {
+  const item = { tipo: 'CHECKLIST', opciones: [{ id: 'a', puntos: 3 }, { id: 'b', puntos: 1 }, { id: 'c', puntos: 2 }] }
+
+  it('reparte la proporcion segun los puntos de las opciones marcadas', () => {
+    expect(proporcionChecklist(item, { selected: ['a', 'b', 'c'] })).toBe(1)
+    expect(proporcionChecklist(item, { selected: ['a'] })).toBe(0.5) // 3/6
+    expect(proporcionChecklist(item, { selected: ['c'] })).toBe(1 / 3) // 2/6
+    expect(proporcionChecklist(item, { selected: ['b'] })).toBe(1 / 6) // 1/6
+    expect(proporcionChecklist(item, { selected: ['a', 'b'] })).toBe(2 / 3) // 4/6
+  })
+
+  it('sin respuesta o sin opciones relevantes no es puntuable', () => {
+    expect(proporcionChecklist(item, null)).toBe(null)
+    expect(proporcionChecklist(item, { selected: [] })).toBe(null)
+    expect(proporcionChecklist({ tipo: 'CHECKLIST', opciones: [] }, { selected: ['a'] })).toBe(null)
+  })
+
+  it('excluye las opciones informativas del calculo', () => {
+    expect(proporcionChecklist(item, { selected: ['a'], informativos: ['b', 'c'] })).toBe(1)
+    expect(proporcionChecklist(item, { selected: [], informativos: ['a', 'b', 'c'] })).toBe(null)
+  })
+
+  it('no es proporcional si alguna opcion no tiene puntos (todo o nada)', () => {
+    expect(proporcionChecklist({ tipo: 'CHECKLIST', opciones: [{ id: 'a', puntos: 3 }, { id: 'b' }] }, { selected: ['a'] })).toBe(null)
+    expect(proporcionChecklist({ tipo: 'CHECKLIST', opciones: [{ id: 'a' }, { id: 'b' }] }, { selected: ['a', 'b'] })).toBe(null)
+  })
+})
+
+describe('calcularPuntaje con checklist proporcional', () => {
+  it('reparte el peso del item segun los puntos de las opciones marcadas', () => {
+    const checklist = { tipo: 'CHECKLIST', puntaje: 10, opciones: [{ id: 'a', puntos: 3 }, { id: 'b', puntos: 1 }, { id: 'c', puntos: 2 }] }
+    const resps = [
+      { item: { tipo: 'CUMPLE_NO_CUMPLE', puntaje: 10 }, valor: { value: true } }, // 10 pts
+      { item: checklist, valor: { selected: ['a'] } } // 10 pts * (3/6) = 5
+    ]
+    expect(calcularPuntaje(resps)).toBe(75)
+  })
+
+  it('checklist sin puntos por opcion sigue siendo todo o nada', () => {
+    const item = { tipo: 'CHECKLIST', puntaje: 10, opciones: [{ id: 'a' }, { id: 'b' }] }
+    expect(calcularPuntaje([{ item, valor: { selected: ['a', 'b'] } }])).toBe(100)
+    expect(calcularPuntaje([{ item, valor: { selected: ['a'] } }])).toBe(0)
   })
 })

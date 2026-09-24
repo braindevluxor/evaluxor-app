@@ -249,6 +249,7 @@ function FormItem({
     .reduce((a, i) => a + pesoItem(i), 0)
   const sumaConNuevo = otros + (Number(puntos) || 0)
   const excede = sumaConNuevo > 100
+  const sumaPuntosOpciones = opciones.reduce((a, o) => a + (o.puntos && o.puntos > 0 ? o.puntos : 0), 0)
 
   return (
     <form
@@ -262,7 +263,11 @@ function FormItem({
           tipo,
           texto,
           puntaje: Number(puntos) || 0,
-          opciones: conChecklist ? opciones.filter((o) => o.etiqueta.trim()) : [],
+          opciones: conChecklist
+            ? opciones
+                .filter((o) => o.etiqueta.trim())
+                .map((o) => (tipo === 'CHECKLIST' ? o : { id: o.id, etiqueta: o.etiqueta, responsable: o.responsable }))
+            : [],
           colaboradores_filtro: tipo === 'LISTA_COLABORADORES' ? filtroColaboradores : null,
           responsables: conChecklist ? responsables.filter((r) => r.trim()) : undefined,
           requerido,
@@ -304,9 +309,24 @@ function FormItem({
         </p>
       ) : null}
       {tipo === 'CHECKLIST' ? (
-        <Field label="Lista de opciones (el ítem cumple al marcar todas)">
-          <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} />
-        </Field>
+        <>
+          <Field
+            label="Lista de opciones"
+            hint="El ítem cumple al marcar todas las opciones. Si asignás puntos a TODAS las opciones, la puntuación del ítem se reparte: se otorga el peso proporcional a los puntos de las opciones marcadas."
+          >
+            <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} conPuntos />
+          </Field>
+          {sumaPuntosOpciones > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-primary-50 px-3 py-2">
+              <p className="text-xs font-medium text-primary-900">
+                Puntos de las opciones: <strong>{sumaPuntosOpciones} pts</strong> · se reparten sobre el peso del ítem ({Number(puntos) || 0} pts).
+              </p>
+              <Button type="button" variant="secondary" className="shrink-0" onClick={() => setPuntos(sumaPuntosOpciones)}>
+                Usar la suma como peso del ítem
+              </Button>
+            </div>
+          ) : null}
+        </>
       ) : null}
       {tipo === 'LISTA_COLABORADORES' ? (
         <>
@@ -356,7 +376,7 @@ function FormItem({
   )
 }
 
-function EditorOpciones({ opciones, onChange, responsables = [] }: { opciones: Opcion[]; onChange: (o: Opcion[]) => void; responsables?: string[] }) {
+function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = false }: { opciones: Opcion[]; onChange: (o: Opcion[]) => void; responsables?: string[]; conPuntos?: boolean }) {
   const [arrastrando, setArrastrando] = useState<number | null>(null)
   const [sobre, setSobre] = useState<number | null>(null)
 
@@ -366,6 +386,12 @@ function EditorOpciones({ opciones, onChange, responsables = [] }: { opciones: O
   }
   const cambiarResponsable = (i: number, responsable: string) => {
     const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, responsable: responsable.trim() || undefined } : o))
+    onChange(nuevo)
+  }
+  const cambiarPuntos = (i: number, valor: string) => {
+    const n = Number(valor)
+    const puntos = valor.trim() !== '' && Number.isFinite(n) && n > 0 ? n : undefined
+    const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, puntos } : o))
     onChange(nuevo)
   }
   const agregar = () => onChange([...opciones, { id: `o${Date.now()}`, etiqueta: '' }])
@@ -411,6 +437,18 @@ function EditorOpciones({ opciones, onChange, responsables = [] }: { opciones: O
           </button>
           <span className="w-5 shrink-0 text-center text-sm font-bold text-slate-400">{i + 1}</span>
           <Input value={o.etiqueta} onChange={(e) => cambiar(i, e.target.value)} placeholder={`Opción ${i + 1}`} />
+          {conPuntos ? (
+            <Input
+              type="number"
+              min={0}
+              step={0.5}
+              value={o.puntos ?? ''}
+              onChange={(e) => cambiarPuntos(i, e.target.value)}
+              className="w-20 shrink-0"
+              placeholder="Pts"
+              aria-label={`Puntos de la opción ${i + 1}`}
+            />
+          ) : null}
           {responsables.length ? (
             <Select value={o.responsable ?? ''} onChange={(e) => cambiarResponsable(i, e.target.value)} className="w-44 shrink-0">
               <option value="">(Sin asignar)</option>

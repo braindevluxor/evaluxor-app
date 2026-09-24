@@ -89,6 +89,7 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
       const evidencias = value.evidencias ?? {}
       const opts = (item.opciones ?? []) as Opcion[]
       if (!opts.length) return <p className="text-sm text-slate-400">Sin opciones definidas.</p>
+      const conPuntos = opts.length > 0 && opts.every((o) => typeof o.puntos === 'number' && o.puntos > 0)
       const toggle = (id: string) => {
         const existe = seleccion.includes(id)
         onChange({ ...value, selected: existe ? seleccion.filter((x) => x !== id) : [...seleccion, id] })
@@ -106,7 +107,11 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
       }
       return (
         <div className="space-y-2">
-          <p className="text-xs text-slate-400">Marca “Informativo” en la opción cuya falla corresponde a otra área; no descontará puntos.</p>
+          <p className="text-xs text-slate-400">
+            {conPuntos
+              ? 'El ítem otorga los puntos de las opciones marcadas. Marca “Informativo” en la opción cuya falla corresponde a otra área; no descontará puntos.'
+              : 'Marca “Informativo” en la opción cuya falla corresponde a otra área; no descontará puntos.'}
+          </p>
           {opts.map((o) => {
             const activo = seleccion.includes(o.id)
             const esInformativo = informativos.includes(o.id)
@@ -129,6 +134,7 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
                     />
                     <span className="text-sm text-slate-700">{o.etiqueta}</span>
                     {o.responsable ? <span className="ml-1 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{o.responsable}</span> : null}
+                    {o.puntos != null && o.puntos > 0 ? <span className="ml-1 shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span> : null}
                   </label>
                   <button
                     type="button"
