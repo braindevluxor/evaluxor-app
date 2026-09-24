@@ -29,6 +29,29 @@ export interface DetalleEvaluacion {
 
 const SELECT_EVALUACION = '*, sucursal:sucursales(id,nombre,shop_id,direccion), aperturador:profiles!evaluaciones_aperturada_por_fkey(id,nombre)'
 
+type ConfigModulo = { sucursal_id: string; modulo_id: string }
+type ConfigItem = { sucursal_id: string; item_id: string }
+
+// Devuelve los ids de ítems que aplican en la sucursal según su configuración
+// (sucursal_modulos + sucursal_items). Si no hay configuración o no hay ids
+// válidos, mantiene todo (mismo criterio que la vista de evaluación).
+function itemIdsSucursalActivos(
+  sucursalId: string,
+  todosItems: Item[],
+  todosModulos: Modulo[],
+  smods: ConfigModulo[],
+  sitems: ConfigItem[]
+): Set<string> {
+  const modIds = smods.filter((x) => x.sucursal_id === sucursalId).map((x) => x.modulo_id)
+  const modsValidos = modIds.filter((id) => todosModulos.some((m) => m.id === id))
+  let filtrados = todosItems
+  if (modsValidos.length) filtrados = filtrados.filter((i) => modsValidos.includes(i.modulo_id))
+  const itemIds = sitems.filter((x) => x.sucursal_id === sucursalId).map((x) => x.item_id)
+  const itemValidos = itemIds.filter((id) => filtrados.some((i) => i.id === id))
+  if (itemValidos.length) filtrados = filtrados.filter((i) => itemValidos.includes(i.id))
+  return new Set(filtrados.map((i) => i.id))
+}
+
 export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion | null> {
   const { data: ev } = await supabase
     .from('evaluaciones')
@@ -38,7 +61,7 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
   if (!ev) return null
   const evaluacion = ev as VistaEvaluacion
 
-  const [resp, itemsResp, mods, fotos, opciones] = await Promise.all([
+  const [resp, itemsResp, mods, fotos, opciones, smods, sitems] = await Promise.all([
     supabase.from('respuestas').select('*').eq('evaluacion_id', id),
     (async () => {
       const rr = (await supabase.from('respuestas').select('item_id').eq('evaluacion_id', id)).data ?? []
@@ -48,17 +71,30 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
     })(),
     supabase.from('modulos').select('*').order('orden'),
     supabase.from('fotos').select('*').eq('evaluacion_id', id),
-    supabase.from('sucursal_opciones').select('*').eq('sucursal_id', evaluacion.sucursal_id).eq('activa', true)
+    supabase.from('sucursal_opciones').select('*').eq('sucursal_id', evaluacion.sucursal_id).eq('activa', true),
+    supabase.from('sucursal_modulos').select('sucursal_id, modulo_id').eq('sucursal_id', evaluacion.sucursal_id).eq('activa', true),
+    supabase.from('sucursal_items').select('sucursal_id, item_id').eq('sucursal_id', evaluacion.sucursal_id).eq('activa', true)
   ])
 
-  const modulos = ((mods.data ?? []) as Modulo[]).filter((m) => itemsResp.some((i) => i.modulo_id === m.id))
+  const todosItems = (itemsResp ?? []) as Item[]
+  const todosModulos = ((mods.data ?? []) as Modulo[])
+  const aplicables = itemIdsSucursalActivos(
+    evaluacion.sucursal_id,
+    todosItems,
+    todosModulos,
+    (smods.data ?? []) as ConfigModulo[],
+    (sitems.data ?? []) as ConfigItem[]
+  )
+  const items = todosItems.filter((i) => aplicables.has(i.id))
+  const modulos = todosModulos.filter((m) => items.some((i) => i.modulo_id === m.id))
+  const itemIdsSet = new Set(items.map((i) => i.id))
 
   return {
     evaluacion,
-    respuestas: (resp.data ?? []) as Respuesta[],
-    items: itemsResp,
+    respuestas: ((resp.data ?? []) as Respuesta[]).filter((r) => itemIdsSet.has(r.item_id)),
+    items,
     modulos,
-    fotos: (fotos.data ?? []) as Foto[],
+    fotos: ((fotos.data ?? []) as Foto[]).filter((f) => itemIdsSet.has(f.item_id)),
     sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[]
   }
 }
@@ -82,7 +118,7 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
   const ids = evaluaciones.map((e) => e.id)
   const sucursalIds = Array.from(new Set(evaluaciones.map((e) => e.sucursal_id)))
 
-  const [resp, fot, mods, itemsResp, opciones] = await Promise.all([
+  const [resp, fot, mods, itemsResp, opciones, smods, sitems] = await Promise.all([
     supabase.from('respuestas').select('*').in('evaluacion_id', ids),
     supabase.from('fotos').select('*').in('evaluacion_id', ids).order('created_at', { ascending: false }),
     supabase.from('modulos').select('*').order('orden'),
@@ -95,32 +131,51 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
     })(),
     sucursalIds.length
       ? supabase.from('sucursal_opciones').select('*').in('sucursal_id', sucursalIds).eq('activa', true)
+      : Promise.resolve({ data: [] }),
+    sucursalIds.length
+      ? supabase.from('sucursal_modulos').select('sucursal_id, modulo_id').in('sucursal_id', sucursalIds).eq('activa', true)
+      : Promise.resolve({ data: [] }),
+    sucursalIds.length
+      ? supabase.from('sucursal_items').select('sucursal_id, item_id').in('sucursal_id', sucursalIds).eq('activa', true)
       : Promise.resolve({ data: [] })
   ])
 
-  let items = itemsResp
+  const todosItems = (itemsResp ?? []) as Item[]
+  const todosModulos = (mods.data ?? []) as Modulo[]
+  const smodArr = (smods.data ?? []) as ConfigModulo[]
+  const sitemArr = (sitems.data ?? []) as ConfigItem[]
+  const aplicablePorSucursal = new Map<string, Set<string>>()
+  for (const sId of sucursalIds) {
+    aplicablePorSucursal.set(sId, itemIdsSucursalActivos(sId, todosItems, todosModulos, smodArr, sitemArr))
+  }
+  const sucursalDeEval = new Map(evaluaciones.map((e) => [e.id, e.sucursal_id]))
+  const respuestasActivas = ((resp.data ?? []) as Respuesta[]).filter((r) => {
+    const sut = sucursalDeEval.get(r.evaluacion_id)
+    const setId = sut ? aplicablePorSucursal.get(sut) : undefined
+    return setId ? setId.has(r.item_id) : true
+  })
+  let items = todosItems.filter((i) => respuestasActivas.some((r) => r.item_id === i.id))
+
   if (f.modulo_id) {
     const idsItemsModulo = items.filter((i) => i.modulo_id === f.modulo_id).map((i) => i.id)
     items = items.filter((i) => idsItemsModulo.includes(i.id))
-    const respuestas = (resp.data ?? [])
-      .filter((r) => idsItemsModulo.includes(r.item_id))
-      .map((r) => ({ ...r }))
+    const respuestas = respuestasActivas.filter((r) => idsItemsModulo.includes(r.item_id))
     return {
       evaluaciones,
       respuestas,
       items,
-      modulos: ((mods.data ?? []) as Modulo[]).filter((m) => m.id === f.modulo_id),
-      fotos: (fot.data ?? []) as Foto[],
+      modulos: todosModulos.filter((m) => m.id === f.modulo_id),
+      fotos: ((fot.data ?? []) as Foto[]).filter((f2) => idsItemsModulo.includes(f2.item_id)),
       sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[]
     }
   }
 
   return {
     evaluaciones,
-    respuestas: (resp.data ?? []) as Respuesta[],
+    respuestas: respuestasActivas,
     items,
-    modulos: (mods.data ?? []) as Modulo[],
-    fotos: (fot.data ?? []) as Foto[],
+    modulos: todosModulos.filter((m) => items.some((i) => i.modulo_id === m.id)),
+    fotos: ((fot.data ?? []) as Foto[]).filter((f2) => items.some((i) => i.id === f2.item_id)),
     sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[]
   }
 }

@@ -5,7 +5,7 @@ import type { Rol } from '../lib/types'
 import { Spinner } from './ui'
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { session, profile, loading } = useAuth()
+  const { session, profile, loading, totpPendiente } = useAuth()
   const location = useLocation()
 
   if (loading) {
@@ -15,7 +15,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
       </div>
     )
   }
-  if (!session) return <Navigate to="/login" state={{ from: location }} replace />
+  if (totpPendiente || !session) return <Navigate to="/login" state={{ from: location }} replace />
   if (profile?.rol === 'SIN_ROL') return <Navigate to="/pendiente" replace />
   return <>{children}</>
 }
@@ -29,8 +29,8 @@ export function RequireRol({ roles, children }: { roles: Rol[]; children: React.
 }
 
 export function RequireSesion({ children }: { children: React.ReactNode }) {
-  const { session } = useAuth()
-  if (!session) return <Navigate to="/login" replace />
+  const { session, totpPendiente } = useAuth()
+  if (totpPendiente || !session) return <Navigate to="/login" replace />
   return <>{children}</>
 }
 

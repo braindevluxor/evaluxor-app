@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { emailPorUsuario } from '../lib/data/usuarios'
+import { factorsTotpActivos } from '../lib/mfa'
 import type { Profile, Rol } from '../lib/types'
 
 const PROFILE_KEY = 'evaluxor.profile'
@@ -10,12 +11,14 @@ interface AuthContextValue {
   session: Session | null
   profile: Profile | null
   loading: boolean
-  signIn: (usuario: string, password: string) => Promise<{ error?: string }>
+  totpPendiente: boolean
+  signIn: (usuario: string, password: string) => Promise<{ error?: string; totp?: boolean }>
   signUp: (email: string, password: string) => Promise<{ error?: string; pending?: boolean }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
   updateNombre: (nombre: string) => Promise<void>
   cambiarPassword: (actual: string, nueva: string) => Promise<{ error?: string }>
+  verificarTotp: (codigo: string) => Promise<{ error?: string }>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -36,44 +39,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   })
   const [loading, setLoading] = useState(true)
+  const [totpPendiente, setTotpPendiente] = useState(false)
 
-  async function cargarPerfil(userId: string): Promise<Profile | null> {
+  const requiereNivel2 = useCallback(async (): Promise<boolean> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const authLevel = await supabase.auth.mfa.getAuthenticatorAssuranceLevel(session?.access_token)
+      return authLevel.data?.currentLevel !== 'aal2' && authLevel.data?.nextLevel === 'aal2'
+    } catch {
+      return false
+    }
+  }, [])
+
+  const cargarPerfil = useCallback(async (userId: string): Promise<Profile | null> => {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
     if (error || !data) return null
     const p = data as Profile
     setProfile(p)
     guardarPerfil(p)
     return p
-  }
+  }, [])
+
+  const procesarSesion = useCallback(async (s: Session | null) => {
+    setSession(s)
+    if (!s) {
+      setTotpPendiente(false)
+      setProfile(null)
+      guardarPerfil(null)
+      return
+    }
+    const pend = await requiereNivel2()
+    setTotpPendiente(pend)
+    if (pend) {
+      setProfile(null)
+      guardarPerfil(null)
+    } else {
+      await cargarPerfil(s.user.id)
+    }
+  }, [requiereNivel2, cargarPerfil])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s)
-      if (s?.user) void cargarPerfil(s.user.id)
-      setLoading(false)
+      void procesarSesion(s).finally(() => setLoading(false))
     })
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s)
-      if (s?.user?.id) void cargarPerfil(s.user.id)
-      else {
-        setProfile(null)
-        guardarPerfil(null)
-      }
+      void procesarSesion(s)
     })
     return () => sub.subscription.unsubscribe()
-  }, [])
+  }, [procesarSesion])
 
   const value = useMemo<AuthContextValue>(
     () => ({
       session,
       profile,
       loading,
+      totpPendiente,
       async signIn(usuario, password) {
         const email = await emailPorUsuario(usuario)
         if (!email) return { error: 'Usuario no encontrado o inactivo.' }
         const { error } = await supabase.auth.signInWithPassword({ email, password })
-        return error ? { error: mensajeError(error.message) } : {}
+        if (error) return { error: mensajeError(error.message) }
+        const pend = await requiereNivel2()
+        setTotpPendiente(pend)
+        return pend ? { totp: true } : {}
       },
       async signUp(email, password) {
         const { error } = await supabase.auth.signUp({ email, password })
@@ -83,6 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async signOut() {
         await supabase.auth.signOut()
+        setTotpPendiente(false)
         setProfile(null)
         guardarPerfil(null)
       },
@@ -103,9 +133,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (ver.error) return { error: 'La contraseña actual es incorrecta.' }
         const { error } = await supabase.auth.updateUser({ password: nueva })
         return error ? { error: mensajeError(error.message) } : {}
+      },
+      async verificarTotp(codigo) {
+        const activos = await factorsTotpActivos()
+        const factor = activos[0]
+        if (!factor) return { error: 'No hay verificación en dos pasos activa en esta cuenta.' }
+        const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId: factor.id, code: codigo })
+        if (error) return { error: 'El código no es válido o expiró. Intenta de nuevo.' }
+        return {}
       }
     }),
-    [session, profile, loading]
+    [session, profile, loading, totpPendiente, cargarPerfil, requiereNivel2]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
