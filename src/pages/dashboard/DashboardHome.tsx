@@ -152,7 +152,7 @@ export function DashboardHome() {
 
           <Card className="lg:col-span-2">
             <h3 className="mb-3 font-bold text-primary-900">Gráfico radial (o diagrama de araña)</h3>
-            {porModulo.length >= 3 ? (
+            {porModulo.length > 0 ? (
               <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,1fr)_auto]">
                 <ResponsiveContainer width="100%" height={320}>
                   <RadarChart data={porModulo.map((m) => ({ categoria: m.nombre, valor: m.puntaje ?? 0 }))} cx="50%" cy="50%" outerRadius="75%">
@@ -180,7 +180,7 @@ export function DashboardHome() {
                   ))}
                 </div>
               </div>
-            ) : <p className="text-sm text-slate-400">Se necesitan al menos 3 módulos con datos.</p>}
+            ) : <p className="text-sm text-slate-400">Sin datos de módulos para mostrar en el rango.</p>}
           </Card>
 
           <Card className="lg:col-span-2">
