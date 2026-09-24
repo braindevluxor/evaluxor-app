@@ -39,6 +39,28 @@ export async function emailPorUsuario(usuario: string): Promise<string | null> {
   return (data as string | null) ?? null
 }
 
+export interface ResultadoIntento {
+  ok: boolean
+  bloqueado: boolean
+  restantes: number
+}
+
+export async function intentoLogin(usuario: string, password: string): Promise<ResultadoIntento> {
+  const { data, error } = await supabase.rpc('intento_login', { p_usuario: usuario, p_password: password })
+  if (error) throw new Error(`La función de bloqueo no respondió: ${error.message}`)
+  const r = (data ?? {}) as Partial<ResultadoIntento>
+  return {
+    ok: !!r.ok,
+    bloqueado: !!r.bloqueado,
+    restantes: typeof r.restantes === 'number' ? r.restantes : 5
+  }
+}
+
+export async function desbloquearUsuario(id: string, passwordProvisional: string): Promise<void> {
+  const { error } = await supabase.rpc('desbloquear_usuario', { p_usuario_id: id, p_password_provisional: passwordProvisional })
+  if (error) throw new Error(error.message)
+}
+
 export async function listarInvitaciones(): Promise<Invitacion[]> {
   const { data } = await supabase.from('invitaciones').select('*').order('created_at', { ascending: false })
   return (data ?? []) as Invitacion[]

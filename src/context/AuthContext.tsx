@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { emailPorUsuario } from '../lib/data/usuarios'
+import { emailPorUsuario, intentoLogin } from '../lib/data/usuarios'
 import { factorsTotpActivos } from '../lib/mfa'
 import type { Profile, Rol } from '../lib/types'
 
@@ -96,6 +96,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       totpPendiente,
       async signIn(usuario, password) {
+        let intento: Awaited<ReturnType<typeof intentoLogin>>
+        try {
+          intento = await intentoLogin(usuario, password)
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : 'No se pudo iniciar sesión. Revisá la consola.' }
+        }
+        if (intento.bloqueado) {
+          return { error: 'Tu usuario está bloqueado por demasiados intentos fallidos. El Líder debe desbloquearlo asignándole una contraseña provisional.' }
+        }
+        if (!intento.ok) {
+          const email = await emailPorUsuario(usuario)
+          if (!email) return { error: 'Usuario no encontrado o inactivo.' }
+          const n = intento.restantes
+          if (n <= 0) return { error: 'Usuario bloqueado por intentos fallidos. Solo el Líder puede desbloquearte con una contraseña provisional.' }
+          return { error: `Contraseña incorrecta. Te quedan ${n} intento${n === 1 ? '' : 's'} antes de quedar bloqueado.` }
+        }
         const email = await emailPorUsuario(usuario)
         if (!email) return { error: 'Usuario no encontrado o inactivo.' }
         const { error } = await supabase.auth.signInWithPassword({ email, password })

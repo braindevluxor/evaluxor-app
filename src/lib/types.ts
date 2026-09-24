@@ -27,6 +27,8 @@ export interface Profile {
   rol: Rol
   sucursal_id: string | null
   activo: boolean
+  intentos_fallidos?: number
+  bloqueado?: boolean
   created_at: string
   updated_at: string
 }

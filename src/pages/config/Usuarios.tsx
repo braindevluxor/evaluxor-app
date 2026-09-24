@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { crearInvitacion, actualizarUsuario, type ProfileVista } from '../../lib/data/usuarios'
+import { crearInvitacion, actualizarUsuario, desbloquearUsuario, type ProfileVista } from '../../lib/data/usuarios'
 import { supabase } from '../../lib/supabase'
 import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
 import type { Invitacion, Rol, Sucursal } from '../../lib/types'
@@ -16,6 +16,10 @@ export function UsuariosPage() {
   const [editando, setEditando] = useState<ProfileVista | null>(null)
   const [invitando, setInvitando] = useState(false)
   const [linkInv, setLinkInv] = useState('')
+  const [desbloqueando, setDesbloqueando] = useState<ProfileVista | null>(null)
+  const [passProv, setPassProv] = useState('')
+  const [msgDes, setMsgDes] = useState<{ tipo: 'ok' | 'err'; texto: string } | null>(null)
+  const [cargandoDes, setCargandoDes] = useState(false)
 
   const cargar = useCallback(async () => {
     setErr(null)
@@ -98,9 +102,15 @@ export function UsuariosPage() {
                   </td>
                   <td className="px-4 py-3">{u.sucursal?.nombre || '—'}</td>
                   <td className="px-4 py-3">
-                    <Badge color={u.activo ? 2 : 4}>{u.activo ? 'Activo' : 'Bloqueado'}</Badge>
+                    {u.bloqueado ? <Badge color={4}>Bloqueado</Badge> : u.activo ? <Badge color={2}>Activo</Badge> : <Badge color={0}>Inactivo</Badge>}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                    {u.bloqueado ? (
+                      <>
+                        <button onClick={() => { setDesbloqueando(u); setPassProv(''); setMsgDes(null) }} className="font-semibold text-green-700 hover:underline">Desbloquear</button>
+                        <span className="mx-1 text-slate-300">·</span>
+                      </>
+                    ) : null}
                     <button onClick={() => setEditando(u)} className="font-semibold text-primary hover:underline">Editar</button>
                   </td>
                 </tr>
@@ -147,6 +157,49 @@ export function UsuariosPage() {
               Copiar enlace
             </button>
           </div>
+        ) : null}
+      </Modal>
+
+      <Modal open={!!desbloqueando} onClose={() => setDesbloqueando(null)} title="Desbloquear usuario">
+        {desbloqueando ? (
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              setMsgDes(null)
+              setCargandoDes(true)
+              void desbloquearUsuario(desbloqueando.id, passProv)
+                .then(() => {
+                  setMsgDes({ tipo: 'ok', texto: 'Usuario desbloqueado. Compartí la contraseña provisional con ' + (desbloqueando.nombre || desbloqueando.usuario) + '.' })
+                  setPassProv('')
+                  setCargandoDes(false)
+                  void cargar()
+                })
+                .catch((e2) => {
+                  setMsgDes({ tipo: 'err', texto: e2 instanceof Error ? e2.message : 'No se pudo desbloquear el usuario.' })
+                  setCargandoDes(false)
+                })
+            }}
+          >
+            <div>
+              <p className="text-sm text-slate-600">
+                <strong>{desbloqueando.nombre || desbloqueando.usuario}</strong> está bloqueado por intentos fallidos. Asigná una contraseña provisional
+                (mínimo 6 caracteres) para que pueda volver a entrar. Luego debería cambiarla en su perfil.
+              </p>
+            </div>
+            <Field label="Contraseña provisional">
+              <Input type="text" value={passProv} onChange={(e) => setPassProv(e.target.value)} required minLength={6} placeholder="Ej: Eva2026Temp" />
+            </Field>
+            {msgDes ? (
+              <div className={`rounded-xl border px-3 py-2 text-sm ${msgDes.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                {msgDes.texto}
+              </div>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setDesbloqueando(null)} disabled={cargandoDes}>Cerrar</Button>
+              <Button type="submit" disabled={cargandoDes}>{cargandoDes ? 'Desbloqueando…' : 'Desbloquear'}</Button>
+            </div>
+          </form>
         ) : null}
       </Modal>
     </div>
