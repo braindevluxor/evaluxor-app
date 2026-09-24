@@ -93,7 +93,7 @@ export function ItemsPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => setModal(false)} title={editando ? 'Editar ítem' : 'Nuevo ítem'} wide>
+      <Modal open={modal} onClose={() => setModal(false)} title={editando ? 'Editar ítem' : 'Nuevo ítem'} wide sinCerrarFuera>
         <FormItem
           moduloId={moduloId}
           inicial={editando}

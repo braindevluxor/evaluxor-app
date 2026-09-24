@@ -91,7 +91,7 @@ export function EvaluarResumen() {
         </div>
 
         <p className="text-center text-xs text-slate-400">
-          Tus respuestas se guardarán dentro de la evaluación abierta para esta sucursal (la apertura el Líder) y se sincronizan cuando haya conexión.
+          Mientras respondes, tus avances se suben automáticamente y el Líder los ve en vivo dentro de la evaluación abierta para esta sucursal. Las fotos de evidencia se sincronizan al enviar.
         </p>
 
         {error ? <div className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-600">{error}</div> : null}

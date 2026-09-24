@@ -40,19 +40,21 @@ function textoValor(item: Item, valor: unknown): string {
     case 'CHECKLIST': {
       const v = valor as ValorChecklist | null
       const sel = v?.selected ?? []
-      const etiquetas = sel.map((id) => {
-        const o = (item.opciones ?? []).find((x) => typeof x === 'object' && x.id === id)
-        return o ? o.etiqueta : id
-      })
-      const nFotos = Object.values(v?.evidencias ?? {}).reduce((a, e) => a + e.photoIds.length, 0)
-      if (!sel.length) return 'Ninguna opción marcada'
-      const informativos = (v?.informativos ?? []).map((id) => {
-        const o = (item.opciones ?? []).find((x) => typeof x === 'object' && x.id === id)
-        return o ? o.etiqueta : id
-      })
-      const partes = [etiquetas.join(', ')]
-      if (informativos.length) partes.push(`Informativo: ${informativos.join(', ')}`)
-      if (nFotos > 0) partes.push(`${nFotos} foto(s)`)
+      const informativos = v?.informativos ?? []
+      const opts = (item.opciones ?? []) as { id: string; etiqueta?: string }[]
+      const aplican = opts.filter((o) => !informativos.includes(o.id))
+      const fallas = aplican.filter((o) => !sel.includes(o.id))
+      const partes: string[] = []
+      if (fallas.length) {
+        const nFotos = Object.values(v?.evidencias ?? {}).reduce((a, e) => a + e.photoIds.length, 0)
+        partes.push(`Falta: ${fallas.map((o) => o.etiqueta ?? o.id).join(', ')}`)
+        if (nFotos > 0) partes.push(`${nFotos} foto(s)`)
+      } else {
+        partes.push('Sin fallas')
+      }
+      if (informativos.length) {
+        partes.push(`Informativo: ${informativos.map((id) => opts.find((o) => o.id === id)?.etiqueta ?? id).join(', ')}`)
+      }
       return partes.join('  ·  ')
     }
     case 'CONCILIACION': {
@@ -260,7 +262,7 @@ export function generarPdfResultado(d: DetalleEvaluacion): void {
     doc.text(punteoTexto, W - M - 5, 23, { align: 'right' })
 
     for (const x of vals) {
-      filas.push([x.item.texto, etiquetaTipo(x.item.tipo), textoValor(x.item, x.valor)])
+      filas.push([x.item.texto, etiquetaTipo(x.item.tipo), textoValor(aplicarOpciones(x.item), x.valor)])
     }
     if (!filas.length) {
       filas.push(['No hay respuestas en este módulo.', '', ''])

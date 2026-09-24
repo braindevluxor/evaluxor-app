@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarPlus, Eye, FileDown, History, Lock, Play, Trash2 } from 'lucide-react'
+import { CalendarPlus, Eye, FileDown, History, Lock, Pencil, Play, Trash2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import {
@@ -296,9 +296,18 @@ export function Historial() {
                           </span>
                         ) : null}
                         {esLider && ev.estado === 'ACTIVA' ? (
-                          <Button variant="success" className="min-h-0 gap-1.5 px-3 py-1.5" disabled={gestionando} onClick={() => void cerrar(ev)}>
-                            <Lock className="h-4 w-4" /> Cerrar
-                          </Button>
+                          <>
+                            <Link
+                              to={`/evaluaciones/${ev.id}/conciliacion`}
+                              className="inline-flex min-h-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-primary hover:underline"
+                              title="Editar los productos de conciliación ya escaneados"
+                            >
+                              <Pencil className="h-4 w-4" /> Editar
+                            </Link>
+                            <Button variant="success" className="min-h-0 gap-1.5 px-3 py-1.5" disabled={gestionando} onClick={() => void cerrar(ev)}>
+                              <Lock className="h-4 w-4" /> Cerrar
+                            </Button>
+                          </>
                         ) : null}
                         <Link
                           to={`/evaluaciones/${ev.id}`}

@@ -76,15 +76,19 @@ describe('valorBinario', () => {
     expect(valorBinario(item, null)).toBe(null)
     expect(valorBinario(item, { unidades: [unidad(['a', 'b'])], informativo: true })).toBe(null)
   })
-  it('conciliacion porcentaje redondea a maximo 100', () => {
+it('conciliacion porcentaje: si pasa de 100 se resta el excedente, si no queda como esta', () => {
     expect(conciliacionPorcentaje({ teorica: 10, fisica: 10 })).toBe(100)
+    expect(conciliacionPorcentaje({ teorica: 48, fisica: 39 })).toBe(81.25)
+    expect(conciliacionPorcentaje({ teorica: 150, fisica: 160 })).toBe(93.75)
     expect(conciliacionPorcentaje({ teorica: 10, fisica: 5 })).toBe(50)
     expect(conciliacionPorcentaje({ teorica: 0, fisica: 5 })).toBe(null)
     expect(conciliacionPorcentaje({ teorica: 10, fisica: null })).toBe(null)
     expect(conciliacionPorcentaje(null)).toBe(null)
   })
-  it('conciliacion total pondera por cantidades', () => {
+
+  it('conciliacion total es el promedio de las conciliaciones de cada SKU', () => {
     expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: 10 }, { sku: 'B', nombre: null, teorica: 10, fisica: 5 }] })).toBe(75)
+    expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 150, fisica: 160 }, { sku: 'B', nombre: null, teorica: 48, fisica: 39 }] })).toBe(87.5)
     expect(conciliacionTotal({ productos: [] })).toBe(null)
     expect(conciliacionTotal(null)).toBe(null)
   })

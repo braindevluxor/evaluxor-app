@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, FileDown } from 'lucide-react'
 import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { descargarPdf } from '../lib/pdf'
+import { supabase } from '../lib/supabase'
 import { etiquetaTipo, valorBinario, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Puntaje, Spinner, cn } from '../components/ui'
@@ -204,6 +205,11 @@ export function EvaluacionDetalle() {
   const [descargando, setDescargando] = useState(false)
   const [error, setError] = useState('')
 
+  const recargar = useCallback(async () => {
+    const d = await obtenerEvaluacion(evaluacionId)
+    if (d) setDetalle(d)
+  }, [evaluacionId])
+
   useEffect(() => {
     void (async () => {
       const d = await obtenerEvaluacion(evaluacionId)
@@ -215,6 +221,25 @@ export function EvaluacionDetalle() {
       }
     })()
   }, [evaluacionId])
+
+  const estadoEval = detalle?.evaluacion.estado
+
+  useEffect(() => {
+    if (estadoEval !== 'ACTIVA') return
+    const channel = supabase
+      .channel(`ev-vivo-${evaluacionId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'respuestas', filter: `evaluacion_id=eq.${evaluacionId}` },
+        () => void recargar()
+      )
+      .subscribe()
+    const iv = window.setInterval(() => void recargar(), 15000)
+    return () => {
+      void supabase.removeChannel(channel)
+      window.clearInterval(iv)
+    }
+  }, [evaluacionId, estadoEval, recargar])
 
   if (estado === 'cargando') {
     return (
@@ -313,6 +338,15 @@ export function EvaluacionDetalle() {
               </div>
             </div>
           </div>
+          {evaluacion.estado === 'ACTIVA' ? (
+            <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-[11px] font-bold text-green-700">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-green-600" />
+              </span>
+              EN VIVO · {respuestas.length} respuesta(s) registradas hasta ahora
+            </p>
+          ) : null}
           {evaluacion.comentario_general ? (
             <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2">
               <p className="text-xs font-bold text-amber-700">Comentario general</p>

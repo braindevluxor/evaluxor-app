@@ -1,6 +1,6 @@
 import { supabase } from '../supabase'
 import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, type SyncJob, type DraftEval } from './db'
-import { photoPath, convertirValor, extraerPhotoIds } from './transform'
+import { photoPath, convertirValor, extraerPhotoIds, valorSinFotos } from './transform'
 
 export async function encolarRespuestas(draft: DraftEval): Promise<void> {
   const respuestas = Object.entries(draft.respuestas).map(([item_id, r]) => ({ item_id, valor: r.valor }))
@@ -19,6 +19,24 @@ export async function encolarRespuestas(draft: DraftEval): Promise<void> {
   }
   await putJob(job)
   await deleteDraft(draft.sucursal_id)
+}
+
+export async function guardarBorradorNube(
+  evaluacionId: string,
+  evaluadorId: string,
+  respuestas: { item_id: string; valor: unknown }[]
+): Promise<void> {
+  if (!respuestas.length) return
+  const rows = respuestas.map((r) => ({
+    evaluacion_id: evaluacionId,
+    item_id: r.item_id,
+    valor: valorSinFotos(r.valor),
+    respondido_por: evaluadorId
+  }))
+  const { error } = await supabase
+    .from('respuestas')
+    .upsert(rows, { onConflict: 'evaluacion_id,item_id' })
+  if (error) throw error
 }
 
 export async function procesarCola(): Promise<{ ok: number; fail: number }> {

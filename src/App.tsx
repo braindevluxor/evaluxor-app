@@ -13,6 +13,7 @@ import { PerfilPage } from './pages/PerfilPage'
 import { EvaluarHome } from './pages/evaluar/EvaluarHome'
 import { EvaluarSucursal } from './pages/evaluar/EvaluarSucursal'
 import { EvaluacionDetalle } from './pages/EvaluacionDetalle'
+import { EditarConciliacion } from './pages/EditarConciliacion'
 import { Spinner } from './components/ui'
 
 const EvaluarResumen = lazy(() => import('./pages/evaluar/EvaluarResumen').then((m) => ({ default: m.EvaluarResumen })))
@@ -54,6 +55,16 @@ export default function App() {
                       <RequireRol roles={[...ROLES_DASHBOARD, 'EVALUADOR']}>
                         <EvaluacionDetalle />
                       </RequireRol>
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/evaluaciones/:evaluacionId/conciliacion"
+                  element={
+                    <RequireAuth>
+                      <SoloLider>
+                        <EditarConciliacion />
+                      </SoloLider>
                     </RequireAuth>
                   }
                 />

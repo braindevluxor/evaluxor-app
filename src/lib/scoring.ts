@@ -79,21 +79,27 @@ export function unidadCumple(unidad: UnidadChecklist, opciones: { id: string }[]
   return opts.every((o) => (unidad.selected ?? []).includes(o.id))
 }
 
+function ratioConciliacion(t: number, f: number): number | null {
+  if (!(t > 0)) return null
+  const mayor = Math.max(t, f)
+  if (!(mayor > 0)) return 0
+  const menor = Math.min(t, f)
+  return Math.round((menor / mayor) * 100 * 100) / 100
+}
+
 export function conciliacionPorcentaje(p: { teorica?: number | null; fisica?: number | null } | null | undefined): number | null {
   const t = p?.teorica
   const f = p?.fisica
-  if (typeof t !== 'number' || typeof f !== 'number' || !(t > 0)) return null
-  return Math.round(Math.min(100, (f / t) * 100) * 100) / 100
+  if (typeof t !== 'number' || typeof f !== 'number') return null
+  return ratioConciliacion(t, f)
 }
 
 export function conciliacionTotal(v: ValorConciliacion | null | undefined): number | null {
   const ps = v?.productos ?? []
-  const validos = ps.filter((p) => typeof p.teorica === 'number' && typeof p.fisica === 'number' && (p.teorica ?? 0) > 0)
-  if (!validos.length) return null
-  const sumT = validos.reduce((a, p) => a + (p.teorica ?? 0), 0)
-  const sumF = validos.reduce((a, p) => a + (p.fisica ?? 0), 0)
-  if (!(sumT > 0)) return null
-  return Math.round(Math.min(100, (sumF / sumT) * 100) * 100) / 100
+  const pcts = ps.map((p) => conciliacionPorcentaje(p)).filter((x): x is number => x !== null)
+  if (!pcts.length) return null
+  const suma = pcts.reduce((a, x) => a + x, 0)
+  return Math.round((suma / pcts.length) * 100) / 100
 }
 
 export function valorBinario(item: { tipo: string; opciones?: string[] | { id: string }[] | null }, valor: unknown): boolean | null {

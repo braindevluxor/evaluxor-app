@@ -115,7 +115,14 @@ export function useModulosActivos(sucursalId?: string | null): { modulosActivos:
   let visibles = profile?.rol === 'EVALUADOR' ? activos.filter((m) => idsAsignados.includes(m.id)) : activos
   if (sucursalId) {
     const idsConfig = sucursalModulos.filter((a) => a.activa && a.sucursal_id === sucursalId).map((a) => a.modulo_id)
-    if (idsConfig.length) visibles = visibles.filter((m) => idsConfig.includes(m.id))
+    if (idsConfig.length) {
+      if (profile?.rol === 'EVALUADOR') {
+        visibles = visibles.filter((m) => idsConfig.includes(m.id))
+      } else {
+        const validos = idsConfig.filter((id) => activos.some((m) => m.id === id))
+        visibles = validos.length ? visibles.filter((m) => validos.includes(m.id)) : visibles
+      }
+    }
   }
   const opcionesSucursal = sucursalId
     ? sucursalOpciones.filter((a) => a.activa && a.sucursal_id === sucursalId)
@@ -126,7 +133,15 @@ export function useModulosActivos(sucursalId?: string | null): { modulosActivos:
       const base = items.filter((i) => i.modulo_id === m.id && i.activo).sort((a, b) => a.orden - b.orden)
       if (!sucursalId) return base
       const idsConfig = sucursalItems.filter((a) => a.activa && a.sucursal_id === sucursalId).map((a) => a.item_id)
-      const filtrados = idsConfig.length ? base.filter((i) => idsConfig.includes(i.id)) : base
+      let filtrados = base
+      if (idsConfig.length) {
+        if (profile?.rol === 'EVALUADOR') {
+          filtrados = base.filter((i) => idsConfig.includes(i.id))
+        } else {
+          const validos = idsConfig.filter((id) => base.some((i) => i.id === id))
+          filtrados = validos.length ? base.filter((i) => validos.includes(i.id)) : base
+        }
+      }
       const setItems = new Set(idsConfig)
       return filtrados.map((i) => {
         if (!setItems.has(i.id)) return i

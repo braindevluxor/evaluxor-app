@@ -445,6 +445,18 @@ create policy fotos_select on public.fotos for select using (
 drop policy if exists fotos_insert on public.fotos;
 create policy fotos_insert on public.fotos for insert with check (public.puede_responder(evaluacion_id, item_id));
 
+-- REALTIME ----------------------------------------------------------------------
+-- Publica respuestas para que el LIDER vea en vivo lo que los evaluadores registran.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'respuestas'
+  ) then
+    alter publication supabase_realtime add table public.respuestas;
+  end if;
+end $$;
+
 -- ============================================================================
 -- STORAGE: bucket de evidencias (privado)
 -- ============================================================================

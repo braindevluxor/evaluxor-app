@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
-import { Camera, Check, ChevronDown, Info, ScanLine, RefreshCw, X } from 'lucide-react'
+import { Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
 import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto } from '../lib/data/precios'
 import { listarColaboradores } from '../lib/data/colaboradores'
-import { Badge, cn, Input, Textarea, Button, Spinner } from './ui'
+import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar } from './ui'
+import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
 import { BarcodeScanner } from './BarcodeScanner'
 import { deletePhoto } from '../lib/offline/db'
@@ -24,7 +25,7 @@ export function ItemRenderer({ item, valor, onChange, index, total, shopId }: Pr
     item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'CHECKLIST' ? 5 : item.tipo === 'LISTA_COLABORADORES' || item.tipo === 'UNIDAD_CHECKLIST' ? 1 : 4
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="rounded-2xl bg-white p-4">
       <div className="mb-3 flex items-start justify-between gap-2">
         <p className="font-semibold text-slate-800">{preg}</p>
         <Badge color={tipoColor}>{etiquetaTipo(item.tipo)}</Badge>
@@ -169,11 +170,14 @@ function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unkno
   }
 }
 
-function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
+export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
   const [escaneando, setEscaneando] = useState(false)
   const [consultando, setConsultando] = useState(false)
   const [info, setInfo] = useState('')
   const [verLista, setVerLista] = useState(false)
+  const [aEliminar, setAEliminar] = useState<{ producto: ProductoConciliacion; index: number } | null>(null)
+  const [editando, setEditando] = useState<number | null>(null)
+  const [edicion, setEdicion] = useState<{ teorica: number | null; fisica: number | null }>({ teorica: null, fisica: null })
   const [borrador, setBorrador] = useState<ProductoConciliacion>({ sku: '', nombre: null, teorica: null, fisica: null })
 
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
@@ -181,6 +185,8 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
   const informativo = v.informativo ?? false
 
   const actualizar = (items: ProductoConciliacion[]) => onChange({ ...v, productos: items })
+  const actualizarProducto = (i: number, patch: Partial<ProductoConciliacion>) =>
+    actualizar(productos.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))
   const promedio = conciliacionTotal(v)
 
   const conciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && (p.teorica ?? 0) > 0 && p.fisica === p.teorica).length
@@ -270,7 +276,7 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
         </div>
         <div className="flex items-center justify-between gap-2">
           {pctBorrador != null ? (
-            <p className={cn('text-sm font-bold', pctBorrador >= 100 ? 'text-green-600' : 'text-red-600')}>
+            <p className={cn('text-sm font-bold', pctBorrador === 100 ? 'text-green-600' : 'text-red-600')}>
               Conciliación: {pctBorrador}%
             </p>
           ) : (
@@ -294,10 +300,10 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
             <ResumenConciliacion etiqueta="SKU agregados" valor={String(productos.length)} color="text-primary-900" />
             <ResumenConciliacion etiqueta="Match" valor={String(conciliadas)} color="text-green-600" />
             <ResumenConciliacion etiqueta="No Match" valor={String(desconciliadas)} color={desconciliadas > 0 ? 'text-red-600' : 'text-slate-400'} />
-            <ResumenConciliacion etiqueta="Prom. conciliación" valor={promedio != null ? `${promedio}%` : '—'} color={promedio != null && promedio < 100 ? 'text-red-600' : 'text-green-600'} />
+            <ResumenConciliacion etiqueta="Prom. conciliación" valor={promedio != null ? `${promedio}%` : '—'} color={promedio != null ? (promedio === 100 ? 'text-green-600' : 'text-red-600') : 'text-slate-400'} />
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white">
+          <div className="rounded-xl bg-white">
             <button
               type="button"
               onClick={() => setVerLista((x) => !x)}
@@ -307,30 +313,101 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
               <ChevronDown className={cn('h-4 w-4 transition-transform', verLista ? 'rotate-180' : '')} />
             </button>
             {verLista ? (
-              <ul className="space-y-2 border-t border-slate-100 p-3">
-                {productos.map((p, i) => {
-                  const pct = conciliacionPorcentaje(p)
-                  return (
-                    <li key={i} className="flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm">
-                      <span className="font-semibold text-slate-800">{p.sku}</span>
-                      {p.nombre ? <span className="min-w-0 flex-1 truncate text-slate-500">{p.nombre}</span> : <span className="flex-1" />}
-                      <span className="text-xs text-slate-400">T: {p.teorica ?? '—'}</span>
-                      <span className="text-xs text-slate-400">F: {p.fisica ?? '—'}</span>
-                      <span className={cn('font-bold', pct != null && pct >= 100 ? 'text-green-600' : 'text-red-600')}>
-                        {pct ?? '—'}%
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => actualizar(productos.filter((_, idx) => idx !== i))}
-                        className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500"
-                        title="Quitar producto"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
+              <>
+                <p className="border-t border-slate-100 px-3 pt-2 text-[11px] font-medium text-slate-400">
+                  Desliza un producto: derecha para editar · izquierda para eliminar.
+                </p>
+                <ul className="space-y-2 p-3">
+                  {productos.map((p, i) => {
+                    const pct = conciliacionPorcentaje(p)
+                    if (editando === i) {
+                      return (
+                        <li key={i} className="space-y-2 rounded-xl border-2 border-primary bg-white px-3 py-2">
+                          <p className="flex items-center gap-2 text-sm">
+                            <span className="font-semibold text-slate-800">{p.sku}</span>
+                            {p.nombre ? <span className="min-w-0 flex-1 truncate text-slate-500">{p.nombre}</span> : <span className="flex-1" />}
+                          </p>
+                          <div className="flex flex-wrap items-end gap-2">
+                            <CampoConciliacion etiqueta="T · Teórica" valor={edicion.teorica} onChange={(n) => setEdicion((d) => ({ ...d, teorica: n }))} />
+                            <CampoConciliacion etiqueta="F · Física" valor={edicion.fisica} onChange={(n) => setEdicion((d) => ({ ...d, fisica: n }))} />
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <Button variant="ghost" onClick={() => setEditando(null)}>Cancelar</Button>
+                            <Button variant="success" onClick={() => {
+                              actualizarProducto(i, { teorica: edicion.teorica, fisica: edicion.fisica })
+                              setEditando(null)
+                            }}>
+                              <Check className="h-4 w-4" /> Confirmar
+                            </Button>
+                          </div>
+                        </li>
+                      )
+                    }
+                    const editar = () => {
+                      setEdicion({ teorica: p.teorica, fisica: p.fisica })
+                      setEditando(i)
+                    }
+                    const eliminar = () => setAEliminar({ producto: p, index: i })
+                    return (
+                      <li key={i}>
+                        <SwipeAcciones
+                          acciones={[
+                            {
+                              lado: 'izq',
+                              onDisparar: editar,
+                              contenido: (
+                                <button
+                                  type="button"
+                                  onClick={editar}
+                                  title="Editar"
+                                  aria-label="Editar"
+                                  className="flex w-full items-center justify-center border-0 bg-primary text-white"
+                                >
+                                  <Pencil className="h-5 w-5" />
+                                </button>
+                              )
+                            },
+                            {
+                              lado: 'der',
+                              onDisparar: eliminar,
+                              contenido: (
+                                <button
+                                  type="button"
+                                  onClick={eliminar}
+                                  title="Eliminar"
+                                  aria-label="Eliminar"
+                                  className="flex w-full items-center justify-center border-0 bg-red-600 text-white"
+                                >
+                                  <Trash2 className="h-5 w-5" />
+                                </button>
+                              )
+                            }
+                          ]}
+                        >
+                          <div className="bg-white px-3 py-1.5 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-tight text-slate-800">
+                                {p.nombre ?? p.sku}
+                              </span>
+                              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold leading-none text-slate-500">
+                                {p.sku}
+                              </span>
+                            </div>
+                            <div className="mt-0.5 flex items-center justify-between gap-2">
+                              <span className="text-xs leading-tight text-slate-500">
+                                Teórica: {p.teorica ?? '—'} · Física: {p.fisica ?? '—'}
+                              </span>
+                              <span className={cn('text-xs font-bold leading-tight', pct != null && pct === 100 ? 'text-green-600' : 'text-red-600')}>
+                                {pct != null ? `${pct}%` : '—'}
+                              </span>
+                            </div>
+                          </div>
+                        </SwipeAcciones>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </>
             ) : null}
           </div>
         </>
@@ -361,6 +438,18 @@ function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onCha
               }
             })()
           }}
+        />
+      ) : null}
+
+      {aEliminar ? (
+        <Confirmar
+          open
+          texto={`¿Quitar el producto ${aEliminar.producto.sku}${aEliminar.producto.nombre ? ` (${aEliminar.producto.nombre})` : ''}? El cambio se guardará en la nube.`}
+          onConfirm={() => {
+            actualizar(productos.filter((_, idx) => idx !== aEliminar.index))
+            setAEliminar(null)
+          }}
+          onCancel={() => setAEliminar(null)}
         />
       ) : null}
     </div>
@@ -659,7 +748,7 @@ function UnidadesEditor({ item, valor, onChange }: { item: Item; valor: unknown;
 
 function ResumenConciliacion({ etiqueta, valor, color }: { etiqueta: string; valor: string; color: string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-center">
+    <div className="rounded-xl bg-white px-3 py-2.5 text-center">
       <p className={cn('text-lg font-extrabold tabular-nums', color)}>{valor}</p>
       <p className="mt-0.5 break-words text-[11px] font-medium leading-tight text-slate-500">{etiqueta}</p>
     </div>

@@ -28,6 +28,30 @@ function isChecklistValor(valor: unknown): Record<string, string[]> | null {
   return out
 }
 
+// Versión del valor sin fotos, para el auto-guardado en vivo del borrador
+// (las fotos se suben cuando el evaluador envía la evaluación).
+export function valorSinFotos(valor: unknown): unknown {
+  const cumple = isCumpleValor(valor)
+  if (cumple) {
+    const v = valor as { value?: boolean | null; evidencias?: { comentario?: string }[]; informativo?: boolean }
+    const out: Record<string, unknown> = {
+      value: v.value ?? null,
+      evidencias: (v.evidencias ?? []).map((e) => ({ comentario: e.comentario ?? '' }))
+    }
+    if (v.informativo) out.informativo = true
+    return out
+  }
+  const checklist = isChecklistValor(valor)
+  if (checklist) {
+    const v = valor as { selected?: string[]; informativos?: string[]; evidencias?: unknown }
+    const out: Record<string, unknown> = { selected: v.selected ?? [] }
+    if ((v.informativos ?? []).length) out.informativos = v.informativos
+    return out
+  }
+  if (isFotoValor(valor)) return { photoIds: [] }
+  return valor
+}
+
 export function extraerPhotoIds(valor: unknown): string[] {
   const directos = isFotoValor(valor)
   if (directos) return directos
