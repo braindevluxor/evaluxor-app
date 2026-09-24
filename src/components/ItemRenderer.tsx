@@ -174,6 +174,7 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
   const [escaneando, setEscaneando] = useState(false)
   const [consultando, setConsultando] = useState(false)
   const [info, setInfo] = useState('')
+  const [exito, setExito] = useState('')
   const [verLista, setVerLista] = useState(false)
   const [aEliminar, setAEliminar] = useState<{ producto: ProductoConciliacion; index: number } | null>(null)
   const [editando, setEditando] = useState<number | null>(null)
@@ -192,10 +193,28 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
   const conciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && (p.teorica ?? 0) > 0 && p.fisica === p.teorica).length
   const desconciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && (p.teorica ?? 0) > 0 && p.fisica !== p.teorica).length
 
+  const codigoActual = borrador.sku.trim()
+  const existenteIdx = codigoActual ? productos.findIndex((p) => p.sku === codigoActual) : -1
+  const existente = existenteIdx >= 0 ? productos[existenteIdx] : null
+  const fisicaResultante =
+    borrador.fisica == null
+      ? null
+      : existente
+        ? (existente.fisica ?? 0) + borrador.fisica
+        : borrador.fisica
+
   const aplicarCodigo = async () => {
     const codigo = borrador.sku.trim()
     setInfo('')
+    setExito('')
     if (!codigo) return
+    const ya = productos.find((p) => p.sku === codigo)
+    if (ya) {
+      // Ya fue escaneado en esta evaluación: trae el producto con su teórica y
+      // deja la física vacía para cargar solo el nuevo conteo (se sumará al guardar).
+      setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null })
+      return
+    }
     if (!shopId) {
       setInfo('Nº tienda (shop_id) no configurado en la sucursal.')
       return
@@ -216,12 +235,25 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
       setInfo('Completa el SKU y ambas cantidades para agregar.')
       return
     }
-    actualizar([...productos, { sku, nombre: borrador.nombre, teorica: borrador.teorica, fisica: borrador.fisica }])
+    if (existente) {
+      // Re-escaneo: el físico nuevo se suma al previo en lugar de duplicar el producto.
+      const previo = existente.fisica ?? 0
+      const total = previo + borrador.fisica
+      actualizar(
+        productos.map((p, idx) =>
+          idx === existenteIdx ? { ...p, nombre: borrador.nombre ?? p.nombre, teorica: borrador.teorica, fisica: total } : p
+        )
+      )
+      setExito(`Sumado: FP ${previo} + ${borrador.fisica} = ${total}`)
+    } else {
+      actualizar([...productos, { sku, nombre: borrador.nombre, teorica: borrador.teorica, fisica: borrador.fisica }])
+      setExito('')
+    }
     setBorrador({ sku: '', nombre: null, teorica: null, fisica: null })
     setInfo('')
   }
 
-  const pctBorrador = conciliacionPorcentaje(borrador)
+  const pctBorrador = conciliacionPorcentaje({ teorica: borrador.teorica, fisica: fisicaResultante })
 
   return (
     <div className="space-y-3">
@@ -237,7 +269,18 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
           <Input
             placeholder="SKU / código interno del producto"
             value={borrador.sku}
-            onChange={(e) => setBorrador((b) => ({ ...b, sku: e.target.value, nombre: null }))}
+            onChange={(e) => {
+              const sku = e.target.value
+              const codigo = sku.trim()
+              const ya = codigo ? productos.find((p) => p.sku === codigo) : undefined
+              setInfo('')
+              setExito('')
+              setBorrador(
+                ya
+                  ? { sku, nombre: ya.nombre, teorica: ya.teorica, fisica: null }
+                  : { sku, nombre: null, teorica: null, fisica: null }
+              )
+            }}
             onKeyDown={(e) => { if (e.key === 'Enter') void aplicarCodigo() }}
           />
           <button
@@ -257,6 +300,19 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
         ) : info ? (
           <p className="text-xs font-medium text-amber-600">{info}</p>
         ) : null}
+        {existente ? (
+          <div className="rounded-xl border border-primary-200 bg-primary-50 p-2.5 text-xs leading-relaxed">
+            <p className="font-bold text-primary-900">Código ya escaneado · {existente.nombre ?? existente.sku}</p>
+            <p className="mt-0.5 text-primary-700">
+              Teórica: {borrador.teorica ?? '—'} · Físico previo (FP): <strong>{existente.fisica ?? 0}</strong>
+            </p>
+            <p className="mt-0.5 font-semibold text-primary-900">
+              {borrador.fisica != null && fisicaResultante != null
+                ? `Al guardar: ${existente.fisica ?? 0} + ${borrador.fisica} = ${fisicaResultante}`
+                : 'Ingresa la nueva cantidad física; al guardar se sumará al previo.'}
+            </p>
+          </div>
+        ) : null}
         <Input
           placeholder="Nombre del producto (se autocompleta al buscar)"
           value={borrador.nombre ?? ''}
@@ -269,13 +325,15 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
             onChange={(n) => setBorrador((b) => ({ ...b, teorica: n }))}
           />
           <CampoConciliacion
-            etiqueta="Física (contada)"
+            etiqueta={existente ? 'Física nueva (suma al previo)' : 'Física (contada)'}
             valor={borrador.fisica}
             onChange={(n) => setBorrador((b) => ({ ...b, fisica: n }))}
           />
         </div>
         <div className="flex items-center justify-between gap-2">
-          {pctBorrador != null ? (
+          {exito ? (
+            <p className="text-xs font-bold text-green-600">{exito}</p>
+          ) : pctBorrador != null ? (
             <p className={cn('text-sm font-bold', pctBorrador === 100 ? 'text-green-600' : 'text-red-600')}>
               Conciliación: {pctBorrador}%
             </p>
@@ -421,9 +479,20 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
           onClose={() => setEscaneando(false)}
           onDetect={(codigo) => {
             setEscaneando(false)
-            setBorrador((b) => ({ ...b, sku: codigo }))
+            setInfo('')
+            setExito('')
+            const ya = productos.find((p) => p.sku === codigo)
+            if (ya) {
+              // Ya escaneado en esta evaluación: trae el producto y deja la física
+              // vacía para el nuevo conteo (se sumará al guardar).
+              setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null })
+              return
+            }
+            const mismo = borrador.sku.trim() === codigo
+            setBorrador(
+              mismo ? (b) => b : { sku: codigo, nombre: null, teorica: null, fisica: null }
+            )
             void (async () => {
-              setInfo('')
               if (!shopId) {
                 setInfo('Nº tienda (shop_id) no configurado en la sucursal.')
                 return
