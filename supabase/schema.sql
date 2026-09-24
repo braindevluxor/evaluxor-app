@@ -48,7 +48,12 @@ create table if not exists public.profiles (
 alter table public.profiles add column if not exists usuario text not null default '';
 create unique index if not exists uniq_profiles_usuario on public.profiles (lower(usuario)) where usuario <> '';
 
--- RPC: resolver el correo a partir del usuario para el login (accesible sin sesion)
+-- Migracion: bloqueo de usuario tras 5 intentos fallidos de login
+alter table public.profiles add column if not exists intentos_fallidos int not null default 0;
+alter table public.profiles add column if not exists bloqueado boolean not null default false;
+
+-- RPC: resolver el correo a partir del usuario para el login (accesible sin sesion).
+-- Ignora a los bloqueados (el login de frente no los deja pasar).
 create or replace function public.email_por_usuario(p_usuario text)
 returns text
 language sql stable security definer set search_path = public as $$
@@ -56,9 +61,88 @@ language sql stable security definer set search_path = public as $$
   from public.profiles p
   where lower(p.usuario) = lower(p_usuario)
     and p.activo
+    and not p.bloqueado
   limit 1;
 $$;
 grant execute on function public.email_por_usuario(text) to anon, authenticated;
+
+-- INTENTO_LOGIN: valida la contraseña (contra auth.users) y lleva el conteo.
+-- Se invoca SIN sesión (pantalla de login). Por eso es security definer y puede
+-- ejecutarse por anon. Respuesta JSON: { ok, bloqueado, restantes }.
+-- Usuarios inactivos/inexistentes devuelven respuesta genérica (no revela existencia).
+create or replace function public.intento_login(p_usuario text, p_password text)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions, auth as $$
+declare
+  v_prof public.profiles%rowtype;
+  v_usr auth.users%rowtype;
+  v_ok boolean;
+begin
+  select * into v_prof from public.profiles p
+    where lower(p.usuario) = lower(p_usuario) and p.activo
+    limit 1;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'bloqueado', false, 'restantes', 5);
+  end if;
+
+  if v_prof.bloqueado then
+    return jsonb_build_object('ok', false, 'bloqueado', true, 'restantes', 0);
+  end if;
+
+  select * into v_usr from auth.users u where u.id = v_prof.id;
+  if not found or v_usr.encrypted_password is null then
+    return jsonb_build_object('ok', false, 'bloqueado', false, 'restantes', 5);
+  end if;
+
+  v_ok := crypt(p_password, v_usr.encrypted_password::text) = v_usr.encrypted_password::text;
+
+  if v_ok then
+    update public.profiles set intentos_fallidos = 0, bloqueado = false where id = v_prof.id;
+    return jsonb_build_object('ok', true, 'bloqueado', false, 'restantes', 5);
+  end if;
+
+  v_prof.intentos_fallidos := v_prof.intentos_fallidos + 1;
+  if v_prof.intentos_fallidos >= 5 then
+    update public.profiles set intentos_fallidos = 5, bloqueado = true where id = v_prof.id;
+    return jsonb_build_object('ok', false, 'bloqueado', true, 'restantes', 0);
+  end if;
+
+  update public.profiles set intentos_fallidos = v_prof.intentos_fallidos where id = v_prof.id;
+  return jsonb_build_object('ok', false, 'bloqueado', false, 'restantes', 5 - v_prof.intentos_fallidos);
+end $$;
+grant execute on function public.intento_login(text, text) to anon, authenticated;
+
+-- DESBLOQUEAR_USUARIO: solo el Líder activo. Limpia el contador/bloqueo y asigna
+-- una contraseña provisional (que el usuario deberá cambiar luego).
+create or replace function public.desbloquear_usuario(p_usuario_id uuid, p_password_provisional text)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions, auth as $$
+declare
+  v_lider public.profiles%rowtype;
+  v_contador integer;
+begin
+  select * into v_lider from public.profiles p
+    where p.id = auth.uid() and p.rol = 'LIDER' and p.activo;
+  if not found then
+    raise exception 'Solo el lider puede desbloquear usuarios.';
+  end if;
+
+  if p_password_provisional is null or length(trim(p_password_provisional)) < 6 then
+    raise exception 'La contrasena provisional debe tener al menos 6 caracteres.';
+  end if;
+
+  select count(*) into v_contador from public.profiles where id = p_usuario_id;
+  if v_contador = 0 then
+    raise exception 'El usuario no existe.';
+  end if;
+
+  update public.profiles set intentos_fallidos = 0, bloqueado = false where id = p_usuario_id;
+  update auth.users set encrypted_password = crypt(p_password_provisional, gen_salt('bf')) where id = p_usuario_id;
+
+  return jsonb_build_object('ok', true);
+end $$;
+grant execute on function public.desbloquear_usuario(uuid, text) to authenticated;
 
 -- ----------------------------------------------------------------------------
 -- INVITACIONES (el LIDER "crea" usuarios emitiendo un link de registro por rol)
@@ -173,6 +257,41 @@ create table if not exists public.items (
   created_at timestamptz not null default now()
 );
 create index if not exists idx_items_modulo on public.items(modulo_id, orden);
+
+-- La suma de los puntajes de los ítems de un módulo no puede exceder 100.
+create or replace function public.validar_suma_puntaje_items() returns trigger
+language plpgsql
+as $$
+declare
+  v_modulo uuid;
+  v_suma numeric;
+begin
+  if tg_op = 'DELETE' then
+    v_modulo := old.modulo_id;
+    v_suma := coalesce((
+      select sum(puntaje) from public.items
+       where modulo_id = v_modulo and id <> old.id
+    ), 0);
+  else
+    v_modulo := new.modulo_id;
+    v_suma := coalesce((
+      select sum(puntaje) from public.items
+       where modulo_id = v_modulo and (new.id is null or id <> new.id)
+    ), 0) + coalesce(new.puntaje, 0);
+  end if;
+
+  if v_suma > 100 then
+    raise exception 'La suma de puntos de los ítems del módulo (%) supera 100', v_modulo;
+  end if;
+
+  return coalesce(new, old);
+end;
+$$;
+
+drop trigger if exists trg_puntaje_items on public.items;
+create trigger trg_puntaje_items
+  before insert or update or delete on public.items
+  for each row execute function public.validar_suma_puntaje_items();
 
 -- compatibilidad con bases previas (se eliminan los tipos ya retirados)
 delete from public.items where tipo in ('COMENTARIO','FOTO','DESCRIPCION','CANTIDAD');
