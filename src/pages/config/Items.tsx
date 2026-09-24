@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { GripVertical, X } from 'lucide-react'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
@@ -18,7 +18,7 @@ export function ItemsPage() {
   const [aBorrar, setABorrar] = useState<Item | null>(null)
   const [borrando, setBorrando] = useState(false)
   const [arrastrando, setArrastrando] = useState<number | null>(null)
-  const [sobre, setSobre] = useState<number | null>(null)
+  const [sobre, setSobre] = useState<{ idx: number; lado: 'arriba' | 'abajo' } | null>(null)
 
   const cargar = useCallback(async () => {
     const data = await listarModulosAdmin()
@@ -39,27 +39,22 @@ export function ItemsPage() {
   const items = useMemo(() => actual?._items ?? [], [actual])
   const sumaModulo = useMemo(() => items.reduce((a, i) => a + pesoItem(i), 0), [items])
 
-  async function mover(idx: number, dir: -1 | 1) {
-    const destino = idx + dir
-    if (destino < 0 || destino >= items.length) return
-    const a = items[idx]
-    const b = items[destino]
-    await Promise.all([
-      guardarItem({ id: a.id, modulo_id: a.modulo_id, tipo: a.tipo, texto: a.texto, orden: b.orden }),
-      guardarItem({ id: b.id, modulo_id: b.modulo_id, tipo: b.tipo, texto: b.texto, orden: a.orden })
-    ])
-    await cargar()
-  }
-
   async function soltarEn(hasta: number) {
-    if (arrastrando == null || arrastrando === hasta) {
+    if (arrastrando == null) {
+      setArrastrando(null)
+      setSobre(null)
+      return
+    }
+    const original = arrastrando
+    const rel = original < hasta ? hasta - 1 : hasta
+    if (original === rel) {
       setArrastrando(null)
       setSobre(null)
       return
     }
     const nuevo = [...items]
-    const [movido] = nuevo.splice(arrastrando, 1)
-    nuevo.splice(hasta, 0, movido)
+    const [movido] = nuevo.splice(original, 1)
+    nuevo.splice(rel, 0, movido)
     setArrastrando(null)
     setSobre(null)
     // Re-numera el orden de todo el módulo para que coincida con el nuevo orden de la lista
@@ -70,6 +65,9 @@ export function ItemsPage() {
     )
     await cargar()
   }
+
+  // Posición visual (índice de inserción) donde se soltaría el ítem arrastrado
+  const insertAt = sobre ? (sobre.lado === 'arriba' ? sobre.idx : sobre.idx + 1) : null
 
   return (
     <div className="space-y-4">
@@ -93,57 +91,77 @@ export function ItemsPage() {
       ) : !items.length ? (
         <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-slate-500">Este módulo no tiene ítems.</div>
       ) : (
-        <div className="space-y-2">
+        <div className={cn('space-y-2', arrastrando !== null && 'select-none')}>
           <div className={cn('flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm font-semibold', sumaModulo > 100 ? 'bg-red-50 text-red-700 ring-1 ring-red-200' : 'bg-slate-50 text-slate-600')}>
             <span>Puntos asignados en el módulo</span>
             <span>{sumaModulo} / 100{sumaModulo > 100 ? ' — supera el máximo' : ''}</span>
           </div>
           {items.map((it, idx) => (
-            <div
-              key={it.id}
-              onDragOver={(e) => e.preventDefault()}
-              onDragEnter={() => { if (arrastrando !== null && arrastrando !== idx) setSobre(idx) }}
-              onDrop={() => void soltarEn(idx)}
-              className={cn(
-                'flex flex-wrap items-center gap-3 rounded-xl border bg-white p-3 shadow-sm',
-                arrastrando === idx ? 'border-primary opacity-40' : 'border-slate-200',
-                sobre === idx ? 'ring-2 ring-primary/70' : ''
-              )}
-            >
-              <button
-                type="button"
-                draggable
-                onDragStart={(e) => {
-                  setArrastrando(idx)
-                  setSobre(null)
-                  e.dataTransfer.effectAllowed = 'move'
-                  e.dataTransfer.setData('text/plain', String(idx))
+            <Fragment key={it.id}>
+              {insertAt === idx ? (
+                <div className="flex items-center gap-1.5 px-1" aria-hidden="true">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+                  <span className="h-0.5 flex-1 animate-pulse rounded-full bg-primary/60" />
+                </div>
+              ) : null}
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDragEnter={(e) => {
+                  if (arrastrando === null || arrastrando === idx) return
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  const lado = e.clientY < rect.top + rect.height / 2 ? 'arriba' : 'abajo'
+                  setSobre({ idx, lado })
                 }}
-                onDragEnd={() => { setArrastrando(null); setSobre(null) }}
-                className="grid h-9 w-6 shrink-0 cursor-grab place-items-center rounded-lg text-slate-300 hover:bg-slate-100 hover:text-slate-500 active:cursor-grabbing"
-                title="Arrastrar para reordenar"
-                aria-label={`Reordenar ítem: ${it.texto}`}
+                onDrop={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  const lado = e.clientY < rect.top + rect.height / 2 ? 'arriba' : 'abajo'
+                  void soltarEn(lado === 'arriba' ? idx : idx + 1)
+                }}
+                className={cn(
+                  'flex flex-wrap items-center gap-3 rounded-xl border bg-white p-3 shadow-sm transition-[border-color,background-color,box-shadow,opacity] duration-150',
+                  arrastrando === idx ? 'border-primary bg-primary-50 opacity-60 shadow-md' : 'border-slate-200',
+                  sobre?.idx === idx ? 'bg-primary-50/50' : ''
+                )}
               >
-                <GripVertical className="h-5 w-5" />
-              </button>
-              <p className="min-w-[24px] text-center text-sm font-bold text-slate-400">{idx + 1}</p>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-slate-700">{it.texto}</p>
-                <div className="mt-1 flex items-center gap-2">
-                  <Badge color={tipoColor(it.tipo)}>{etiquetaTipo(it.tipo)}</Badge>
-                  {it.requerido ? <Badge color={0}>Obligatorio</Badge> : null}
-                  {!it.activo ? <Badge color={4}>Inactivo</Badge> : null}
-                  {pesoItem(it) > 0 ? <Badge color={2}>{pesoItem(it)} pts</Badge> : <Badge color={4}>Sin puntos</Badge>}
+                <button
+                  type="button"
+                  draggable
+                  onDragStart={(e) => {
+                    setArrastrando(idx)
+                    setSobre(null)
+                    e.dataTransfer.effectAllowed = 'move'
+                    e.dataTransfer.setData('text/plain', String(idx))
+                  }}
+                  onDragEnd={() => { setArrastrando(null); setSobre(null) }}
+                  className="grid h-10 w-8 shrink-0 cursor-grab touch-none place-items-center rounded-xl text-slate-400 transition-colors hover:bg-primary-50 hover:text-primary active:cursor-grabbing"
+                  title="Arrastrar para reordenar"
+                  aria-label={`Reordenar ítem: ${it.texto}`}
+                >
+                  <GripVertical className="h-5 w-5" />
+                </button>
+                <p className="min-w-[24px] text-center text-sm font-bold text-slate-400">{idx + 1}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-700">{it.texto}</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Badge color={tipoColor(it.tipo)}>{etiquetaTipo(it.tipo)}</Badge>
+                    {it.requerido ? <Badge color={0}>Obligatorio</Badge> : null}
+                    {!it.activo ? <Badge color={4}>Inactivo</Badge> : null}
+                    {pesoItem(it) > 0 ? <Badge color={2}>{pesoItem(it)} pts</Badge> : <Badge color={4}>Sin puntos</Badge>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => { setEditando(it); setModal(true) }} className="grid h-8 place-items-center rounded-lg border border-slate-200 px-3 text-sm font-semibold text-primary">Editar</button>
+                  <button onClick={() => setABorrar(it)} className="grid h-8 place-items-center rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-600 hover:bg-red-50">Eliminar</button>
                 </div>
               </div>
-              <div className="flex items-center gap-1">
-                <button onClick={() => void mover(idx, -1)} disabled={idx === 0} className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-500 disabled:opacity-30">↑</button>
-                <button onClick={() => void mover(idx, 1)} disabled={idx === items.length - 1} className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-500 disabled:opacity-30">↓</button>
-                <button onClick={() => { setEditando(it); setModal(true) }} className="grid h-8 place-items-center rounded-lg border border-slate-200 px-3 text-sm font-semibold text-primary">Editar</button>
-                <button onClick={() => setABorrar(it)} className="grid h-8 place-items-center rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-600 hover:bg-red-50">Eliminar</button>
-              </div>
-            </div>
+            </Fragment>
           ))}
+          {insertAt === items.length ? (
+            <div className="flex items-center gap-1.5 px-1" aria-hidden="true">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+              <span className="h-0.5 flex-1 animate-pulse rounded-full bg-primary/60" />
+            </div>
+          ) : null}
         </div>
       )}
 
