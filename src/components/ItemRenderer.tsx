@@ -262,7 +262,7 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
           value={borrador.nombre ?? ''}
           onChange={(e) => setBorrador((b) => ({ ...b, nombre: e.target.value }))}
         />
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-end gap-2">
           <CampoConciliacion
             etiqueta="Teórica (sistema)"
             valor={borrador.teorica}
@@ -851,20 +851,21 @@ function BotonInformativo({ activo, onClick, children }: { activo: boolean; onCl
 
 function CampoConciliacion({ etiqueta, valor, onChange }: { etiqueta: string; valor: number | null; onChange: (n: number | null) => void }) {
   return (
-    <div className="flex items-center gap-3">
-      <label className="min-w-0 flex-1 text-xs font-medium text-slate-500">{etiqueta}</label>
-      <Input
-        className="w-32"
-        type="number"
-        inputMode="decimal"
-        min={0}
-        placeholder="0"
-        value={valor ?? ''}
-        onChange={(e) => {
-          const n = Number(e.target.value)
-          onChange(Number.isFinite(n) && e.target.value !== '' ? n : null)
-        }}
-      />
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      <label className="min-w-0 flex-1 truncate text-xs font-medium text-slate-500">{etiqueta}</label>
+      <div className="w-28 shrink-0 sm:w-32">
+        <Input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          placeholder="0"
+          value={valor ?? ''}
+          onChange={(e) => {
+            const n = Number(e.target.value)
+            onChange(Number.isFinite(n) && e.target.value !== '' ? n : null)
+          }}
+        />
+      </div>
     </div>
   )
 }
