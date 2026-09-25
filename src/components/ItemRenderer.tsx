@@ -4,6 +4,7 @@ import type { Item, Opcion } from '../lib/types'
 import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, formatearLastSync, formatearPrecioBase, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores } from '../lib/data/colaboradores'
+import { formatearValorConsulta } from '../lib/data/apis'
 import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar } from './ui'
 import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
@@ -101,7 +102,11 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
         }
       }
       const setValorRango = (id: string, n: number) => {
-        onChange({ ...value, valores: { ...(value.valores ?? {}), [id]: n } })
+        onChange({
+          ...value,
+          selected: seleccion.includes(id) ? seleccion : [...seleccion, id],
+          valores: { ...(value.valores ?? {}), [id]: n }
+        })
       }
       const toggleInformativo = (id: string) => {
         const existe = informativos.includes(id)
@@ -126,7 +131,7 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
             const esInformativo = informativos.includes(o.id)
             const idsEv = evidencias[o.id]?.photoIds ?? []
             const esRango = o.tipo_respuesta === 'RANGO'
-            const valorRango = activo && esRango ? (value.valores?.[o.id] ?? null) : null
+            const valorRango = esRango ? (value.valores?.[o.id] ?? null) : null
             const rangoOk = esRango && typeof valorRango === 'number' && typeof o.minimo === 'number' && valorRango >= o.minimo
             return (
               <div
@@ -178,7 +183,7 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
                     />
                   ) : null}
                 </div>
-                {esRango && activo ? (
+                {esRango ? (
                   <div className="space-y-2 px-3 pb-3 pt-1">
                     <BarraRango
                       etiqueta={o.etiqueta}
@@ -679,6 +684,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId }: { item
         role_name: c.role_name ?? '',
         branch_id: c.branch_id,
         branch_name: c.branch_name ?? '',
+        admission_date: c.admission_date ?? null,
         active: c.active !== false,
         aplica: true,
         selected: []
@@ -763,11 +769,17 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId }: { item
                       <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
                         <input type="checkbox" className="h-5 w-5 shrink-0 accent-primary" checked={c.aplica} onChange={() => marcarAplica(c.dni)} title="Cuenta para el puntaje" />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-semibold text-slate-800">{c.lastname} {c.name}</span>
+                          <span className="block whitespace-normal break-words text-sm font-semibold leading-snug text-slate-800">{c.lastname} {c.name}</span>
                           <span className="block text-[11px] text-slate-500">
                             C.I. {c.nationality ?? ''}{c.dni} · {c.role_name || 'Sin rol'}
                             <span className={cn('ml-1.5 font-semibold', c.active ? 'text-green-600' : 'text-slate-400')}>{c.active ? '· Activo' : '· Inactivo'}</span>
                           </span>
+                          {c.admission_date ? (
+                            <>
+                              <span className="mt-0.5 block text-[11px] text-slate-500">Ingreso: {formatearValorConsulta(c.admission_date)}</span>
+                              {c.active && requisitoContrato(c.admission_date) ? <span className="block text-[11px] font-semibold text-primary-700">{requisitoContrato(c.admission_date)}</span> : null}
+                            </>
+                          ) : null}
                         </span>
                       </label>
                       <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', estadoClass)}>
@@ -1000,6 +1012,25 @@ function EvidenciasEditor({ evidencias, onChange }: { evidencias: EvidenciaCumpl
       </Button>
     </div>
   )
+}
+
+function diasDesdeIngreso(fecha: string): number | null {
+  const fechaBase = /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? `${fecha}T00:00:00` : fecha
+  const ingreso = new Date(fechaBase)
+  if (Number.isNaN(ingreso.getTime())) return null
+  const hoy = new Date()
+  ingreso.setHours(0, 0, 0, 0)
+  hoy.setHours(0, 0, 0, 0)
+  const dias = Math.floor((hoy.getTime() - ingreso.getTime()) / 86400000)
+  return dias >= 0 ? dias : null
+}
+
+function requisitoContrato(fecha: string): string | null {
+  const dias = diasDesdeIngreso(fecha)
+  if (dias == null) return null
+  if (dias < 30) return 'Requiere contrato 1'
+  if (dias < 90) return 'Requiere contratos 1, 2 y 3'
+  return 'Requiere contrato fijo en el expediente'
 }
 
 function BotonCumple({ activo, onPick }: { activo: boolean; onPick: () => void }) {

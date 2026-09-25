@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import { consultarEvaluaciones, evolucionMensual, porEvaluador } from '../../lib/data/indicadores'
@@ -81,38 +82,35 @@ export function Comparativas() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-extrabold text-primary-900">Comparativas</h2>
-        <p className="text-sm text-slate-500">Analiza el desempeño por evaluador, mes o sucursal</p>
-      </div>
-
-      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Field label="Comparar por">
-          <Select value={dimension} onChange={(e) => setDimension(e.target.value as Dimension)}>
-            <option value="evaluador">Evaluador</option>
-            <option value="sucursal">Sucursal</option>
-            <option value="mes">Mes</option>
-          </Select>
-        </Field>
-        <Field label="Métrica">
-          <Select value={metrica} onChange={(e) => setMetrica(e.target.value as Metrica)}>
-            <option value="puntaje">Cumplimiento %</option>
-            <option value="completadas">Evaluaciones completadas</option>
-          </Select>
-        </Field>
-        <Field label="Desde">
-          <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
-        </Field>
-        <Field label="Hasta">
-          <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-        </Field>
-        <Field label="Sucursal">
-          <Select value={sucursalSel} onChange={(e) => setSucursalSel(e.target.value)} disabled={!!scope}>
-            <option value="">Todas</option>
-            {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-          </Select>
-        </Field>
-      </div>
+      <DashboardFiltersPortal>
+        <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
+          <Field label="Comparar por">
+            <Select value={dimension} onChange={(e) => setDimension(e.target.value as Dimension)}>
+              <option value="evaluador">Evaluador</option>
+              <option value="sucursal">Sucursal</option>
+              <option value="mes">Mes</option>
+            </Select>
+          </Field>
+          <Field label="Métrica">
+            <Select value={metrica} onChange={(e) => setMetrica(e.target.value as Metrica)}>
+              <option value="puntaje">Cumplimiento %</option>
+              <option value="completadas">Evaluaciones completadas</option>
+            </Select>
+          </Field>
+          <Field label="Desde">
+            <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+          </Field>
+          <Field label="Hasta">
+            <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+          </Field>
+          <Field label="Sucursal">
+            <Select value={sucursalSel} onChange={(e) => setSucursalSel(e.target.value)} disabled={!!scope}>
+              <option value="">Todas</option>
+              {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </Select>
+          </Field>
+        </div>
+      </DashboardFiltersPortal>
 
       {cargando ? (
         <Card>

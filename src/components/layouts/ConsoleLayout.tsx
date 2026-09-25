@@ -1,7 +1,8 @@
-import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, Store, Users, X } from 'lucide-react'
+import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { DashboardFiltersProvider, useDashboardFilters } from '../../context/DashboardFiltersContext'
 import { puedeConfigurar } from '../../lib/roles'
 import { SyncBanner } from './MobileLayout'
 import { BarraKpis } from '../dashboard/BarraKpis'
@@ -21,10 +22,31 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
   ]}
 ]
 
+const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
+  '/dashboard': { titulo: 'Indicadores de gestión', subtitulo: 'Desempeño de las evaluaciones 360' },
+  '/dashboard/historial': { titulo: 'Historial de evaluaciones', subtitulo: 'Programación, seguimiento y cierre de evaluaciones' },
+  '/dashboard/comparativas': { titulo: 'Comparativas', subtitulo: 'Analiza el desempeño por evaluador, mes o sucursal' },
+  '/config/sucursales': { titulo: 'Sucursales', subtitulo: 'Registro de supermercados a evaluar' },
+  '/config/modulos': { titulo: 'Módulos', subtitulo: 'Áreas que se evalúan en cada visita' },
+  '/config/items': { titulo: 'Ítems de evaluación', subtitulo: 'Preguntas y criterios de cada módulo' },
+  '/config/usuarios': { titulo: 'Usuarios', subtitulo: 'Gestión de roles y accesos' }
+}
+
 export function ConsoleLayout() {
+  return (
+    <DashboardFiltersProvider>
+      <ConsoleLayoutContenido />
+    </DashboardFiltersProvider>
+  )
+}
+
+function ConsoleLayoutContenido() {
   const { profile, signOut } = useAuth()
+  const { abierto: filtrosAbiertos, alternar: alternarFiltros } = useDashboardFilters()
   const navigate = useNavigate()
   const { pathname } = useLocation()
+  const tituloVista = titulosVista[pathname]
+  const esDashboard = pathname.startsWith('/dashboard')
   const navRef = useRef<HTMLElement | null>(null)
   const [abierto, setAbierto] = useState(false)
   const [colapsado, setColapsado] = useState<boolean>(() => localStorage.getItem('evaluxor:menu_lateral_cerrado') === '1')
@@ -164,7 +186,7 @@ export function ConsoleLayout() {
       </span>
 
       <div className={cn('transition-[padding]', colapsado ? 'lg:pl-16' : 'lg:pl-64')}>
-        <header className="sticky top-0 z-20 flex items-center gap-1 border-b border-slate-200 bg-white px-4 py-3">
+        <header className="sticky top-0 z-20 flex min-h-16 items-center gap-1 border-b border-slate-200 bg-white px-4 py-2.5">
           <button
             onClick={() => {
               setColapsado((c) => {
@@ -180,17 +202,41 @@ export function ConsoleLayout() {
           <button onClick={() => setAbierto(true)} className="grid h-10 w-10 place-items-center rounded-full text-primary hover:bg-primary-50 lg:hidden">
             <Menu className="h-6 w-6" />
           </button>
-          <div className="text-primary font-extrabold lg:hidden">EvaLuxor</div>
+          {tituloVista ? (
+            <div className="min-w-0">
+              <h1 className="truncate text-base font-extrabold leading-tight text-primary-900">{tituloVista.titulo}</h1>
+              <p className="truncate text-xs leading-tight text-slate-500">{tituloVista.subtitulo}</p>
+            </div>
+          ) : <div className="text-primary font-extrabold lg:hidden">EvaLuxor</div>}
+          {esDashboard ? (
+            <button
+              type="button"
+              onClick={alternarFiltros}
+              aria-expanded={filtrosAbiertos}
+              aria-controls="dashboard-filters-panel"
+              className={cn('ml-auto inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition-colors', filtrosAbiertos ? 'border-primary bg-primary-50 text-primary-800' : 'border-slate-200 text-slate-600 hover:border-primary-300 hover:bg-primary-50 hover:text-primary')}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Filtros
+            </button>
+          ) : null}
           <button
             onClick={() => {
               const target = profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER' ? '/evaluar' : '#'
               if (target !== '#') navigate(target)
             }}
-            className="ml-auto hidden rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 lg:block"
+            className={cn('hidden rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 lg:block', !esDashboard && 'ml-auto', esDashboard && 'ml-2')}
           >
             Ir a evaluaciones
           </button>
         </header>
+        {esDashboard ? (
+          <div className={cn('grid transition-[grid-template-rows] duration-300 ease-out', filtrosAbiertos ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')}>
+            <div className="min-h-0 overflow-hidden border-b border-slate-200 bg-slate-50">
+              <div id="dashboard-filters-panel" />
+            </div>
+          </div>
+        ) : null}
         {pathname === '/dashboard' ? <BarraKpis /> : null}
         <SyncBanner />
         <main className="mx-auto max-w-7xl px-4 py-6 lg:px-8">

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarPlus, Eye, FileDown, History, Lock, Pencil, Play, Trash2 } from 'lucide-react'
+import { CalendarPlus, Eye, FileDown, Lock, Pencil, Play, Trash2 } from 'lucide-react'
+import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import {
@@ -177,15 +178,6 @@ export function Historial() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="flex items-center gap-2 text-xl font-extrabold text-primary-900">
-          <History className="h-5 w-5" /> Historial de evaluaciones
-        </h2>
-        <p className="text-sm text-slate-500">
-          El Lider apertura/programa la evaluación; los evaluadores llenan sus módulos en la misma evaluación.
-        </p>
-      </div>
-
       {esLider ? (
         <Card>
           <div className="flex items-center gap-2">
@@ -219,20 +211,22 @@ export function Historial() {
         </Card>
       ) : null}
 
-      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Desde">
-          <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
-        </Field>
-        <Field label="Hasta">
-          <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-        </Field>
-        <Field label="Sucursal">
-          <Select value={sucursalSel} onChange={(e) => setSucursalSel(e.target.value)} disabled={!!scope}>
-            <option value="">Todas</option>
-            {sucursalesVisibles.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-          </Select>
-        </Field>
-      </div>
+      <DashboardFiltersPortal>
+        <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Desde">
+            <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+          </Field>
+          <Field label="Hasta">
+            <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+          </Field>
+          <Field label="Sucursal">
+            <Select value={sucursalSel} onChange={(e) => setSucursalSel(e.target.value)} disabled={!!scope}>
+              <option value="">Todas</option>
+              {sucursalesVisibles.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </Select>
+          </Field>
+        </div>
+      </DashboardFiltersPortal>
 
       {error ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>

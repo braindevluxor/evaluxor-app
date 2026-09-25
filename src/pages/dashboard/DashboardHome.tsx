@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
+import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import { consultarEvaluaciones, peoresItems, puntajePorSucursalModulo, rankingSucursales } from '../../lib/data/indicadores'
@@ -99,34 +100,21 @@ export function DashboardHome() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-extrabold text-primary-900">Indicadores de gestión</h2>
-          <p className="text-sm text-slate-500">Desempeño de las evaluaciones 360</p>
-        </div>
-        {profile?.rol === 'LIDER' || profile?.rol === 'GERENTE_C' || profile?.rol === 'GERENTE_TH' ? (
-          <div className="flex gap-2">
-            <LabelBtn activo={desde === haceMeses(3)} onClick={() => setDesde(haceMeses(3))}>3m</LabelBtn>
-            <LabelBtn activo={desde === haceMeses(6)} onClick={() => setDesde(haceMeses(6))}>6m</LabelBtn>
-            <LabelBtn activo={desde === haceMeses(12)} onClick={() => setDesde(haceMeses(12))}>12m</LabelBtn>
-            <LabelBtn activo={desde === ''} onClick={() => setDesde('')}>Todo</LabelBtn>
-          </div>
-        ) : null}
-      </div>
-
-      <FiltrosBar
-        desde={desde}
-        setDesde={setDesde}
-        hasta={hasta}
-        setHasta={setHasta}
-        sucursal={sucursalSel}
-        setSucursal={setSucursalSel}
-        modulo={moduloSel}
-        setModulo={setModuloSel}
-        sucursales={sucursalesVisibles}
-        modulos={modulos}
-        soloSucursal={!!scope}
-      />
+      <DashboardFiltersPortal>
+        <FiltrosBar
+          desde={desde}
+          setDesde={setDesde}
+          hasta={hasta}
+          setHasta={setHasta}
+          sucursal={sucursalSel}
+          setSucursal={setSucursalSel}
+          modulo={moduloSel}
+          setModulo={setModuloSel}
+          sucursales={sucursalesVisibles}
+          modulos={modulos}
+          soloSucursal={!!scope}
+        />
+      </DashboardFiltersPortal>
 
       {cargando ? (
         <div className="space-y-6">
@@ -244,17 +232,6 @@ export function DashboardHome() {
         </div>
       ) : null}
     </div>
-  )
-}
-
-function LabelBtn({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${activo ? 'bg-primary text-white' : 'bg-white text-slate-600 border border-slate-200'}`}
-    >
-      {children}
-    </button>
   )
 }
 

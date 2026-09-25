@@ -101,10 +101,6 @@ export function UsuariosPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-extrabold text-primary-900">Usuarios</h2>
-          <p className="text-sm text-slate-500">Gestión de roles y accesos (solo Líder)</p>
-        </div>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => setInvitando(true)}>＋ Invitar usuario</Button>
         </div>

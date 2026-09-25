@@ -25,10 +25,6 @@ export function ModulosPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-extrabold text-primary-900">Módulos</h2>
-          <p className="text-sm text-slate-500">Áreas que se evalúan en cada visita</p>
-        </div>
         <Button onClick={() => { setEditando(null); setModal(true) }}>+ Nuevo módulo</Button>
       </div>
 

@@ -55,6 +55,7 @@ export interface ColaboradorItem {
   role_name?: string
   branch_id?: number
   branch_name?: string
+  admission_date?: string | null
   active: boolean
   aplica: boolean
   selected: string[]

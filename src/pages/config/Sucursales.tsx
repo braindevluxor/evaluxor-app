@@ -28,10 +28,6 @@ export function SucursalesPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-extrabold text-primary-900">Sucursales</h2>
-          <p className="text-sm text-slate-500">Registro de supermercados a evaluar</p>
-        </div>
         <Button onClick={() => { setEditando(null); setModal(true) }}>+ Nueva</Button>
       </div>
 

@@ -143,10 +143,6 @@ export function ItemsPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-extrabold text-primary-900">Ítems de evaluación</h2>
-          <p className="text-sm text-slate-500">Preguntas de cada módulo</p>
-        </div>
         <div className="w-56">
           <Field label="Módulo">
             <Select value={moduloId} onChange={(e) => setModuloId(e.target.value)}>
