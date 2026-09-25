@@ -1,7 +1,6 @@
 {
   "rewrites": [
     { "source": "/api/pricing/(.*)", "destination": "https://deliveryluxor.store/api/pricing/$1" },
-    { "source": "/api/flota/(.*)", "destination": "https://dev-logix.tusupermercadoluxor.com/api/v1/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
