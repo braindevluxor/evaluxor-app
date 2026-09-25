@@ -470,4 +470,23 @@ describe('valorPorResponsable', () => {
     ])
     expect(v.map((x) => x.posible)).toEqual([5, 5])
   })
+
+  it('Pablo: 52.4 logrado sobre 67.3 posible = 77.86%', () => {
+    // Cada responsable cubre su participación al 100%: % = logrado ÷ posible.
+    const items = [{
+      id: 'i1',
+      tipo: 'CHECKLIST',
+      puntaje: 67.3,
+      responsables: ['Pablo'],
+      opciones: [
+        { id: 'a', puntos: 14.9, responsable: 'Pablo' },
+        { id: 'b', puntos: 52.4, responsable: 'Pablo' }
+      ]
+    }]
+    const v = valorPorResponsable(items, [{ item_id: 'i1', valor: { selected: ['b'] } }])
+    const pablo = v.find((x) => x.responsable === 'Pablo')!
+    expect(pablo.posible).toBe(67.3)
+    expect(pablo.logrado).toBeCloseTo(52.4, 2)
+    expect(pablo.porciento).toBe(77.86)
+  })
 })
