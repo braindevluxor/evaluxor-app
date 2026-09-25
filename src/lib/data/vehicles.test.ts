@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buscarVehiculo } from './vehicles'
+
+// La clave sale del entorno; se fija aquí antes de importar el módulo.
+vi.stubEnv('VITE_VEHICLES_API_KEY', 'clave-de-prueba')
+const { buscarVehiculo } = await import('./vehicles')
 
 const vehiculoCrudo = {
   id: 3,
@@ -51,7 +54,7 @@ describe('buscarVehiculo', () => {
     // El request sale por el proxy (mismo origen) con el header Authorization.
     const call = vi.mocked(fetch).mock.calls[0]
     expect(String(call[0])).toMatch(/\/api\/flota\/vehicles\/\?search=aa579ac$/)
-    expect((call[1] as RequestInit).headers).toMatchObject({ Authorization: 'Api-Key rba4OhQPqe5INOcz4UyyCyOw4vrD6uFnhn0yjaVqz5EkWwCIK_ZZ9Q' })
+    expect((call[1] as RequestInit).headers).toMatchObject({ Authorization: 'Api-Key clave-de-prueba' })
   })
 
   it('placa inexistente → mensaje de no encontrada', async () => {

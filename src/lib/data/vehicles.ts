@@ -2,7 +2,9 @@
 // producción). Evita CORS: el navegador solo habla con el mismo origen y el
 // proxy reenvía el header Authorization al API de flota (dev-logix).
 const BASE_URL = '/api/flota/vehicles/'
-const API_KEY = import.meta.env.VITE_VEHICLES_API_KEY ?? 'rba4OhQPqe5INOcz4UyyCyOw4vrD6uFnhn0yjaVqz5EkWwCIK_ZZ9Q'
+const API_KEY = import.meta.env.VITE_VEHICLES_API_KEY
+
+if (!API_KEY) throw new Error('Falta VITE_VEHICLES_API_KEY en el entorno.')
 
 /** Vehículo normalizado de la flota (consulta por placa). */
 export interface Vehiculo {

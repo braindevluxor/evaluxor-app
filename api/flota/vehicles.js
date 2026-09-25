@@ -6,12 +6,16 @@
 // desde la IP de egress de Vercel (WAF rule) para /api/v1/vehicles/.
 export const config = { runtime: 'edge' }
 
-const API_KEY = process.env.VEHICLES_API_KEY ?? 'rba4OhQPqe5INOcz4UyyCyOw4vrD6uFnhn0yjaVqz5EkWwCIK_ZZ9Q'
+const API_KEY = process.env.VEHICLES_API_KEY
 const BACKEND = 'https://dev-logix.tusupermercadoluxor.com/api/v1/vehicles/'
 
 export default async function handler(request) {
   const url = new URL(request.url)
   const placa = (url.searchParams.get('search') ?? '').trim()
+
+  if (!API_KEY) {
+    return Response.json({ detail: 'Falta configurar VEHICLES_API_KEY en Vercel.' }, { status: 500 })
+  }
 
   try {
     const dest = new URL(BACKEND)

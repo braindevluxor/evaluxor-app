@@ -2,7 +2,9 @@
 // producción). Evita CORS: el navegador solo habla con el mismo origen y el
 // proxy reenvía el header API_KEY a deliveryluxor.store.
 const BASE_URL = '/api/pricing/samir/scan'
-const API_KEY = import.meta.env.VITE_PRECIOS_API_KEY ?? 'szf2b1BGCVpobIRfLbt7qHlEOE5LWTZWcDlHdzI3eDV3RVJ0NEE9PQ=='
+const API_KEY = import.meta.env.VITE_PRECIOS_API_KEY
+
+if (!API_KEY) throw new Error('Falta VITE_PRECIOS_API_KEY en el entorno.')
 
 export interface ResultadoScan {
   nombre: string | null
