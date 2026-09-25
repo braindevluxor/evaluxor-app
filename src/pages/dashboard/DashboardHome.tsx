@@ -220,7 +220,8 @@ export function DashboardHome() {
                       dataKey={m.nombre}
                       stroke={COLORES_MODULOS[i % COLORES_MODULOS.length]}
                       strokeWidth={lineaActiva === m.nombre ? 4 : 2}
-                      dot={false}
+                      connectNulls
+                      dot={{ r: 3, strokeWidth: 1 }}
                       activeDot={{ r: 5 }}
                       opacity={lineaActiva && lineaActiva !== m.nombre ? 0.3 : 1}
                     />
