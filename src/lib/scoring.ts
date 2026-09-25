@@ -242,6 +242,97 @@ export interface AcumuladoResponsable {
   puntos: number
 }
 
+export interface ValorResponsable {
+  responsable: string
+  /** Cantidad de ítems ponderados en los que participa. */
+  items: number
+  /** Puntos posibles: reparto del valor de cada ítem entre quienes participan (peso del ítem ÷ nº de responsables del ítem). El 100% propio del responsable. */
+  posible: number
+  /** Puntos logrados en la evaluación (posible × proporción del ítem por cada muestra respondida). */
+  logrado: number
+  /** Logrado / posible × 100. null si no tiene puntos posibles. */
+  porciento: number | null
+}
+
+/** Responsables que participan en un ítem: los que están asignados a sus checks (opciones); si ningún check tiene responsable, la lista del ítem. */
+function responsablesDelItem(item: { opciones?: string[] | { id?: string; responsable?: string }[] | null; responsables?: string[] | null }): string[] {
+  const porOpciones = ((item.opciones ?? []) as { responsable?: string }[])
+    .map((o) => (o.responsable ?? '').trim())
+    .filter(Boolean)
+  const base = porOpciones.length ? porOpciones : item.responsables ?? []
+  return [...new Set(base.map((x) => x.trim()).filter(Boolean))]
+}
+
+export type ItemRespLigero = {
+  id?: string
+  tipo?: string
+  puntaje?: number | null
+  opciones?: string[] | { id?: string; responsable?: string }[] | null
+  responsables?: string[] | null
+}
+
+/**
+ * Valor (ponderación) de cada responsable según su participación:
+ * cada ítem con peso reparte su puntaje en partes iguales entre los responsables
+ * que participan en él (sus checks), de modo que la suma de «posible» de todos los
+ * responsables reconstruye los puntos del módulo (100% distribuido). Con `respuestas`
+ * además calcula lo logrado por responsable en la evaluación y su porcentaje propio.
+ */
+export function valorPorResponsable(items: ItemRespLigero[], respuestas?: { item_id: string; instancia_id?: string | null; valor: unknown }[]): ValorResponsable[] {
+  const muestrasPorItem = new Map<string, unknown[]>()
+  if (respuestas) {
+    for (const r of respuestas) {
+      const arr = muestrasPorItem.get(r.item_id) ?? []
+      arr.push(r.valor)
+      muestrasPorItem.set(r.item_id, arr)
+    }
+  }
+
+  const acum = new Map<string, { items: number; posible: number; logrado: number }>()
+  const sumar = (responsable: string, items: number, posible: number, logrado: number) => {
+    const a = acum.get(responsable) ?? { items: 0, posible: 0, logrado: 0 }
+    a.items += items
+    a.posible += posible
+    a.logrado += logrado
+    acum.set(responsable, a)
+  }
+
+  for (const it of items) {
+    if (!it?.id || it.tipo === 'CONTENEDOR') continue
+    const P = pesoItem(it)
+    if (!(P > 0)) continue
+    const rs = responsablesDelItem(it)
+    if (!rs.length) continue
+    const share = redondear3(P / rs.length)
+    const muestras = muestrasPorItem.get(it.id) ?? []
+    for (const r of rs) {
+      if (!muestras.length) {
+        sumar(r, 1, share, 0)
+        continue
+      }
+      let posibleM = 0
+      let logradoM = 0
+      for (const valor of muestras) {
+        const prop = proporcionItem(it as { tipo: string }, valor)
+        if (prop == null) continue // muestra no puntuable (ej. informativa)
+        posibleM += share
+        logradoM += share * prop
+      }
+      if (posibleM > 0 || logradoM > 0) sumar(r, 1, posibleM, logradoM)
+    }
+  }
+
+  return Array.from(acum.entries())
+    .map(([responsable, a]) => ({
+      responsable,
+      items: a.items,
+      posible: redondear3(a.posible),
+      logrado: redondear3(a.logrado),
+      porciento: a.posible > 0 ? Math.round((a.logrado / a.posible) * 10000) / 100 : null
+    }))
+    .sort((a, b) => b.posible - a.posible || a.responsable.localeCompare(b.responsable))
+}
+
 export function incumplimientosPorResponsable(
   item: { tipo: string; opciones?: string[] | { id: string; responsable?: string }[] | null },
   valor: unknown

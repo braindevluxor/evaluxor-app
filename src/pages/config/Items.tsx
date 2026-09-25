@@ -2,12 +2,17 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FolderOpen, GripVertical, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
-import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem, redondear3 } from '../../lib/scoring'
+import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem, redondear3, valorPorResponsable } from '../../lib/scoring'
 import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
 import type { FiltroColaboradores, Item, Modulo, Opcion, TipoItem } from '../../lib/types'
 import { Button, Field, Input, Modal, Select, Textarea, Badge, Skeleton, cn } from '../../components/ui'
 
 const TIPOS = Object.keys(ETIQUETAS_TIPO) as TipoItem[]
+
+/** Muestra un puntaje con hasta 3 decimales, sin ceros sobrantes. */
+function fmtPts(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/\.?0+$/, '')
+}
 
 export function ItemsPage() {
   const [params] = useSearchParams()
@@ -41,6 +46,11 @@ export function ItemsPage() {
   const items = useMemo(() => itemsEnOrdenJerarquico(actual?._items ?? []), [actual])
   const secciones = useMemo(() => items.filter((i) => i.tipo === 'CONTENEDOR'), [items])
   const sumaModulo = useMemo(() => items.filter((i) => i.tipo === 'CONTENEDOR' || !i.padre_id).reduce((a, i) => a + pesoItem(i), 0), [items])
+
+  // Valor de los responsables: reparto del peso de cada ítem entre quienes participan.
+  const valoresResponsables = useMemo(() => valorPorResponsable(items), [items])
+  const totalDistribuible = useMemo(() => items.filter((i) => i.tipo !== 'CONTENEDOR').reduce((a, i) => a + pesoItem(i), 0), [items])
+  const asignadoResponsables = valoresResponsables.reduce((a, v) => a + v.posible, 0)
 
   async function soltarEn(hasta: number) {
     if (arrastrando == null) {
@@ -131,6 +141,36 @@ export function ItemsPage() {
             <span>Puntos asignados en el módulo</span>
             <span>{sumaModulo} / 100{sumaModulo > 100 ? ' — supera el máximo' : ''}</span>
           </div>
+          {valoresResponsables.length ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="font-bold text-primary-900">Valor de los responsables</p>
+              <p className="mb-3 text-xs text-slate-400">Cada ítem reparte su puntaje entre quienes participan en él (peso ÷ nº de responsables). Así se reconstruye el 100% de los puntos según las responsabilidades de cada uno.</p>
+              <div className="space-y-1.5">
+                {valoresResponsables.map((v) => (
+                  <div key={v.responsable} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-1.5">
+                    <span className="min-w-0 truncate text-sm font-semibold text-slate-700">{v.responsable}</span>
+                    <div className="flex shrink-0 items-center gap-2 text-xs text-slate-500">
+                      <span>{v.items} ítem(s)</span>
+                      <span className="tabular-nums font-bold text-slate-700">{fmtPts(v.posible)} pts</span>
+                      <span className="tabular-nums rounded-full bg-primary-50 px-2 py-0.5 font-bold text-primary-700">
+                        {totalDistribuible > 0 ? `${Math.round((v.posible / totalDistribuible) * 10000) / 100}%` : '—'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
+                <span>
+                  En ítems (sin secciones): <strong className="tabular-nums text-slate-700">{fmtPts(totalDistribuible)} pts</strong> · asignados a responsables: <strong className="tabular-nums text-slate-700">{fmtPts(asignadoResponsables)} pts</strong>
+                </span>
+                {totalDistribuible - asignadoResponsables > 0.001 ? (
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-700">{fmtPts(totalDistribuible - asignadoResponsables)} pts sin responsable</span>
+                ) : (
+                  <span className="rounded-full bg-green-50 px-2 py-0.5 font-semibold text-green-700">100% distribuido ✓</span>
+                )}
+              </div>
+            </div>
+          ) : null}
           {items.map((it, idx) => {
             const esSeccion = it.tipo === 'CONTENEDOR'
             const esHijo = !!it.padre_id

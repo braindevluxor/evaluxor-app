@@ -6,7 +6,7 @@ import { descargarPdf } from '../lib/pdf'
 import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
-import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, formatearLastSync, formatearPrecioBase, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, formatearLastSync, formatearPrecioBase, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Card, Puntaje, Skeleton, SkeletonTarjetas, Spinner, cn } from '../components/ui'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
@@ -322,7 +322,9 @@ export function EvaluacionDetalle() {
       incumplimientos.set(a.responsable, (incumplimientos.get(a.responsable) ?? 0) + a.puntos)
     }
   }
-  const filasResponsables = Array.from(incumplimientos.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  // Puntaje por responsable: cada ítem reparte su peso entre quienes participan en él
+  // (peso ÷ nº de responsables); el % de cada responsable = logrado / posible.
+  const valoresResp = valorPorResponsable(items.map(aplicarOpciones), respuestas)
 
   const descargar = async () => {
     setError('')
@@ -397,17 +399,35 @@ export function EvaluacionDetalle() {
           ) : null}
         </section>
 
-        {filasResponsables.length ? (
+        {valoresResp.length ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
-            <p className="font-bold text-primary-900">Resumen de responsables</p>
-            <p className="mb-3 text-xs text-slate-400">Fallas acumuladas en esta evaluación (puntos del checklist que no se cumplieron)</p>
-            <div className="space-y-2">
-              {filasResponsables.map(([nombre, n]) => (
-                <div key={nombre} className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
-                  <span className="min-w-0 truncate text-sm font-semibold text-slate-700">{nombre}</span>
-                  <span className="shrink-0 rounded-full bg-red-50 px-2.5 py-0.5 text-sm font-bold tabular-nums text-red-600">{n} falla{n !== 1 ? 's' : ''}</span>
-                </div>
-              ))}
+            <p className="font-bold text-primary-900">Puntaje por responsable</p>
+            <p className="mb-3 text-xs text-slate-400">Cada ítem reparte su valor entre quienes participan en él (peso ÷ nº de responsables del ítem). El % de cada responsable = logrado ÷ posible.</p>
+            <div className="space-y-1.5">
+              {valoresResp.map((v) => {
+                const fallas = incumplimientos.get(v.responsable) ?? 0
+                const nivel = v.porciento == null
+                  ? 'bg-slate-100 text-slate-500'
+                  : v.porciento >= 80
+                    ? 'bg-green-50 text-green-700'
+                    : v.porciento >= 50
+                      ? 'bg-amber-50 text-amber-700'
+                      : 'bg-red-50 text-red-600'
+                return (
+                  <div key={v.responsable} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-700">{v.responsable}</p>
+                      <p className="text-xs text-slate-400">
+                        <strong className="tabular-nums text-slate-600">{fmt(v.logrado)}</strong> / {fmt(v.posible)} pts
+                        {fallas ? ` · ${fallas} falla${fallas !== 1 ? 's' : ''}` : ''}
+                      </p>
+                    </div>
+                    <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-sm font-bold tabular-nums', nivel)}>
+                      {v.porciento == null ? '—' : `${v.porciento}%`}
+                    </span>
+                  </div>
+                )
+              })}
             </div>
           </section>
         ) : null}

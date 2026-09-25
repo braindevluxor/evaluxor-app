@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable, agregarPuntaje, redondear3 } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable, agregarPuntaje, redondear3, valorPorResponsable } from './scoring'
 
 describe('valorBinario', () => {
   it('cumple/no cumple', () => {
@@ -395,5 +395,79 @@ describe('secciones ponderadas', () => {
     expect(redondear3(1 / 3)).toBe(0.333)
     expect(redondear3(0.0006)).toBe(0.001)
     expect(redondear3(2.34567)).toBe(2.346)
+  })
+})
+
+describe('valorPorResponsable', () => {
+  const itemCon = (id: string, tipo: string, puntaje: number, participantes: string[]) => ({
+    id,
+    tipo,
+    puntaje,
+    opciones: participantes.map((p) => ({ id: `o-${id}-${p}`, responsable: p })),
+    responsables: participantes
+  })
+
+  it('reparte cada ítem entre sus responsables y reconstruye los 100 puntos', () => {
+    // Ejercicio: 4 ítems de 25 pts. ítem1 abarca 4 responsables, ítem2 abarca 3,
+    // ítem3 e ítem4 abarcan 2. Reparto: 25/4, 25/3, 25/2, 25/2.
+    const items = [
+      itemCon('i1', 'CHECKLIST', 25, ['Ana', 'Beto', 'Caro', 'Dani']),
+      itemCon('i2', 'CHECKLIST', 25, ['Ana', 'Beto', 'Caro']),
+      itemCon('i3', 'CHECKLIST', 25, ['Ana', 'Beto']),
+      itemCon('i4', 'CHECKLIST', 25, ['Ana', 'Beto'])
+    ]
+    const v = valorPorResponsable(items)
+    const por = Object.fromEntries(v.map((x) => [x.responsable, x.posible]))
+    expect(por['Ana']).toBeCloseTo(6.25 + 25 / 3 + 12.5 + 12.5, 2) // 39.583
+    expect(por['Beto']).toBeCloseTo(6.25 + 25 / 3 + 12.5 + 12.5, 2)
+    expect(por['Caro']).toBeCloseTo(6.25 + 25 / 3, 2) // 14.583 (solo ítems 1 y 2)
+    expect(por['Dani']).toBeCloseTo(6.25, 2)
+    expect(v.reduce((a, x) => a + x.posible, 0)).toBeCloseTo(100, 1)
+    expect(v.reduce((a, x) => a + x.items, 0)).toBe(11)
+  })
+
+  it('con respuestas: el cumplimiento del ítem pondera la parte de cada responsable', () => {
+    const items = [itemCon('i1', 'CUMPLE_NO_CUMPLE', 25, ['Ana', 'Beto', 'Caro', 'Dani'])]
+    const ok = valorPorResponsable(items, [{ item_id: 'i1', valor: { value: true } }])
+    for (const x of ok) {
+      expect(x.posible).toBeCloseTo(6.25, 2)
+      expect(x.logrado).toBeCloseTo(6.25, 2)
+      expect(x.porciento).toBe(100)
+    }
+    const no = valorPorResponsable(items, [{ item_id: 'i1', valor: { value: false } }])
+    for (const x of no) expect(x.logrado).toBe(0)
+  })
+
+  it('con puntaje parcial (checklist con puntos por opción) el responsable gana su parte proporcional', () => {
+    const items = [{
+      id: 'i1',
+      tipo: 'CHECKLIST',
+      puntaje: 60,
+      opciones: [{ id: 'a', responsable: 'Ana', puntos: 3 }, { id: 'b', responsable: 'Ana', puntos: 1 }, { id: 'c', responsable: 'Beto', puntos: 2 }],
+      responsables: ['Ana', 'Beto']
+    }]
+    const v = valorPorResponsable(items, [{ item_id: 'i1', valor: { selected: ['a'] } }])
+    const ana = v.find((x) => x.responsable === 'Ana')!
+    const beto = v.find((x) => x.responsable === 'Beto')!
+    expect(ana.posible).toBeCloseTo(30, 2)
+    expect(ana.logrado).toBeCloseTo(15, 2) // 3/6 de la proporción → 30 × 0.5
+    expect(ana.porciento).toBe(50)
+    expect(beto.porciento).toBe(50)
+  })
+
+  it('ítems sin responsables o sin puntaje no generan valor', () => {
+    const v = valorPorResponsable([
+      { id: 'a', tipo: 'CHECKLIST', puntaje: 25, opciones: [] },
+      { id: 'b', tipo: 'CHECKLIST', puntaje: 0, opciones: [{ id: 'x', responsable: 'Ana' }] },
+      { id: 'c', tipo: 'CONTENEDOR', puntaje: 60, responsables: ['Ana'] }
+    ])
+    expect(v).toEqual([])
+  })
+
+  it('si ningún check tiene responsable, usa la lista del ítem', () => {
+    const v = valorPorResponsable([
+      { id: 'a', tipo: 'CHECKLIST', puntaje: 10, opciones: [{ id: 'x' }], responsables: ['Ana', 'Beto'] }
+    ])
+    expect(v.map((x) => x.posible)).toEqual([5, 5])
   })
 })
