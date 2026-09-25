@@ -8,7 +8,7 @@ import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
 import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, formatearLastSync, formatearPrecioBase, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
-import { Badge, Button, Puntaje, Spinner, cn } from '../components/ui'
+import { Badge, Button, Card, Puntaje, Skeleton, SkeletonTarjetas, Spinner, cn } from '../components/ui'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
 
 function extraerPaths(v: unknown): string[] {
@@ -265,8 +265,28 @@ export function EvaluacionDetalle() {
 
   if (estado === 'cargando') {
     return (
-      <div className="grid min-h-[60vh] place-items-center">
-        <Spinner size={32} />
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-56" />
+          <Skeleton className="h-4 w-80" />
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <div className="space-y-4 py-2">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          </Card>
+          <Card>
+            <div className="space-y-4 py-2">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          </Card>
+        </div>
+        <SkeletonTarjetas n={2} cols="sm:grid-cols-2" />
       </div>
     )
   }

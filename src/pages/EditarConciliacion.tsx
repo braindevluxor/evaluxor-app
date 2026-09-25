@@ -6,7 +6,7 @@ import { obtenerEvaluacion, type DetalleEvaluacion } from '../lib/data/indicador
 import { guardarBorradorNube } from '../lib/offline/sync'
 import { etiquetaTipo } from '../lib/scoring'
 import { ConciliacionEditor } from '../components/ItemRenderer'
-import { Badge, Button, Spinner, cn } from '../components/ui'
+import { Badge, Button, Skeleton, cn } from '../components/ui'
 
 type EstadoGuardado = 'espera' | 'guardando' | 'ok' | 'error'
 
@@ -66,8 +66,18 @@ export function EditarConciliacion() {
 
   if (estado === 'cargando') {
     return (
-      <div className="grid min-h-[60vh] place-items-center">
-        <Spinner size={32} />
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-72" />
+          <Skeleton className="h-4 w-96 max-w-full" />
+        </div>
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-10 w-40 rounded-full" />
+            <Skeleton className="h-10 w-10 rounded-full" />
+          </div>
+        ))}
       </div>
     )
   }

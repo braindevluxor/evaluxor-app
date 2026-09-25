@@ -3,7 +3,7 @@ import { Pencil, Settings2 } from 'lucide-react'
 import { listarSucursalesAdmin, guardarSucursal, type SucursalVista } from '../../lib/data/catalog'
 import { listarUsuarios, type ProfileVista } from '../../lib/data/usuarios'
 import type { Sucursal } from '../../lib/types'
-import { Button, Field, Input, Modal, Spinner, Badge, Select } from '../../components/ui'
+import { Button, Field, Input, Modal, Badge, Select, SkeletonFilas } from '../../components/ui'
 import { SucursalConfigModal } from './SucursalConfig'
 import { useCatalog } from '../../context/CatalogContext'
 
@@ -35,7 +35,11 @@ export function SucursalesPage() {
         <Button onClick={() => { setEditando(null); setModal(true) }}>+ Nueva</Button>
       </div>
 
-      {cargando ? <div className="flex justify-center py-16"><Spinner /></div> : !sucursales.length ? (
+      {cargando ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <SkeletonFilas n={7} />
+        </div>
+      ) : !sucursales.length ? (
         <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-slate-500">Aún no hay sucursales.</div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">

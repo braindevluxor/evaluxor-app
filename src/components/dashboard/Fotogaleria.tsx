@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import type { Foto } from '../../lib/types'
-import { Spinner } from '../ui'
+import { Skeleton } from '../ui'
 
 export function Fotogaleria({ fotos }: { fotos: Foto[] }) {
   const paths = useMemo(() => Array.from(new Set(fotos.slice(0, 30).map((f) => f.path))), [fotos])
@@ -40,7 +40,13 @@ export function Fotogaleria({ fotos }: { fotos: Foto[] }) {
 
   return (
     <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8">
-      {cargando ? <div className="col-span-full"><Spinner /></div> : null}
+      {cargando ? (
+        <div className="col-span-full grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="aspect-square w-full rounded-lg" />
+          ))}
+        </div>
+      ) : null}
       {paths
         .filter((p) => urls[p])
         .map((p) => (

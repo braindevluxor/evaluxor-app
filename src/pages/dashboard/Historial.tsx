@@ -15,7 +15,7 @@ import {
 import type { EstadoEvaluacion, VistaEvaluacion } from '../../lib/types'
 import { descargarPdf } from '../../lib/pdf'
 import { verTodo } from '../../lib/roles'
-import { Badge, Button, Card, Confirmar, Field, Input, Puntaje, Select, Spinner } from '../../components/ui'
+import { Badge, Button, Card, Confirmar, Field, Input, Puntaje, Select, Skeleton, SkeletonFilas, Spinner } from '../../components/ui'
 
 function haceMeses(n: number): string {
   const d = new Date()
@@ -239,7 +239,14 @@ export function Historial() {
       ) : null}
 
       {evals === null ? (
-        <div className="flex justify-center py-20"><Spinner size={40} /></div>
+        <Card className="overflow-hidden p-0">
+          <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+            <Skeleton className="h-3 w-48" />
+          </div>
+          <div className="p-4">
+            <SkeletonFilas n={6} />
+          </div>
+        </Card>
       ) : evals.length === 0 ? (
         <Card>
           <div className="py-10 text-center">

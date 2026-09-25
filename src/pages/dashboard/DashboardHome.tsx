@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import { consultarEvaluaciones, peoresItems, puntajePorSucursalModulo, rankingSucursales } from '../../lib/data/indicadores'
 import type { ConjuntoDatos } from '../../lib/data/indicadores'
-import { Card, Field, Input, Select, Spinner } from '../../components/ui'
+import { Card, Field, Input, Select, Skeleton } from '../../components/ui'
 import { verTodo } from '../../lib/roles'
 import { setKpisGlobal } from '../../lib/kpisGlobal'
 import {
@@ -129,7 +129,30 @@ export function DashboardHome() {
       />
 
       {cargando ? (
-        <div className="flex justify-center py-20"><Spinner size={40} /></div>
+        <div className="space-y-6">
+          <Card>
+            <div className="mb-4 space-y-2">
+              <Skeleton className="h-5 w-52" />
+              <Skeleton className="h-3 w-72" />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex h-20 overflow-hidden rounded-xl border border-slate-200">
+                  <Skeleton className="w-16 rounded-none sm:w-20" />
+                  <Skeleton className="flex-1 rounded-none" />
+                  <Skeleton className="w-16 rounded-none sm:w-20" />
+                </div>
+              ))}
+            </div>
+          </Card>
+          <Card>
+            <div className="mb-4 space-y-2">
+              <Skeleton className="h-5 w-64" />
+              <Skeleton className="h-3 w-80" />
+            </div>
+            <Skeleton className="h-80 w-full" />
+          </Card>
+        </div>
       ) : datos ? (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <Card className="lg:col-span-2">

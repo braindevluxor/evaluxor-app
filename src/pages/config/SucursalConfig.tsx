@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { listarModulosAdmin, listarSucursalConfigAdmin, configurarSucursalModulos, configurarSucursalItems, configurarSucursalOpciones } from '../../lib/data/catalog'
 import type { Sucursal, Modulo, Item } from '../../lib/types'
-import { Button, Modal, Spinner, cn } from '../../components/ui'
+import { Button, Modal, Skeleton, cn } from '../../components/ui'
 
 interface Props {
   sucursal: Sucursal | null
@@ -96,7 +96,20 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
 
   return (
     <Modal open={sucursal != null} onClose={onClose} title={`Configurar sucursal${sucursal ? ` · ${sucursal.nombre}` : ''}`} wide>
-      {cargando ? <div className="flex justify-center py-16"><Spinner /></div> : (
+      {cargando ? (
+        <div className="space-y-5">
+          <Skeleton className="h-16 w-full rounded-xl" />
+          <Skeleton className="h-4 w-44" />
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 rounded-xl" />)}
+          </div>
+          <Skeleton className="h-4 w-52" />
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {[0, 1, 2].map((i) => <Skeleton key={i} className="h-10 rounded-xl" />)}
+          </div>
+          <Skeleton className="h-11 w-full rounded-full" />
+        </div>
+      ) : (
         <div className="space-y-6">
           <p className="rounded-xl bg-primary-50 px-3 py-2 text-[11px] leading-relaxed text-primary-700">
             Si no marcas módulos, aplican todos los módulos activos. Si no marcas ítems de un módulo, aplican todos sus ítems.

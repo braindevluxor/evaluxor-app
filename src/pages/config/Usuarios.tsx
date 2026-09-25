@@ -4,7 +4,7 @@ import { listarModulosAdmin } from '../../lib/data/catalog'
 import { supabase } from '../../lib/supabase'
 import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
 import type { Invitacion, Modulo, Rol, Sucursal } from '../../lib/types'
-import { Badge, Button, Field, Input, Modal, Select, Spinner, cn } from '../../components/ui'
+import { Badge, Button, Field, Input, Modal, Select, Skeleton, SkeletonFilas, cn } from '../../components/ui'
 import { Copy, FolderOpen, Pencil, Unlock } from 'lucide-react'
 
 export function UsuariosPage() {
@@ -127,7 +127,11 @@ export function UsuariosPage() {
         <div className="whitespace-pre-wrap rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
       ) : null}
 
-      {cargando ? <div className="flex justify-center py-16"><Spinner /></div> : (
+      {cargando ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <SkeletonFilas n={7} />
+        </div>
+      ) : (
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="w-full text-sm">
             <thead>
@@ -263,7 +267,9 @@ export function UsuariosPage() {
 
       <Modal open={!!asignando} onClose={() => setAsignando(null)} title={`Módulos de ${asignando?.nombre || asignando?.email || 'evaluador'}`}>
         {cargandoMod ? (
-          <div className="flex justify-center py-12"><Spinner /></div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-xl" />)}
+          </div>
         ) : modulos.length ? (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {modulos.map((m) => {

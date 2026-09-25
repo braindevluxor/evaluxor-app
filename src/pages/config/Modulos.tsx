@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listarModulosAdmin, guardarModulo, eliminarModulo } from '../../lib/data/catalog'
 import type { Modulo, Item } from '../../lib/types'
-import { Button, Field, Input, Modal, Spinner, Badge, Textarea } from '../../components/ui'
+import { Button, Field, Input, Modal, Badge, Textarea, SkeletonTarjetas } from '../../components/ui'
 import { List, Pencil, Trash2 } from 'lucide-react'
 
 export function ModulosPage() {
@@ -32,7 +32,9 @@ export function ModulosPage() {
         <Button onClick={() => { setEditando(null); setModal(true) }}>+ Nuevo módulo</Button>
       </div>
 
-      {cargando ? <div className="flex justify-center py-16"><Spinner /></div> : !modulos.length ? (
+      {cargando ? (
+        <SkeletonTarjetas n={4} cols="sm:grid-cols-2 xl:grid-cols-3" />
+      ) : !modulos.length ? (
         <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-slate-500">Crea el primer módulo.</div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

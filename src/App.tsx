@@ -14,7 +14,7 @@ import { EvaluarHome } from './pages/evaluar/EvaluarHome'
 import { EvaluarSucursal } from './pages/evaluar/EvaluarSucursal'
 import { EvaluacionDetalle } from './pages/EvaluacionDetalle'
 import { EditarConciliacion } from './pages/EditarConciliacion'
-import { Spinner } from './components/ui'
+import { SkeletonPantalla } from './components/ui'
 
 const EvaluarResumen = lazy(() => import('./pages/evaluar/EvaluarResumen').then((m) => ({ default: m.EvaluarResumen })))
 const MisEvaluaciones = lazy(() => import('./pages/evaluar/MisEvaluaciones').then((m) => ({ default: m.MisEvaluaciones })))
@@ -29,11 +29,7 @@ const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({
 const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH', 'EVALUADOR']
 
 function Susp() {
-  return (
-    <div className="grid min-h-[60vh] place-items-center">
-      <Spinner size={32} />
-    </div>
-  )
+  return <SkeletonPantalla />
 }
 
 export default function App() {

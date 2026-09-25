@@ -5,7 +5,7 @@ import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/ca
 import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem } from '../../lib/scoring'
 import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
 import type { FiltroColaboradores, Item, Modulo, Opcion, TipoItem } from '../../lib/types'
-import { Button, Field, Input, Modal, Select, Textarea, Badge, Spinner, cn } from '../../components/ui'
+import { Button, Field, Input, Modal, Select, Textarea, Badge, Skeleton, cn } from '../../components/ui'
 
 const TIPOS = Object.keys(ETIQUETAS_TIPO) as TipoItem[]
 
@@ -114,7 +114,14 @@ export function ItemsPage() {
         <Button onClick={() => { setEditando(null); setNuevoPadreId(null); setModal(true) }} disabled={!moduloId}>+ Nuevo ítem</Button>
       </div>
 
-      {cargando ? <div className="flex justify-center py-16"><Spinner /></div> : !actual ? (
+      {cargando ? (
+        <div className="space-y-2">
+          <Skeleton className="h-9 w-full rounded-xl" />
+          <div className="space-y-2">
+            {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
+          </div>
+        </div>
+      ) : !actual ? (
         <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-slate-500">Selecciona un módulo o crea uno primero.</div>
       ) : !items.length ? (
         <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-slate-500">Este módulo no tiene ítems.</div>

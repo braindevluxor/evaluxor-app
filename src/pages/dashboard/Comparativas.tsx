@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import { consultarEvaluaciones, evolucionMensual, porEvaluador } from '../../lib/data/indicadores'
 import type { ConjuntoDatos } from '../../lib/data/indicadores'
-import { Card, Field, Input, Select, Spinner } from '../../components/ui'
+import { Card, Field, Input, Select, Skeleton } from '../../components/ui'
 import { BarChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, ComposedChart, Legend, Cell } from 'recharts'
 
 type Dimension = 'evaluador' | 'mes' | 'sucursal'
@@ -115,7 +115,16 @@ export function Comparativas() {
       </div>
 
       {cargando ? (
-        <div className="flex justify-center py-20"><Spinner size={40} /></div>
+        <Card>
+          <div className="mb-4 space-y-2">
+            <Skeleton className="h-5 w-64" />
+            <Skeleton className="h-3 w-48" />
+          </div>
+          <Skeleton className="h-80 w-full" />
+          <div className="mt-4 space-y-3">
+            {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-3 w-3/4" />)}
+          </div>
+        </Card>
       ) : !datosF.length ? (
         <Card><div className="py-10 text-center text-slate-500">Sin datos en el rango seleccionado.</div></Card>
       ) : (

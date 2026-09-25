@@ -111,6 +111,65 @@ export function Spinner({ className, size = 20, light = false }: { className?: s
   )
 }
 
+/* --- Skeleton (esqueletos de carga por página) ----------------------------- */
+
+export function Skeleton({ className }: { className?: string }) {
+  return <div className={cn('animate-pulse rounded-lg bg-slate-200', className)} aria-hidden="true" />
+}
+
+/** Filas tipo lista/tabla (con tarjeta opcional). */
+export function SkeletonFilas({ n = 5, card = false }: { n?: number; card?: boolean }) {
+  return (
+    <div className={cn('space-y-4', card && 'rounded-2xl border border-slate-200 bg-white p-4')}>
+      {Array.from({ length: n }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3">
+          <Skeleton className="h-4 w-1/3" />
+          <Skeleton className="h-4 w-1/4" />
+          <Skeleton className="ml-auto h-4 w-1/5" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Tarjetas en grid (título + línea + acciones). */
+export function SkeletonTarjetas({ n = 3, cols = 'md:grid-cols-2 lg:grid-cols-3' }: { n?: number; cols?: string }) {
+  return (
+    <div className={cn('grid grid-cols-1 gap-3', cols)}>
+      {Array.from({ length: n }).map((_, i) => (
+        <div key={i} className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-start justify-between gap-2">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-3 w-12 shrink-0 rounded-full" />
+          </div>
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-5/6" />
+          <div className="flex gap-2 pt-2">
+            <Skeleton className="h-9 flex-1 rounded-full" />
+            <Skeleton className="h-9 flex-1 rounded-full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Esqueleto genérico de pantalla (guardas de ruta, rutas lazy). */
+export function SkeletonPantalla({ completa = false }: { completa?: boolean }) {
+  return (
+    <div className={cn('grid place-items-center px-4 py-6', completa ? 'min-h-screen' : 'min-h-[60vh]')}>
+      <div className="w-full max-w-3xl space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-56" />
+          <Skeleton className="h-3.5 w-40" />
+        </div>
+        <SkeletonFilas n={4} card />
+        <SkeletonTarjetas n={2} cols="sm:grid-cols-2" />
+      </div>
+    </div>
+  )
+}
+
 export function EmptyState({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">

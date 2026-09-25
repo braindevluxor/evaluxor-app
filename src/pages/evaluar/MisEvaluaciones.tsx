@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Eye, FileDown } from 'lucide-react'
 import type { EstadoEvaluacion, VistaEvaluacion } from '../../lib/types'
-import { Badge, Button, EmptyState, Puntaje, Spinner } from '../../components/ui'
+import { Badge, Button, EmptyState, Puntaje, SkeletonTarjetas, Spinner } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import { useAuth } from '../../context/AuthContext'
 import { consultarEvaluaciones } from '../../lib/data/indicadores'
@@ -52,7 +52,7 @@ export function MisEvaluaciones() {
   return (
     <MobileLayout titulo="Mi participación" subtitulo="Evaluaciones donde respondiste módulos">
       {cargando ? (
-        <div className="flex justify-center py-16"><Spinner size={32} /></div>
+        <SkeletonTarjetas n={3} cols="" />
       ) : evals.length === 0 ? (
         <EmptyState
           title="Aún no has participado"
