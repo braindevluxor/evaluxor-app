@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Check, FolderOpen, List, Plus, Tag, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Camera, Check, FolderOpen, List, Plus, Search, Tag, Trash2, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
@@ -9,9 +9,11 @@ import { claveRespuesta, pasosDeModulo, raicesDeModulo } from '../../lib/pasos'
 import { getDraft, putDraft, normalizarClave, instanciasPlanasDe, type DraftEval, type DraftInstancia } from '../../lib/offline/db'
 import { guardarBorradorNube, instanciasDeDraft, respuestasConInstancia } from '../../lib/offline/sync'
 import { listarEvaluacionesActivas, listarRespuestasEvaluacion, listarInstanciasEvaluacion } from '../../lib/data/indicadores'
+import { apiDisponible, etiquetaDeCampo, formatearValorConsulta, seleccionarValores } from '../../lib/data/apis'
 import { supabase } from '../../lib/supabase'
 import { ItemRenderer } from '../../components/ItemRenderer'
-import { Button, EmptyState, Modal, cn } from '../../components/ui'
+import { Button, EmptyState, Modal, Spinner, cn } from '../../components/ui'
+import { BarcodeScanner } from '../../components/BarcodeScanner'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import type { Item } from '../../lib/types'
 
@@ -49,6 +51,12 @@ export function EvaluarSucursal() {
   const [idxRegistro, setIdxRegistro] = useState(0)
   const [etiquetaNueva, setEtiquetaNueva] = useState('')
   const [focoEtiqueta, setFocoEtiqueta] = useState(0)
+  // Consulta a la API configurada en la sección (vehículos / productos / trabajadores).
+  const [codigoConsulta, setCodigoConsulta] = useState('')
+  const [consultando, setConsultando] = useState(false)
+  const [resultadoConsulta, setResultadoConsulta] = useState<{ etiqueta: string; datos: Record<string, unknown> } | null>(null)
+  const [mensajeConsulta, setMensajeConsulta] = useState<string | null>(null)
+  const [scanAbierto, setScanAbierto] = useState(false)
   const [confirmarBorrar, setConfirmarBorrar] = useState<string | null>(null)
   const etiquetaInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -109,6 +117,14 @@ export function EvaluarSucursal() {
     if (focoEtiqueta > 0) etiquetaInputRef.current?.focus()
   }, [focoEtiqueta])
 
+  // Al cambiar de paso (índice de módulo/ítem) se limpia la consulta a la API de la sección anterior.
+  useEffect(() => {
+    setCodigoConsulta('')
+    setResultadoConsulta(null)
+    setMensajeConsulta(null)
+    setScanAbierto(false)
+  }, [idxModulo, idxItem])
+
   const modulos = useMemo(
     () => modulosActivos.filter((m) => itemsDe(m).some((i) => i.tipo !== 'CONTENEDOR')),
     [modulosActivos, itemsDe]
@@ -140,7 +156,15 @@ export function EvaluarSucursal() {
       const instanciasLocales: Record<string, DraftInstancia[]> = structuredClone(existente?.instancias ?? {})
       for (const ins of instanciasNube) {
         const ya = (instanciasLocales[ins.item_id] ?? []).some((i) => i.id === ins.id)
-        if (!ya) (instanciasLocales[ins.item_id] ??= []).push({ id: ins.id, etiqueta: ins.etiqueta, orden: ins.orden })
+        if (!ya) {
+          (instanciasLocales[ins.item_id] ??= []).push({
+            id: ins.id,
+            etiqueta: ins.etiqueta,
+            orden: ins.orden,
+            api_id: ins.api_id ?? undefined,
+            datos: (ins.datos as Record<string, unknown> | null | undefined) ?? undefined
+          })
+        }
       }
       const d: DraftEval = {
         sucursal_id: sucursalId,
@@ -206,6 +230,8 @@ export function EvaluarSucursal() {
   const pasosRaices = raicesDeModulo(itemsModulo)
   const paso = pasosRaices[Math.min(idxItem, pasosRaices.length - 1)]
   const esSeccion = paso?.tipo === 'CONTENEDOR'
+  const apiSeccion = esSeccion && paso?.api_id ? apiDisponible(paso.api_id) : undefined
+  const placeholderConsulta = !apiSeccion ? '' : apiSeccion.id === 'vehiculos' ? 'Placa del vehículo (ej. ABC123)' : apiSeccion.id === 'productos' ? 'Código/SKU del producto' : 'Documento (C.I.) del trabajador'
   const ultimoPasoModulo = idxItem >= pasosRaices.length - 1
   const ultimoModulo = idxModulo >= modulos.length - 1
 
@@ -323,6 +349,72 @@ export function EvaluarSucursal() {
     setIdxRegistro(0)
   }
 
+  function consultarApi() {
+    if (!apiSeccion || !paso) return
+    const codigo = codigoConsulta.trim()
+    if (!codigo) return
+    setConsultando(true)
+    setMensajeConsulta(null)
+    setResultadoConsulta(null)
+    void apiSeccion
+      .consultar(codigo, { shopId: sucursal?.shop_id, branchId: sucursal?.branch_id })
+      .then((r) => {
+        if (r.mensaje) {
+          setMensajeConsulta(r.mensaje)
+        } else {
+          setResultadoConsulta({ etiqueta: r.etiqueta, datos: seleccionarValores(paso.api_campos ?? [], r.datos) })
+        }
+      })
+      .catch(() => setMensajeConsulta('No se pudo consultar la API. Intentá de nuevo.'))
+      .finally(() => setConsultando(false))
+  }
+
+  /** Agrega el registro con los datos traídos de la API. */
+  function agregarRegistroConConsulta() {
+    if (!esSeccion || !paso || !resultadoConsulta) return
+    const previas = actual.instancias?.[paso.id] ?? []
+    const ins: DraftInstancia = {
+      id: crypto.randomUUID(),
+      etiqueta: resultadoConsulta.etiqueta,
+      orden: previas.length,
+      api_id: paso.api_id ?? undefined,
+      datos: resultadoConsulta.datos
+    }
+    const nuevo: DraftEval = {
+      ...actual,
+      instancias: { ...actual.instancias, [paso.id]: [...previas, ins] }
+    }
+    setDraft(nuevo)
+    void putDraft(nuevo)
+    agendarNube()
+    setCodigoConsulta('')
+    setResultadoConsulta(null)
+    setMensajeConsulta(null)
+    setRegistro({ seccionId: paso.id, instanciaId: ins.id, etiqueta: ins.etiqueta })
+    setIdxRegistro(0)
+  }
+
+  /** Agrega el registro con solo el identificador (cuando la API no encontró nada). */
+  function agregarRegistroSinDatos() {
+    if (!esSeccion || !paso) return
+    const etiqueta = codigoConsulta.trim()
+    if (!etiqueta) return
+    const previas = actual.instancias?.[paso.id] ?? []
+    const ins: DraftInstancia = { id: crypto.randomUUID(), etiqueta, orden: previas.length, api_id: paso.api_id ?? undefined }
+    const nuevo: DraftEval = {
+      ...actual,
+      instancias: { ...actual.instancias, [paso.id]: [...previas, ins] }
+    }
+    setDraft(nuevo)
+    setCodigoConsulta('')
+    setResultadoConsulta(null)
+    setMensajeConsulta(null)
+    void putDraft(nuevo)
+    agendarNube()
+    setRegistro({ seccionId: paso.id, instanciaId: ins.id, etiqueta })
+    setIdxRegistro(0)
+  }
+
   function eliminarInstancia(instanciaId: string) {
     if (!esSeccion) return
     const resto = instanciasDeSeccion(paso.id).filter((i) => i.id !== instanciaId)
@@ -406,8 +498,12 @@ export function EvaluarSucursal() {
                 </div>
               </div>
               <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                Esta sección se repite por <b>registro</b>. Cada registro lleva un identificador (ej. placa, código, nombre…)
-                y evalúa sus {hijosOrdenados(itemsModulo, paso.id).length} ítems. Cuando termines uno, podés agregar otro y seguir tantas veces como necesites.
+                {apiSeccion ? (
+                  <>Esta sección se repite por <b>registro</b> y consulta la API de <b>{apiSeccion.nombre}</b>: escribí el identificador ({placeholderConsulta}), tocá «Consultar» y guardá el registro con los datos traídos. Cada registro evalúa sus {hijosOrdenados(itemsModulo, paso.id).length} ítems.</>
+                ) : (
+                  <>Esta sección se repite por <b>registro</b>. Cada registro lleva un identificador (ej. placa, código, nombre…)
+                  y evalúa sus {hijosOrdenados(itemsModulo, paso.id).length} ítems. Cuando termines uno, podés agregar otro y seguir tantas veces como necesites.</>
+                )}
               </p>
             </div>
 
@@ -419,7 +515,9 @@ export function EvaluarSucursal() {
 
               {instanciasDeSeccion(paso.id).length === 0 ? (
                 <div className="mt-3 rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-400">
-                  Todavía no hay registros. Escribí un identificador y tocá «Agregar registro» para evaluar el primero.
+                  {apiSeccion
+                    ? 'Todavía no hay registros. Consultá un identificador y agregá el primero.'
+                    : 'Todavía no hay registros. Escribí un identificador y tocá «Agregar registro» para evaluar el primero.'}
                 </div>
               ) : (
                 <ul className="mt-3 space-y-2">
@@ -437,6 +535,17 @@ export function EvaluarSucursal() {
                             <span className="block truncate text-sm font-semibold text-slate-800">
                               Registro {i + 1} · <span className="text-primary-900">{ins.etiqueta}</span>
                             </span>
+                            {apiSeccion && ins.datos && Object.keys(ins.datos).length ? (
+                              <span className="mt-1 flex flex-wrap gap-1">
+                                {Object.entries(ins.datos)
+                                  .filter(([, v]) => v != null && v !== '')
+                                  .map(([k, v]) => (
+                                    <span key={k} className="rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-semibold text-primary-800">
+                                      {etiquetaDeCampo(paso.api_id, k)}: {formatearValorConsulta(v)}
+                                    </span>
+                                  ))}
+                              </span>
+                            ) : null}
                             <span className="block text-[11px] text-slate-500">
                               {hechos}/{hijos.length} ítems {completo ? '· completo' : ''}
                             </span>
@@ -457,24 +566,92 @@ export function EvaluarSucursal() {
                 </ul>
               )}
 
-              <div className="mt-3 flex gap-2">
-                <input
-                  ref={etiquetaInputRef}
-                  value={etiquetaNueva}
-                  onChange={(e) => setEtiquetaNueva(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      if (etiquetaNueva.trim()) agregarRegistro()
-                    }
-                  }}
-                  placeholder="Identificador (ej. placa, código, nombre…)"
-                  className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-200"
-                />
-                <Button variant="primary" className="shrink-0" disabled={!etiquetaNueva.trim()} onClick={agregarRegistro}>
-                  <Plus className="h-4 w-4" /> Agregar
-                </Button>
-              </div>
+              {apiSeccion ? (
+                <div className="mt-3 space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      value={codigoConsulta}
+                      onChange={(e) => setCodigoConsulta(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          if (codigoConsulta.trim()) consultarApi()
+                        }
+                      }}
+                      placeholder={placeholderConsulta}
+                      autoCapitalize={apiSeccion.id === 'vehiculos' ? 'characters' : undefined}
+                      className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-200"
+                    />
+                    {apiSeccion.id === 'productos' ? (
+                      <button
+                        type="button"
+                        onClick={() => setScanAbierto(true)}
+                        className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-300 bg-white text-slate-500 transition-colors hover:border-primary hover:text-primary"
+                        title="Escanear código de barras"
+                        aria-label="Escanear código de barras"
+                      >
+                        <Camera className="h-5 w-5" />
+                      </button>
+                    ) : null}
+                    <Button variant="primary" className="shrink-0" disabled={!codigoConsulta.trim() || consultando} onClick={consultarApi}>
+                      {consultando ? <Spinner size={16} /> : <Search className="h-4 w-4" />}
+                      {consultando ? 'Consultando…' : 'Consultar'}
+                    </Button>
+                  </div>
+                  {mensajeConsulta ? (
+                    <div className="rounded-xl bg-amber-50 px-3 py-2">
+                      <p className="text-xs font-medium text-amber-800">{mensajeConsulta}</p>
+                      {codigoConsulta.trim() ? (
+                        <Button type="button" variant="secondary" className="mt-1.5 min-h-0 px-2.5 py-1 text-xs" onClick={agregarRegistroSinDatos}>
+                          <Plus className="h-3.5 w-3.5" /> Agregar registro igual (solo identificador)
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {resultadoConsulta ? (
+                    <div className="rounded-xl border border-green-200 bg-green-50/60 p-3">
+                      <p className="text-xs font-bold text-green-800">Encontrado: {resultadoConsulta.etiqueta}</p>
+                      {Object.keys(resultadoConsulta.datos).length ? (
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {Object.entries(resultadoConsulta.datos).map(([k, v]) => (
+                            <span key={k} className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                              {etiquetaDeCampo(paso.api_id, k)}: {formatearValorConsulta(v)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="mt-2 flex gap-2">
+                        <Button className="shrink-0" onClick={agregarRegistroConConsulta}>
+                          <Plus className="h-4 w-4" /> Agregar registro
+                        </Button>
+                        <Button type="button" variant="secondary" className="shrink-0" onClick={() => { setResultadoConsulta(null); setMensajeConsulta(null) }}>
+                          Descartar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <BarcodeScanner open={scanAbierto} onClose={() => setScanAbierto(false)} onDetect={(codigo) => { setCodigoConsulta(codigo); setScanAbierto(false) }} />
+                </div>
+              ) : (
+                <div className="mt-3 flex gap-2">
+                  <input
+                    ref={etiquetaInputRef}
+                    value={etiquetaNueva}
+                    onChange={(e) => setEtiquetaNueva(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        if (etiquetaNueva.trim()) agregarRegistro()
+                      }
+                    }}
+                    placeholder="Identificador (ej. placa, código, nombre…)"
+                    className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-200"
+                  />
+                  <Button variant="primary" className="shrink-0" disabled={!etiquetaNueva.trim()} onClick={agregarRegistro}>
+                    <Plus className="h-4 w-4" /> Agregar
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         ) : (

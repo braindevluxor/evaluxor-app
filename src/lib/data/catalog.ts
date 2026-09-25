@@ -114,7 +114,9 @@ export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: 
     requerido: i.requerido ?? false,
     puntaje: i.puntaje ?? 0,
     activo: i.activo ?? true,
-    padre_id: i.padre_id ?? null
+    padre_id: i.padre_id ?? null,
+    api_id: i.api_id ?? null,
+    api_campos: i.api_campos ?? null
   }).select('id').single()
   if (error) throw error
   return data?.id ?? null

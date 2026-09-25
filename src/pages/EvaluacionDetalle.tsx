@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
 import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, formatearLastSync, formatearPrecioBase, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
+import { etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Card, Puntaje, Skeleton, SkeletonTarjetas, Spinner, cn } from '../components/ui'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
@@ -490,6 +491,17 @@ export function EvaluacionDetalle() {
                                 Registro {i + 1} · {inst.etiqueta}
                               </p>
                             </div>
+                            {item.api_id && inst.datos && Object.keys(inst.datos).length ? (
+                              <div className="flex flex-wrap gap-1.5 bg-primary-50/40 px-4 pb-2">
+                                {Object.entries(inst.datos)
+                                  .filter(([, v]) => v != null && v !== '')
+                                  .map(([k, v]) => (
+                                    <span key={k} className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-primary-800">
+                                      {etiquetaDeCampo(item.api_id, k)}: {formatearValorConsulta(v)}
+                                    </span>
+                                  ))}
+                              </div>
+                            ) : null}
                             {hijos.map((hijo) => {
                               const res = respDe(hijo.id, inst.id)
                               if (!res) return null

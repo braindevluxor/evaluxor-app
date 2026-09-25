@@ -2,9 +2,9 @@ import { supabase } from '../supabase'
 import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, parsearClaveRespuesta, type SyncJob, type DraftEval } from './db'
 import { photoPath, convertirValor, extraerPhotoIds, valorSinFotos } from './transform'
 
-export function instanciasDeDraft(draft: DraftEval): { id: string; item_id: string; etiqueta: string; orden: number }[] {
+export function instanciasDeDraft(draft: DraftEval): { id: string; item_id: string; etiqueta: string; orden: number; api_id?: string; datos?: Record<string, unknown> }[] {
   return Object.entries(draft.instancias ?? {}).flatMap(([item_id, arr]) =>
-    arr.map((ins, i) => ({ id: ins.id, item_id, etiqueta: ins.etiqueta, orden: typeof ins.orden === 'number' ? ins.orden : i }))
+    arr.map((ins, i) => ({ id: ins.id, item_id, etiqueta: ins.etiqueta, orden: typeof ins.orden === 'number' ? ins.orden : i, api_id: ins.api_id, datos: ins.datos }))
   )
 }
 
@@ -46,7 +46,7 @@ export async function guardarBorradorNube(
   evaluacionId: string,
   evaluadorId: string,
   respuestas: { item_id: string; instancia_id: string | null; valor: unknown }[],
-  instancias: { id: string; item_id: string; etiqueta: string; orden: number }[] = []
+  instancias: { id: string; item_id: string; etiqueta: string; orden: number; api_id?: string; datos?: Record<string, unknown> }[] = []
 ): Promise<void> {
   if (!respuestas.length && !instancias.length) return
   if (instancias.length) {
@@ -55,7 +55,9 @@ export async function guardarBorradorNube(
       evaluacion_id: evaluacionId,
       item_id: ins.item_id,
       etiqueta: ins.etiqueta,
-      orden: ins.orden
+      orden: ins.orden,
+      api_id: ins.api_id ?? null,
+      datos: ins.datos ?? null
     }))
     const { error } = await supabase.from('instancias_grupo').upsert(rows, { onConflict: 'id' })
     if (error) throw error
@@ -112,7 +114,9 @@ export async function procesarCola(): Promise<{ ok: number; fail: number }> {
           evaluacion_id: evaluacionId,
           item_id: ins.item_id,
           etiqueta: ins.etiqueta,
-          orden: ins.orden
+          orden: ins.orden,
+          api_id: ins.api_id ?? null,
+          datos: ins.datos ?? null
         }))
         const { error: iErr } = await supabase.from('instancias_grupo').upsert(instRows, { onConflict: 'id' })
         if (iErr) throw iErr

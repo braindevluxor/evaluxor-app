@@ -261,6 +261,12 @@ create table if not exists public.items (
 );
 create index if not exists idx_items_modulo on public.items(modulo_id, orden);
 
+-- Sección CONTENEDOR con API: al agregar registros se consulta una API
+-- (trabajadores | vehiculos | productos) y se guardan los valores elegidos
+-- (items.api_campos) con cada registro. Informativos, no afectan el puntaje.
+alter table public.items add column if not exists api_id text;
+alter table public.items add column if not exists api_campos jsonb not null default '[]'::jsonb;
+
 -- La suma de los puntajes de un módulo no puede exceder 100: cuentan las secciones
 -- (CONTENEDOR, ponderadas) y los ítems sueltos (sin sección). Los ítems dentro de
 -- una sección no suman al módulo: su tope es el puntaje de la sección.
@@ -435,6 +441,10 @@ create table if not exists public.instancias_grupo (
   created_at timestamptz not null default now()
 );
 create index if not exists idx_instancias_grupo_evaluacion on public.instancias_grupo(evaluacion_id, item_id, orden);
+
+-- Valores traídos de la API por registro (según items.api_campos de la sección).
+alter table public.instancias_grupo add column if not exists api_id text;
+alter table public.instancias_grupo add column if not exists datos jsonb;
 
 create table if not exists public.respuestas (
   id uuid primary key default gen_random_uuid(),

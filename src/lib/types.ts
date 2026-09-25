@@ -130,6 +130,10 @@ export interface Item {
   puntaje?: number
   /** Id del ítem CONTENEDOR (sección) que agrupa este ítem. Un solo nivel de anidación. */
   padre_id?: string | null
+  /** API configurada en una sección (CONTENEDOR): al agregar un registro se consulta (vehiculos | productos | trabajadores). */
+  api_id?: string | null
+  /** Valores (campos) que se traen de la API y se guardan con cada registro. */
+  api_campos?: string[] | null
   created_at: string
 }
 
@@ -167,6 +171,10 @@ export interface InstanciaGrupo {
   item_id: string
   etiqueta: string
   orden: number
+  /** API que trajo los datos del registro (si la sección la tiene configurada). */
+  api_id?: string | null
+  /** Valores guardados desde la API (según items.api_campos de la sección). Informativos, no afectan el puntaje. */
+  datos?: Record<string, unknown> | null
   created_at: string
 }
 

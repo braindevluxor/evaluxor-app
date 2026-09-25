@@ -4,6 +4,7 @@ import { FolderOpen, GripVertical, Pencil, Plus, Copy, Trash2, X } from 'lucide-
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
 import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem, redondear3, valorPorResponsable } from '../../lib/scoring'
 import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
+import { APIS_DISPONIBLES, apiDisponible } from '../../lib/data/apis'
 import type { FiltroColaboradores, Item, Modulo, Opcion, TipoItem } from '../../lib/types'
 import { Button, Field, Input, Modal, Select, Textarea, Badge, Skeleton, cn } from '../../components/ui'
 
@@ -398,6 +399,10 @@ function FormItem({
   const [filtroColaboradores, setFiltroColaboradores] = useState<FiltroColaboradores>(inicial?.colaboradores_filtro ?? 'ACTIVOS')
   const [responsables, setResponsables] = useState<string[]>(inicial?.responsables?.length ? inicial.responsables : [])
   const [padreId, setPadreId] = useState<string | null>(inicial?.padre_id ?? padreIdInicial)
+  const [apiId, setApiId] = useState<string>(inicial?.api_id ?? '')
+  const [apiCampos, setApiCampos] = useState<string[]>(
+    inicial?.api_campos?.length ? (inicial.api_campos ?? []) : []
+  )
   const [autoPuntaje, setAutoPuntaje] = useState(false)
 
   const esSeccion = tipo === 'CONTENEDOR'
@@ -425,6 +430,8 @@ function FormItem({
 
   const sumaPuntosOpciones = opciones.reduce((a, o) => a + (o.puntos && o.puntos > 0 ? o.puntos : 0), 0)
   const rangoIncompleto = opciones.some((o) => o.tipo_respuesta === 'RANGO' && o.etiqueta.trim() && typeof o.minimo !== 'number')
+  const apiSeleccionada = esSeccion ? apiDisponible(apiId) : undefined
+  const apiSinCampos = !!apiSeleccionada && !apiCampos.length
 
   // CHECKLIST con puntaje automático: reparte el peso del ítem en partes iguales
   // entre las opciones con etiqueta, redondeado a 3 decimales (mín. 0.001 por opción).
@@ -444,7 +451,7 @@ function FormItem({
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
-        if (excede || rangoIncompleto || excedeGrupo || excedeHijos) return
+        if (excede || rangoIncompleto || excedeGrupo || excedeHijos || apiSinCampos) return
         void onGuardar({
           id: inicial?.id,
           modulo_id: moduloSel,
@@ -462,7 +469,9 @@ function FormItem({
           responsables: !esSeccion && conChecklist ? responsables.filter((r) => r.trim()) : [],
           requerido: esSeccion ? false : requerido,
           activo,
-          padre_id: esSeccion ? null : padreId
+          padre_id: esSeccion ? null : padreId,
+          api_id: esSeccion ? (apiId || null) : null,
+          api_campos: esSeccion && apiId ? apiCampos : null
         })
       }}
     >
@@ -523,6 +532,70 @@ function FormItem({
             'Las secciones pueden ponderarse (ej. 60 pts): los ítems que contiene suman como máximo el puntaje de la sección y ese peso cuenta para el módulo.'
           )}
         </p>
+      ) : null}
+      {esSeccion ? (
+        <>
+          <Field
+            label="Datos al agregar un registro (API)"
+            hint="Al crear cada registro la app escanea o escribe el identificador (placa, documento, SKU), consulta la API elegida y guarda los valores seleccionados. Son informativos: no afectan el puntaje (lo definen los ítems del grupo)."
+          >
+            <Select
+              value={apiId}
+              onChange={(e) => {
+                const valor = e.target.value
+                setApiId(valor)
+                const api = valor ? apiDisponible(valor) : undefined
+                setApiCampos(api ? api.campos.map((c) => c.id) : [])
+              }}
+            >
+              <option value="">(Sin API)</option>
+              {APIS_DISPONIBLES.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+            </Select>
+          </Field>
+          {apiSeleccionada ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-slate-600">Valores a traer <span className="font-normal text-slate-400">({apiCampos.length}/{apiSeleccionada.campos.length})</span></p>
+                <button
+                  type="button"
+                  onClick={() => setApiCampos(apiCampos.length === apiSeleccionada.campos.length ? [] : apiSeleccionada.campos.map((c) => c.id))}
+                  className="text-[11px] font-bold text-primary hover:underline"
+                >
+                  {apiCampos.length === apiSeleccionada.campos.length ? 'Quitar todos' : 'Seleccionar todos'}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {apiSeleccionada.campos.map((c) => {
+                  const marcado = apiCampos.includes(c.id)
+                  return (
+                    <label
+                      key={c.id}
+                      className={cn(
+                        'flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
+                        marcado ? 'border-primary bg-primary text-white' : 'border-slate-300 bg-white text-slate-500 hover:border-primary-300'
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        className="hidden"
+                        checked={marcado}
+                        onChange={() =>
+                          setApiCampos((prev) => (marcado ? prev.filter((x) => x !== c.id) : [...prev, c.id]))
+                        }
+                      />
+                      {c.etiqueta}
+                    </label>
+                  )
+                })}
+              </div>
+              {apiSinCampos ? (
+                <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">
+                  Elegí al menos un valor para traer (o quitá la API).
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </>
       ) : null}
       {excede ? (
         <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
@@ -622,7 +695,7 @@ function FormItem({
           Ítem activo (visible en evaluaciones)
         </label>
       </div>
-      <Button type="submit" className="w-full" disabled={excede || rangoIncompleto || excedeGrupo || excedeHijos}>Guardar ítem</Button>
+      <Button type="submit" className="w-full" disabled={excede || rangoIncompleto || excedeGrupo || excedeHijos || apiSinCampos}>Guardar ítem</Button>
     </form>
   )
 }

@@ -12,6 +12,10 @@ export interface DraftInstancia {
   id: string
   etiqueta: string
   orden: number
+  /** API que trajo los datos del registro (si la sección la tiene configurada). */
+  api_id?: string
+  /** Valores guardados desde la API (según items.api_campos de la sección). Informativos. */
+  datos?: Record<string, unknown>
 }
 
 export interface DraftEval {
@@ -59,7 +63,7 @@ export interface SyncJob {
   sucursal_id: string
   evaluador_id: string
   fecha: string
-  instancias: { id: string; item_id: string; etiqueta: string; orden: number }[]
+  instancias: { id: string; item_id: string; etiqueta: string; orden: number; api_id?: string; datos?: Record<string, unknown> }[]
   respuestas: { item_id: string; instancia_id: string | null; valor: unknown }[]
   photoIds: string[]
   status: 'pending' | 'processing'
