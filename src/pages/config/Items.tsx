@@ -181,7 +181,7 @@ export function ItemsPage() {
                   >
                     <GripVertical className="h-5 w-5" />
                   </button>
-                  <p className="min-w-[24px] text-center text-sm font-bold text-slate-400">{idx + 1}</p>
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold tabular-nums text-slate-600 ring-1 ring-inset ring-slate-200">{idx + 1}</span>
                   <div className="min-w-0 flex-1">
                     <p className={cn('text-sm font-medium', esSeccion ? 'font-bold text-primary-900' : 'text-slate-700')}>
                       {esSeccion ? <FolderOpen className="mr-1.5 inline h-4 w-4 text-primary" /> : null}
@@ -578,7 +578,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
             >
               <GripVertical className="h-5 w-5" />
             </button>
-            <span className="w-5 shrink-0 text-center text-sm font-bold text-slate-400">{i + 1}</span>
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold tabular-nums text-slate-600 ring-1 ring-inset ring-slate-200">{i + 1}</span>
             <Input value={o.etiqueta} onChange={(e) => cambiar(i, e.target.value)} placeholder={`Opción ${i + 1}`} className="min-w-40 flex-1" />
             {conPuntos ? (
               <label className="flex shrink-0 flex-col gap-1">
