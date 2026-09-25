@@ -15,6 +15,13 @@ function fmtPts(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/\.?0+$/, '')
 }
 
+/** Los errores de Supabase/PostgREST llegan como objetos: extrae el mensaje (p. ej. la regla del trigger) para mostrarlo. */
+function mensajeError(e: unknown, porDefecto: string): string {
+  const m = typeof e === 'object' && e !== null ? (e as { message?: unknown }).message : null
+  const msg = typeof m === 'string' ? m.trim() : ''
+  return msg && msg !== '[object Object]' ? msg : porDefecto
+}
+
 export function ItemsPage() {
   const [params] = useSearchParams()
   const [modulos, setModulos] = useState<(Modulo & { _items: Item[] })[]>([])
@@ -28,6 +35,7 @@ export function ItemsPage() {
   const [nuevoPadreId, setNuevoPadreId] = useState<string | null>(null)
   const [aBorrar, setABorrar] = useState<Item | null>(null)
   const [borrando, setBorrando] = useState(false)
+  const [error, setError] = useState('')
   const [arrastrando, setArrastrando] = useState<number | null>(null)
   const [sobre, setSobre] = useState<{ idx: number; lado: 'arriba' | 'abajo' } | null>(null)
 
@@ -143,8 +151,12 @@ export function ItemsPage() {
             </Select>
           </Field>
         </div>
-        <Button onClick={() => { setEditando(null); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null); setModal(true) }} disabled={!moduloId}>+ Nuevo ítem</Button>
+        <Button onClick={() => { setError(''); setEditando(null); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null); setModal(true) }} disabled={!moduloId}>+ Nuevo ítem</Button>
       </div>
+
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</div>
+      ) : null}
 
       {cargando ? (
         <div className="space-y-2">
@@ -303,35 +315,41 @@ export function ItemsPage() {
           items={items}
           padreIdInicial={nuevoPadreId}
           onGuardar={async (d) => {
-            const destino = modulos.find((m) => m.id === d.modulo_id)
-            const mover = d.id != null && d.modulo_id !== moduloId
-            if (destino) {
-              const maxOrden = destino._items.reduce((a, i) => Math.max(a, i.orden), -1)
-              if (!d.id || mover) d = { ...d, orden: maxOrden + 1 }
-            }
-            const nuevoId = await guardarItem(d)
-            // Al copiar una sección, duplica también sus ítems hijos dentro de la nueva sección.
-            if (esCopia && origenCopia?.tipo === 'CONTENEDOR' && nuevoId) {
-              for (const hijo of hijosDe(items, origenCopia.id)) {
-                await guardarItem({
-                  ...hijo,
-                  id: '',
-                  opciones: nuevasOpciones(hijo.opciones),
-                  responsables: hijo.responsables ? [...hijo.responsables] : [],
-                  requerido: hijo.requerido,
-                  activo: hijo.activo,
-                  orden: hijo.orden,
-                  modulo_id: d.modulo_id,
-                  padre_id: nuevoId
-                })
+            setError('')
+            try {
+              const destino = modulos.find((m) => m.id === d.modulo_id)
+              const mover = d.id != null && d.modulo_id !== moduloId
+              if (destino) {
+                const maxOrden = destino._items.reduce((a, i) => Math.max(a, i.orden), -1)
+                if (!d.id || mover) d = { ...d, orden: maxOrden + 1 }
               }
+              const nuevoId = await guardarItem(d)
+              // Al copiar una sección, duplica también sus ítems hijos dentro de la nueva sección.
+              if (esCopia && origenCopia?.tipo === 'CONTENEDOR' && nuevoId) {
+                for (const hijo of hijosDe(items, origenCopia.id)) {
+                  await guardarItem({
+                    ...hijo,
+                    id: '',
+                    opciones: nuevasOpciones(hijo.opciones),
+                    responsables: hijo.responsables ? [...hijo.responsables] : [],
+                    requerido: hijo.requerido,
+                    activo: hijo.activo,
+                    orden: hijo.orden,
+                    modulo_id: d.modulo_id,
+                    padre_id: nuevoId
+                  })
+                }
+              }
+              setModal(false)
+              setNuevoPadreId(null)
+              setEsCopia(false)
+              setOrigenCopia(null)
+              if (mover) setModuloId(d.modulo_id)
+              await cargar()
+            } catch (e) {
+              // El modal sigue abierto para no perder lo cargado; se explica qué falló.
+              setError(mensajeError(e, 'No se pudo guardar el ítem.'))
             }
-            setModal(false)
-            setNuevoPadreId(null)
-            setEsCopia(false)
-            setOrigenCopia(null)
-            if (mover) setModuloId(d.modulo_id)
-            await cargar()
           }}
         />
       </Modal>
@@ -354,10 +372,17 @@ export function ItemsPage() {
                 disabled={borrando}
                 onClick={async () => {
                   setBorrando(true)
-                  await eliminarItem(aBorrar.id)
-                  setBorrando(false)
-                  setABorrar(null)
-                  await cargar()
+                  setError('')
+                  try {
+                    await eliminarItem(aBorrar.id)
+                    setABorrar(null)
+                    await cargar()
+                  } catch (e) {
+                    setError(mensajeError(e, 'No se pudo eliminar el ítem.'))
+                    setABorrar(null)
+                  } finally {
+                    setBorrando(false)
+                  }
                 }}
               >
                 {borrando ? 'Eliminando…' : 'Eliminar ítem'}
@@ -420,8 +445,9 @@ function FormItem({
   const sumaConNuevo = otros + aportaModulo
   const excede = sumaConNuevo > 100
 
-  // Grupo: los ítems de una sección suman el 100% del grupo (peso libre, ej. 100 pts);
-  // el % logrado en sus checks se aplica sobre el puntaje de la sección.
+  // Grupo: los ítems de una sección representan el 100% interno del grupo y el %
+  // logrado se aplica sobre el puntaje de la sección. El puntaje de la sección no
+  // actúa como tope de los ítems del grupo; es la ponderación final del resultado.
   const sumaHijosPropios = esSeccion && inicial ? itemsModulo.filter((i) => i.padre_id === inicial.id).reduce((a, i) => a + pesoItem(i), 0) : 0
 
   const sumaPuntosOpciones = opciones.reduce((a, o) => a + (o.puntos && o.puntos > 0 ? o.puntos : 0), 0)

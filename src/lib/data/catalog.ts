@@ -97,9 +97,12 @@ export async function eliminarModulo(id: string): Promise<void> {
 }
 
 export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: Item['tipo']; texto: string }): Promise<string | null> {
+  // items.api_campos es NOT NULL (schema.sql): mandarlo explícitamente en null
+  // devuelve 400 (23502) y el guardado falla. Sin API se guarda como lista vacía.
+  const apiCampos = i.api_campos ?? []
   if (i.id) {
-    const { id, ...rest } = i
-    const { data, error } = await supabase.from('items').update(rest).eq('id', id).select('id').single()
+    const { id, api_campos: _omitido, ...rest } = i
+    const { data, error } = await supabase.from('items').update({ ...rest, api_campos: apiCampos }).eq('id', id).select('id').single()
     if (error) throw error
     return data?.id ?? id
   }
@@ -116,14 +119,15 @@ export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: 
     activo: i.activo ?? true,
     padre_id: i.padre_id ?? null,
     api_id: i.api_id ?? null,
-    api_campos: i.api_campos ?? null
+    api_campos: apiCampos
   }).select('id').single()
   if (error) throw error
   return data?.id ?? null
 }
 
 export async function eliminarItem(id: string): Promise<void> {
-  await supabase.from('items').delete().eq('id', id)
+  const { error } = await supabase.from('items').delete().eq('id', id)
+  if (error) throw error
 }
 
 export async function listarSucursalConfigAdmin(sucursalId: string): Promise<{ modulos: string[]; items: string[]; opciones: { item_id: string; opcion_id: string }[] }> {

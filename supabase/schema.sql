@@ -294,27 +294,9 @@ begin
 
   v_modulo := new.modulo_id;
 
-  -- Ítem hijo de sección: los hijos del grupo no pueden superar los puntos de la sección.
-  if new.padre_id is not null and new.tipo <> 'CONTENEDOR' then
-    v_suma_hijos := coalesce((
-      select sum(puntaje) from public.items
-       where padre_id = new.padre_id and (new.id is null or id <> new.id)
-    ), 0) + coalesce(new.puntaje, 0);
-    select puntaje into v_padre_puntaje from public.items where id = new.padre_id;
-    if v_padre_puntaje is not null and v_suma_hijos > v_padre_puntaje then
-      raise exception 'Los ítems del grupo (%) suman % puntos, más que el puntaje de la sección (%)', new.padre_id, v_suma_hijos, v_padre_puntaje;
-    end if;
-  end if;
-
-  -- Sección: al ponderarla (o bajarla), sus hijos no pueden quedar por encima.
-  if new.tipo = 'CONTENEDOR' then
-    v_suma_hijos := coalesce((
-      select sum(puntaje) from public.items where padre_id = new.id
-    ), 0);
-    if v_suma_hijos > coalesce(new.puntaje, 0) then
-      raise exception 'Los ítems del grupo (%) suman % puntos, más que el puntaje de la sección (%)', new.id, v_suma_hijos, coalesce(new.puntaje, 0);
-    end if;
-  end if;
+  -- En una sección, los hijos representan el 100% interno del grupo y el porcentaje
+  -- logrado se aplica sobre el puntaje de la sección. Por eso no se impone un tope
+  -- directo entre ambos: la sección es la ponderación final del resultado del grupo.
 
   -- Módulo: secciones ponderadas e ítems sueltos suman hasta 100.
   v_suma_modulo := coalesce((
