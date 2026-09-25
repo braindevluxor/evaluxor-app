@@ -411,7 +411,8 @@ function FormItem({
   const seccionesDisponibles = itemsModulo.filter((i) => i.tipo === 'CONTENEDOR' && i.id !== inicial?.id)
 
   // Peso del módulo: solo secciones (ponderadas) e ítems sueltos. Los hijos de una
-  // sección no suman al módulo: su tope es el puntaje de la sección.
+  // sección no suman al módulo: su peso define el % del grupo (100% interno) y ese
+  // % se aplica sobre el puntaje de la sección.
   const otros = itemsModulo
     .filter((i) => i.id !== inicial?.id && (i.tipo === 'CONTENEDOR' || !i.padre_id))
     .reduce((a, i) => a + pesoItem(i), 0)
@@ -419,14 +420,9 @@ function FormItem({
   const sumaConNuevo = otros + aportaModulo
   const excede = sumaConNuevo > 100
 
-  // Zona del grupo: la suma de los ítems del grupo no puede superar el puntaje de la sección.
-  const seccionDeGrupo = padreId ? itemsModulo.find((i) => i.id === padreId) : null
-  const sumaHermanos = padreId
-    ? itemsModulo.filter((i) => i.padre_id === padreId && i.id !== inicial?.id).reduce((a, i) => a + pesoItem(i), 0)
-    : 0
-  const excedeGrupo = !!padreId && !!seccionDeGrupo && sumaHermanos + (Number(puntos) || 0) > pesoItem(seccionDeGrupo ?? null)
+  // Grupo: los ítems de una sección suman el 100% del grupo (peso libre, ej. 100 pts);
+  // el % logrado en sus checks se aplica sobre el puntaje de la sección.
   const sumaHijosPropios = esSeccion && inicial ? itemsModulo.filter((i) => i.padre_id === inicial.id).reduce((a, i) => a + pesoItem(i), 0) : 0
-  const excedeHijos = esSeccion && inicial ? (Number(puntos) || 0) < sumaHijosPropios : false
 
   const sumaPuntosOpciones = opciones.reduce((a, o) => a + (o.puntos && o.puntos > 0 ? o.puntos : 0), 0)
   const rangoIncompleto = opciones.some((o) => o.tipo_respuesta === 'RANGO' && o.etiqueta.trim() && typeof o.minimo !== 'number')
@@ -451,7 +447,7 @@ function FormItem({
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
-        if (excede || rangoIncompleto || excedeGrupo || excedeHijos || apiSinCampos) return
+        if (excede || rangoIncompleto || apiSinCampos) return
         void onGuardar({
           id: inicial?.id,
           modulo_id: moduloSel,
@@ -510,9 +506,9 @@ function FormItem({
       <Field
         label={esSeccion ? 'Puntos de la sección (ponderación)' : 'Puntos (ponderación)'}
         hint={esSeccion
-          ? 'Peso de la sección en el módulo. Los ítems del grupo suman como máximo este valor; secciones + ítems sueltos del módulo no pueden superar 100.'
+          ? 'Peso de la sección en el módulo (ej. 25 pts). Sus ítems suman el 100% del grupo y el % logrado se aplica sobre este peso; secciones + ítems sueltos del módulo no pueden superar 100.'
           : padreId
-            ? 'Peso dentro de la sección. La suma de los ítems del grupo no puede superar el puntaje de la sección.'
+            ? 'Peso del ítem dentro del grupo. Los ítems del grupo suman el 100% del grupo (ej. 100 pts): el % logrado en sus checks se aplica sobre el puntaje de la sección.'
             : 'Peso del ítem en el módulo. La suma de todos los ítems del módulo no puede superar 100.'}
       >
         <Input
@@ -527,9 +523,9 @@ function FormItem({
       {esSeccion ? (
         <p className="rounded-xl border border-primary-200 bg-primary-50 p-3 text-xs text-slate-600">
           {sumaHijosPropios > 0 ? (
-            <>La sección pondera <strong>{Number(puntos) || 0} pts</strong>; sus ítems ya suman <strong>{sumaHijosPropios} pts</strong> (tope del grupo).</>
+            <>La sección pondera <strong>{Number(puntos) || 0} pts</strong> en el módulo; sus ítems suman <strong>{sumaHijosPropios} pts</strong> (100% del grupo). Si los checks logran 80 de 100, la sección aporta el 80% de {Number(puntos) || 0} pts.</>
           ) : (
-            'Las secciones pueden ponderarse (ej. 60 pts): los ítems que contiene suman como máximo el puntaje de la sección y ese peso cuenta para el módulo.'
+            'Las secciones pueden ponderarse (ej. 25 pts): sus ítems suman el 100% del grupo (ej. 100 pts) y el % logrado en los checks se aplica sobre el puntaje de la sección.'
           )}
         </p>
       ) : null}
@@ -600,20 +596,6 @@ function FormItem({
       {excede ? (
         <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
           Con estos puntos el módulo sumaría {sumaConNuevo}/100. Baja el valor para no superar 100.
-        </p>
-      ) : null}
-      {excedeGrupo ? (
-        <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
-          {pesoItem(seccionDeGrupo ?? null) > 0 ? (
-            <>El grupo «{seccionDeGrupo?.texto}» tiene {sumaHermanos} pts; con estos puntos el grupo sumaría {sumaHermanos + (Number(puntos) || 0)}/{pesoItem(seccionDeGrupo ?? null)}. Reducí el valor para no superar el puntaje de la sección.</>
-          ) : (
-            <>El grupo «{seccionDeGrupo?.texto}» no tiene puntos asignados. Primero ponderá la sección para poder darles puntos a sus ítems.</>
-          )}
-        </p>
-      ) : null}
-      {excedeHijos ? (
-        <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
-          La sección ya tiene {sumaHijosPropios} pts repartidos en sus ítems; el puntaje no puede ser menor a esa suma.
         </p>
       ) : null}
       {tipo === 'CHECKLIST' ? (
@@ -695,7 +677,7 @@ function FormItem({
           Ítem activo (visible en evaluaciones)
         </label>
       </div>
-      <Button type="submit" className="w-full" disabled={excede || rangoIncompleto || excedeGrupo || excedeHijos || apiSinCampos}>Guardar ítem</Button>
+      <Button type="submit" className="w-full" disabled={excede || rangoIncompleto || apiSinCampos}>Guardar ítem</Button>
     </form>
   )
 }

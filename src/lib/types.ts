@@ -126,7 +126,7 @@ export interface Item {
   orden: number
   requerido: boolean
   activo: boolean
-  /** Peso del ítem en el módulo (hasta 3 decimales). En secciones (CONTENEDOR) es el peso del grupo: sus hijos suman como máximo este valor y ese peso cuenta para el módulo. */
+  /** Peso del ítem en el módulo (hasta 3 decimales). En secciones (CONTENEDOR) es el peso del grupo en el módulo: sus hijos suman el 100% del grupo y el % logrado se aplica sobre este peso. */
   puntaje?: number
   /** Id del ítem CONTENEDOR (sección) que agrupa este ítem. Un solo nivel de anidación. */
   padre_id?: string | null

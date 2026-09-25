@@ -338,6 +338,20 @@ describe('secciones ponderadas', () => {
     expect(agregarPuntaje(hijos)).toBe(100)
   })
 
+  it('los ítems del grupo suman el 100% del grupo: el % logrado se aplica sobre el peso de la sección', () => {
+    // Grupo de 25 pts cuyo 100% interno son 100 pts en checks: logran 61 de 100
+    // → la sección aporta el 61% de 25 = 15.25 pts (61%).
+    const seccion25 = { id: 'g1', tipo: 'CONTENEDOR', puntaje: 25 }
+    const hijos = [
+      { item: { id: 'ch1', tipo: 'CHECKLIST', puntaje: 30, padre_id: 'g1', opciones: [{ id: 'a', puntos: 3 }, { id: 'b', puntos: 1 }, { id: 'c', puntos: 2 }] }, cumple: 0.7 },
+      { item: { id: 'ch2', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 40, padre_id: 'g1' }, cumple: 1 },
+      { item: { id: 'ch3', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 30, padre_id: 'g1' }, cumple: 0 },
+      { item: seccion25, cumple: null }
+    ]
+    // Logrado = 30×0.7 + 40×1 + 30×0 = 61 de 100 → 61% de 25 = 15.25 → 61%.
+    expect(agregarPuntaje(hijos)).toBe(61)
+  })
+
   it('hijo incumplido resta solo su peso dentro del grupo', () => {
     const hijos = [
       { item: { id: 'a', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 20, padre_id: 's1' }, cumple: true },
