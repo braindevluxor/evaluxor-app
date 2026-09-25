@@ -573,7 +573,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
                 e.dataTransfer.setData('text/plain', String(i))
               }}
               onDragEnd={() => { setArrastrando(null); setSobre(null) }}
-              className="grid h-11 w-11 shrink-0 cursor-grab place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
+              className="grid h-10 w-10 shrink-0 cursor-grab place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
               title="Arrastrar para reordenar"
             >
               <GripVertical className="h-5 w-5" />
@@ -604,7 +604,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
                 </Select>
               </label>
             ) : null}
-            <button type="button" onClick={() => quitar(i)} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
+            <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
           </div>
           {conRango ? (
             <div className="flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 px-2.5 py-2">
