@@ -266,6 +266,7 @@ create index if not exists idx_items_modulo on public.items(modulo_id, orden);
 -- (items.api_campos) con cada registro. Informativos, no afectan el puntaje.
 alter table public.items add column if not exists api_id text;
 alter table public.items add column if not exists api_campos jsonb not null default '[]'::jsonb;
+alter table public.items add column if not exists permitir_duplicados boolean not null default false;
 
 -- La suma de los puntajes de un módulo no puede exceder 100: cuentan las secciones
 -- (CONTENEDOR, ponderadas) y los ítems sueltos (sin sección). Los ítems dentro de

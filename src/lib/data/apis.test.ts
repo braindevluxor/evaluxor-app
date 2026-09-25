@@ -124,6 +124,7 @@ describe('valoresDeColaborador / encontrarColaboradorPorDocumento', () => {
     expect(v.nombre).toBe('Juan Pérez')
     expect(v.rol).toBe('Cajero')
     expect(v.estado).toBe('Activo')
+    expect(v.admission_date).toBe('2024-03-15')
   })
 
   it('busca por documento exacto ignorando ceros a la izquierda', () => {

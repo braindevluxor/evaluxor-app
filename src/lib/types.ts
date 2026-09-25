@@ -134,6 +134,8 @@ export interface Item {
   api_id?: string | null
   /** Valores (campos) que se traen de la API y se guardan con cada registro. */
   api_campos?: string[] | null
+  /** Permite repetir el mismo valor identificador en los registros de una sección API. */
+  permitir_duplicados?: boolean | null
   created_at: string
 }
 

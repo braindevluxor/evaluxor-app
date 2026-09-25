@@ -1,4 +1,4 @@
-const API_KEY = Deno.env.get('COLABORADORES_API_KEY') ?? 'PBDFeysVkGLa0zRfq5bYEUtNbmV0akhtN3hFakRES3E2cU82TVE9PQ=='
+const API_KEY = Deno.env.get('COLABORADORES_API_KEY')
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -22,13 +22,18 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { branchID } = await req.json()
+    const { branchID, catalogo } = await req.json()
     if (!branchID) {
       return RESPUESTA(null, 400, 200)
     }
+    if (!API_KEY) {
+      return RESPUESTA(null, 500, 200, 'Falta configurar COLABORADORES_API_KEY en Supabase.')
+    }
 
-    const url = new URL('https://desarrolloluxor.lat/api/talentohumano/employee/samir')
-    url.searchParams.set('branchID', String(branchID))
+    const url = catalogo
+      ? new URL(`https://desarrolloluxor.lat/api/talentohumano/branch/${encodeURIComponent(String(branchID))}/samir`)
+      : new URL('https://desarrolloluxor.lat/api/talentohumano/employee/samir')
+    if (!catalogo) url.searchParams.set('branchID', String(branchID))
 
     const res = await fetch(url.toString(), { headers: { API_KEY } })
 

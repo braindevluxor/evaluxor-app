@@ -93,7 +93,8 @@ export const APIS_DISPONIBLES: ApiDisponible[] = [
       { id: 'nombre', etiqueta: 'Nombre y apellido' },
       { id: 'rol', etiqueta: 'Rol' },
       { id: 'sucursal', etiqueta: 'Sucursal' },
-      { id: 'estado', etiqueta: 'Estado' }
+      { id: 'estado', etiqueta: 'Estado' },
+      { id: 'admission_date', etiqueta: 'Fecha de ingreso' }
     ],
     consultar: async (codigo, ctx) => {
       const branch = ctx.branchId ?? ctx.shopId
@@ -145,6 +146,10 @@ export function formatearValorConsulta(v: unknown): string {
   return String(v)
 }
 
+export function esColorHex(v: unknown): v is string {
+  return typeof v === 'string' && /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v.trim())
+}
+
 /** Valores disponibles de un vehículo (subset completo; se filtra por api_campos al guardar). */
 export function valoresDeVehiculo(v: Vehiculo): Record<string, unknown> {
   return {
@@ -182,7 +187,8 @@ export function valoresDeColaborador(c: ColaboradorAPI): Record<string, unknown>
     nombre: nombreColaborador(c) || null,
     rol: c.role_name ?? null,
     sucursal: c.branch_name ?? null,
-    estado: typeof c.active === 'boolean' ? (c.active ? 'Activo' : 'Inactivo') : null
+    estado: typeof c.active === 'boolean' ? (c.active ? 'Activo' : 'Inactivo') : null,
+    admission_date: c.admission_date ?? null
   }
 }
 

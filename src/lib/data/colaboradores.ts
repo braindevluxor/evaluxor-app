@@ -10,6 +10,7 @@ export interface ColaboradorAPI {
   branch_id?: number
   branch_name?: string
   active?: boolean
+  admission_date?: string | null
 }
 
 export interface ResultadoColaboradores {

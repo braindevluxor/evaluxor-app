@@ -51,7 +51,8 @@ export const colaboradorDePrueba: ColaboradorAPI = {
   lastname: 'Pérez',
   role_name: 'Cajero',
   branch_name: 'Tienda Centro',
-  active: true
+  active: true,
+  admission_date: '2024-03-15'
 }
 
 export const colaboradoresDePrueba: ColaboradorAPI[] = [

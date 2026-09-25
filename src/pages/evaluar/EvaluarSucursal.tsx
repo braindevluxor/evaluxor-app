@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Camera, Check, FolderOpen, List, Plus, Search, Tag, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, FolderOpen, List, Plus, Search, Tag, Trash2, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
@@ -9,12 +9,13 @@ import { claveRespuesta, pasosDeModulo, raicesDeModulo } from '../../lib/pasos'
 import { getDraft, putDraft, normalizarClave, instanciasPlanasDe, type DraftEval, type DraftInstancia } from '../../lib/offline/db'
 import { guardarBorradorNube, instanciasDeDraft, respuestasConInstancia } from '../../lib/offline/sync'
 import { listarEvaluacionesActivas, listarRespuestasEvaluacion, listarInstanciasEvaluacion } from '../../lib/data/indicadores'
-import { apiDisponible, etiquetaDeCampo, formatearValorConsulta, seleccionarValores } from '../../lib/data/apis'
+import { apiDisponible, esColorHex, etiquetaDeCampo, formatearValorConsulta, seleccionarValores } from '../../lib/data/apis'
 import { supabase } from '../../lib/supabase'
 import { ItemRenderer } from '../../components/ItemRenderer'
 import { Button, EmptyState, Modal, Spinner, cn } from '../../components/ui'
 import { BarcodeScanner } from '../../components/BarcodeScanner'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
+import { yaExisteRegistroConEtiqueta } from '../../lib/registro'
 import type { Item } from '../../lib/types'
 
 interface RegistroActivo {
@@ -130,6 +131,16 @@ export function EvaluarSucursal() {
     [modulosActivos, itemsDe]
   )
 
+  const moduloActual = modulos[Math.min(idxModulo, Math.max(0, modulos.length - 1))]
+  const pasosActuales = moduloActual ? raicesDeModulo(itemsDe(moduloActual)) : []
+  const pasoActual = pasosActuales[Math.min(idxItem, Math.max(0, pasosActuales.length - 1))]
+  const valorRegistroNuevo = resultadoConsulta?.etiqueta ?? (codigoConsulta.trim() || etiquetaNueva.trim())
+  const duplicadoRegistro = pasoActual && !pasoActual.permitir_duplicados && valorRegistroNuevo
+    ? yaExisteRegistroConEtiqueta(draft?.instancias?.[pasoActual.id] ?? [], valorRegistroNuevo)
+      ? 'Ya hay un registro con ese mismo valor en la lista actual.'
+      : null
+    : null
+
   useEffect(() => {
     if (!profile) return
     void (async () => {
@@ -239,6 +250,8 @@ export function EvaluarSucursal() {
   const hijosSeccion = registro ? hijosOrdenados(itemsModulo, registro.seccionId) : []
   const hijoActual = registro ? hijosSeccion[Math.min(idxRegistro, hijosSeccion.length - 1)] : undefined
   const instanciasDeSeccion = (seccionId: string) => actual.instancias?.[seccionId] ?? []
+  const registrosSeccion = paso ? instanciasDeSeccion(paso.id) : []
+  const registrosVisibles = [...registrosSeccion].reverse()
   const instanciaIndex = registro ? instanciasDeSeccion(registro.seccionId).findIndex((i) => i.id === registro.instanciaId) : -1
   const ultimoHijo = registro ? idxRegistro >= hijosSeccion.length - 1 : false
 
@@ -336,6 +349,9 @@ export function EvaluarSucursal() {
     const etiqueta = etiquetaNueva.trim()
     if (!etiqueta) return
     const previas = actual.instancias?.[paso.id] ?? []
+    if (!paso.permitir_duplicados && yaExisteRegistroConEtiqueta(previas, etiqueta)) {
+      return
+    }
     const ins: DraftInstancia = { id: crypto.randomUUID(), etiqueta, orden: previas.length }
     const nuevo: DraftEval = {
       ...actual,
@@ -373,6 +389,9 @@ export function EvaluarSucursal() {
   function agregarRegistroConConsulta() {
     if (!esSeccion || !paso || !resultadoConsulta) return
     const previas = actual.instancias?.[paso.id] ?? []
+    if (!paso.permitir_duplicados && yaExisteRegistroConEtiqueta(previas, resultadoConsulta.etiqueta)) {
+      return
+    }
     const ins: DraftInstancia = {
       id: crypto.randomUUID(),
       etiqueta: resultadoConsulta.etiqueta,
@@ -400,6 +419,9 @@ export function EvaluarSucursal() {
     const etiqueta = codigoConsulta.trim()
     if (!etiqueta) return
     const previas = actual.instancias?.[paso.id] ?? []
+    if (!paso.permitir_duplicados && yaExisteRegistroConEtiqueta(previas, etiqueta)) {
+      return
+    }
     const ins: DraftInstancia = { id: crypto.randomUUID(), etiqueta, orden: previas.length, api_id: paso.api_id ?? undefined }
     const nuevo: DraftEval = {
       ...actual,
@@ -497,23 +519,36 @@ export function EvaluarSucursal() {
                   <p className="truncate text-sm font-bold text-primary-900">{paso.texto}</p>
                 </div>
               </div>
-              <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                {apiSeccion ? (
-                  <>Esta sección se repite por <b>registro</b> y consulta la API de <b>{apiSeccion.nombre}</b>: escribí el identificador ({placeholderConsulta}), tocá «Consultar» y guardá el registro con los datos traídos. Cada registro evalúa sus {hijosOrdenados(itemsModulo, paso.id).length} ítems.</>
-                ) : (
-                  <>Esta sección se repite por <b>registro</b>. Cada registro lleva un identificador (ej. placa, código, nombre…)
-                  y evalúa sus {hijosOrdenados(itemsModulo, paso.id).length} ítems. Cuando termines uno, podés agregar otro y seguir tantas veces como necesites.</>
-                )}
-              </p>
+              <div className="mt-2 flex justify-end">
+                <span className="group relative inline-flex">
+                  <button
+                    type="button"
+                    className="grid h-7 w-7 place-items-center rounded-full text-slate-400 transition-colors hover:bg-primary-50 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary-200"
+                    aria-label="Ayuda sobre los registros de esta sección"
+                  >
+                    <CircleHelp className="h-5 w-5" />
+                  </button>
+                  <span
+                    role="tooltip"
+                    className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-80 rounded-xl border border-slate-200 bg-white p-3 text-left text-xs leading-relaxed text-slate-600 shadow-lg group-hover:block group-focus-within:block"
+                  >
+                    {apiSeccion ? (
+                      <>Esta sección se repite por <b>registro</b> y consulta la API de <b>{apiSeccion.nombre}</b>. Escribí el identificador ({placeholderConsulta}), tocá «Consultar» y guardá el registro con los datos traídos. Cada registro evalúa sus {hijosOrdenados(itemsModulo, paso.id).length} ítems.</>
+                    ) : (
+                      <>Esta sección se repite por <b>registro</b>. Cada registro lleva un identificador (ej. placa, código, nombre…) y evalúa sus {hijosOrdenados(itemsModulo, paso.id).length} ítems. Cuando termines uno, podés agregar otro y seguir tantas veces como necesites.</>
+                    )}
+                  </span>
+                </span>
+              </div>
             </div>
 
-            <div className="rounded-2xl bg-white p-4">
+            <div className="flex flex-col rounded-2xl bg-white p-4">
               <div className="flex items-center justify-between">
                 <p className="font-bold text-primary-900">Registros</p>
-                <p className="text-xs text-slate-500">{instanciasDeSeccion(paso.id).length} creado(s)</p>
+                <p className="text-xs text-slate-500">{registrosSeccion.length} creado(s)</p>
               </div>
 
-              {instanciasDeSeccion(paso.id).length === 0 ? (
+              {registrosSeccion.length === 0 ? (
                 <div className="mt-3 rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-400">
                   {apiSeccion
                     ? 'Todavía no hay registros. Consultá un identificador y agregá el primero.'
@@ -521,7 +556,7 @@ export function EvaluarSucursal() {
                 </div>
               ) : (
                 <ul className="mt-3 space-y-2">
-                  {instanciasDeSeccion(paso.id).map((ins, i) => {
+                  {registrosVisibles.map((ins, i) => {
                     const hijos = hijosOrdenados(itemsModulo, paso.id)
                     const hechos = hijos.filter((h) => actual.respuestas[claveRespuesta(h.id, ins.id)]).length
                     const completo = hijos.length > 0 && hechos === hijos.length
@@ -538,10 +573,14 @@ export function EvaluarSucursal() {
                             {apiSeccion && ins.datos && Object.keys(ins.datos).length ? (
                               <span className="mt-1 flex flex-wrap gap-1">
                                 {Object.entries(ins.datos)
+                                  .filter(([k]) => (paso.api_campos ?? []).includes(k))
                                   .filter(([, v]) => v != null && v !== '')
                                   .map(([k, v]) => (
                                     <span key={k} className="rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-semibold text-primary-800">
-                                      {etiquetaDeCampo(paso.api_id, k)}: {formatearValorConsulta(v)}
+                                      {etiquetaDeCampo(paso.api_id, k)}:{' '}
+                                      {k === 'color' && esColorHex(v) ? (
+                                        <span className="ml-0.5 inline-block h-3.5 w-3.5 align-[-0.15em] rounded-full border border-slate-300" style={{ backgroundColor: v }} title={v} aria-label={`Color ${v}`} />
+                                      ) : formatearValorConsulta(v)}
                                     </span>
                                   ))}
                               </span>
@@ -566,8 +605,14 @@ export function EvaluarSucursal() {
                 </ul>
               )}
 
+              {!apiSeccion && duplicadoRegistro ? (
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                  {duplicadoRegistro}
+                </div>
+              ) : null}
+
               {apiSeccion ? (
-                <div className="mt-3 space-y-2">
+                <div className="order-first mt-3 space-y-2">
                   <div className="flex gap-2">
                     <input
                       value={codigoConsulta}
@@ -601,13 +646,20 @@ export function EvaluarSucursal() {
                   {mensajeConsulta ? (
                     <div className="rounded-xl bg-amber-50 px-3 py-2">
                       <p className="text-xs font-medium text-amber-800">{mensajeConsulta}</p>
-                      {codigoConsulta.trim() ? (
+                      {codigoConsulta.trim() && !duplicadoRegistro ? (
                         <Button type="button" variant="secondary" className="mt-1.5 min-h-0 px-2.5 py-1 text-xs" onClick={agregarRegistroSinDatos}>
                           <Plus className="h-3.5 w-3.5" /> Agregar registro igual (solo identificador)
                         </Button>
                       ) : null}
                     </div>
                   ) : null}
+
+                  {duplicadoRegistro ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                      {duplicadoRegistro}
+                    </div>
+                  ) : null}
+
                   {resultadoConsulta ? (
                     <div className="rounded-xl border border-green-200 bg-green-50/60 p-3">
                       <p className="text-xs font-bold text-green-800">Encontrado: {resultadoConsulta.etiqueta}</p>
@@ -615,19 +667,24 @@ export function EvaluarSucursal() {
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                           {Object.entries(resultadoConsulta.datos).map(([k, v]) => (
                             <span key={k} className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-                              {etiquetaDeCampo(paso.api_id, k)}: {formatearValorConsulta(v)}
+                              {etiquetaDeCampo(paso.api_id, k)}:{' '}
+                              {k === 'color' && esColorHex(v) ? (
+                                <span className="ml-0.5 inline-block h-4 w-4 align-[-0.2em] rounded-full border border-slate-300" style={{ backgroundColor: v }} title={v} aria-label={`Color ${v}`} />
+                              ) : formatearValorConsulta(v)}
                             </span>
                           ))}
                         </div>
                       ) : null}
-                      <div className="mt-2 flex gap-2">
-                        <Button className="shrink-0" onClick={agregarRegistroConConsulta}>
-                          <Plus className="h-4 w-4" /> Agregar registro
-                        </Button>
-                        <Button type="button" variant="secondary" className="shrink-0" onClick={() => { setResultadoConsulta(null); setMensajeConsulta(null) }}>
-                          Descartar
-                        </Button>
-                      </div>
+                      {!duplicadoRegistro ? (
+                        <div className="mt-2 flex gap-2">
+                          <Button className="shrink-0" onClick={agregarRegistroConConsulta}>
+                            <Plus className="h-4 w-4" /> Agregar registro
+                          </Button>
+                          <Button type="button" variant="secondary" className="shrink-0" onClick={() => { setResultadoConsulta(null); setMensajeConsulta(null) }}>
+                            Descartar
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                   <BarcodeScanner open={scanAbierto} onClose={() => setScanAbierto(false)} onDetect={(codigo) => { setCodigoConsulta(codigo); setScanAbierto(false) }} />
@@ -652,6 +709,7 @@ export function EvaluarSucursal() {
                   </Button>
                 </div>
               )}
+
             </div>
           </div>
         ) : (

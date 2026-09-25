@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
 import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, formatearLastSync, formatearPrecioBase, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
-import { etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
+import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Card, Puntaje, Skeleton, SkeletonTarjetas, Spinner, cn } from '../components/ui'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
@@ -497,7 +497,10 @@ export function EvaluacionDetalle() {
                                   .filter(([, v]) => v != null && v !== '')
                                   .map(([k, v]) => (
                                     <span key={k} className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-primary-800">
-                                      {etiquetaDeCampo(item.api_id, k)}: {formatearValorConsulta(v)}
+                                      {etiquetaDeCampo(item.api_id, k)}:{' '}
+                                      {k === 'color' && esColorHex(v) ? (
+                                        <span className="ml-0.5 inline-block h-3.5 w-3.5 align-[-0.15em] rounded-full border border-slate-300" style={{ backgroundColor: v }} title={v} aria-label={`Color ${v}`} />
+                                      ) : formatearValorConsulta(v)}
                                     </span>
                                   ))}
                               </div>
