@@ -595,7 +595,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
                 />
               </label>
             ) : null}
-            {responsables.length ? (
+            {responsables.length && !conRango ? (
               <label className="flex shrink-0 flex-col gap-1">
                 <span className="px-0.5 text-[11px] font-semibold text-slate-500">Responsable directo</span>
                 <Select value={o.responsable ?? ''} onChange={(e) => cambiarResponsable(i, e.target.value)} className="w-44 shrink-0">
@@ -620,6 +620,15 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
                   <option value="RANGO">Rango de valor</option>
                 </Select>
               </label>
+              {responsables.length ? (
+                <label className="flex shrink-0 flex-col gap-1">
+                  <span className="px-0.5 text-[11px] font-semibold text-slate-500">Responsable directo</span>
+                  <Select value={o.responsable ?? ''} onChange={(e) => cambiarResponsable(i, e.target.value)} className="w-44 shrink-0">
+                    <option value="">(Sin asignar)</option>
+                    {responsables.map((r) => <option key={r} value={r}>{r}</option>)}
+                  </Select>
+                </label>
+              ) : null}
               {o.tipo_respuesta === 'RANGO' ? (
                 <>
                   <label className="flex shrink-0 flex-col gap-1">
