@@ -53,8 +53,15 @@ export async function listarColaboradores(shopId: string): Promise<ResultadoCola
     return { colaboradores: [], mensaje: 'La API no devolvió el listado de colaboradores.' }
   }
 
-  const colaboradores = (arr as ColaboradorAPI[]).filter(
-    (c) => c && typeof c === 'object' && c.dni != null && (c.name != null || c.lastname != null)
-  )
+  const colaboradores = (arr as ColaboradorAPI[])
+    .filter((c) => c && typeof c === 'object' && c.dni != null && (c.name != null || c.lastname != null))
+    .sort((a, b) => {
+      const apeA = (a.lastname ?? '').trim().toLocaleLowerCase()
+      const apeB = (b.lastname ?? '').trim().toLocaleLowerCase()
+      const nomA = (a.name ?? '').trim().toLocaleLowerCase()
+      const nomB = (b.name ?? '').trim().toLocaleLowerCase()
+      return apeA.localeCompare(apeB) || nomA.localeCompare(nomB) || ((a.dni ?? 0) - (b.dni ?? 0))
+    })
+
   return { colaboradores, mensaje: null }
 }
