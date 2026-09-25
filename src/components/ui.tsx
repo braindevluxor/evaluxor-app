@@ -49,28 +49,44 @@ export function Field({ label, children, className, hint }: FieldProps) {
   )
 }
 
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+  // Si el consumidor pasa una clase de ancho (p. ej. w-20), no aplicar el w-full base para no pisarlo.
+  const conAncho = /(?:^|\s)w-/.test(className ?? '')
   return (
     <input
-      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 min-h-[44px]"
+      className={cn(
+        'rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 min-h-[44px]',
+        !conAncho && 'w-full',
+        className
+      )}
       {...props}
     />
   )
 }
 
-export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const conAncho = /(?:^|\s)w-/.test(className ?? '')
   return (
     <textarea
-      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+      className={cn(
+        'rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
+        !conAncho && 'w-full',
+        className
+      )}
       {...props}
     />
   )
 }
 
-export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  const conAncho = /(?:^|\s)w-/.test(className ?? '')
   return (
     <select
-      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 min-h-[44px]"
+      className={cn(
+        'rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 min-h-[44px]',
+        !conAncho && 'w-full',
+        className
+      )}
       {...props}
     />
   )

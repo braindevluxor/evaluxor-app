@@ -589,7 +589,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
                   step={0.5}
                   value={o.puntos ?? ''}
                   onChange={(e) => cambiarPuntos(i, e.target.value)}
-                  className="w-20 shrink-0 ring-2 ring-primary/20"
+                  className="w-20 shrink-0"
                   style={{ borderColor: 'var(--color-primary-400)' }}
                   aria-label={`Puntos de la opción ${i + 1}`}
                 />
