@@ -562,7 +562,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
             sobre === i ? 'ring-2 ring-primary ring-offset-1' : ''
           )}
         >
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <button
               type="button"
               draggable
@@ -581,64 +581,79 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
             <span className="w-5 shrink-0 text-center text-sm font-bold text-slate-400">{i + 1}</span>
             <Input value={o.etiqueta} onChange={(e) => cambiar(i, e.target.value)} placeholder={`Opción ${i + 1}`} className="min-w-40 flex-1" />
             {conPuntos ? (
-              <Input
-                type="number"
-                min={0}
-                step={0.5}
-                value={o.puntos ?? ''}
-                onChange={(e) => cambiarPuntos(i, e.target.value)}
-                className="w-20 shrink-0"
-                placeholder="Pts"
-                aria-label={`Puntos de la opción ${i + 1}`}
-              />
+              <label className="flex shrink-0 flex-col gap-1">
+                <span className="px-0.5 text-[11px] font-semibold text-slate-500">Puntos</span>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={o.puntos ?? ''}
+                  onChange={(e) => cambiarPuntos(i, e.target.value)}
+                  className="w-20 shrink-0 ring-2 ring-primary/20"
+                  style={{ borderColor: 'var(--color-primary-400)' }}
+                  aria-label={`Puntos de la opción ${i + 1}`}
+                />
+              </label>
             ) : null}
             {responsables.length ? (
-              <Select value={o.responsable ?? ''} onChange={(e) => cambiarResponsable(i, e.target.value)} className="w-44 shrink-0">
-                <option value="">(Sin asignar)</option>
-                {responsables.map((r) => <option key={r} value={r}>{r}</option>)}
-              </Select>
+              <label className="flex shrink-0 flex-col gap-1">
+                <span className="px-0.5 text-[11px] font-semibold text-slate-500">Responsable directo</span>
+                <Select value={o.responsable ?? ''} onChange={(e) => cambiarResponsable(i, e.target.value)} className="w-44 shrink-0">
+                  <option value="">(Sin asignar)</option>
+                  {responsables.map((r) => <option key={r} value={r}>{r}</option>)}
+                </Select>
+              </label>
             ) : null}
             <button type="button" onClick={() => quitar(i)} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
           </div>
           {conRango ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-2">
-              <Select
-                value={o.tipo_respuesta ?? 'CHECK'}
-                onChange={(e) => cambiarTipoRespuesta(i, e.target.value as 'CHECK' | 'RANGO')}
-                className="w-32 shrink-0"
-                aria-label={`Tipo de respuesta de la opción ${i + 1}`}
-              >
-                <option value="CHECK">Check</option>
-                <option value="RANGO">Rango de valor</option>
-              </Select>
+            <div className="flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 px-2.5 py-2">
+              <label className="flex shrink-0 flex-col gap-1">
+                <span className="px-0.5 text-[11px] font-semibold text-slate-500">Tipo de control</span>
+                <Select
+                  value={o.tipo_respuesta ?? 'CHECK'}
+                  onChange={(e) => cambiarTipoRespuesta(i, e.target.value as 'CHECK' | 'RANGO')}
+                  className="w-32 shrink-0"
+                  aria-label={`Tipo de respuesta de la opción ${i + 1}`}
+                >
+                  <option value="CHECK">Check</option>
+                  <option value="RANGO">Rango de valor</option>
+                </Select>
+              </label>
               {o.tipo_respuesta === 'RANGO' ? (
                 <>
-                  <Input
-                    type="number"
-                    step="any"
-                    value={o.minimo ?? ''}
-                    onChange={(e) => cambiarMinimo(i, e.target.value)}
-                    className="w-32 shrink-0"
-                    placeholder="Mín. aceptable"
-                    aria-label={`Mínimo aceptable de la opción ${i + 1}`}
-                  />
-                  <Input
-                    type="number"
-                    step="any"
-                    value={o.maximo ?? ''}
-                    onChange={(e) => cambiarMaximo(i, e.target.value)}
-                    className="w-32 shrink-0"
-                    placeholder="Máx. (opt.)"
-                    title="Tope derecho de la barra. Si se omite, máximo = 2 × mínimo (mínimo 100)."
-                    aria-label={`Máximo de la opción ${i + 1}`}
-                  />
-                  <Input
-                    value={o.unidad ?? ''}
-                    onChange={(e) => cambiarUnidad(i, e.target.value)}
-                    className="w-32 shrink-0"
-                    placeholder="Unidad (opcional)"
-                    aria-label={`Unidad de la opción ${i + 1}`}
-                  />
+                  <label className="flex shrink-0 flex-col gap-1">
+                    <span className="px-0.5 text-[11px] font-semibold text-slate-500">Mínimo aceptable</span>
+                    <Input
+                      type="number"
+                      step="any"
+                      value={o.minimo ?? ''}
+                      onChange={(e) => cambiarMinimo(i, e.target.value)}
+                      className="w-32 shrink-0"
+                      aria-label={`Mínimo aceptable de la opción ${i + 1}`}
+                    />
+                  </label>
+                  <label className="flex shrink-0 flex-col gap-1">
+                    <span className="px-0.5 text-[11px] font-semibold text-slate-500">Máximo (opcional)</span>
+                    <Input
+                      type="number"
+                      step="any"
+                      value={o.maximo ?? ''}
+                      onChange={(e) => cambiarMaximo(i, e.target.value)}
+                      className="w-32 shrink-0"
+                      title="Tope derecho de la barra. Si se omite, máximo = 2 × mínimo (mínimo 100)."
+                      aria-label={`Máximo de la opción ${i + 1}`}
+                    />
+                  </label>
+                  <label className="flex shrink-0 flex-col gap-1">
+                    <span className="px-0.5 text-[11px] font-semibold text-slate-500">Unidad (opcional)</span>
+                    <Input
+                      value={o.unidad ?? ''}
+                      onChange={(e) => cambiarUnidad(i, e.target.value)}
+                      className="w-32 shrink-0"
+                      aria-label={`Unidad de la opción ${i + 1}`}
+                    />
+                  </label>
                 </>
               ) : null}
             </div>
