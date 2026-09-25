@@ -475,16 +475,18 @@ function FormItem({
           En la evaluación, el evaluador agrega los productos (escaneando o escribiendo el SKU) y registra las cantidades teórica y física por cada uno.
         </p>
       ) : null}
-      {!esSeccion ? (
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-3">
+        {!esSeccion ? (
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" className="h-5 w-5 accent-primary" checked={requerido} onChange={(e) => setRequerido(e.target.checked)} />
+            Ítem obligatorio
+          </label>
+        ) : null}
         <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input type="checkbox" className="h-5 w-5 accent-primary" checked={requerido} onChange={(e) => setRequerido(e.target.checked)} />
-          Ítem obligatorio
+          <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
+          Ítem activo (visible en evaluaciones)
         </label>
-      ) : null}
-      <label className="flex items-center gap-2 text-sm text-slate-700">
-        <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
-        Ítem activo (visible en evaluaciones)
-      </label>
+      </div>
       <Button type="submit" className="w-full" disabled={excede || rangoIncompleto}>Guardar ítem</Button>
     </form>
   )
@@ -555,49 +557,51 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
           onDragEnter={() => { if (arrastrando !== null && arrastrando !== i) setSobre(i) }}
           onDrop={() => soltarEn(i)}
           className={cn(
-            'flex flex-wrap items-center gap-2 rounded-xl p-1',
-            arrastrando === i ? 'bg-slate-100' : '',
-            sobre === i ? 'bg-primary/10 ring-1 ring-primary' : ''
+            'space-y-2 rounded-xl border border-slate-200 bg-white p-2',
+            arrastrando === i ? 'border-primary bg-primary-50/40' : '',
+            sobre === i ? 'ring-2 ring-primary ring-offset-1' : ''
           )}
         >
-          <button
-            type="button"
-            draggable
-            onDragStart={(e) => {
-              setArrastrando(i)
-              setSobre(null)
-              e.dataTransfer.effectAllowed = 'move'
-              e.dataTransfer.setData('text/plain', String(i))
-            }}
-            onDragEnd={() => { setArrastrando(null); setSobre(null) }}
-            className="grid h-10 w-10 shrink-0 cursor-grab place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
-            title="Arrastrar para reordenar"
-          >
-            <GripVertical className="h-5 w-5" />
-          </button>
-          <span className="w-5 shrink-0 text-center text-sm font-bold text-slate-400">{i + 1}</span>
-          <Input value={o.etiqueta} onChange={(e) => cambiar(i, e.target.value)} placeholder={`Opción ${i + 1}`} />
-          {conPuntos ? (
-            <Input
-              type="number"
-              min={0}
-              step={0.5}
-              value={o.puntos ?? ''}
-              onChange={(e) => cambiarPuntos(i, e.target.value)}
-              className="w-20 shrink-0"
-              placeholder="Pts"
-              aria-label={`Puntos de la opción ${i + 1}`}
-            />
-          ) : null}
-          {responsables.length ? (
-            <Select value={o.responsable ?? ''} onChange={(e) => cambiarResponsable(i, e.target.value)} className="w-44 shrink-0">
-              <option value="">(Sin asignar)</option>
-              {responsables.map((r) => <option key={r} value={r}>{r}</option>)}
-            </Select>
-          ) : null}
-          <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              draggable
+              onDragStart={(e) => {
+                setArrastrando(i)
+                setSobre(null)
+                e.dataTransfer.effectAllowed = 'move'
+                e.dataTransfer.setData('text/plain', String(i))
+              }}
+              onDragEnd={() => { setArrastrando(null); setSobre(null) }}
+              className="grid h-11 w-11 shrink-0 cursor-grab place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
+              title="Arrastrar para reordenar"
+            >
+              <GripVertical className="h-5 w-5" />
+            </button>
+            <span className="w-5 shrink-0 text-center text-sm font-bold text-slate-400">{i + 1}</span>
+            <Input value={o.etiqueta} onChange={(e) => cambiar(i, e.target.value)} placeholder={`Opción ${i + 1}`} className="min-w-40 flex-1" />
+            {conPuntos ? (
+              <Input
+                type="number"
+                min={0}
+                step={0.5}
+                value={o.puntos ?? ''}
+                onChange={(e) => cambiarPuntos(i, e.target.value)}
+                className="w-20 shrink-0"
+                placeholder="Pts"
+                aria-label={`Puntos de la opción ${i + 1}`}
+              />
+            ) : null}
+            {responsables.length ? (
+              <Select value={o.responsable ?? ''} onChange={(e) => cambiarResponsable(i, e.target.value)} className="w-44 shrink-0">
+                <option value="">(Sin asignar)</option>
+                {responsables.map((r) => <option key={r} value={r}>{r}</option>)}
+              </Select>
+            ) : null}
+            <button type="button" onClick={() => quitar(i)} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
+          </div>
           {conRango ? (
-            <div className="flex w-full flex-wrap items-center gap-2 pl-[60px]">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-2">
               <Select
                 value={o.tipo_respuesta ?? 'CHECK'}
                 onChange={(e) => cambiarTipoRespuesta(i, e.target.value as 'CHECK' | 'RANGO')}
