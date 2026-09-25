@@ -115,7 +115,7 @@ export function Comparativas() {
       </div>
 
       {cargando ? (
-        <div className="flex justify-center py-20"><Spinner className="h-10 w-10" /></div>
+        <div className="flex justify-center py-20"><Spinner size={40} /></div>
       ) : !datosF.length ? (
         <Card><div className="py-10 text-center text-slate-500">Sin datos en el rango seleccionado.</div></Card>
       ) : (

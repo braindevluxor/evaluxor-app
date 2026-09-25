@@ -31,7 +31,7 @@ const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH',
 function Susp() {
   return (
     <div className="grid min-h-[60vh] place-items-center">
-      <Spinner className="h-8 w-8" />
+      <Spinner size={32} />
     </div>
   )
 }

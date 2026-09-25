@@ -11,7 +11,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div className="grid min-h-screen place-items-center">
-        <Spinner className="h-8 w-8" />
+        <Spinner size={32} />
       </div>
     )
   }

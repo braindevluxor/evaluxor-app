@@ -22,7 +22,7 @@ export function SyncBanner() {
         <span>Sin conexión. Los cambios se guardarán en el dispositivo.</span>
       ) : pendientes > 0 ? (
         <>
-          {sincronizando ? <Spinner className="h-4 w-4 border-white border-t-transparent" /> : null}
+          {sincronizando ? <Spinner size={16} light /> : null}
           {pendientes} evaluación(es) pendiente(s) de sincronizar
         </>
       ) : (

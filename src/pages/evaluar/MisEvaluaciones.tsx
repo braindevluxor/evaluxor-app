@@ -52,7 +52,7 @@ export function MisEvaluaciones() {
   return (
     <MobileLayout titulo="Mi participación" subtitulo="Evaluaciones donde respondiste módulos">
       {cargando ? (
-        <div className="flex justify-center py-16"><Spinner className="h-8 w-8" /></div>
+        <div className="flex justify-center py-16"><Spinner size={32} /></div>
       ) : evals.length === 0 ? (
         <EmptyState
           title="Aún no has participado"
@@ -88,7 +88,7 @@ export function MisEvaluaciones() {
                   disabled={descargando === ev.id}
                   onClick={() => void descargar(ev)}
                 >
-                  {descargando === ev.id ? <Spinner className="h-4 w-4" /> : <FileDown className="h-4 w-4" />}
+                  {descargando === ev.id ? <Spinner size={16} /> : <FileDown className="h-4 w-4" />}
                   {descargando === ev.id ? 'Generando…' : 'PDF'}
                 </Button>
                 <Link

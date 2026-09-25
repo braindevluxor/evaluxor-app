@@ -266,7 +266,7 @@ export function EvaluacionDetalle() {
   if (estado === 'cargando') {
     return (
       <div className="grid min-h-[60vh] place-items-center">
-        <Spinner className="h-8 w-8" />
+        <Spinner size={32} />
       </div>
     )
   }
@@ -331,7 +331,7 @@ export function EvaluacionDetalle() {
             disabled={descargando}
             onClick={() => void descargar()}
           >
-            {descargando ? <Spinner className="h-4 w-4" /> : <FileDown className="h-4 w-4" />}
+            {descargando ? <Spinner size={16} /> : <FileDown className="h-4 w-4" />}
             {descargando ? 'Generando…' : 'PDF'}
           </Button>
         </div>

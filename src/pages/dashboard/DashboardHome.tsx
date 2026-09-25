@@ -129,7 +129,7 @@ export function DashboardHome() {
       />
 
       {cargando ? (
-        <div className="flex justify-center py-20"><Spinner className="h-10 w-10" /></div>
+        <div className="flex justify-center py-20"><Spinner size={40} /></div>
       ) : datos ? (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <Card className="lg:col-span-2">

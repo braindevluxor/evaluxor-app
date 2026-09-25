@@ -1,4 +1,4 @@
-import { useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { useRef, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import { FolderOpen, X } from 'lucide-react'
 
 export function cn(...cls: (string | false | null | undefined)[]): string {
@@ -94,9 +94,20 @@ export function Badge({ children, color = 0, className }: { children: ReactNode;
   )
 }
 
-export function Spinner({ className }: { className?: string }) {
+export function Spinner({ className, size = 20, light = false }: { className?: string; size?: number; light?: boolean }) {
   return (
-    <span className={cn('inline-block h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-primary', className)} />
+    <span
+      role="status"
+      aria-label="Cargando"
+      className={cn('inline-block shrink-0', className)}
+      style={{ '--u': `${Math.round((size / 7) * 100) / 100}px` } as CSSProperties}
+    >
+      <span className={cn('cargador', light && 'cargador--claro')}>
+        <span className="cargador-box cargador-box--1" />
+        <span className="cargador-box cargador-box--2" />
+        <span className="cargador-box cargador-box--3" />
+      </span>
+    </span>
   )
 }
 

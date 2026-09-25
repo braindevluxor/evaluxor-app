@@ -239,7 +239,7 @@ export function Historial() {
       ) : null}
 
       {evals === null ? (
-        <div className="flex justify-center py-20"><Spinner className="h-10 w-10" /></div>
+        <div className="flex justify-center py-20"><Spinner size={40} /></div>
       ) : evals.length === 0 ? (
         <Card>
           <div className="py-10 text-center">
@@ -321,7 +321,7 @@ export function Historial() {
                           disabled={descargando === ev.id}
                           onClick={() => void descargar(ev)}
                         >
-                          {descargando === ev.id ? <Spinner className="h-4 w-4" /> : <FileDown className="h-4 w-4" />}
+                          {descargando === ev.id ? <Spinner size={16} /> : <FileDown className="h-4 w-4" />}
                           {descargando === ev.id ? 'Generando…' : 'PDF'}
                         </Button>
                         {esLider ? (
