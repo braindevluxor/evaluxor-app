@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
+import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import { consultarEvaluaciones, evolucionMensual, porEvaluador } from '../../lib/data/indicadores'
 import type { ConjuntoDatos } from '../../lib/data/indicadores'
-import { Card, Field, Input, Select, Spinner } from '../../components/ui'
+import { Card, Field, Input, Select, Skeleton } from '../../components/ui'
 import { BarChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, ComposedChart, Legend, Cell } from 'recharts'
 
 type Dimension = 'evaluador' | 'mes' | 'sucursal'
@@ -36,7 +37,7 @@ export function Comparativas() {
         })
         if (activo) setDatos(d)
       } catch {
-        if (activo) setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [] })
+        if (activo) setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [], instancias: [] })
       } finally {
         if (activo) setCargando(false)
       }
@@ -81,41 +82,47 @@ export function Comparativas() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-extrabold text-primary-900">Comparativas</h2>
-        <p className="text-sm text-slate-500">Analiza el desempeño por evaluador, mes o sucursal</p>
-      </div>
-
-      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Field label="Comparar por">
-          <Select value={dimension} onChange={(e) => setDimension(e.target.value as Dimension)}>
-            <option value="evaluador">Evaluador</option>
-            <option value="sucursal">Sucursal</option>
-            <option value="mes">Mes</option>
-          </Select>
-        </Field>
-        <Field label="Métrica">
-          <Select value={metrica} onChange={(e) => setMetrica(e.target.value as Metrica)}>
-            <option value="puntaje">Cumplimiento %</option>
-            <option value="completadas">Evaluaciones completadas</option>
-          </Select>
-        </Field>
-        <Field label="Desde">
-          <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
-        </Field>
-        <Field label="Hasta">
-          <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-        </Field>
-        <Field label="Sucursal">
-          <Select value={sucursalSel} onChange={(e) => setSucursalSel(e.target.value)} disabled={!!scope}>
-            <option value="">Todas</option>
-            {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-          </Select>
-        </Field>
-      </div>
+      <DashboardFiltersPortal>
+        <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
+          <Field label="Comparar por">
+            <Select value={dimension} onChange={(e) => setDimension(e.target.value as Dimension)}>
+              <option value="evaluador">Evaluador</option>
+              <option value="sucursal">Sucursal</option>
+              <option value="mes">Mes</option>
+            </Select>
+          </Field>
+          <Field label="Métrica">
+            <Select value={metrica} onChange={(e) => setMetrica(e.target.value as Metrica)}>
+              <option value="puntaje">Cumplimiento %</option>
+              <option value="completadas">Evaluaciones completadas</option>
+            </Select>
+          </Field>
+          <Field label="Desde">
+            <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+          </Field>
+          <Field label="Hasta">
+            <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+          </Field>
+          <Field label="Sucursal">
+            <Select value={sucursalSel} onChange={(e) => setSucursalSel(e.target.value)} disabled={!!scope}>
+              <option value="">Todas</option>
+              {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </Select>
+          </Field>
+        </div>
+      </DashboardFiltersPortal>
 
       {cargando ? (
-        <div className="flex justify-center py-20"><Spinner className="h-10 w-10" /></div>
+        <Card>
+          <div className="mb-4 space-y-2">
+            <Skeleton className="h-5 w-64" />
+            <Skeleton className="h-3 w-48" />
+          </div>
+          <Skeleton className="h-80 w-full" />
+          <div className="mt-4 space-y-3">
+            {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-3 w-3/4" />)}
+          </div>
+        </Card>
       ) : !datosF.length ? (
         <Card><div className="py-10 text-center text-slate-500">Sin datos en el rango seleccionado.</div></Card>
       ) : (

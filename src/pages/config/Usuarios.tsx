@@ -1,26 +1,49 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { crearInvitacion, listarInvitaciones, listarUsuarios, actualizarUsuario, type ProfileVista } from '../../lib/data/usuarios'
-import { listarSucursalesAdmin } from '../../lib/data/catalog'
+import { crearInvitacion, actualizarUsuario, desbloquearUsuario, listarAsignacionesModulosAdmin, asignarModulo, desasignarModulo, type ProfileVista } from '../../lib/data/usuarios'
+import { listarModulosAdmin } from '../../lib/data/catalog'
+import { supabase } from '../../lib/supabase'
 import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
-import type { Invitacion, Rol, Sucursal } from '../../lib/types'
-import { Badge, Button, Field, Input, Modal, Select, Spinner } from '../../components/ui'
+import type { Invitacion, Modulo, Rol, Sucursal } from '../../lib/types'
+import { Badge, Button, Field, Input, Modal, Select, Skeleton, SkeletonFilas, cn } from '../../components/ui'
+import { Copy, FolderOpen, Pencil, Unlock } from 'lucide-react'
 
 export function UsuariosPage() {
-  const navigate = useNavigate()
   const [usuarios, setUsuarios] = useState<ProfileVista[]>([])
   const [invitaciones, setInvitaciones] = useState<Invitacion[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [cargando, setCargando] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
   const [editando, setEditando] = useState<ProfileVista | null>(null)
   const [invitando, setInvitando] = useState(false)
   const [linkInv, setLinkInv] = useState('')
+  const [desbloqueando, setDesbloqueando] = useState<ProfileVista | null>(null)
+  const [passProv, setPassProv] = useState('')
+  const [msgDes, setMsgDes] = useState<{ tipo: 'ok' | 'err'; texto: string } | null>(null)
+  const [cargandoDes, setCargandoDes] = useState(false)
+  const [modulos, setModulos] = useState<Modulo[]>([])
+  const [asignados, setAsignados] = useState<Set<string>>(new Set())
+  const [asignando, setAsignando] = useState<ProfileVista | null>(null)
+  const [cargandoMod, setCargandoMod] = useState(false)
+  const [guardandoMod, setGuardandoMod] = useState<string | null>(null)
 
   const cargar = useCallback(async () => {
-    const [u, i, s] = await Promise.all([listarUsuarios(), listarInvitaciones(), listarSucursalesAdmin()])
-    setUsuarios(u)
-    setInvitaciones(i)
-    setSucursales(s)
+    setErr(null)
+    setCargando(true)
+    try {
+      const [ur, ir, sr] = await Promise.all([
+        supabase.from('profiles').select('*, sucursal:sucursales!profiles_sucursal_id_fkey(id, nombre)').order('created_at', { ascending: false }),
+        supabase.from('invitaciones').select('*').order('created_at', { ascending: false }),
+        supabase.from('sucursales').select('*').order('nombre')
+      ])
+      if (ur.error) setErr(`No se pudieron cargar los usuarios: ${ur.error.message}`)
+      if (ir.error) setErr((prev) => (prev ? `${prev}\nNo se pudieron cargar las invitaciones: ${ir.error.message}` : `No se pudieron cargar las invitaciones: ${ir.error.message}`))
+      if (sr.error) setErr((prev) => (prev ? `${prev}\nNo se cargaron las sucursales: ${sr.error.message}` : `No se cargaron las sucursales: ${sr.error.message}`))
+      setUsuarios((ur.data ?? []) as ProfileVista[])
+      setInvitaciones((ir.data ?? []) as Invitacion[])
+      setSucursales((sr.data ?? []) as Sucursal[])
+    } catch (e) {
+      setErr(`Error inesperado: ${e instanceof Error ? e.message : String(e)}`)
+    }
     setCargando(false)
   }, [])
 
@@ -30,13 +53,54 @@ export function UsuariosPage() {
 
   const pendientes = useMemo(() => invitaciones.filter((i) => !i.usado), [invitaciones])
 
+  const duenos = useMemo(() => {
+    const m = new Map<string, { id: string; nombre: string }>()
+    for (const k of asignados) {
+      const [eid, mid] = k.split('|')
+      const ev = usuarios.find((x) => x.id === eid)
+      if (!m.has(mid)) m.set(mid, { id: eid, nombre: ev?.nombre || ev?.email || 'Otro evaluador' })
+    }
+    return m
+  }, [asignados, usuarios])
+
+  const cargarModulos = useCallback(async () => {
+    setCargandoMod(true)
+    try {
+      const [mods, asig] = await Promise.all([listarModulosAdmin(), listarAsignacionesModulosAdmin()])
+      setModulos(mods)
+      setAsignados(new Set(asig.filter((a) => a.activa).map((a) => `${a.evaluador_id}|${a.modulo_id}`)))
+    } finally {
+      setCargandoMod(false)
+    }
+  }, [])
+
+  function abrirAsignacion(u: ProfileVista) {
+    setAsignando(u)
+    void cargarModulos()
+  }
+
+  async function toggleModulo(moduloId: string) {
+    if (!asignando) return
+    const key = `${asignando.id}|${moduloId}`
+    const activo = asignados.has(key)
+    setGuardandoMod(key)
+    try {
+      if (activo) await desasignarModulo(asignando.id, moduloId)
+      else await asignarModulo(asignando.id, moduloId)
+      setAsignados((prev) => {
+        const n = new Set(prev)
+        if (n.has(key)) n.delete(key)
+        else n.add(key)
+        return n
+      })
+    } finally {
+      setGuardandoMod(null)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-extrabold text-primary-900">Usuarios</h2>
-          <p className="text-sm text-slate-500">Gestión de roles y accesos (solo Líder)</p>
-        </div>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => setInvitando(true)}>＋ Invitar usuario</Button>
         </div>
@@ -55,8 +119,16 @@ export function UsuariosPage() {
         </div>
       ) : null}
 
-      {cargando ? <div className="flex justify-center py-16"><Spinner /></div> : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+      {err ? (
+        <div className="whitespace-pre-wrap rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
+      ) : null}
+
+      {cargando ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <SkeletonFilas n={7} />
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400">
@@ -80,10 +152,24 @@ export function UsuariosPage() {
                   </td>
                   <td className="px-4 py-3">{u.sucursal?.nombre || '—'}</td>
                   <td className="px-4 py-3">
-                    <Badge color={u.activo ? 2 : 4}>{u.activo ? 'Activo' : 'Bloqueado'}</Badge>
+                    {u.bloqueado ? <Badge color={4}>Bloqueado</Badge> : u.activo ? <Badge color={2}>Activo</Badge> : <Badge color={0}>Inactivo</Badge>}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <button onClick={() => setEditando(u)} className="font-semibold text-primary hover:underline">Editar</button>
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <div className="flex items-center justify-end gap-1.5">
+                      {u.bloqueado ? (
+                        <button onClick={() => { setDesbloqueando(u); setPassProv(''); setMsgDes(null) }} title="Desbloquear" className="grid h-8 w-8 place-items-center rounded-full bg-emerald-600 text-white transition-colors hover:bg-emerald-700">
+                          <Unlock className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                      {u.rol === 'EVALUADOR' ? (
+                        <button onClick={() => abrirAsignacion(u)} title="Asignar módulos" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
+                          <FolderOpen className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                      <button onClick={() => setEditando(u)} title="Editar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -102,7 +188,6 @@ export function UsuariosPage() {
               setEditando(null)
               await cargar()
             }}
-            onVer={(email) => navigate(`/config/asignaciones?evaluador=${encodeURIComponent(email)}`)}
           />
         ) : null}
       </Modal>
@@ -124,12 +209,101 @@ export function UsuariosPage() {
             <code className="block break-all rounded-xl bg-slate-50 px-3 py-2 text-xs text-primary">{linkInv}</code>
             <button
               onClick={() => void navigator.clipboard.writeText(linkInv)}
-              className="mt-2 text-sm font-semibold text-primary hover:underline"
+              title="Copiar enlace"
+              className="mt-2 grid h-9 w-9 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700"
             >
-              Copiar enlace
+              <Copy className="h-4 w-4" />
             </button>
           </div>
         ) : null}
+      </Modal>
+
+      <Modal open={!!desbloqueando} onClose={() => setDesbloqueando(null)} title="Desbloquear usuario">
+        {desbloqueando ? (
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              setMsgDes(null)
+              setCargandoDes(true)
+              void desbloquearUsuario(desbloqueando.id, passProv)
+                .then(() => {
+                  setMsgDes({ tipo: 'ok', texto: 'Usuario desbloqueado. Compartí la contraseña provisional con ' + (desbloqueando.nombre || desbloqueando.usuario) + '.' })
+                  setPassProv('')
+                  setCargandoDes(false)
+                  void cargar()
+                })
+                .catch((e2) => {
+                  setMsgDes({ tipo: 'err', texto: e2 instanceof Error ? e2.message : 'No se pudo desbloquear el usuario.' })
+                  setCargandoDes(false)
+                })
+            }}
+          >
+            <div>
+              <p className="text-sm text-slate-600">
+                <strong>{desbloqueando.nombre || desbloqueando.usuario}</strong> está bloqueado por intentos fallidos. Asigná una contraseña provisional
+                (mínimo 6 caracteres) para que pueda volver a entrar. Luego debería cambiarla en su perfil.
+              </p>
+            </div>
+            <Field label="Contraseña provisional">
+              <Input type="text" value={passProv} onChange={(e) => setPassProv(e.target.value)} required minLength={6} placeholder="Ej: Eva2026Temp" />
+            </Field>
+            {msgDes ? (
+              <div className={`rounded-xl border px-3 py-2 text-sm ${msgDes.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                {msgDes.texto}
+              </div>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setDesbloqueando(null)} disabled={cargandoDes}>Cerrar</Button>
+              <Button type="submit" disabled={cargandoDes}>{cargandoDes ? 'Desbloqueando…' : 'Desbloquear'}</Button>
+            </div>
+          </form>
+        ) : null}
+      </Modal>
+
+      <Modal open={!!asignando} onClose={() => setAsignando(null)} title={`Módulos de ${asignando?.nombre || asignando?.email || 'evaluador'}`}>
+        {cargandoMod ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-xl" />)}
+          </div>
+        ) : modulos.length ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {modulos.map((m) => {
+              if (!asignando) return null
+              const key = `${asignando.id}|${m.id}`
+              const activo = asignados.has(key)
+              const dueno = duenos.get(m.id)
+              const ajeno = dueno !== undefined && dueno.id !== asignando.id
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  disabled={guardandoMod === key || ajeno}
+                  onClick={() => void toggleModulo(m.id)}
+                  title={ajeno ? `Asignado a ${dueno.nombre}` : undefined}
+                  className={cn(
+                    'truncate rounded-full border-2 px-3 py-2.5 text-center text-xs font-semibold transition-colors disabled:opacity-50',
+                    activo
+                      ? 'border-primary bg-primary text-white'
+                      : ajeno
+                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-primary'
+                  )}
+                >
+                  {m.nombre}
+                  <span className="mt-0.5 block text-[10px] opacity-70">
+                    {activo ? 'Asignado' : ajeno ? `Otra persona · ${dueno.nombre}` : 'Sin asignar'}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-400">No hay módulos creados.</p>
+        )}
+        <p className="mt-4 rounded-xl bg-primary-50 px-3 py-2 text-[11px] leading-relaxed text-primary-700">
+          Regla de negocio: un módulo solo puede estar asignado a un evaluador a la vez. Si un módulo muestra «Otra persona · X», ya está en uso por ese evaluador.
+        </p>
       </Modal>
     </div>
   )
@@ -155,14 +329,13 @@ function RolBadge({ rol }: { rol: Rol }) {
 function FormUsuario({
   usuario: usuarioActual,
   sucursales,
-  onGuardar,
-  onVer
+  onGuardar
 }: {
   usuario: ProfileVista
   sucursales: Sucursal[]
   onGuardar: (c: { usuario: string; rol: Rol; sucursal_id: string | null; activo: boolean; nombre: string }) => Promise<void>
-  onVer: (email: string) => void
 }) {
+  const [nombre, setNombre] = useState(usuarioActual.nombre ?? '')
   const [usuario, setUsuario] = useState(usuarioActual.usuario)
   const [rol, setRol] = useState<Rol>(usuarioActual.rol)
   const [sucursal, setSucursal] = useState(usuarioActual.sucursal_id ?? '')
@@ -174,14 +347,17 @@ function FormUsuario({
       onSubmit={(e) => {
         e.preventDefault()
         void onGuardar({
+          nombre,
           usuario,
           rol,
           sucursal_id: rol === 'GERENTE_S' || rol === 'EVALUADOR' ? sucursal || null : null,
-          activo,
-          nombre: usuarioActual.nombre
+          activo
         })
       }}
     >
+      <Field label="Nombre">
+        <Input type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre y apellido" />
+      </Field>
       <Field label="Usuario de acceso">
         <Input type="text" value={usuario} onChange={(e) => setUsuario(e.target.value)} required />
       </Field>
@@ -200,11 +376,6 @@ function FormUsuario({
         <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
         Usuario activo
       </label>
-      {usuarioActual.rol === 'EVALUADOR' ? (
-        <Button type="button" variant="secondary" className="w-full" onClick={() => onVer(usuarioActual.email)}>
-          Ir a asignaciones
-        </Button>
-      ) : null}
       <Button type="submit" className="w-full">Guardar cambios</Button>
     </form>
   )

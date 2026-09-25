@@ -1,4 +1,5 @@
-import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { useRef, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { FolderOpen, X } from 'lucide-react'
 
 export function cn(...cls: (string | false | null | undefined)[]): string {
   return cls.filter(Boolean).join(' ')
@@ -22,7 +23,7 @@ export function Button({
   return (
     <button
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 min-h-[44px]',
+        'inline-flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 min-h-[44px]',
         variantes[variant],
         className
       )}
@@ -48,28 +49,44 @@ export function Field({ label, children, className, hint }: FieldProps) {
   )
 }
 
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+  // Si el consumidor pasa una clase de ancho (p. ej. w-20), no aplicar el w-full base para no pisarlo.
+  const conAncho = /(?:^|\s)w-/.test(className ?? '')
   return (
     <input
-      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 min-h-[44px]"
+      className={cn(
+        'rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 min-h-[38px]',
+        !conAncho && 'w-full',
+        className
+      )}
       {...props}
     />
   )
 }
 
-export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const conAncho = /(?:^|\s)w-/.test(className ?? '')
   return (
     <textarea
-      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+      className={cn(
+        'rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
+        !conAncho && 'w-full',
+        className
+      )}
       {...props}
     />
   )
 }
 
-export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  const conAncho = /(?:^|\s)w-/.test(className ?? '')
   return (
     <select
-      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 min-h-[44px]"
+      className={cn(
+        'rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 min-h-[38px]',
+        !conAncho && 'w-full',
+        className
+      )}
       {...props}
     />
   )
@@ -77,7 +94,7 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
 
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('rounded-2xl border border-slate-200 bg-white p-4 shadow-sm', className)}>
+    <div className={cn('rounded-2xl border border-slate-200 bg-white p-4', className)}>
       {children}
     </div>
   )
@@ -93,16 +110,86 @@ export function Badge({ children, color = 0, className }: { children: ReactNode;
   )
 }
 
-export function Spinner({ className }: { className?: string }) {
+export function Spinner({ className, size = 20, light = false }: { className?: string; size?: number; light?: boolean }) {
   return (
-    <span className={cn('inline-block h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-primary', className)} />
+    <span
+      role="status"
+      aria-label="Cargando"
+      className={cn('inline-block shrink-0', className)}
+      style={{ '--u': `${Math.round((size / 7) * 100) / 100}px` } as CSSProperties}
+    >
+      <span className={cn('cargador', light && 'cargador--claro')}>
+        <span className="cargador-box cargador-box--1" />
+        <span className="cargador-box cargador-box--2" />
+        <span className="cargador-box cargador-box--3" />
+      </span>
+    </span>
+  )
+}
+
+/* --- Skeleton (esqueletos de carga por página) ----------------------------- */
+
+export function Skeleton({ className }: { className?: string }) {
+  return <div className={cn('animate-pulse rounded-lg bg-slate-200', className)} aria-hidden="true" />
+}
+
+/** Filas tipo lista/tabla (con tarjeta opcional). */
+export function SkeletonFilas({ n = 5, card = false }: { n?: number; card?: boolean }) {
+  return (
+    <div className={cn('space-y-4', card && 'rounded-2xl border border-slate-200 bg-white p-4')}>
+      {Array.from({ length: n }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3">
+          <Skeleton className="h-4 w-1/3" />
+          <Skeleton className="h-4 w-1/4" />
+          <Skeleton className="ml-auto h-4 w-1/5" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Tarjetas en grid (título + línea + acciones). */
+export function SkeletonTarjetas({ n = 3, cols = 'md:grid-cols-2 lg:grid-cols-3' }: { n?: number; cols?: string }) {
+  return (
+    <div className={cn('grid grid-cols-1 gap-3', cols)}>
+      {Array.from({ length: n }).map((_, i) => (
+        <div key={i} className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-start justify-between gap-2">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-3 w-12 shrink-0 rounded-full" />
+          </div>
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-5/6" />
+          <div className="flex gap-2 pt-2">
+            <Skeleton className="h-9 flex-1 rounded-full" />
+            <Skeleton className="h-9 flex-1 rounded-full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Esqueleto genérico de pantalla (guardas de ruta, rutas lazy). */
+export function SkeletonPantalla({ completa = false }: { completa?: boolean }) {
+  return (
+    <div className={cn('grid place-items-center px-4 py-6', completa ? 'min-h-screen' : 'min-h-[60vh]')}>
+      <div className="w-full max-w-3xl space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-56" />
+          <Skeleton className="h-3.5 w-40" />
+        </div>
+        <SkeletonFilas n={4} card />
+        <SkeletonTarjetas n={2} cols="sm:grid-cols-2" />
+      </div>
+    </div>
   )
 }
 
 export function EmptyState({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-      <div className="text-3xl">🗂️</div>
+      <FolderOpen className="h-10 w-10 text-slate-300" strokeWidth={1.5} />
       <p className="font-semibold text-slate-700">{title}</p>
       {subtitle ? <p className="text-sm text-slate-500">{subtitle}</p> : null}
     </div>
@@ -114,25 +201,47 @@ export function Modal({
   onClose,
   title,
   children,
-  wide
+  wide,
+  sinCerrarFuera
 }: {
   open: boolean
   onClose: () => void
   title: string
   children: ReactNode
   wide?: boolean
+  sinCerrarFuera?: boolean
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null)
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 p-0 sm:p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 p-0 sm:p-4"
+      onClick={sinCerrarFuera ? undefined : onClose}
+    >
       <div
-        className={cn('max-h-[92vh] w-full overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-5 shadow-xl', wide ? 'sm:max-w-2xl' : 'sm:max-w-md')}
+        ref={scrollRef}
+        className={cn('max-h-[92vh] w-full overflow-y-auto overscroll-contain rounded-t-2xl sm:rounded-2xl bg-white p-5 [overflow-anchor:none]', wide ? 'sm:max-w-2xl' : 'sm:max-w-md')}
         onClick={(e) => e.stopPropagation()}
+        onBlur={(e) => {
+          // Al perder foco un campo interno (clic fuera de él), el navegador puede
+          // reiniciar el scroll del modal al tope (reflow / cierre del teclado).
+          // Conservamos la posición mientras el foco no quede en otro elemento del modal.
+          const destino = e.relatedTarget as Node | null
+          if (destino && scrollRef.current?.contains(destino)) return
+          const top = scrollRef.current?.scrollTop ?? 0
+          const restaurar = () => {
+            if (scrollRef.current && (!document.activeElement || !scrollRef.current.contains(document.activeElement))) {
+              scrollRef.current.scrollTop = top
+            }
+          }
+          requestAnimationFrame(restaurar)
+          window.setTimeout(restaurar, 300)
+        }}
       >
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-bold text-primary-900">{title}</h3>
           <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-slate-400 hover:bg-slate-100">
-            ✕
+            <X className="h-5 w-5" />
           </button>
         </div>
         {children}
@@ -155,7 +264,7 @@ export function Confirmar({
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-5">
         <p className="text-sm text-slate-700">{texto}</p>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="ghost" onClick={onCancel}>Cancelar</Button>

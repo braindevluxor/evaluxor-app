@@ -32,6 +32,25 @@ export default defineConfig({
       }
     })
   ],
+  server: {
+    proxy: {
+      // Reenvía al backend de precios como servidor (sin CORS). En producción
+      // el mismo path lo resuelve un rewrite en vercel.json.
+      '/api/pricing': {
+        target: 'https://deliveryluxor.store',
+        changeOrigin: true,
+        secure: true
+      },
+      // Reenvía al API de flota/vehículos (dev-logix). El path interno /api/flota
+      // corresponde al /api/v1 del backend; el header Authorization viaja tal cual.
+      '/api/flota': {
+        target: 'https://dev-logix.tusupermercadoluxor.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api\/flota/, '/api/v1')
+      }
+    }
+  },
   build: {
     target: 'es2020'
   }

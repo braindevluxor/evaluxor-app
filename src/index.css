@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
 @theme {
-  --color-primary: #0b2545;
+  --color-primary: #28315F;
   --color-primary-50: #eef4fb;
   --color-primary-100: #d6e4f6;
   --color-primary-200: #afc9ea;
@@ -28,4 +28,177 @@ body {
 
 input[type='date'] {
   min-height: 44px;
+}
+
+/* --- Cargador de cajas (loader) ------------------------------------------- */
+/* Escala con la variable --u (definida por el componente Spinner): el diseño
+   original es de 112px (7u x 7u) con cajas de 48px (3u). */
+.cargador {
+  position: relative;
+  display: block;
+  width: calc(7 * var(--u, 16px));
+  height: calc(7 * var(--u, 16px));
+}
+
+.cargador-box {
+  background-color: #c1c1c1;
+  border-radius: calc(0.625 * var(--u, 16px));
+  box-sizing: border-box;
+  position: absolute;
+  display: block;
+}
+
+.cargador--claro .cargador-box {
+  background-color: #ffffff;
+}
+
+.cargador-box--1 {
+  width: calc(7 * var(--u, 16px));
+  height: calc(3 * var(--u, 16px));
+  margin-top: calc(4 * var(--u, 16px));
+  margin-left: 0;
+  animation: cargador-caja1 3s forwards ease-in-out infinite;
+}
+
+.cargador-box--2 {
+  width: calc(3 * var(--u, 16px));
+  height: calc(3 * var(--u, 16px));
+  margin-top: 0;
+  margin-left: 0;
+  animation: cargador-caja2 3s forwards ease-in-out infinite;
+}
+
+.cargador-box--3 {
+  width: calc(3 * var(--u, 16px));
+  height: calc(3 * var(--u, 16px));
+  margin-top: 0;
+  margin-left: calc(4 * var(--u, 16px));
+  animation: cargador-caja3 3s forwards ease-in-out infinite;
+}
+
+@keyframes cargador-caja1 {
+  0% {
+    width: calc(7 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: calc(4 * var(--u, 16px));
+    margin-left: 0;
+  }
+  12.5%, 25%, 37.5%, 50%, 62.5% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: calc(4 * var(--u, 16px));
+    margin-left: 0;
+  }
+  75% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(7 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: 0;
+  }
+  87.5%, 100% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: 0;
+  }
+}
+
+@keyframes cargador-caja2 {
+  0%, 12.5%, 25%, 37.5% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: 0;
+  }
+  50% {
+    width: calc(7 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: 0;
+  }
+  62.5%, 75%, 87.5%, 100% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: calc(4 * var(--u, 16px));
+  }
+}
+
+@keyframes cargador-caja3 {
+  0%, 12.5% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: calc(4 * var(--u, 16px));
+  }
+  25% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(7 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: calc(4 * var(--u, 16px));
+  }
+  37.5%, 50%, 62.5%, 75%, 87.5% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: calc(4 * var(--u, 16px));
+    margin-left: calc(4 * var(--u, 16px));
+  }
+  100% {
+    width: calc(7 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: calc(4 * var(--u, 16px));
+    margin-left: 0;
+  }
+}
+
+/* --- Barra de rango (deslizador rojo → verde) -------------------------------- */
+.barra-rango {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.barra-rango::-webkit-slider-runnable-track {
+  background: transparent;
+  border: none;
+}
+.barra-rango::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 4px solid var(--barra-thumb, #64748b);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.45);
+}
+.barra-rango::-moz-range-track {
+  background: transparent;
+  border: none;
+}
+.barra-rango::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 4px solid var(--barra-thumb, #64748b);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.45);
+}
+.barra-rango:active {
+  cursor: grabbing;
+}
+
+/* --- Quitar el borde de foco negro al hacer clic en los gráficos (recharts 3 habilita accesibilidad por defecto) --- */
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus,
+.recharts-surface:focus-visible,
+.recharts-wrapper *:focus,
+.recharts-wrapper *:focus-visible,
+.recharts-surface *:focus,
+.recharts-surface *:focus-visible {
+  outline: none;
 }

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import type { Modulo, Item, Sucursal, Asignacion } from '../lib/types'
+import type { Modulo, Item, Sucursal, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem, SucursalOpcion } from '../lib/types'
 import { obtenerCacheLocal, refrescarCatalogo } from '../lib/data/catalog'
 import { useAuth } from './AuthContext'
 
@@ -8,6 +8,10 @@ interface CatalogContextValue {
   items: Item[]
   sucursales: Sucursal[]
   asignaciones: Asignacion[]
+  asignacionesModulos: AsignacionModulo[]
+  sucursalModulos: SucursalModulo[]
+  sucursalItems: SucursalItem[]
+  sucursalOpciones: SucursalOpcion[]
   cargado: boolean
   cacheFecha: number | null
   refresh: () => Promise<void>
@@ -21,6 +25,10 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Item[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [asignaciones, setAsignaciones] = useState<Asignacion[]>([])
+  const [asignacionesModulos, setAsignacionesModulos] = useState<AsignacionModulo[]>([])
+  const [sucursalModulos, setSucursalModulos] = useState<SucursalModulo[]>([])
+  const [sucursalItems, setSucursalItems] = useState<SucursalItem[]>([])
+  const [sucursalOpciones, setSucursalOpciones] = useState<SucursalOpcion[]>([])
   const [cargado, setCargado] = useState(false)
   const [cacheFecha, setCacheFecha] = useState<number | null>(null)
 
@@ -32,6 +40,10 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       setItems(data.items)
       setSucursales(data.sucursales)
       setAsignaciones(data.asignaciones)
+      setAsignacionesModulos(data.asignacionesModulos)
+      setSucursalModulos(data.sucursalModulos)
+      setSucursalItems(data.sucursalItems)
+      setSucursalOpciones(data.sucursalOpciones)
       setCacheFecha(data.updated_at)
       setCargado(true)
     } catch {
@@ -41,6 +53,10 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         setItems(local.items)
         setSucursales(local.sucursales)
         setAsignaciones(local.asignaciones)
+        setAsignacionesModulos(local.asignacionesModulos ?? [])
+        setSucursalModulos(local.sucursalModulos ?? [])
+        setSucursalItems(local.sucursalItems ?? [])
+        setSucursalOpciones(local.sucursalOpciones ?? [])
         setCacheFecha(local.updated_at)
       }
       setCargado(true)
@@ -56,6 +72,10 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         setItems(local.items)
         setSucursales(local.sucursales)
         setAsignaciones(local.asignaciones)
+        setAsignacionesModulos(local.asignacionesModulos ?? [])
+        setSucursalModulos(local.sucursalModulos ?? [])
+        setSucursalItems(local.sucursalItems ?? [])
+        setSucursalOpciones(local.sucursalOpciones ?? [])
         setCacheFecha(local.updated_at)
         setCargado(true)
       }
@@ -69,6 +89,10 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     items,
     sucursales,
     asignaciones,
+    asignacionesModulos,
+    sucursalModulos,
+    sucursalItems,
+    sucursalOpciones,
     cargado,
     cacheFecha,
     refresh
@@ -83,11 +107,48 @@ export function useCatalog(): CatalogContextValue {
   return ctx
 }
 
-export function useModulosActivos(): { modulosActivos: Modulo[]; itemsDe: (m: Modulo) => Item[] } {
-  const { modulos, items } = useCatalog()
+export function useModulosActivos(sucursalId?: string | null): { modulosActivos: Modulo[]; itemsDe: (m: Modulo) => Item[] } {
+  const { modulos, items, asignacionesModulos, sucursalModulos, sucursalItems, sucursalOpciones } = useCatalog()
+  const { profile } = useAuth()
   const activos = modulos.filter((m) => m.activo)
+  const idsAsignados = asignacionesModulos.filter((a) => a.activa).map((a) => a.modulo_id)
+  let visibles = profile?.rol === 'EVALUADOR' ? activos.filter((m) => idsAsignados.includes(m.id)) : activos
+  if (sucursalId) {
+    const idsConfig = sucursalModulos.filter((a) => a.activa && a.sucursal_id === sucursalId).map((a) => a.modulo_id)
+    if (idsConfig.length) {
+      if (profile?.rol === 'EVALUADOR') {
+        visibles = visibles.filter((m) => idsConfig.includes(m.id))
+      } else {
+        const validos = idsConfig.filter((id) => activos.some((m) => m.id === id))
+        visibles = validos.length ? visibles.filter((m) => validos.includes(m.id)) : visibles
+      }
+    }
+  }
+  const opcionesSucursal = sucursalId
+    ? sucursalOpciones.filter((a) => a.activa && a.sucursal_id === sucursalId)
+    : []
   return {
-    modulosActivos: activos,
-    itemsDe: (m) => items.filter((i) => i.modulo_id === m.id && i.activo).sort((a, b) => a.orden - b.orden)
+    modulosActivos: visibles,
+    itemsDe: (m) => {
+      const base = items.filter((i) => i.modulo_id === m.id && i.activo).sort((a, b) => a.orden - b.orden)
+      if (!sucursalId) return base
+      const idsConfig = sucursalItems.filter((a) => a.activa && a.sucursal_id === sucursalId).map((a) => a.item_id)
+      let filtrados = base
+      if (idsConfig.length) {
+        if (profile?.rol === 'EVALUADOR') {
+          filtrados = base.filter((i) => idsConfig.includes(i.id))
+        } else {
+          const validos = idsConfig.filter((id) => base.some((i) => i.id === id))
+          filtrados = validos.length ? base.filter((i) => validos.includes(i.id)) : base
+        }
+      }
+      const setItems = new Set(idsConfig)
+      return filtrados.map((i) => {
+        if (!setItems.has(i.id)) return i
+        const aplicaId = opcionesSucursal.filter((o) => o.item_id === i.id).map((o) => o.opcion_id)
+        if (!i.opciones?.length || !aplicaId.length) return i
+        return { ...i, opciones: i.opciones.filter((o) => aplicaId.includes(o.id)) }
+      })
+    }
   }
 }

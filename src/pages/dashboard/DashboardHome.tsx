@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
+import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
-import { consultarEvaluaciones, evolucionMensual, peoresItems, puntajePorModulo, rankingSucursales } from '../../lib/data/indicadores'
-import { valorBinario } from '../../lib/scoring'
+import { consultarEvaluaciones, peoresItems, puntajePorSucursalModulo, rankingSucursales } from '../../lib/data/indicadores'
 import type { ConjuntoDatos } from '../../lib/data/indicadores'
-import { KpiCard } from '../../components/dashboard/Kpi'
-import { Fotogaleria } from '../../components/dashboard/Fotogaleria'
-import { Card, Field, Input, Puntaje, Select, Spinner, Badge } from '../../components/ui'
+import { Card, Field, Input, Select, Skeleton } from '../../components/ui'
 import { verTodo } from '../../lib/roles'
+import { setKpisGlobal } from '../../lib/kpisGlobal'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Line, ComposedChart, Cell
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend
 } from 'recharts'
 
 function haceMeses(n: number): string {
@@ -17,6 +17,8 @@ function haceMeses(n: number): string {
   d.setMonth(d.getMonth() - n)
   return d.toISOString().slice(0, 10)
 }
+
+const COLORES_MODULOS = ['#28315F', '#4f87c7', '#16a34a', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#db2777']
 
 export function DashboardHome() {
   const { profile } = useAuth()
@@ -33,6 +35,8 @@ export function DashboardHome() {
   const [hasta, setHasta] = useState('')
   const [sucursalSel, setSucursalSel] = useState('')
   const [moduloSel, setModuloSel] = useState('')
+  const [lineaActiva, setLineaActiva] = useState<string | null>(null)
+  const [verMasRanking, setVerMasRanking] = useState(false)
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
   const [cargando, setCargando] = useState(true)
 
@@ -51,7 +55,7 @@ export function DashboardHome() {
         })
         if (activo) setDatos(d)
       } catch {
-        if (activo) setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [] })
+        if (activo) setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [], instancias: [] })
       } finally {
         if (activo) setCargando(false)
       }
@@ -60,9 +64,17 @@ export function DashboardHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desde, hasta, sucursalSel, moduloSel, scope?.join(',')])
 
-  const ranking = useMemo(() => (datos ? rankingSucursales(datos) : []), [datos])
-  const serie = useMemo(() => (datos ? evolucionMensual(datos) : []), [datos])
-  const porModulo = useMemo(() => (datos ? puntajePorModulo(datos) : []), [datos])
+  const ranking = useMemo(() => (datos ? rankingSucursales(datos, sucursalesVisibles) : []), [datos, sucursalesVisibles])
+  const matrizModulos = useMemo(
+    () => (datos ? puntajePorSucursalModulo(datos, sucursalesVisibles) : null),
+    [datos, sucursalesVisibles]
+  )
+  const modulosOrden = useMemo(() => {
+    const base = matrizModulos?.modulos ?? []
+    if (!lineaActiva) return base
+    // El módulo "hovered" se dibuja al final para quedar encima de los demás (z-index dinámico).
+    return [...base].sort((a, b) => (a.nombre === lineaActiva ? 1 : 0) - (b.nombre === lineaActiva ? 1 : 0))
+  }, [matrizModulos, lineaActiva])
   const peores = useMemo(() => (datos ? peoresItems(datos) : []), [datos])
 
   const kpis = useMemo(() => {
@@ -81,144 +93,167 @@ export function DashboardHome() {
     }
   }, [datos, peores, sucursalesVisibles.length])
 
+  // Publica los KPIs a la barra global (ancho completo, debajo de la barra de navegación).
+  useEffect(() => {
+    setKpisGlobal(kpis)
+  }, [kpis])
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-extrabold text-primary-900">Indicadores de gestión</h2>
-          <p className="text-sm text-slate-500">Desempeño de las evaluaciones 360</p>
-        </div>
-        {profile?.rol === 'LIDER' || profile?.rol === 'GERENTE_C' || profile?.rol === 'GERENTE_TH' ? (
-          <div className="flex gap-2">
-            <LabelBtn activo={desde === haceMeses(3)} onClick={() => setDesde(haceMeses(3))}>3m</LabelBtn>
-            <LabelBtn activo={desde === haceMeses(6)} onClick={() => setDesde(haceMeses(6))}>6m</LabelBtn>
-            <LabelBtn activo={desde === haceMeses(12)} onClick={() => setDesde(haceMeses(12))}>12m</LabelBtn>
-            <LabelBtn activo={desde === ''} onClick={() => setDesde('')}>Todo</LabelBtn>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard titulo="Cumplimiento global" valor={<Puntaje value={kpis.global} className="text-3xl text-white" />} icono="🎯" />
-        <KpiCard titulo="Evaluaciones completadas" valor={kpis.completadas} icono="✅" color="bg-slate-800 text-white" />
-        <KpiCard titulo="Cobertura de sucursales" valor={`${kpis.cobertura}%`} icono="🏬" color="bg-green-700 text-white" />
-        <KpiCard titulo="Ítems incumplidos" valor={kpis.incumplimientos} icono="⚠️" color="bg-red-600 text-white" />
-      </div>
-
-      <FiltrosBar
-        desde={desde}
-        setDesde={setDesde}
-        hasta={hasta}
-        setHasta={setHasta}
-        sucursal={sucursalSel}
-        setSucursal={setSucursalSel}
-        modulo={moduloSel}
-        setModulo={setModuloSel}
-        sucursales={sucursalesVisibles}
-        modulos={modulos}
-        soloSucursal={!!scope}
-      />
+      <DashboardFiltersPortal>
+        <FiltrosBar
+          desde={desde}
+          setDesde={setDesde}
+          hasta={hasta}
+          setHasta={setHasta}
+          sucursal={sucursalSel}
+          setSucursal={setSucursalSel}
+          modulo={moduloSel}
+          setModulo={setModuloSel}
+          sucursales={sucursalesVisibles}
+          modulos={modulos}
+          soloSucursal={!!scope}
+        />
+      </DashboardFiltersPortal>
 
       {cargando ? (
-        <div className="flex justify-center py-20"><Spinner className="h-10 w-10" /></div>
-      ) : !datos || datos.evaluaciones.length === 0 ? (
-        <Card>
-          <div className="py-10 text-center">
-            <p className="text-lg font-bold text-primary-900">Sin datos en el rango seleccionado</p>
-            <p className="text-sm text-slate-500">Ajusta los filtros o espera a que se sincronicen evaluaciones.</p>
-          </div>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <Card className="lg:col-span-2">
-            <h3 className="mb-3 font-bold text-primary-900">Evolución del cumplimiento</h3>
-            {serie.length ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <ComposedChart data={serie}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="mes" />
-                  <YAxis yAxisId="l" domain={[0, 100]} />
-                  <YAxis yAxisId="r" orientation="right" />
-                  <Tooltip />
-                  <Line yAxisId="l" type="monotone" dataKey="puntaje" name="Cumplimiento %" stroke="#0B2545" strokeWidth={3} dot={{ r: 4 }} />
-                  <Bar yAxisId="r" dataKey="completadas" name="Completadas" fill="#93c5fd" radius={[4, 4, 0, 0]} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            ) : <p className="text-sm text-slate-400">Sin meses con datos.</p>}
-          </Card>
-
+        <div className="space-y-6">
           <Card>
-            <h3 className="mb-3 font-bold text-primary-900">Ranking de sucursales</h3>
-            {ranking.length ? (
-              <ResponsiveContainer width="100%" height={Math.max(200, ranking.length * 42)}>
-                <BarChart data={ranking} layout="vertical" margin={{ left: 8, right: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} />
-                  <YAxis type="category" dataKey="nombre" width={120} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v) => [`${v}%`, 'Cumplimiento']} />
-                  <Bar dataKey="puntaje" radius={[0, 6, 6, 0]}>
-                    {ranking.map((_, i) => (
-                      <Cell key={i} fill={i === 0 ? '#16a34a' : i === 1 ? '#0B2545' : '#64748b'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            ) : <p className="text-sm text-slate-400">Sin datos.</p>}
-          </Card>
-
-          <Card>
-            <h3 className="mb-3 font-bold text-primary-900">Resultado por módulo</h3>
-            {porModulo.length ? (
-              <ResponsiveContainer width="100%" height={Math.max(160, porModulo.length * 36)}>
-                <BarChart data={porModulo} layout="vertical" margin={{ left: 8, right: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} />
-                  <YAxis type="category" dataKey="nombre" width={140} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v) => [`${v}%`, 'Cumplimiento']} />
-                  <Bar dataKey="puntaje" fill="#1D4ED8" radius={[0, 6, 6, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : <p className="text-sm text-slate-400">Sin datos.</p>}
-          </Card>
-
-          <Card className="lg:col-span-2">
-            <h3 className="mb-3 font-bold text-primary-900">Matriz módulo × sucursal</h3>
-            <MatrizTabla datos={datos} />
-          </Card>
-
-          <Card>
-            <h3 className="mb-3 font-bold text-primary-900">Alertas: ítems con menor cumplimiento</h3>
-            <div className="space-y-2">
-              {peores.length ? peores.slice(0, 6).map((p) => (
-                <div key={p.item_id} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-700">{p.texto}</p>
-                    <p className="text-xs text-slate-400">{p.ok} de {p.total} cumplen</p>
-                  </div>
-                  <Badge color={p.ratio > 0.6 ? 3 : 4}>{Math.round(p.ratio * 100)}%</Badge>
+            <div className="mb-4 space-y-2">
+              <Skeleton className="h-5 w-52" />
+              <Skeleton className="h-3 w-72" />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex h-20 overflow-hidden rounded-xl border border-slate-200">
+                  <Skeleton className="w-16 rounded-none sm:w-20" />
+                  <Skeleton className="flex-1 rounded-none" />
+                  <Skeleton className="w-16 rounded-none sm:w-20" />
                 </div>
-              )) : <p className="text-sm text-slate-400">No hay datos binarios todavía.</p>}
+              ))}
             </div>
           </Card>
-
           <Card>
-            <h3 className="mb-3 font-bold text-primary-900">Últimas evidencias fotográficas</h3>
-            <Fotogaleria fotos={datos.fotos} />
+            <div className="mb-4 space-y-2">
+              <Skeleton className="h-5 w-64" />
+              <Skeleton className="h-3 w-80" />
+            </div>
+            <Skeleton className="h-80 w-full" />
           </Card>
         </div>
-      )}
+      ) : datos ? (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Card className="lg:col-span-2">
+            <h3 className="mb-1 font-bold text-primary-900">Ranking de sucursales</h3>
+            <p className="mb-3 text-xs text-slate-400">Posiciones estilo F1: puntaje de cumplimiento de cada sucursal en el rango</p>
+            {ranking.length ? (
+              <div
+                className="border border-slate-200 bg-white p-3 sm:p-4"
+                style={{ backgroundImage: 'repeating-linear-gradient(135deg, rgb(100 116 139 / 0.12) 0 1px, transparent 1px 12px)' }}
+              >
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {ranking.slice(0, 3).map((r, i) => (
+                    <TarjetaRankingF1
+                      key={r.sucursal_id}
+                      posicion={i + 1}
+                      nombre={r.nombre}
+                      puntaje={r.puntaje}
+                    />
+                  ))}
+                </div>
+
+                {ranking.length > 3 ? (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setVerMasRanking((v) => !v)}
+                      className="mx-auto flex items-center gap-1.5 rounded-full bg-slate-900 px-4 py-1.5 text-xs font-bold text-white transition-colors hover:bg-slate-700"
+                    >
+                      {verMasRanking ? 'Ocultar resto' : `Ver resto (${ranking.length - 3})`}
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${verMasRanking ? 'rotate-180' : ''}`} />
+                    </button>
+                    {verMasRanking ? (
+                      <div className="mt-3 border border-slate-200 bg-white">
+                        {ranking.slice(3).map((r, i) => (
+                          <div key={r.sucursal_id} className={`flex items-center gap-3 px-4 py-2.5 ${i % 2 ? 'bg-slate-50' : ''}`}>
+                            <span className="w-8 shrink-0 text-center text-sm font-black tabular-nums text-slate-500">{i + 4}</span>
+                            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-700">{r.nombre}</span>
+                            <span className="shrink-0 text-sm font-bold tabular-nums text-slate-900">
+                              {r.puntaje == null ? '—' : `${r.puntaje} pts`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : <p className="text-sm text-slate-400">Sin sucursales.</p>}
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <h3 className="mb-1 font-bold text-primary-900">Ponderación por sucursal y módulo</h3>
+            <p className="mb-3 text-xs text-slate-400">Curvas por módulo; pasa el cursor sobre la leyenda para elevar una curva (z-index dinámico)</p>
+            {matrizModulos && matrizModulos.modulos.length && matrizModulos.sucursales.length ? (
+              <ResponsiveContainer width="100%" height={380}>
+                <LineChart
+                  data={matrizModulos.sucursales.map((s) => ({ sucursal: s.nombre, ...s.porModulo }))}
+                  margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="sucursal" interval={0} angle={-38} textAnchor="end" height={90} tick={{ fontSize: 11, fill: '#475569' }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    formatter={(v, nombre) => [`${v}%`, String(nombre)]}
+                    contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
+                  />
+                  <Legend
+                    iconType="plainline"
+                    wrapperStyle={{ fontSize: 12 }}
+                    onMouseEnter={(d) => setLineaActiva(d.value ?? null)}
+                    onMouseLeave={() => setLineaActiva(null)}
+                  />
+                  {modulosOrden.map((m, i) => (
+                    <Line
+                      key={m.modulo_id}
+                      type="monotone"
+                      dataKey={m.nombre}
+                      stroke={COLORES_MODULOS[i % COLORES_MODULOS.length]}
+                      strokeWidth={lineaActiva === m.nombre ? 4 : 2}
+                      connectNulls
+                      dot={{ r: 3, strokeWidth: 1 }}
+                      activeDot={{ r: 5 }}
+                      opacity={lineaActiva && lineaActiva !== m.nombre ? 0.3 : 1}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            ) : <p className="text-sm text-slate-400">Sin datos de módulos para mostrar en el rango.</p>}
+          </Card>
+        </div>
+      ) : null}
     </div>
   )
 }
 
-function LabelBtn({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: React.ReactNode }) {
+function TarjetaRankingF1({ posicion, nombre, puntaje }: { posicion: number; nombre: string; puntaje: number | null }) {
   return (
-    <button
-      onClick={onClick}
-      className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${activo ? 'bg-primary text-white' : 'bg-white text-slate-600 border border-slate-200'}`}
-    >
-      {children}
-    </button>
+    <div className="flex items-stretch overflow-hidden border border-slate-200 bg-white shadow-sm">
+      {/* Posición */}
+      <div className="flex w-16 shrink-0 items-center justify-center bg-red-600 sm:w-20">
+        <span className="text-2xl font-black text-white sm:text-3xl">{posicion}</span>
+      </div>
+
+      {/* Sucursal */}
+      <div className="flex min-w-0 flex-1 items-center justify-center bg-slate-900 px-3 py-2.5 text-white sm:px-4">
+        <p className="truncate text-xs font-black uppercase tracking-wide text-white sm:text-sm">{nombre}</p>
+      </div>
+
+      {/* Puntaje */}
+      <div className="flex w-16 shrink-0 items-center justify-center bg-amber-400 sm:w-20">
+        <span className="text-2xl font-black text-slate-900 sm:text-3xl">{puntaje == null ? '—' : puntaje}</span>
+      </div>
+    </div>
   )
 }
 
@@ -257,67 +292,4 @@ function FiltrosBar(props: {
       </Field>
     </div>
   )
-}
-
-function MatrizTabla({ datos }: { datos: ConjuntoDatos }) {
-  const modulos = datos.modulos
-  const sucursales = Array.from(new Set(datos.evaluaciones.map((e) => e.sucursal_id)))
-  const nombres: Record<string, string> = {}
-  for (const ev of datos.evaluaciones) nombres[ev.sucursal_id] = ev.sucursal?.nombre ?? ev.sucursal_id
-
-  const celdas: Record<string, Record<string, { ok: number; n: number }>> = {}
-  for (const ev of datos.evaluaciones) {
-    for (const r of datos.respuestas.filter((x) => x.evaluacion_id === ev.id)) {
-      const item = datos.items.find((i) => i.id === r.item_id)
-      if (!item) continue
-      const bin = valorBinario(item, r.valor)
-      if (bin === null) continue
-      const c = celdas[ev.sucursal_id]?.[item.modulo_id] ?? { ok: 0, n: 0 }
-      c.n++
-      if (bin) c.ok++
-      if (!celdas[ev.sucursal_id]) celdas[ev.sucursal_id] = {}
-      celdas[ev.sucursal_id][item.modulo_id] = c
-    }
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-xs uppercase text-slate-400">
-            <th className="py-2 pr-4">Sucursal</th>
-            {modulos.map((m) => <th key={m.id} className="px-2 py-2">{m.nombre}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {sucursales.map((suc) => (
-            <tr key={suc} className="border-t border-slate-100">
-              <td className="py-2 pr-4 font-medium text-slate-700">{nombres[suc]}</td>
-              {modulos.map((m) => {
-                const c = celdas[suc]?.[m.id]
-                const pct = c && c.n ? (c.ok / c.n) * 100 : null
-                return (
-                  <td key={m.id} className="px-2 py-2">
-                    <span
-                      className="inline-flex min-w-[52px] items-center justify-center rounded-lg px-2 py-1 text-xs font-bold text-white"
-                      style={{ backgroundColor: colorPct(pct) }}
-                    >
-                      {pct == null ? '—' : `${Math.round(pct)}%`}
-                    </span>
-                  </td>
-                )
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function colorPct(pct: number | null): string {
-  if (pct == null) return '#e2e8f0'
-  if (pct >= 80) return '#16a34a'
-  if (pct >= 60) return '#d97706'
-  return '#dc2626'
 }
