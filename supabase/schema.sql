@@ -249,46 +249,84 @@ create table if not exists public.items (
     'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES','UNIDAD_CHECKLIST','CONTENEDOR'
   )),
   texto text not null,
-  opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"...","puntos":3?,"tipo_respuesta":"CHECK|RANGO","minimo":30?,"unidad":"cm"?}]; puntos por opcion (opcional): si TODAS las opciones del CHECKLIST tienen puntos, la puntuacion del item se reparte entre ellas. tipo_respuesta RANGO: el evaluador ingresa un valor numerico y el punto cumple si alcanza el minimo aceptable. LISTA_COLABORADORES: checklist compartido por cada colaborador
+  opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"...","puntos":3?,"tipo_respuesta":"CHECK|RANGO","minimo":30?,"unidad":"cm"?}]; puntos por opcion (opcional, hasta 3 decimales y mín. 0.001): si TODAS las opciones del CHECKLIST tienen puntos, la puntuacion del item se reparte entre ellas. tipo_respuesta RANGO: el evaluador ingresa un valor numerico y el punto cumple si alcanza el minimo aceptable. LISTA_COLABORADORES: checklist compartido por cada colaborador
   colaboradores_filtro text check (colaboradores_filtro in ('ACTIVOS','INACTIVOS','TODOS')), -- LISTA_COLABORADORES: filtro aplicado al cargar colaboradores
   responsables jsonb not null default '[]'::jsonb, -- responsables configurables; cada opcion usa opciones[i].responsable
   orden integer not null default 0,
   requerido boolean not null default false,
   activo boolean not null default true,
-  puntaje numeric not null default 0 check (puntaje >= 0 and puntaje <= 100), -- puntos ponderados; la suma dentro de un modulo no supera 100
+  puntaje numeric not null default 0 check (puntaje >= 0 and puntaje <= 100), -- puntos ponderados (hasta 3 decimales). Suma de secciones (ponderadas) + ítems sueltos del módulo ≤ 100; los ítems de un grupo no superan los puntos de su sección
   padre_id uuid references public.items(id) on delete cascade, -- hijo de una seccion CONTENEDOR (un solo nivel)
   created_at timestamptz not null default now()
 );
 create index if not exists idx_items_modulo on public.items(modulo_id, orden);
 
--- La suma de los puntajes de los ítems de un módulo no puede exceder 100.
--- Las secciones (CONTENEDOR) no participan de la suma (tipo <> 'CONTENEDOR').
+-- La suma de los puntajes de un módulo no puede exceder 100: cuentan las secciones
+-- (CONTENEDOR, ponderadas) y los ítems sueltos (sin sección). Los ítems dentro de
+-- una sección no suman al módulo: su tope es el puntaje de la sección.
 create or replace function public.validar_suma_puntaje_items() returns trigger
 language plpgsql
 as $$
 declare
   v_modulo uuid;
-  v_suma numeric;
+  v_suma_modulo numeric;
+  v_suma_hijos numeric;
+  v_padre_puntaje numeric;
 begin
   if tg_op = 'DELETE' then
     v_modulo := old.modulo_id;
-    v_suma := coalesce((
+    v_suma_modulo := coalesce((
       select sum(puntaje) from public.items
-       where modulo_id = v_modulo and id <> old.id and tipo <> 'CONTENEDOR'
+       where modulo_id = v_modulo and id <> old.id
+         and (tipo = 'CONTENEDOR' or padre_id is null)
     ), 0);
-  else
-    v_modulo := new.modulo_id;
-    v_suma := coalesce((
+    if v_suma_modulo > 100 then
+      raise exception 'La suma de puntos de las secciones e ítems sueltos del módulo (%) supera 100', v_modulo;
+    end if;
+    return old;
+  end if;
+
+  v_modulo := new.modulo_id;
+
+  -- Ítem hijo de sección: los hijos del grupo no pueden superar los puntos de la sección.
+  if new.padre_id is not null and new.tipo <> 'CONTENEDOR' then
+    v_suma_hijos := coalesce((
       select sum(puntaje) from public.items
-       where modulo_id = v_modulo and (new.id is null or id <> new.id) and tipo <> 'CONTENEDOR'
-    ), 0) + case when new.tipo = 'CONTENEDOR' then 0 else coalesce(new.puntaje, 0) end;
+       where padre_id = new.padre_id and (new.id is null or id <> new.id)
+    ), 0) + coalesce(new.puntaje, 0);
+    select puntaje into v_padre_puntaje from public.items where id = new.padre_id;
+    if v_padre_puntaje is not null and v_suma_hijos > v_padre_puntaje then
+      raise exception 'Los ítems del grupo (%) suman % puntos, más que el puntaje de la sección (%)', new.padre_id, v_suma_hijos, v_padre_puntaje;
+    end if;
   end if;
 
-  if v_suma > 100 then
-    raise exception 'La suma de puntos de los ítems del módulo (%) supera 100', v_modulo;
+  -- Sección: al ponderarla (o bajarla), sus hijos no pueden quedar por encima.
+  if new.tipo = 'CONTENEDOR' then
+    v_suma_hijos := coalesce((
+      select sum(puntaje) from public.items where padre_id = new.id
+    ), 0);
+    if v_suma_hijos > coalesce(new.puntaje, 0) then
+      raise exception 'Los ítems del grupo (%) suman % puntos, más que el puntaje de la sección (%)', new.id, v_suma_hijos, coalesce(new.puntaje, 0);
+    end if;
   end if;
 
-  return coalesce(new, old);
+  -- Módulo: secciones ponderadas e ítems sueltos suman hasta 100.
+  v_suma_modulo := coalesce((
+    select sum(puntaje) from public.items
+     where modulo_id = v_modulo and (new.id is null or id <> new.id)
+       and (tipo = 'CONTENEDOR' or padre_id is null)
+  ), 0)
+  + case
+      when new.tipo = 'CONTENEDOR' then coalesce(new.puntaje, 0)
+      when new.padre_id is null then coalesce(new.puntaje, 0)
+      else 0
+    end;
+
+  if v_suma_modulo > 100 then
+    raise exception 'La suma de puntos de las secciones e ítems sueltos del módulo (%) supera 100', v_modulo;
+  end if;
+
+  return new;
 end;
 $$;
 

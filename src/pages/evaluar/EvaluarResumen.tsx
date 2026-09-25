@@ -6,7 +6,7 @@ import { useModulosActivos } from '../../context/CatalogContext'
 import { getDraft, instanciasPlanasDe, type DraftEval } from '../../lib/offline/db'
 import { encolarRespuestas } from '../../lib/offline/sync'
 import { pasosDeModulo } from '../../lib/pasos'
-import { calcularPuntaje } from '../../lib/scoring'
+import { calcularPuntaje, pesoItem } from '../../lib/scoring'
 import { Button, Puntaje, cn } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 
@@ -37,7 +37,14 @@ export function EvaluarResumen() {
     if (!draft) return { puntaje: null as number | null, incompletos: 0, total: 0 }
     const pasos = modulos.flatMap((m) => pasosDeModulo(itemsDe(m), instanciasPlanasDe(draft)))
     const incompletos = pasos.filter((p) => p.item.requerido && !draft.respuestas[p.key]).length
-    const puntaje = calcularPuntaje(pasos.map((p) => ({ item: p.item, valor: draft.respuestas[p.key]?.valor })))
+    const puntaje = calcularPuntaje(
+      pasos.flatMap((p) => [
+        { item: p.item, valor: draft.respuestas[p.key]?.valor },
+        // La sección ponderada participa como grupo: su peso es el puntaje de la
+        // sección y agrupa el de sus hijos (PasoEval.seccion ya trae la dueña).
+        ...(p.seccion && pesoItem(p.seccion) > 0 ? [{ item: p.seccion, valor: undefined }] : [])
+      ])
+    )
     return { puntaje, incompletos, total: pasos.length }
   }, [draft, modulos, itemsDe])
 

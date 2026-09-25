@@ -289,29 +289,125 @@ export function pesoItem(item: { puntaje?: number | null } | null | undefined): 
   return typeof p === 'number' && p > 0 ? p : 0
 }
 
+/** Redondea un puntaje a 3 decimales (mínimo razonable 0.001 por opción/ítem). */
+export function redondear3(n: number): number {
+  return Math.round((n + Number.EPSILON) * 1000) / 1000
+}
+
 export interface RespuestaItem {
-  item: { tipo: string; opciones?: string[] | { id: string }[] | null; puntaje?: number | null }
+  item: {
+    tipo: string
+    opciones?: string[] | { id: string }[] | null
+    puntaje?: number | null
+    id?: string
+    padre_id?: string | null
+  }
   valor: unknown
 }
 
 export interface BinarioConPuntaje {
-  item: { puntaje?: number | null }
-  /** Cumplimiento booleano (0/1) o proporción 0..1 para CHECKLIST con puntos por opción. */
-  cumple: boolean | number
+  item: { id?: string; tipo?: string; padre_id?: string | null; puntaje?: number | null }
+  /** Cumplimiento booleano (0/1) o proporción 0..1 para CHECKLIST con puntos por opción. null = sin puntuar (reservado para secciones ponderadas). */
+  cumple: boolean | number | null
+}
+
+export interface EntradaPuntaje {
+  item: BinarioConPuntaje['item']
+  cumple: boolean | number | null
+}
+
+function normCumple(c: boolean | number | null | undefined): number {
+  if (typeof c === 'number') return Number.isFinite(c) ? c : 0
+  return c ? 1 : 0
+}
+
+/**
+ * Agrega los puntajes de una lista de entradas (0-100). Reglas:
+ * - Si nada tiene puntaje, cada entrada pesa 1 (porcentaje por cantidad de ítems).
+ * - Secciones CONTENEDOR con puntaje > 0 y al menos un hijo respondido participan
+ *   como grupo: su peso es el puntaje de la sección y su cumplimiento es el promedio
+ *   ponderado del cumplimiento de sus hijos (puntaje del hijo × proporción).
+ *   Los hijos de una sección ponderada no se cuentan por separado.
+ * - Si la sección no aparece o no tiene peso, sus hijos se cuentan como ítems
+ *   directos (comportamiento previo), para no perder puntos en datos existentes.
+ */
+export function agregarPuntaje(entradas: EntradaPuntaje[]): number | null {
+  const hijosPorPadre = new Map<string, EntradaPuntaje[]>()
+  for (const e of entradas) {
+    if (e.item.padre_id && e.item.tipo !== 'CONTENEDOR') {
+      const arr = hijosPorPadre.get(e.item.padre_id) ?? []
+      arr.push(e)
+      hijosPorPadre.set(e.item.padre_id, arr)
+    }
+  }
+
+  const seccionIds = new Set<string>()
+  for (const e of entradas) {
+    if (e.item.tipo === 'CONTENEDOR' && e.item.id && pesoItem(e.item) > 0) {
+      const hijos = hijosPorPadre.get(e.item.id) ?? []
+      if (hijos.some((h) => h.cumple != null)) seccionIds.add(e.item.id)
+    }
+  }
+
+  const modoPonderado = seccionIds.size > 0 || entradas.some((e) => e.item.tipo !== 'CONTENEDOR' && pesoItem(e.item) > 0)
+  const peso = (item: { puntaje?: number | null }): number => (modoPonderado ? pesoItem(item) : 1)
+
+  const unidades: { peso: number; cumple: number }[] = []
+  const seccionesProcesadas = new Set<string>()
+  for (const e of entradas) {
+    const it = e.item
+    if (it.tipo === 'CONTENEDOR') {
+      if (!it.id || !seccionIds.has(it.id) || seccionesProcesadas.has(it.id)) continue
+      seccionesProcesadas.add(it.id)
+      const hijos = (hijosPorPadre.get(it.id) ?? []).filter((h) => h.cumple != null)
+      if (!hijos.length) continue
+      const tot = hijos.reduce((a, h) => a + peso(h.item), 0)
+      const ganado = hijos.reduce((a, h) => a + peso(h.item) * normCumple(h.cumple), 0)
+      unidades.push({ peso: peso(it), cumple: tot > 0 ? Math.min(1, ganado / tot) : 0 })
+      continue
+    }
+    if (it.padre_id && seccionIds.has(it.padre_id)) continue
+    if (e.cumple == null) continue
+    unidades.push({ peso: peso(it), cumple: normCumple(e.cumple) })
+  }
+
+  const tot = unidades.reduce((a, u) => a + u.peso, 0)
+  if (!(tot > 0)) return null
+  const ok = unidades.reduce((a, u) => a + u.peso * u.cumple, 0)
+  return Math.round((ok / tot) * 10000) / 100
 }
 
 export function puntajePonderado(binarios: BinarioConPuntaje[]): number | null {
-  if (binarios.length === 0) return null
-  const totalPeso = binarios.reduce((a, b) => a + pesoItem(b.item), 0)
-  const peso = totalPeso > 0 ? (b: BinarioConPuntaje) => pesoItem(b.item) : () => 1
-  const ok = binarios.reduce((a, b) => a + peso(b) * (typeof b.cumple === 'number' ? b.cumple : b.cumple ? 1 : 0), 0)
-  const tot = binarios.reduce((a, b) => a + peso(b), 0)
-  return tot > 0 ? Math.round((ok / tot) * 10000) / 100 : null
+  return agregarPuntaje(binarios)
+}
+
+/**
+ * Agrega a la lista de binarios las secciones ponderadas que no la tengan pero sí
+ * tengan hijos respondidos, para que participen como grupo en el puntaje agregado.
+ * Útil en reportes (indicadores), donde las secciones no generan respuestas.
+ */
+export function conSeccionesPonderadas(
+  items: { id?: string; tipo?: string; puntaje?: number | null }[] | undefined,
+  binarios: BinarioConPuntaje[]
+): BinarioConPuntaje[] {
+  const secciones = (items ?? []).filter((i) => i.tipo === 'CONTENEDOR' && !!i.id && pesoItem(i) > 0)
+  if (!secciones.length) return binarios
+  const porId = new Map<string, { id?: string; tipo?: string; puntaje?: number | null }>(secciones.map((s) => [s.id as string, s]))
+  const presentes = new Set(binarios.map((b) => b.item.id).filter(Boolean))
+  const aAgregar: BinarioConPuntaje[] = []
+  for (const [id, seccion] of porId) {
+    if (presentes.has(id)) continue
+    const tieneHijos = binarios.some((b) => b.item.padre_id === id && b.cumple != null)
+    if (tieneHijos) aAgregar.push({ item: { id, tipo: seccion.tipo, puntaje: seccion.puntaje, padre_id: null }, cumple: null })
+  }
+  return aAgregar.length ? [...binarios, ...aAgregar] : binarios
 }
 
 export function calcularPuntaje(respuestas: RespuestaItem[]): number | null {
-  const conPuntaje = respuestas
-    .map((r) => ({ item: r.item, proporcion: proporcionItem(r.item, r.valor) }))
-    .filter((x): x is { item: RespuestaItem['item']; proporcion: number } => x.proporcion !== null)
-  return puntajePonderado(conPuntaje.map((x) => ({ item: x.item, cumple: x.proporcion })))
+  return agregarPuntaje(
+    respuestas.map((r) => ({
+      item: r.item,
+      cumple: r.item.tipo === 'CONTENEDOR' ? null : proporcionItem(r.item, r.valor)
+    }))
+  )
 }

@@ -103,7 +103,7 @@ export interface Opcion {
   id: string
   etiqueta: string
   responsable?: string
-  /** Puntos propios de la opción (solo CHECKLIST). Si TODAS las opciones tienen puntos, la puntuación del ítem se reparte entre ellas. */
+  /** Puntos propios de la opción (solo CHECKLIST, hasta 3 decimales, mínimo 0.001). Si TODAS las opciones tienen puntos, la puntuación del ítem se reparte entre ellas. */
   puntos?: number
   /** Tipo de respuesta (solo CHECKLIST): 'CHECK' (casilla) o 'RANGO' (valor numérico con mínimo aceptable). */
   tipo_respuesta?: 'CHECK' | 'RANGO'
@@ -126,6 +126,7 @@ export interface Item {
   orden: number
   requerido: boolean
   activo: boolean
+  /** Peso del ítem en el módulo (hasta 3 decimales). En secciones (CONTENEDOR) es el peso del grupo: sus hijos suman como máximo este valor y ese peso cuenta para el módulo. */
   puntaje?: number
   /** Id del ítem CONTENEDOR (sección) que agrupa este ítem. Un solo nivel de anidación. */
   padre_id?: string | null

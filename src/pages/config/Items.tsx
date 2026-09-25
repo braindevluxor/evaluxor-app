@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FolderOpen, GripVertical, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
-import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem } from '../../lib/scoring'
+import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem, redondear3 } from '../../lib/scoring'
 import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
 import type { FiltroColaboradores, Item, Modulo, Opcion, TipoItem } from '../../lib/types'
 import { Button, Field, Input, Modal, Select, Textarea, Badge, Skeleton, cn } from '../../components/ui'
@@ -40,7 +40,7 @@ export function ItemsPage() {
   const actual = useMemo(() => modulos.find((m) => m.id === moduloId), [modulos, moduloId])
   const items = useMemo(() => itemsEnOrdenJerarquico(actual?._items ?? []), [actual])
   const secciones = useMemo(() => items.filter((i) => i.tipo === 'CONTENEDOR'), [items])
-  const sumaModulo = useMemo(() => items.reduce((a, i) => a + pesoItem(i), 0), [items])
+  const sumaModulo = useMemo(() => items.filter((i) => i.tipo === 'CONTENEDOR' || !i.padre_id).reduce((a, i) => a + pesoItem(i), 0), [items])
 
   async function soltarEn(hasta: number) {
     if (arrastrando == null) {
@@ -192,7 +192,7 @@ export function ItemsPage() {
                       {esSeccion && nHijos > 0 ? <Badge color={0}>{nHijos} ítem(s) dentro</Badge> : null}
                       {it.requerido ? <Badge color={0}>Obligatorio</Badge> : null}
                       {!it.activo ? <Badge color={4}>Inactivo</Badge> : null}
-                      {esSeccion ? null : pesoItem(it) > 0 ? <Badge color={2}>{pesoItem(it)} pts</Badge> : <Badge color={4}>Sin puntos</Badge>}
+                      {pesoItem(it) > 0 ? <Badge color={2}>{pesoItem(it)} pts</Badge> : <Badge color={4}>Sin puntos</Badge>}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1">
@@ -318,32 +318,59 @@ function FormItem({
   const [filtroColaboradores, setFiltroColaboradores] = useState<FiltroColaboradores>(inicial?.colaboradores_filtro ?? 'ACTIVOS')
   const [responsables, setResponsables] = useState<string[]>(inicial?.responsables?.length ? inicial.responsables : [])
   const [padreId, setPadreId] = useState<string | null>(inicial?.padre_id ?? padreIdInicial)
+  const [autoPuntaje, setAutoPuntaje] = useState(false)
 
   const esSeccion = tipo === 'CONTENEDOR'
   const conChecklist = tipo === 'CHECKLIST' || tipo === 'LISTA_COLABORADORES' || tipo === 'UNIDAD_CHECKLIST'
-  const seccionesDisponibles = (modulos.find((m) => m.id === moduloSel)?._items ?? items)
-    .filter((i) => i.tipo === 'CONTENEDOR' && i.id !== inicial?.id)
+  const itemsModulo = modulos.find((m) => m.id === moduloSel)?._items ?? items
+  const seccionesDisponibles = itemsModulo.filter((i) => i.tipo === 'CONTENEDOR' && i.id !== inicial?.id)
 
-  const otros = (modulos.find((m) => m.id === moduloSel)?._items ?? items)
-    .filter((i) => i.id !== inicial?.id)
+  // Peso del módulo: solo secciones (ponderadas) e ítems sueltos. Los hijos de una
+  // sección no suman al módulo: su tope es el puntaje de la sección.
+  const otros = itemsModulo
+    .filter((i) => i.id !== inicial?.id && (i.tipo === 'CONTENEDOR' || !i.padre_id))
     .reduce((a, i) => a + pesoItem(i), 0)
-  const sumaConNuevo = otros + (esSeccion ? 0 : Number(puntos) || 0)
+  const aportaModulo = esSeccion || !padreId ? Number(puntos) || 0 : 0
+  const sumaConNuevo = otros + aportaModulo
   const excede = sumaConNuevo > 100
+
+  // Zona del grupo: la suma de los ítems del grupo no puede superar el puntaje de la sección.
+  const seccionDeGrupo = padreId ? itemsModulo.find((i) => i.id === padreId) : null
+  const sumaHermanos = padreId
+    ? itemsModulo.filter((i) => i.padre_id === padreId && i.id !== inicial?.id).reduce((a, i) => a + pesoItem(i), 0)
+    : 0
+  const excedeGrupo = !!padreId && !!seccionDeGrupo && sumaHermanos + (Number(puntos) || 0) > pesoItem(seccionDeGrupo ?? null)
+  const sumaHijosPropios = esSeccion && inicial ? itemsModulo.filter((i) => i.padre_id === inicial.id).reduce((a, i) => a + pesoItem(i), 0) : 0
+  const excedeHijos = esSeccion && inicial ? (Number(puntos) || 0) < sumaHijosPropios : false
+
   const sumaPuntosOpciones = opciones.reduce((a, o) => a + (o.puntos && o.puntos > 0 ? o.puntos : 0), 0)
   const rangoIncompleto = opciones.some((o) => o.tipo_respuesta === 'RANGO' && o.etiqueta.trim() && typeof o.minimo !== 'number')
+
+  // CHECKLIST con puntaje automático: reparte el peso del ítem en partes iguales
+  // entre las opciones con etiqueta, redondeado a 3 decimales (mín. 0.001 por opción).
+  const nOpcionesConTexto = opciones.filter((o) => o.etiqueta.trim()).length
+  useEffect(() => {
+    if (!autoPuntaje) return
+    const v = Number(puntos) || 0
+    setOpciones((prev) =>
+      v > 0 && nOpcionesConTexto > 0
+        ? prev.map((o) => ({ ...o, puntos: redondear3(v / nOpcionesConTexto) }))
+        : prev.map((o) => ({ ...o, puntos: undefined }))
+    )
+  }, [autoPuntaje, puntos, nOpcionesConTexto])
 
   return (
     <form
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
-        if (excede || rangoIncompleto) return
+        if (excede || rangoIncompleto || excedeGrupo || excedeHijos) return
         void onGuardar({
           id: inicial?.id,
           modulo_id: moduloSel,
           tipo,
           texto,
-          puntaje: esSeccion ? 0 : Number(puntos) || 0,
+          puntaje: Number(puntos) || 0,
           opciones: esSeccion
             ? []
             : conChecklist
@@ -391,37 +418,65 @@ function FormItem({
           </Select>
         </Field>
       ) : null}
+      <Field
+        label={esSeccion ? 'Puntos de la sección (ponderación)' : 'Puntos (ponderación)'}
+        hint={esSeccion
+          ? 'Peso de la sección en el módulo. Los ítems del grupo suman como máximo este valor; secciones + ítems sueltos del módulo no pueden superar 100.'
+          : padreId
+            ? 'Peso dentro de la sección. La suma de los ítems del grupo no puede superar el puntaje de la sección.'
+            : 'Peso del ítem en el módulo. La suma de todos los ítems del módulo no puede superar 100.'}
+      >
+        <Input
+          type="number"
+          min={0}
+          max={100}
+          step={0.001}
+          value={puntos}
+          onChange={(e) => setPuntos(e.target.value === '' ? '' : Number(e.target.value))}
+        />
+      </Field>
       {esSeccion ? (
         <p className="rounded-xl border border-primary-200 bg-primary-50 p-3 text-xs text-slate-600">
-          Las secciones agrupan visualmente los ítems en la evaluación, el resumen y el PDF, sin puntuar: los ítems que contiene siguen aportando sus propios puntos al módulo.
+          {sumaHijosPropios > 0 ? (
+            <>La sección pondera <strong>{Number(puntos) || 0} pts</strong>; sus ítems ya suman <strong>{sumaHijosPropios} pts</strong> (tope del grupo).</>
+          ) : (
+            'Las secciones pueden ponderarse (ej. 60 pts): los ítems que contiene suman como máximo el puntaje de la sección y ese peso cuenta para el módulo.'
+          )}
         </p>
       ) : null}
-      {!esSeccion ? (
-        <>
-          <Field label="Puntos (ponderación)" hint="Peso del ítem en el módulo. La suma de todos los ítems del módulo no puede superar 100.">
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              step={0.5}
-              value={puntos}
-              onChange={(e) => setPuntos(e.target.value === '' ? '' : Number(e.target.value))}
-            />
-          </Field>
-          {excede ? (
-            <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
-              Con estos puntos el módulo sumaría {sumaConNuevo}/100. Baja el valor para no superar 100.
-            </p>
-          ) : null}
-        </>
+      {excede ? (
+        <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
+          Con estos puntos el módulo sumaría {sumaConNuevo}/100. Baja el valor para no superar 100.
+        </p>
+      ) : null}
+      {excedeGrupo ? (
+        <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
+          {pesoItem(seccionDeGrupo ?? null) > 0 ? (
+            <>El grupo «{seccionDeGrupo?.texto}» tiene {sumaHermanos} pts; con estos puntos el grupo sumaría {sumaHermanos + (Number(puntos) || 0)}/{pesoItem(seccionDeGrupo ?? null)}. Reducí el valor para no superar el puntaje de la sección.</>
+          ) : (
+            <>El grupo «{seccionDeGrupo?.texto}» no tiene puntos asignados. Primero ponderá la sección para poder darles puntos a sus ítems.</>
+          )}
+        </p>
+      ) : null}
+      {excedeHijos ? (
+        <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
+          La sección ya tiene {sumaHijosPropios} pts repartidos en sus ítems; el puntaje no puede ser menor a esa suma.
+        </p>
       ) : null}
       {tipo === 'CHECKLIST' ? (
         <>
+          <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-3 text-sm text-slate-700">
+            <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-primary" checked={autoPuntaje} onChange={(e) => setAutoPuntaje(e.target.checked)} />
+            <span>
+              <strong>Puntaje automático</strong>
+              <span className="block text-xs font-normal text-slate-500">Reparte el peso del ítem en partes iguales entre las opciones (peso ÷ nº de checks, ej. 6 ÷ 15 = 0.4 por check).</span>
+            </span>
+          </label>
           <Field
             label="Lista de opciones"
-            hint="El ítem cumple al marcar todas las opciones. En «Rango de valor» el punto solo cumple si el evaluador ingresa un valor mayor o igual al mínimo aceptable. Si asignás puntos a TODAS las opciones, la puntuación del ítem se reparte."
+            hint="El ítem cumple al marcar todas las opciones. En «Rango de valor» el punto solo cumple si el evaluador ingresa un valor mayor o igual al mínimo aceptable. Los puntos por opción admiten hasta 3 decimales (mínimo 0.001); si asignás puntos a TODAS las opciones, la puntuación del ítem se reparte."
           >
-            <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} conPuntos conRango />
+            <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} conPuntos conRango puntosBloqueados={autoPuntaje} />
           </Field>
           {rangoIncompleto ? (
             <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
@@ -487,12 +542,12 @@ function FormItem({
           Ítem activo (visible en evaluaciones)
         </label>
       </div>
-      <Button type="submit" className="w-full" disabled={excede || rangoIncompleto}>Guardar ítem</Button>
+      <Button type="submit" className="w-full" disabled={excede || rangoIncompleto || excedeGrupo || excedeHijos}>Guardar ítem</Button>
     </form>
   )
 }
 
-function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = false, conRango = false }: { opciones: Opcion[]; onChange: (o: Opcion[]) => void; responsables?: string[]; conPuntos?: boolean; conRango?: boolean }) {
+function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = false, conRango = false, puntosBloqueados = false }: { opciones: Opcion[]; onChange: (o: Opcion[]) => void; responsables?: string[]; conPuntos?: boolean; conRango?: boolean; puntosBloqueados?: boolean }) {
   const [arrastrando, setArrastrando] = useState<number | null>(null)
   const [sobre, setSobre] = useState<number | null>(null)
 
@@ -506,7 +561,8 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
   }
   const cambiarPuntos = (i: number, valor: string) => {
     const n = Number(valor)
-    const puntos = valor.trim() !== '' && Number.isFinite(n) && n > 0 ? n : undefined
+    // Hasta 3 decimales y mínimo 0.001 por opción; el vacío quita los puntos.
+    const puntos = valor.trim() !== '' && Number.isFinite(n) && n > 0 ? redondear3(Math.max(0.001, n)) : undefined
     const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, puntos } : o))
     onChange(nuevo)
   }
@@ -582,15 +638,17 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
             <Input value={o.etiqueta} onChange={(e) => cambiar(i, e.target.value)} placeholder={`Opción ${i + 1}`} className="min-w-40 flex-1" />
             {conPuntos ? (
               <label className="flex shrink-0 flex-col gap-1">
-                <span className="px-0.5 text-[11px] font-semibold text-slate-500">Puntos</span>
+                <span className="px-0.5 text-[11px] font-semibold text-slate-500">{puntosBloqueados ? 'Puntos (auto)' : 'Puntos'}</span>
                 <Input
                   type="number"
-                  min={0}
-                  step={0.5}
+                  min={0.001}
+                  step={0.001}
                   value={o.puntos ?? ''}
                   onChange={(e) => cambiarPuntos(i, e.target.value)}
-                  className="w-20 shrink-0"
+                  disabled={puntosBloqueados}
+                  className="w-20 shrink-0 disabled:bg-slate-100 disabled:text-slate-400"
                   style={{ borderColor: 'var(--color-primary-400)' }}
+                  title={puntosBloqueados ? 'El puntaje automático reparte el peso del ítem entre las opciones.' : 'Hasta 3 decimales, mínimo 0.001.'}
                   aria-label={`Puntos de la opción ${i + 1}`}
                 />
               </label>

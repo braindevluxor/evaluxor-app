@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable, agregarPuntaje, redondear3 } from './scoring'
 
 describe('valorBinario', () => {
   it('cumple/no cumple', () => {
@@ -311,5 +311,89 @@ describe('calcularPuntaje con registros (secciones repetibles)', () => {
       { item, valor: { value: true } },
       { item, valor: { value: false } }
     ])).toBe(66.67)
+  })
+})
+
+describe('secciones ponderadas', () => {
+  const seccion = { id: 's1', tipo: 'CONTENEDOR', puntaje: 60 }
+  const hijo = (id: string, puntaje: number) => ({ id, tipo: 'CUMPLE_NO_CUMPLE', puntaje, padre_id: 's1' })
+  const entries = (cumplen: Record<string, boolean | number>) => [
+    { item: seccion, cumple: null },
+    ...Object.entries(cumplen).map(([id, c]) => ({ item: hijo(id, 20), cumple: c }))
+  ]
+
+  it('la sección ponderada pesa en el módulo y agrupa a sus hijos', () => {
+    // Tres hijos de 20: dos cumplen → 2/3 de la sección (60) → 40 de 60.
+    expect(agregarPuntaje(entries({ h1: true, h2: true, h3: false }))).toBe(66.67)
+  })
+
+  it('la sección no puede superar su peso: hijos que suman menos alzan el máximo', () => {
+    // Hijos que suman menos que la sección: cumplimiento completo = 100% de lo que suman.
+    const seccionP = { id: 'p1', tipo: 'CONTENEDOR', puntaje: 60 }
+    const hijos = [
+      { item: { id: 'a', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 30, padre_id: 'p1' }, cumple: true },
+      { item: { id: 'b', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 10, padre_id: 'p1' }, cumple: true },
+      { item: seccionP, cumple: null }
+    ]
+    expect(agregarPuntaje(hijos)).toBe(100)
+  })
+
+  it('hijo incumplido resta solo su peso dentro del grupo', () => {
+    const hijos = [
+      { item: { id: 'a', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 20, padre_id: 's1' }, cumple: true },
+      { item: { id: 'b', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 20, padre_id: 's1' }, cumple: true },
+      { item: { id: 'c', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 20, padre_id: 's1' }, cumple: false },
+      { item: seccion, cumple: null }
+    ]
+    expect(agregarPuntaje(hijos)).toBe(66.67)
+  })
+
+  it('sin la sección en la lista, los hijos se cuentan directos (respaldo)', () => {
+    // Comportamiento previo para datos existentes: la sección no aparece en las respuestas.
+    const hijos = [
+      { item: { id: 'a', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 20, padre_id: 's1' }, cumple: true },
+      { item: { id: 'b', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 20, padre_id: 's1' }, cumple: true },
+      { item: { id: 'c', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 20, padre_id: 's1' }, cumple: false }
+    ]
+    expect(agregarPuntaje(hijos)).toBe(66.67)
+  })
+
+  it('sección sin puntaje no participa y sus hijos siguen directos', () => {
+    const seccion0 = { id: 's0', tipo: 'CONTENEDOR', puntaje: 0 }
+    const r = agregarPuntaje([
+      { item: seccion0, cumple: null },
+      { item: { id: 'a', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 20, padre_id: 's0' }, cumple: true },
+      { item: { id: 'b', tipo: 'CUMPLE_NO_CUMPLE', puntaje: 20, padre_id: 's0' }, cumple: false }
+    ])
+    expect(r).toBe(50)
+  })
+
+  it('calcularPuntaje agrupa secciones dentro de una evaluación', () => {
+    const seccionE = { id: 'sec1', tipo: 'CONTENEDOR', puntaje: 60 }
+    const hijoE = (id: string, puntaje: number) => ({ id, tipo: 'CUMPLE_NO_CUMPLE', puntaje, padre_id: 'sec1' })
+    const resps = [
+      { item: hijoE('h1', 20), valor: { value: true } },
+      { item: hijoE('h2', 20), valor: { value: true } },
+      { item: hijoE('h3', 20), valor: { value: false } },
+      { item: seccionE, valor: undefined }
+    ]
+    expect(calcularPuntaje(resps)).toBe(66.67)
+  })
+
+  it('sección con checklist proporcional entre sus hijos', () => {
+    const seccionC = { id: 'sec2', tipo: 'CONTENEDOR', puntaje: 100 }
+    const checklist = { id: 'ch1', tipo: 'CHECKLIST', puntaje: 100, padre_id: 'sec2', opciones: [{ id: 'a', puntos: 3 }, { id: 'b', puntos: 1 }, { id: 'c', puntos: 2 }] }
+    const resps = [
+      { item: checklist, valor: { selected: ['a'] } }, // 3/6
+      { item: seccionC, valor: undefined }
+    ]
+    expect(calcularPuntaje(resps)).toBe(50)
+  })
+
+  it('redondear3 deja hasta 3 decimales y respeta 6/15 = 0.4', () => {
+    expect(redondear3(6 / 15)).toBe(0.4)
+    expect(redondear3(1 / 3)).toBe(0.333)
+    expect(redondear3(0.0006)).toBe(0.001)
+    expect(redondear3(2.34567)).toBe(2.346)
   })
 })

@@ -1,6 +1,6 @@
 import { supabase } from '../supabase'
 import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion, InstanciaGrupo } from '../types'
-import { proporcionItem, puntajePonderado, incumplimientosPorResponsable, type AcumuladoResponsable, type BinarioConPuntaje } from '../scoring'
+import { proporcionItem, puntajePonderado, conSeccionesPonderadas, incumplimientosPorResponsable, type AcumuladoResponsable, type BinarioConPuntaje } from '../scoring'
 
 export interface FiltrosIndicadores {
   sucursal_ids: string[] | null
@@ -167,7 +167,9 @@ export function resumirEvaluacion(ev: Evaluacion, resps: Respuesta[], items: Ite
   const binarios = rr
     .map((r) => ({ item: r.item, cumple: proporcionItem(r.item, r.valor) }))
     .filter((b): b is { item: Item; cumple: number } => b.cumple !== null)
-  const puntaje = binarios.length ? puntajePonderado(binarios) : ev.puntuacion
+  // Las secciones ponderadas participan como grupo (su peso agrupa el de sus hijos).
+  const conSecciones = conSeccionesPonderadas(items, binarios)
+  const puntaje = conSecciones.length ? puntajePonderado(conSecciones) : ev.puntuacion
 
   return { puntaje, itemsBinarios: binarios.length, itemsBinariosOk: binarios.filter((b) => b.cumple === 1).length }
 }
@@ -200,12 +202,15 @@ export function puntajePorModulo(
     a.evals.add(r.evaluacion_id)
   }
   return Array.from(acum.values())
-    .map(({ modulo_id, nombre, binarios, evals }) => ({
-      modulo_id,
-      nombre,
-      puntaje: puntajePonderado(binarios),
-      evaluaciones: evals.size
-    }))
+    .map(({ modulo_id, nombre, binarios, evals }) => {
+      const conSecciones = conSeccionesPonderadas(datos.items, binarios)
+      return {
+        modulo_id,
+        nombre,
+        puntaje: puntajePonderado(conSecciones),
+        evaluaciones: evals.size
+      }
+    })
     .sort((a, b) => (b.puntaje ?? 0) - (a.puntaje ?? 0))
 }
 
@@ -250,7 +255,7 @@ export function puntajePorSucursalModulo(
       const porModulo: Record<string, number | null> = {}
       for (const m of modulos) {
         const a = acum.get(`${s.id}|${m.modulo_id}`)
-        porModulo[m.nombre] = a && a.binarios.length ? puntajePonderado(a.binarios) : null
+        porModulo[m.nombre] = a && a.binarios.length ? puntajePonderado(conSeccionesPonderadas(datos.items, a.binarios)) : null
       }
       return { sucursal_id: s.id, nombre: s.nombre, porModulo }
     })
@@ -415,7 +420,7 @@ export function matrizModuloSucursal(
       const c = celdas[suc]?.[m.id]
       return {
         modulo: m.nombre,
-        puntaje: c ? puntajePonderado(c.binarios) : null
+        puntaje: c ? puntajePonderado(conSeccionesPonderadas(datos.items, c.binarios)) : null
       }
     })
   }))
