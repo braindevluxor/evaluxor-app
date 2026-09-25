@@ -57,7 +57,7 @@ input[type='date'] {
   height: calc(3 * var(--u, 16px));
   margin-top: calc(4 * var(--u, 16px));
   margin-left: 0;
-  animation: cargador-caja1 3s 1s forwards ease-in-out infinite;
+  animation: cargador-caja1 3s forwards ease-in-out infinite;
 }
 
 .cargador-box--2 {
@@ -65,7 +65,7 @@ input[type='date'] {
   height: calc(3 * var(--u, 16px));
   margin-top: 0;
   margin-left: 0;
-  animation: cargador-caja2 3s 1s forwards ease-in-out infinite;
+  animation: cargador-caja2 3s forwards ease-in-out infinite;
 }
 
 .cargador-box--3 {
@@ -73,7 +73,7 @@ input[type='date'] {
   height: calc(3 * var(--u, 16px));
   margin-top: 0;
   margin-left: calc(4 * var(--u, 16px));
-  animation: cargador-caja3 3s 1s forwards ease-in-out infinite;
+  animation: cargador-caja3 3s forwards ease-in-out infinite;
 }
 
 @keyframes cargador-caja1 {
