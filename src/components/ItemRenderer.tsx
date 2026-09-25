@@ -620,9 +620,25 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId }: { item
   const [cargando, setCargando] = useState(false)
   const [info, setInfo] = useState('')
   const [abiertoDni, setAbiertoDni] = useState<number | null>(null)
+  const [busqueda, setBusqueda] = useState('')
 
   const v = (valor as ValorListaColaboradores | null) ?? { colaboradores: [] }
   const colaboradores = v.colaboradores ?? []
+  const colaboradoresFiltrados = [...colaboradores]
+    .sort((a, b) => {
+      const apeA = (a.lastname ?? '').trim().toLocaleLowerCase()
+      const apeB = (b.lastname ?? '').trim().toLocaleLowerCase()
+      const nomA = (a.name ?? '').trim().toLocaleLowerCase()
+      const nomB = (b.name ?? '').trim().toLocaleLowerCase()
+      return apeA.localeCompare(apeB) || nomA.localeCompare(nomB) || ((a.dni ?? 0) - (b.dni ?? 0))
+    })
+    .filter((c) => {
+      const q = busqueda.trim().toLowerCase()
+      if (!q) return true
+      const documento = String(c.dni ?? '').toLowerCase()
+      const nombre = `${c.name ?? ''} ${c.lastname ?? ''}`.toLowerCase()
+      return documento.includes(q) || (c.name ?? '').toLowerCase().includes(q) || (c.lastname ?? '').toLowerCase().includes(q) || nombre.includes(q)
+    })
   const opts = (item.opciones ?? []) as Opcion[]
   const filtro = item.colaboradores_filtro ?? 'ACTIVOS'
   const etiquetaFiltro = filtro === 'TODOS' ? 'activos e inactivos' : filtro === 'ACTIVOS' ? 'solo activos' : 'solo inactivos'
@@ -722,57 +738,81 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId }: { item
       </div>
 
       {colaboradores.length ? (
-        <div className="space-y-2">
-          {colaboradores.map((c) => {
-            const abierto = abiertoDni === c.dni
-            const cumple = colaboradorCumple(c, opts)
-            return (
-              <div key={c.dni} className={cn('rounded-xl border transition-colors', c.aplica ? (cumple ? 'border-green-200 bg-white' : 'border-slate-200 bg-white') : 'border-slate-100 bg-slate-50')}>
-                <div className="flex items-center gap-2 px-3 py-2.5">
-                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-                    <input type="checkbox" className="h-5 w-5 shrink-0 accent-primary" checked={c.aplica} onChange={() => marcarAplica(c.dni)} title="Cuenta para el puntaje" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-slate-800">{c.name} {c.lastname}</span>
-                      <span className="block text-[11px] text-slate-500">
-                        C.I. {c.nationality ?? ''}{c.dni} · {c.role_name || 'Sin rol'}
-                        <span className={cn('ml-1.5 font-semibold', c.active ? 'text-green-600' : 'text-slate-400')}>{c.active ? '· Activo' : '· Inactivo'}</span>
+        <div className="space-y-3">
+          <div className="relative">
+            <Input
+              type="text"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por documento, nombre o apellido"
+              className="w-full"
+            />
+          </div>
+
+          {colaboradoresFiltrados.length ? (
+            <div className="space-y-2">
+              {colaboradoresFiltrados.map((c) => {
+                const abierto = abiertoDni === c.dni
+                const cumple = colaboradorCumple(c, opts)
+                const marcado = c.selected.length > 0
+                const estado = cumple ? 'Cumple' : marcado ? 'En curso' : 'Sin marcar'
+                const estadoClass = cumple ? 'bg-green-100 text-green-700' : marcado ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
+                return (
+                  <div key={c.dni} className={cn('rounded-xl border transition-colors', c.aplica ? (cumple ? 'border-green-200 bg-white' : 'border-slate-200 bg-white') : 'border-slate-100 bg-slate-50')}>
+                    <div className="flex items-center gap-2 px-3 py-2.5">
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                        <input type="checkbox" className="h-5 w-5 shrink-0 accent-primary" checked={c.aplica} onChange={() => marcarAplica(c.dni)} title="Cuenta para el puntaje" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-slate-800">{c.lastname} {c.name}</span>
+                          <span className="block text-[11px] text-slate-500">
+                            C.I. {c.nationality ?? ''}{c.dni} · {c.role_name || 'Sin rol'}
+                            <span className={cn('ml-1.5 font-semibold', c.active ? 'text-green-600' : 'text-slate-400')}>{c.active ? '· Activo' : '· Inactivo'}</span>
+                          </span>
+                        </span>
+                      </label>
+                      <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', estadoClass)}>
+                        {estado}
                       </span>
-                    </span>
-                  </label>
-                  <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
-                    {cumple ? 'Cumple' : `${c.selected.length}/${opts.length}`}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => toggleAbierto(c.dni)}
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 hover:bg-slate-100"
-                    title={abierto ? 'Cerrar checklist' : 'Abrir checklist'}
-                  >
-                    <ChevronDown className={cn('h-4 w-4 transition-transform', abierto ? 'rotate-180' : '')} />
-                  </button>
-                </div>
-                {abierto ? (
-                  <div className="space-y-1 border-t border-slate-100 px-3 pb-3 pt-2">
-                    {opts.map((o) => {
-                      const esta = c.selected.includes(o.id)
-                      return (
-                        <label key={o.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-50">
-                          <input
-                            type="checkbox"
-                            className="h-5 w-5 shrink-0 accent-primary"
-                            checked={esta}
-                            onChange={() => toggleCheck(c.dni, o.id)}
-                          />
-                          <span className={cn('text-sm', c.aplica ? 'text-slate-700' : 'text-slate-400')}>{o.etiqueta}</span>
-                          {o.responsable ? <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{o.responsable}</span> : null}
-                        </label>
-                      )
-                    })}
+                      <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
+                        {cumple ? 'Cumple' : `${c.selected.length}/${opts.length}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => toggleAbierto(c.dni)}
+                        className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 hover:bg-slate-100"
+                        title={abierto ? 'Cerrar checklist' : 'Abrir checklist'}
+                      >
+                        <ChevronDown className={cn('h-4 w-4 transition-transform', abierto ? 'rotate-180' : '')} />
+                      </button>
+                    </div>
+                    {abierto ? (
+                      <div className="space-y-1 border-t border-slate-100 px-3 pb-3 pt-2">
+                        {opts.map((o) => {
+                          const esta = c.selected.includes(o.id)
+                          return (
+                            <label key={o.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-50">
+                              <input
+                                type="checkbox"
+                                className="h-5 w-5 shrink-0 accent-primary"
+                                checked={esta}
+                                onChange={() => toggleCheck(c.dni, o.id)}
+                              />
+                              <span className={cn('text-sm', c.aplica ? 'text-slate-700' : 'text-slate-400')}>{o.etiqueta}</span>
+                              {o.responsable ? <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{o.responsable}</span> : null}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            )
-          })}
+                )
+              })}
+            </div>
+          ) : (
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+              No se encontraron colaboradores con “{busqueda}”.
+            </p>
+          )}
         </div>
       ) : (
         <p className="text-sm text-slate-400">Aún no hay colaboradores cargados. Pulsa “Cargar colaboradores” para traerlos de la tienda.</p>
