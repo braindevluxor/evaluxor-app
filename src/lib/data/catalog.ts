@@ -96,24 +96,28 @@ export async function eliminarModulo(id: string): Promise<void> {
   await supabase.from('modulos').delete().eq('id', id)
 }
 
-export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: Item['tipo']; texto: string }): Promise<void> {
+export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: Item['tipo']; texto: string }): Promise<string | null> {
   if (i.id) {
     const { id, ...rest } = i
-    await supabase.from('items').update(rest).eq('id', id)
-  } else {
-    await supabase.from('items').insert({
-      modulo_id: i.modulo_id,
-      tipo: i.tipo,
-      texto: i.texto,
-      opciones: i.opciones ?? [],
-      colaboradores_filtro: i.colaboradores_filtro ?? null,
-      responsables: i.responsables ?? [],
-      orden: i.orden ?? 0,
-      requerido: i.requerido ?? false,
-      puntaje: i.puntaje ?? 0,
-      padre_id: i.padre_id ?? null
-    })
+    const { data, error } = await supabase.from('items').update(rest).eq('id', id).select('id').single()
+    if (error) throw error
+    return data?.id ?? id
   }
+  const { data, error } = await supabase.from('items').insert({
+    modulo_id: i.modulo_id,
+    tipo: i.tipo,
+    texto: i.texto,
+    opciones: i.opciones ?? [],
+    colaboradores_filtro: i.colaboradores_filtro ?? null,
+    responsables: i.responsables ?? [],
+    orden: i.orden ?? 0,
+    requerido: i.requerido ?? false,
+    puntaje: i.puntaje ?? 0,
+    activo: i.activo ?? true,
+    padre_id: i.padre_id ?? null
+  }).select('id').single()
+  if (error) throw error
+  return data?.id ?? null
 }
 
 export async function eliminarItem(id: string): Promise<void> {

@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { FolderOpen, GripVertical, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { FolderOpen, GripVertical, Pencil, Plus, Copy, Trash2, X } from 'lucide-react'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
 import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem, redondear3, valorPorResponsable } from '../../lib/scoring'
 import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
@@ -21,6 +21,9 @@ export function ItemsPage() {
   const [moduloId, setModuloId] = useState(() => params.get('modulo') ?? '')
   const [modal, setModal] = useState(false)
   const [editando, setEditando] = useState<Item | null>(null)
+  /** Al copiar un ítem, el modal trabaja sobre una copia sin id (inserta nuevo) y `origenCopia` guarda el ítem original (para duplicar también sus hijos si es sección). */
+  const [esCopia, setEsCopia] = useState(false)
+  const [origenCopia, setOrigenCopia] = useState<Item | null>(null)
   const [nuevoPadreId, setNuevoPadreId] = useState<string | null>(null)
   const [aBorrar, setABorrar] = useState<Item | null>(null)
   const [borrando, setBorrando] = useState(false)
@@ -104,6 +107,24 @@ export function ItemsPage() {
     await cargar()
   }
 
+  // Copia de un ítem: regenera los ids de opciones (identidad nueva, sin chocar con la config por sucursal del original).
+  const nuevasOpciones = (opciones: Item['opciones']) =>
+    (opciones ?? []).map((o) => ({ ...o, id: `o${Math.random().toString(36).slice(2, 10)}` }))
+
+  const iniciarCopia = (it: Item) => {
+    setEditando({
+      ...it,
+      id: '',
+      texto: `${it.texto} (copia)`,
+      opciones: nuevasOpciones(it.opciones),
+      responsables: it.responsables ? [...it.responsables] : []
+    })
+    setOrigenCopia(it)
+    setEsCopia(true)
+    setNuevoPadreId(null)
+    setModal(true)
+  }
+
   // Posición visual (índice de inserción) donde se soltaría el ítem arrastrado
   const insertAt = sobre ? (sobre.lado === 'arriba' ? sobre.idx : sobre.idx + 1) : null
 
@@ -121,7 +142,7 @@ export function ItemsPage() {
             </Select>
           </Field>
         </div>
-        <Button onClick={() => { setEditando(null); setNuevoPadreId(null); setModal(true) }} disabled={!moduloId}>+ Nuevo ítem</Button>
+        <Button onClick={() => { setEditando(null); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null); setModal(true) }} disabled={!moduloId}>+ Nuevo ítem</Button>
       </div>
 
       {cargando ? (
@@ -250,13 +271,14 @@ export function ItemsPage() {
                     ) : null}
                     {esSeccion ? (
                       <button
-                        onClick={() => { setEditando(null); setNuevoPadreId(it.id); setModal(true) }}
+                        onClick={() => { setEditando(null); setNuevoPadreId(it.id); setEsCopia(false); setOrigenCopia(null); setModal(true) }}
                         className="inline-flex h-8 items-center gap-1 rounded-full border border-primary-200 px-3 text-sm font-semibold text-primary hover:bg-primary-50"
                       >
                         <Plus className="h-4 w-4" /> Ítem dentro
                       </button>
                     ) : null}
-                    <button onClick={() => { setEditando(it); setNuevoPadreId(null); setModal(true) }} title="Editar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700"><Pencil className="h-4 w-4" /></button>
+                    <button onClick={() => { setEditando(it); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null); setModal(true) }} title="Editar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700"><Pencil className="h-4 w-4" /></button>
+                    <button onClick={() => iniciarCopia(it)} title="Copiar ítem" className="grid h-8 w-8 place-items-center rounded-full border border-slate-300 bg-white text-slate-500 transition-colors hover:border-primary hover:bg-primary-50 hover:text-primary"><Copy className="h-4 w-4" /></button>
                     <button onClick={() => setABorrar(it)} title="Eliminar" className="grid h-8 w-8 place-items-center rounded-full bg-red-600 text-white transition-colors hover:bg-red-700"><Trash2 className="h-4 w-4" /></button>
                   </div>
                 </div>
@@ -272,7 +294,7 @@ export function ItemsPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => { setModal(false); setNuevoPadreId(null) }} title={editando ? 'Editar ítem' : nuevoPadreId ? 'Nuevo ítem dentro de la sección' : 'Nuevo ítem'} wide sinCerrarFuera>
+      <Modal open={modal} onClose={() => { setModal(false); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null) }} title={esCopia ? (origenCopia?.tipo === 'CONTENEDOR' ? 'Copiar sección' : 'Copiar ítem') : editando ? 'Editar ítem' : nuevoPadreId ? 'Nuevo ítem dentro de la sección' : 'Nuevo ítem'} wide sinCerrarFuera>
         <FormItem
           moduloId={moduloId}
           modulos={modulos}
@@ -286,9 +308,27 @@ export function ItemsPage() {
               const maxOrden = destino._items.reduce((a, i) => Math.max(a, i.orden), -1)
               if (!d.id || mover) d = { ...d, orden: maxOrden + 1 }
             }
-            await guardarItem(d)
+            const nuevoId = await guardarItem(d)
+            // Al copiar una sección, duplica también sus ítems hijos dentro de la nueva sección.
+            if (esCopia && origenCopia?.tipo === 'CONTENEDOR' && nuevoId) {
+              for (const hijo of hijosDe(items, origenCopia.id)) {
+                await guardarItem({
+                  ...hijo,
+                  id: '',
+                  opciones: nuevasOpciones(hijo.opciones),
+                  responsables: hijo.responsables ? [...hijo.responsables] : [],
+                  requerido: hijo.requerido,
+                  activo: hijo.activo,
+                  orden: hijo.orden,
+                  modulo_id: d.modulo_id,
+                  padre_id: nuevoId
+                })
+              }
+            }
             setModal(false)
             setNuevoPadreId(null)
+            setEsCopia(false)
+            setOrigenCopia(null)
             if (mover) setModuloId(d.modulo_id)
             await cargar()
           }}
