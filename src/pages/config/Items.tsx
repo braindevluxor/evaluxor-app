@@ -604,7 +604,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
                 </Select>
               </label>
             ) : null}
-            <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-red-500 hover:bg-red-50"><X className="h-5 w-5" /></button>
+            <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-red-500 hover:bg-red-50" title="Eliminar opción"><Trash2 className="h-5 w-5" /></button>
           </div>
           {conRango ? (
             <div className="flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 px-2.5 py-2">
