@@ -6,12 +6,11 @@ import { useCatalog } from '../../context/CatalogContext'
 import { consultarEvaluaciones, medidoresPorModulo, peoresItems, puntajePorSucursalModulo, rankingSucursales } from '../../lib/data/indicadores'
 import type { ConjuntoDatos } from '../../lib/data/indicadores'
 import { Card, Field, Input, Select, Skeleton } from '../../components/ui'
-import { MedidorCumplimiento, LeyendaEtapas } from '../../components/dashboard/MedidorCumplimiento'
 import { MedidorModulo } from '../../components/dashboard/MedidorModulo'
 import { verTodo } from '../../lib/roles'
 import { setKpisGlobal } from '../../lib/kpisGlobal'
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend
+  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend
 } from 'recharts'
 
 function haceMeses(n: number): string {
@@ -100,8 +99,6 @@ export function DashboardHome() {
     setKpisGlobal(kpis)
   }, [kpis])
 
-  const mejorSucursal = ranking.find((r) => r.puntaje != null)
-
   // Un reloj por módulo activo: promedio de la última evaluación de cada sucursal con ese módulo activo.
   const medidores = useMemo(() => {
     if (!datos) return []
@@ -154,49 +151,26 @@ export function DashboardHome() {
         </div>
       ) : datos ? (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <Card className="lg:col-span-2">
-            <div className="flex flex-col items-center gap-6 md:flex-row md:justify-center md:gap-10">
-              <MedidorCumplimiento
-                valor={kpis.global}
-                sub={kpis.completadas ? `${kpis.completadas} evaluación(es) en el rango` : undefined}
-              />
-              <div className="grid w-full max-w-md grid-cols-2 gap-3">
-                <MiniKpi etiqueta="Evaluaciones" valor={String(kpis.completadas)} detalle="en el rango seleccionado" />
-                <MiniKpi etiqueta="Cobertura" valor={`${kpis.cobertura}%`} detalle="de las sucursales" />
-                <MiniKpi etiqueta="Ítems incumplidos" valor={String(kpis.incumplimientos)} />
-                <MiniKpi
-                  etiqueta="Mejor sucursal"
-                  valor={mejorSucursal ? `${mejorSucursal.puntaje} pts` : '—'}
-                  detalle={mejorSucursal?.nombre}
-                />
-              </div>
-            </div>
-            <div className="mt-5 flex flex-col items-center gap-2 border-t border-slate-100 pt-4">
-              <LeyendaEtapas />
-              {kpis.global == null ? (
-                <p className="text-xs text-slate-400">Sin evaluaciones con puntuación en el rango seleccionado.</p>
-              ) : null}
-            </div>
-          </Card>
-
-          <Card className="lg:col-span-2">
+          <Card className="lg:col-span-2 border-0!">
             <h3 className="mb-1 font-bold text-primary-900">Cumplimiento por módulo</h3>
             <p className="mb-3 text-xs text-slate-400">Promedio de la última evaluación de cada sucursal que tenga el módulo activo, en el rango seleccionado</p>
             {medidores.length ? (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
                 {medidores.map((m) => (
-                  <div key={m.modulo_id} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
-                    <MedidorModulo
-                      nombre={m.nombre}
-                      valor={m.promedio}
-                      sub={
-                        m.sucursales
-                          ? `${m.sucursales} de ${m.sucursales + m.sinDatos} sucursales`
-                          : m.sinDatos
-                            ? `${m.sinDatos} sucursales sin evaluación`
-                            : 'Sin sucursales activas'
-                      }
-                    />
+                  <div key={m.modulo_id} className="rounded-xl bg-slate-50/50 p-3">
+                    <div className="mx-auto w-full max-w-[150px]">
+                      <MedidorModulo
+                        nombre={m.nombre}
+                        valor={m.promedio}
+                        sub={
+                          m.sucursales
+                            ? `${m.sucursales} de ${m.sucursales + m.sinDatos} sucursales`
+                            : m.sinDatos
+                              ? `${m.sinDatos} sucursales sin evaluación`
+                              : 'Sin sucursales activas'
+                        }
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -205,12 +179,12 @@ export function DashboardHome() {
             )}
           </Card>
 
-          <Card className="lg:col-span-2">
+          <Card className="lg:col-span-2 border-0!">
             <h3 className="mb-1 font-bold text-primary-900">Ranking de sucursales</h3>
             <p className="mb-3 text-xs text-slate-400">Posiciones estilo F1: puntaje de cumplimiento de cada sucursal en el rango</p>
             {ranking.length ? (
               <div
-                className="border border-slate-200 bg-white p-3 sm:p-4"
+                className="bg-white p-3 sm:p-4"
                 style={{ backgroundImage: 'repeating-linear-gradient(135deg, rgb(100 116 139 / 0.12) 0 1px, transparent 1px 12px)' }}
               >
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -253,13 +227,22 @@ export function DashboardHome() {
             ) : <p className="text-sm text-slate-400">Sin sucursales.</p>}
           </Card>
 
-          <Card className="lg:col-span-2">
+          <Card className="lg:col-span-2 border-0!">
             <h3 className="mb-1 font-bold text-primary-900">Ponderación por sucursal y módulo</h3>
-            <p className="mb-3 text-xs text-slate-400">Curvas por módulo; pasa el cursor sobre la leyenda para elevar una curva (z-index dinámico)</p>
+            <p className="mb-3 text-xs text-slate-400">Curvas por módulo con la barra translúcida del promedio por sucursal; pasa el cursor por la leyenda para elevar una curva</p>
             {matrizModulos && matrizModulos.modulos.length && matrizModulos.sucursales.length ? (
               <ResponsiveContainer width="100%" height={380}>
-                <LineChart
-                  data={matrizModulos.sucursales.map((s) => ({ sucursal: s.nombre, ...s.porModulo }))}
+                <ComposedChart
+                  data={matrizModulos.sucursales.map((s) => {
+                    const valores = Object.values(s.porModulo).filter((v): v is number => v != null)
+                    return {
+                      sucursal: s.nombre,
+                      ...s.porModulo,
+                      promedio: valores.length
+                        ? Math.round((valores.reduce((a, b) => a + b, 0) / valores.length) * 100) / 100
+                        : null
+                    }
+                  })}
                   margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
@@ -272,8 +255,18 @@ export function DashboardHome() {
                   <Legend
                     iconType="plainline"
                     wrapperStyle={{ fontSize: 12 }}
-                    onMouseEnter={(d) => setLineaActiva(d.value ?? null)}
+                    onMouseEnter={(d) => setLineaActiva(d.value === 'Promedio por sucursal' ? null : (d.value ?? null))}
                     onMouseLeave={() => setLineaActiva(null)}
+                  />
+                  {/* Barra translúcida: ponderación promedio de la sucursal (detrás de las curvas) */}
+                  <Bar
+                    dataKey="promedio"
+                    name="Promedio por sucursal"
+                    fill="#28315F"
+                    fillOpacity={0.14}
+                    radius={[4, 4, 0, 0]}
+                    barSize={16}
+                    legendType="rect"
                   />
                   {modulosOrden.map((m, i) => (
                     <Line
@@ -288,7 +281,7 @@ export function DashboardHome() {
                       opacity={lineaActiva && lineaActiva !== m.nombre ? 0.3 : 1}
                     />
                   ))}
-                </LineChart>
+                </ComposedChart>
               </ResponsiveContainer>
             ) : <p className="text-sm text-slate-400">Sin datos de módulos para mostrar en el rango.</p>}
           </Card>
@@ -315,16 +308,6 @@ function TarjetaRankingF1({ posicion, nombre, puntaje }: { posicion: number; nom
       <div className="flex w-16 shrink-0 items-center justify-center bg-amber-400 sm:w-20">
         <span className="text-2xl font-black text-slate-900 sm:text-3xl">{puntaje == null ? '—' : puntaje}</span>
       </div>
-    </div>
-  )
-}
-
-function MiniKpi({ etiqueta, valor, detalle }: { etiqueta: string; valor: string; detalle?: string }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{etiqueta}</p>
-      <p className="mt-0.5 text-2xl font-extrabold leading-none tabular-nums text-primary-900">{valor}</p>
-      {detalle ? <p className="mt-1 truncate text-xs font-medium text-slate-500">{detalle}</p> : null}
     </div>
   )
 }

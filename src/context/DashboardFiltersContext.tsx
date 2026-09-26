@@ -40,5 +40,5 @@ export function DashboardFiltersPortal({ children }: { children: ReactNode }) {
   }, [])
 
   if (!abierto || !destino) return null
-  return createPortal(<div className="mx-auto max-w-7xl px-4 py-4 lg:px-8">{children}</div>, destino)
+  return createPortal(<div className="mx-auto max-h-[70vh] max-w-7xl overflow-y-auto px-4 py-4 lg:px-8">{children}</div>, destino)
 }

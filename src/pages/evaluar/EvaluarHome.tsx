@@ -65,7 +65,7 @@ export function EvaluarHome() {
                   key={s.id}
                   to={`/evaluar/${s.id}`}
                   className={cn(
-                    'block rounded-2xl border-2 bg-white p-4 transition-colors hover:border-primary',
+                    'block rounded-2xl border-2 bg-white p-4 shadow-sm transition-all hover:border-primary hover:shadow-md',
                     draft ? 'border-amber-400' : activa ? 'border-slate-200' : 'border-slate-200 opacity-70'
                   )}
                 >

@@ -511,7 +511,7 @@ export function EvaluarSucursal() {
           </div>
         ) : esSeccion && paso ? (
           <div className="space-y-4">
-            <div className="rounded-2xl bg-white p-4">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2">
                 <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
                 <div className="min-w-0">
@@ -542,7 +542,7 @@ export function EvaluarSucursal() {
               </div>
             </div>
 
-            <div className="flex flex-col rounded-2xl bg-white p-4">
+            <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-center justify-between">
                 <p className="font-bold text-primary-900">Registros</p>
                 <p className="text-xs text-slate-500">{registrosSeccion.length} creado(s)</p>
@@ -730,8 +730,8 @@ export function EvaluarSucursal() {
         <div className="h-28" />
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 bg-white">
-        <div className="mx-auto flex w-full max-w-md items-center gap-3 px-4 py-3">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white shadow-[0_-4px_16px_-8px_rgb(15_23_42/0.15)]">
+        <div className="mx-auto flex w-full max-w-lg items-center gap-3 px-4 py-3">
           <Button
             variant="secondary"
             onClick={irAnterior}

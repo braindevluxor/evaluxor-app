@@ -1,6 +1,6 @@
-import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X } from 'lucide-react'
+import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { DashboardFiltersProvider, useDashboardFilters } from '../../context/DashboardFiltersContext'
 import { puedeConfigurar } from '../../lib/roles'
@@ -47,6 +47,7 @@ function ConsoleLayoutContenido() {
   const { pathname } = useLocation()
   const tituloVista = titulosVista[pathname]
   const esDashboard = pathname.startsWith('/dashboard')
+  const puedeEvaluar = profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER'
   const navRef = useRef<HTMLElement | null>(null)
   const [abierto, setAbierto] = useState(false)
   const [colapsado, setColapsado] = useState<boolean>(() => localStorage.getItem('evaluxor:menu_lateral_cerrado') === '1')
@@ -109,7 +110,18 @@ function ConsoleLayoutContenido() {
               style={{ top: barra.top, height: barra.height }}
             />
           ) : null}
-          {secciones.length ? secciones.map((s) => (
+          <div className="space-y-6">
+            {puedeEvaluar ? (
+              <Link
+                to="/evaluar"
+                onClick={() => setAbierto(false)}
+                className="flex items-center gap-3 rounded-xl bg-primary px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700 lg:hidden"
+              >
+                <ClipboardCheck className="h-5 w-5 shrink-0" />
+                Evaluaciones
+              </Link>
+            ) : null}
+            {secciones.length ? secciones.map((s) => (
             <div key={s.seccion}>
               <p className={cn('px-3 pb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400', colapsado && 'lg:hidden')}>{s.seccion}</p>
               <ul className="space-y-1">
@@ -145,6 +157,7 @@ function ConsoleLayoutContenido() {
               </ul>
             </div>
           )) : null}
+          </div>
         </nav>
 
         <div className={cn('border-t border-slate-200 px-5 py-4', colapsado && 'lg:flex lg:flex-col lg:items-center lg:px-0')}>
@@ -186,7 +199,8 @@ function ConsoleLayoutContenido() {
       </span>
 
       <div className={cn('transition-[padding]', colapsado ? 'lg:pl-16' : 'lg:pl-64')}>
-        <header className="sticky top-0 z-20 flex min-h-16 items-center gap-1 border-b border-slate-200 bg-white px-4 py-2.5">
+        <div className="sticky top-0 z-20 bg-white">
+          <header className="flex min-h-16 items-center gap-1 border-b border-slate-200 bg-white px-4 py-2.5">
           <button
             onClick={() => {
               setColapsado((c) => {
@@ -237,6 +251,7 @@ function ConsoleLayoutContenido() {
             </div>
           </div>
         ) : null}
+        </div>
         {pathname === '/dashboard' ? <BarraKpis /> : null}
         <SyncBanner />
         <main className="mx-auto max-w-7xl px-4 py-6 lg:px-8">

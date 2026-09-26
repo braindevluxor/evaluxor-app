@@ -64,7 +64,7 @@ export function MisEvaluaciones() {
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
           ) : null}
           {evals.map((ev) => (
-            <div key={ev.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div key={ev.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-bold text-primary-900">{ev.sucursal?.nombre ?? 'Sucursal'}</p>

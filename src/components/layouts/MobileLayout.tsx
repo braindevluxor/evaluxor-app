@@ -62,7 +62,7 @@ export function HeaderMini({
 }) {
   const { profile } = useAuth()
   return (
-    <header className="sticky top-0 z-30 bg-primary text-white">
+    <header className="sticky top-0 z-30 bg-primary text-white shadow-sm">
       <div className="flex items-center justify-between gap-2 px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           {onClickMenu ? (
@@ -76,7 +76,7 @@ export function HeaderMini({
           ) : null}
           <div className="min-w-0">
             <h1 className="truncate text-base font-extrabold">{titulo}</h1>
-            {subtitulo ? <p className="truncate text-xs text-primary-200">{subtitulo}</p> : null}
+            {subtitulo ? <p className="truncate text-xs text-primary-100/90">{subtitulo}</p> : null}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -110,10 +110,10 @@ export function MobileLayout({
   const [menuAbierto, setMenuAbierto] = useState(false)
   const cerrar = () => setMenuAbierto(false)
   return (
-    <div className="min-h-screen bg-slate-50 pb-6">
+    <div className="min-h-screen bg-slate-100 pb-6">
       <HeaderMini titulo={titulo ?? 'EvaLuxor'} subtitulo={subtitulo} onClickMenu={() => setMenuAbierto(true)} extra={extra} />
       <SyncBanner />
-      <main className="mx-auto w-full max-w-md px-4 py-4">{children}</main>
+      <main className="mx-auto w-full max-w-lg px-4 py-5">{children}</main>
 
       {menuAbierto ? (
         <div className="fixed inset-0 z-50">

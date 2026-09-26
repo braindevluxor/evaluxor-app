@@ -20,9 +20,9 @@ function estadoDe(valor: number | null): { color: string; claro: string } | null
 }
 
 const CX = 88
-const CY = 94
-const R = 60
-const GROSOR = 13
+const CY = 90
+const R = 58
+const GROSOR = 12
 const INICIO = -135 // grados desde las 12 en sentido horario (inicio del arco)
 const ARCO = 270
 
@@ -46,6 +46,36 @@ function fmt(v: number): string {
   return `${Math.round(v * 100) / 100}%`
 }
 
+/** Máximo de caracteres aprox. por línea (≈ ancho del viewBox a font 14 bold). */
+const MAX_CHARS_NOMBRE = 20
+
+/**
+ * Parte el nombre del módulo en a lo sumo 2 líneas para que no se corte:
+ * el texto SVG no salta de línea solo, así que partimos por palabras (y cortamos
+ * palabras muy largas) cuando el nombre excede el ancho disponible.
+ */
+function partirNombre(nombre: string): string[] {
+  const palabras = nombre.trim().split(/\s+/)
+  const lineas: string[] = []
+  let actual = ''
+  for (const palabra of palabras) {
+    const candidata = actual ? `${actual} ${palabra}` : palabra
+    if (candidata.length <= MAX_CHARS_NOMBRE) {
+      actual = candidata
+      continue
+    }
+    if (actual) lineas.push(actual)
+    let resto = palabra
+    while (resto.length > MAX_CHARS_NOMBRE) {
+      lineas.push(resto.slice(0, MAX_CHARS_NOMBRE))
+      resto = resto.slice(MAX_CHARS_NOMBRE)
+    }
+    actual = resto
+  }
+  if (actual) lineas.push(actual)
+  return lineas.slice(0, 2)
+}
+
 export function MedidorModulo({
   nombre,
   valor,
@@ -60,6 +90,7 @@ export function MedidorModulo({
   const color = est?.color ?? '#94a3b8'
   const animada = useAnimacionActiva()
   const numero = useNumeroAnimado(valor)
+  const [linea1, linea2] = partirNombre(nombre)
 
   // El aro se dibuja desde vacío (offset 100) hasta el valor (100 − v) al animarse.
   const offset = animada && valor != null ? Math.round((100 - valor) * 100) / 100 : 100
@@ -67,7 +98,7 @@ export function MedidorModulo({
 
   return (
     <svg
-      viewBox="0 0 176 180"
+      viewBox="0 0 176 206"
       role="img"
       aria-label={`${nombre}: ${valor != null ? fmt(valor) : 'sin datos'}`}
       className="w-full"
@@ -102,20 +133,28 @@ export function MedidorModulo({
       {/* Valor central (animado) */}
       <text
         x={CX}
-        y={CY + 8}
+        y={CY + 12}
         textAnchor="middle"
-        fontSize={21}
+        fontSize={28}
         fontWeight={800}
         fill={color}
         className="tabular-nums"
       >
         {texto}
       </text>
-      <text x={CX} y={CY + 26} textAnchor="middle" fontSize={9.5} fontWeight={700} fill="#334155">
-        {nombre}
+      {/* Nombre del módulo (1 o 2 líneas, sin cortarse) */}
+      <text textAnchor="middle" fontSize={14} fontWeight={700} fill="#334155">
+        <tspan x={CX} y={linea2 ? CY + 70 : CY + 80}>
+          {linea1}
+        </tspan>
+        {linea2 ? (
+          <tspan x={CX} y={CY + 86}>
+            {linea2}
+          </tspan>
+        ) : null}
       </text>
       {sub ? (
-        <text x={CX} y={CY + 37} textAnchor="middle" fontSize={8} fill="#94a3b8">
+        <text x={CX} y={CY + 102} textAnchor="middle" fontSize={11} fill="#94a3b8">
           {sub}
         </text>
       ) : null}

@@ -27,7 +27,7 @@ export function ItemRenderer({ item, valor, onChange, index, total, shopId, bran
     item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'CHECKLIST' ? 5 : item.tipo === 'LISTA_COLABORADORES' || item.tipo === 'UNIDAD_CHECKLIST' ? 1 : 4
 
   return (
-    <section className="rounded-2xl bg-white p-4">
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-3 flex items-start justify-between gap-2">
         <p className="font-semibold text-slate-800">{preg}</p>
         <Badge color={tipoColor}>{etiquetaTipo(item.tipo)}</Badge>
@@ -36,7 +36,7 @@ export function ItemRenderer({ item, valor, onChange, index, total, shopId, bran
       {item.requerido && estaVacio(item, valor) ? (
         <p className="mt-2 text-xs font-medium text-red-600">Obligatorio para enviar la evaluación.</p>
       ) : null}
-      <p className="mt-2 text-[11px] text-slate-400">Pregunta {index + 1} de {total}</p>
+      <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Pregunta {index + 1} de {total}</p>
     </section>
   )
 }

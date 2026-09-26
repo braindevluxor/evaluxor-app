@@ -68,10 +68,10 @@ export function EvaluarResumen() {
   return (
     <MobileLayout titulo="Resumen de evaluación" subtitulo={`Total de ${countItems()} ítems`}>
       <div className="space-y-4">
-        <div className="rounded-2xl bg-primary text-white p-5 text-center">
-          <p className="text-sm opacity-80">Cumplimiento en tus módulos</p>
+        <div className="rounded-2xl bg-gradient-to-br from-primary to-primary-800 p-5 text-center text-white shadow-md">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-primary-100/90">Cumplimiento en tus módulos</p>
           <Puntaje value={detalles.puntaje} className="text-5xl text-white" />
-          <p className="mt-1 text-xs opacity-80">
+          <p className="mt-1 text-xs text-primary-100/90">
             {detalles.incompletos > 0 ? `${detalles.incompletos} ítems obligatorios pendientes` : 'Listo para enviar'}
           </p>
         </div>
@@ -82,7 +82,7 @@ export function EvaluarResumen() {
             const respondidos = pasos.filter((p) => draft.respuestas[p.key]).length
             const completo = pasos.length > 0 && respondidos === pasos.length
             return (
-              <div key={m.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div key={m.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-bold text-primary-900">{m.nombre}</p>
