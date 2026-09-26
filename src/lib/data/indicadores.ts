@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion, InstanciaGrupo } from '../types'
+import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion, InstanciaGrupo, SucursalModulo } from '../types'
 import { proporcionItem, puntajePonderado, conSeccionesPonderadas, incumplimientosPorResponsable, type AcumuladoResponsable, type BinarioConPuntaje } from '../scoring'
 
 export interface FiltrosIndicadores {
@@ -212,6 +212,124 @@ export function puntajePorModulo(
       }
     })
     .sort((a, b) => (b.puntaje ?? 0) - (a.puntaje ?? 0))
+}
+
+export interface MedidorModulo {
+  modulo_id: string
+  nombre: string
+  /** Promedio del puntaje (0-100) de la última evaluación de cada sucursal con el módulo activo, o null si no hay datos. */
+  promedio: number | null
+  /** Sucursales que entraron al promedio. */
+  sucursales: number
+  /** Sucursales con el módulo activo sin evaluación con puntaje (o sin ítems del módulo respondidos) en el rango. */
+  sinDatos: number
+}
+
+/** Puntaje ponderado de un módulo dentro de una evaluación puntual. */
+function puntajeModuloEnEvaluacion(
+  datos: ConjuntoDatos,
+  ev: Evaluacion,
+  moduloId: string,
+  respuestasDe: Map<string, Respuesta[]>,
+  itemDe: Map<string, Item>
+): number | null {
+  const binarios: { item: Item; cumple: number }[] = []
+  for (const r of respuestasDe.get(ev.id) ?? []) {
+    const item = itemDe.get(r.item_id)
+    if (!item || item.modulo_id !== moduloId) continue
+    const cumple = proporcionItem(aplicarOpcionesSucursal(item, ev.sucursal_id, datos.sucursalOpciones), r.valor)
+    if (cumple === null) continue
+    binarios.push({ item, cumple })
+  }
+  if (!binarios.length) return null
+  return puntajePonderado(conSeccionesPonderadas(datos.items, binarios))
+}
+
+/**
+ * Promedio de la última evaluación de cada sucursal que tenga el módulo activo
+ * (`sucursal_modulos.activa`, dentro de las sucursales visibles). Solo se
+ * consideran evaluaciones ya puntuadas (`puntuacion != null`); de cada sucursal
+ * se toma la más reciente (por fecha, desempate por created_at) que haya medido
+ * el módulo. Si el módulo no tiene sucursales configuradas, se usan las
+ * sucursales con datos del módulo en el rango, para evitar relojes en blanco.
+ */
+export function medidoresPorModulo(
+  datos: ConjuntoDatos,
+  modulos: { id: string; nombre: string }[],
+  sucursalesVisibles: { id: string }[],
+  sucursalModulos: SucursalModulo[]
+): MedidorModulo[] {
+  const visibles = new Set(sucursalesVisibles.map((s) => s.id))
+  const itemDe = new Map<string, Item>()
+  const moduloDeItem = new Map<string, string>()
+  for (const i of datos.items) {
+    itemDe.set(i.id, i)
+    moduloDeItem.set(i.id, i.modulo_id)
+  }
+  const respuestasDe = new Map<string, Respuesta[]>()
+  for (const r of datos.respuestas) {
+    const arr = respuestasDe.get(r.evaluacion_id) ?? []
+    arr.push(r)
+    respuestasDe.set(r.evaluacion_id, arr)
+  }
+  const evalsPorSucursal = new Map<string, Evaluacion[]>()
+  for (const e of datos.evaluaciones) {
+    if (e.puntuacion == null) continue
+    const arr = evalsPorSucursal.get(e.sucursal_id) ?? []
+    arr.push(e)
+    evalsPorSucursal.set(e.sucursal_id, arr)
+  }
+  for (const arr of evalsPorSucursal.values()) {
+    arr.sort((a, b) => b.fecha.localeCompare(a.fecha) || b.created_at.localeCompare(a.created_at))
+  }
+  const activosPorModulo = new Map<string, string[]>()
+  for (const sm of sucursalModulos) {
+    if (!sm.activa || !visibles.has(sm.sucursal_id)) continue
+    const arr = activosPorModulo.get(sm.modulo_id) ?? []
+    arr.push(sm.sucursal_id)
+    activosPorModulo.set(sm.modulo_id, arr)
+  }
+  const evaluaModulo = (evId: string, moduloId: string): boolean =>
+    (respuestasDe.get(evId) ?? []).some((r) => moduloDeItem.get(r.item_id) === moduloId)
+
+  return modulos.map((m) => {
+    const miembros = activosPorModulo.get(m.id) ?? []
+    if (!miembros.length) {
+      for (const [sucursalId, arr] of evalsPorSucursal) {
+        if (!visibles.has(sucursalId)) continue
+        if (arr.some((ev) => evaluaModulo(ev.id, m.id))) miembros.push(sucursalId)
+      }
+    }
+    let suma = 0
+    let sucursales = 0
+    let sinDatos = 0
+    for (const sucursalId of new Set(miembros)) {
+      const arr = evalsPorSucursal.get(sucursalId)
+      let puntaje: number | null = null
+      if (arr) {
+        for (const ev of arr) {
+          const p = puntajeModuloEnEvaluacion(datos, ev, m.id, respuestasDe, itemDe)
+          if (p != null) {
+            puntaje = p
+            break
+          }
+        }
+      }
+      if (puntaje == null) {
+        sinDatos++
+        continue
+      }
+      suma += puntaje
+      sucursales++
+    }
+    return {
+      modulo_id: m.id,
+      nombre: m.nombre,
+      promedio: sucursales ? Math.round((suma / sucursales) * 100) / 100 : null,
+      sucursales,
+      sinDatos
+    }
+  })
 }
 
 export interface FilaSucursalModulo {

@@ -101,7 +101,7 @@ export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: 
   // devuelve 400 (23502) y el guardado falla. Sin API se guarda como lista vacía.
   const apiCampos = i.api_campos ?? []
   if (i.id) {
-    const { id, api_campos: _omitido, ...rest } = i
+    const { id, ...rest } = i
     const { data, error } = await supabase.from('items').update({ ...rest, api_campos: apiCampos }).eq('id', id).select('id').single()
     if (error) throw error
     return data?.id ?? id
