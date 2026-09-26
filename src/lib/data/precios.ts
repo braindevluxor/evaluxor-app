@@ -2,9 +2,15 @@
 // producción). Evita CORS: el navegador solo habla con el mismo origen y el
 // proxy reenvía el header API_KEY a deliveryluxor.store.
 const BASE_URL = '/api/pricing/samir/scan'
-const API_KEY = import.meta.env.VITE_PRECIOS_API_KEY
 
-if (!API_KEY) throw new Error('Falta VITE_PRECIOS_API_KEY en el entorno.')
+/**
+ * Clave de la API de precios (deliveryluxor.store). Se lee al momento de
+ * consultar (no al cargar el módulo) para que la app cargue igual aunque la
+ * variable falte en el entorno; en ese caso la consulta devuelve un mensaje.
+ */
+function apiKey(): string | null {
+  return import.meta.env.VITE_PRECIOS_API_KEY || null
+}
 
 export interface ResultadoScan {
   nombre: string | null
@@ -18,13 +24,15 @@ export interface ResultadoScan {
 }
 
 export async function buscarProducto(barcode: string, shopId: string): Promise<ResultadoScan> {
+  const key = apiKey()
+  if (!key) return { nombre: null, mensaje: 'API de precios no configurada en el entorno.' }
   const url = new URL(BASE_URL, window.location.origin)
   url.searchParams.set('barcode', barcode)
   url.searchParams.set('shop_id', shopId)
 
   let res: Response
   try {
-    res = await fetch(url.toString(), { headers: { Accept: 'application/json', API_KEY } })
+    res = await fetch(url.toString(), { headers: { Accept: 'application/json', API_KEY: key } })
   } catch {
     return { nombre: null, mensaje: 'Sin conexión para consultar el producto.' }
   }

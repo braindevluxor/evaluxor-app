@@ -2,9 +2,15 @@
 // producción). Evita CORS: el navegador solo habla con el mismo origen y el
 // proxy reenvía el header Authorization al API de flota (dev-logix).
 const BASE_URL = '/api/flota/vehicles/'
-const API_KEY = import.meta.env.VITE_VEHICLES_API_KEY
 
-if (!API_KEY) throw new Error('Falta VITE_VEHICLES_API_KEY en el entorno.')
+/**
+ * Clave de la API de flota (dev-logix). Se lee al momento de consultar (no al
+ * cargar el módulo) para que la app cargue igual aunque la variable falte en
+ * el entorno; en ese caso la consulta de vehículos devuelve un mensaje claro.
+ */
+function apiKey(): string | null {
+  return import.meta.env.VITE_VEHICLES_API_KEY || null
+}
 
 /** Vehículo normalizado de la flota (consulta por placa). */
 export interface Vehiculo {
@@ -63,13 +69,15 @@ function normalizarVehiculo(r: Record<string, unknown>): Vehiculo {
 
 /** Consulta un vehículo por placa. La búsqueda es insensible a mayúsculas y acepta texto parcial. */
 export async function buscarVehiculo(placa: string): Promise<ResultadoVehiculo> {
+  const key = apiKey()
+  if (!key) return { vehiculo: null, mensaje: 'API de vehículos no configurada en el entorno.' }
   const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
   const url = new URL(BASE_URL, base)
   url.searchParams.set('search', placa.trim())
 
   let res: Response
   try {
-    res = await fetch(url.toString(), { headers: { Accept: 'application/json', Authorization: `Api-Key ${API_KEY}` } })
+    res = await fetch(url.toString(), { headers: { Accept: 'application/json', Authorization: `Api-Key ${key}` } })
   } catch {
     return { vehiculo: null, mensaje: 'Sin conexión para consultar el vehículo.' }
   }

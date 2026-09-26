@@ -1,8 +1,13 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// La clave sale del entorno; se fija aquí antes de importar el módulo.
-vi.stubEnv('VITE_VEHICLES_API_KEY', 'clave-de-prueba')
+// La clave sale del entorno. La lectura es perezosa (al momento de consultar),
+// así que se fija antes de importar y de nuevo en cada test, porque el
+// afterEach limpia los stubs de entorno.
 const { buscarVehiculo } = await import('./vehicles')
+
+beforeEach(() => {
+  vi.stubEnv('VITE_VEHICLES_API_KEY', 'clave-de-prueba')
+})
 
 const vehiculoCrudo = {
   id: 3,
@@ -76,5 +81,12 @@ describe('buscarVehiculo', () => {
     const r = await buscarVehiculo('AA579AC')
     expect(r.vehiculo).toBeNull()
     expect(r.mensaje).toBe('Sin conexión para consultar el vehículo.')
+  })
+
+  it('sin clave configurada → mensaje claro sin romper la app', async () => {
+    vi.stubEnv('VITE_VEHICLES_API_KEY', '')
+    const r = await buscarVehiculo('AA579AC')
+    expect(r.vehiculo).toBeNull()
+    expect(r.mensaje).toBe('API de vehículos no configurada en el entorno.')
   })
 })
