@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { ShoppingCart } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { Button, Field, Input } from '../../components/ui'
+import { AuthShell, MarcaAuth, botonAuth, hintAuth, inputAuth, labelAuth } from '../../components/auth/AuthShell'
 
 export function RegisterPage() {
   const [params] = useSearchParams()
@@ -20,16 +20,17 @@ export function RegisterPage() {
 
   if (!token || !inviteEmail) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-primary px-4">
-        <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center">
-          <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-2xl bg-primary-50"><ShoppingCart className="h-8 w-8 text-primary-700" /></div>
-          <h1 className="text-xl font-extrabold text-primary-900">Acceso solo por invitación</h1>
-          <p className="mt-2 text-sm text-slate-500">
+      <AuthShell>
+        <div className="text-center">
+          <MarcaAuth titulo="Acceso solo por invitación" subtitulo="EvaLuxor" />
+          <p className="-mt-6 text-sm leading-relaxed text-primary-200/90">
             Las cuentas las crea el Líder enviando una invitación. Pídele tu enlace de registro para continuar.
           </p>
-          <Button className="mt-5 w-full" onClick={() => navigate('/login')}>Ir a iniciar sesión</Button>
+          <Button className={`mt-8 ${botonAuth}`} onClick={() => navigate('/login')}>
+            Ir a iniciar sesión
+          </Button>
         </div>
-      </div>
+      </AuthShell>
     )
   }
 
@@ -52,43 +53,61 @@ export function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-primary px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center text-white">
-          <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-2xl bg-white/10"><ShoppingCart className="h-8 w-8" /></div>
-          <h1 className="text-3xl font-extrabold">Crear cuenta</h1>
-          <p className="mt-1 text-sm text-primary-200">Registro por invitación del Líder</p>
-        </div>
-        <form onSubmit={onSubmit} className="rounded-2xl bg-white p-6">
-          <div className="space-y-4">
-            <Field label="Correo electrónico (solo para respaldo)">
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="nombre@empresa.com" />
-            </Field>
-            {inviteUsuario ? (
-              <Field label="Usuario de acceso" hint="Definido por el Líder en la invitación">
-                <Input type="text" value={inviteUsuario} readOnly tabIndex={-1} />
-              </Field>
-            ) : null}
-            <Field label="Contraseña">
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Mínimo 6 caracteres" />
-            </Field>
-            <Field label="Confirmar contraseña">
-              <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required placeholder="Repite la contraseña" />
-            </Field>
-            {error ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-600">{error}</p> : null}
-            {okMsg ? <p className="rounded-xl bg-green-50 px-3 py-2 text-sm font-medium text-green-700">{okMsg}</p> : null}
-            <Button type="submit" disabled={enviando} className="w-full">
-              {enviando ? 'Creando…' : 'Crear cuenta'}
-            </Button>
-            <p className="text-center text-sm text-slate-500">
-              ¿Ya tienes cuenta?{' '}
-              <Link to="/login" className="font-semibold text-primary hover:underline">
-                Ingresar
-              </Link>
-            </p>
-          </div>
-        </form>
-      </div>
-    </div>
+    <AuthShell>
+      <MarcaAuth titulo="Crear cuenta" subtitulo="Registro por invitación del Líder" />
+
+      <form onSubmit={onSubmit} className="space-y-5">
+        <Field label="Correo electrónico (solo para respaldo)" labelClassName={labelAuth}>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            placeholder="nombre@empresa.com"
+            className={inputAuth}
+          />
+        </Field>
+        {inviteUsuario ? (
+          <Field label="Usuario de acceso" hint="Definido por el Líder en la invitación" labelClassName={labelAuth} hintClassName={hintAuth}>
+            <Input type="text" value={inviteUsuario} readOnly tabIndex={-1} className={inputAuth} />
+          </Field>
+        ) : null}
+        <Field label="Contraseña" labelClassName={labelAuth}>
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            placeholder="Mínimo 6 caracteres"
+            className={inputAuth}
+          />
+        </Field>
+        <Field label="Confirmar contraseña" labelClassName={labelAuth}>
+          <Input
+            type="password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            required
+            placeholder="Repite la contraseña"
+            className={inputAuth}
+          />
+        </Field>
+        {error ? (
+          <p className="rounded-xl border border-red-400/30 bg-red-500/15 px-3 py-2 text-sm font-medium text-red-200">{error}</p>
+        ) : null}
+        {okMsg ? (
+          <p className="rounded-xl border border-green-400/30 bg-green-500/15 px-3 py-2 text-sm font-medium text-green-200">{okMsg}</p>
+        ) : null}
+        <Button type="submit" disabled={enviando} className={botonAuth}>
+          {enviando ? 'Creando…' : 'Crear cuenta'}
+        </Button>
+        <p className="pt-1 text-center text-sm text-primary-200/80">
+          ¿Ya tienes cuenta?{' '}
+          <Link to="/login" className="font-semibold text-white underline-offset-4 hover:underline">
+            Ingresar
+          </Link>
+        </p>
+      </form>
+    </AuthShell>
   )
 }

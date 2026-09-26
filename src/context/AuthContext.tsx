@@ -6,13 +6,19 @@ import { factorsTotpActivos } from '../lib/mfa'
 import type { Profile, Rol } from '../lib/types'
 
 const PROFILE_KEY = 'evaluxor.profile'
+const RECORDAR_KEY = 'evaluxor.recordar'
+
+/** "Recordarme": la sesión se restaura tras volver a abrir la app solo si quedó marcado. */
+function leerRecordar(): boolean {
+  return localStorage.getItem(RECORDAR_KEY) !== '0'
+}
 
 interface AuthContextValue {
   session: Session | null
   profile: Profile | null
   loading: boolean
   totpPendiente: boolean
-  signIn: (usuario: string, password: string) => Promise<{ error?: string; totp?: boolean }>
+  signIn: (usuario: string, password: string, recordar?: boolean) => Promise<{ error?: string; totp?: boolean }>
   signUp: (email: string, password: string) => Promise<{ error?: string; pending?: boolean }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
@@ -79,7 +85,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [requiereNivel2, cargarPerfil])
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
+      if (s && !leerRecordar()) {
+        // El usuario pidió "no recordarme": al volver a abrir la app se cierra la sesión local.
+        try {
+          await supabase.auth.signOut()
+        } catch {
+          // Sin conexión: igual se deja la app sin sesión activa.
+        }
+        procesarSesion(null).finally(() => setLoading(false))
+        return
+      }
       void procesarSesion(s).finally(() => setLoading(false))
     })
 
@@ -95,7 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile,
       loading,
       totpPendiente,
-      async signIn(usuario, password) {
+      async signIn(usuario, password, recordar = true) {
         let intento: Awaited<ReturnType<typeof intentoLogin>>
         try {
           intento = await intentoLogin(usuario, password)
@@ -116,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!email) return { error: 'Usuario no encontrado o inactivo.' }
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) return { error: mensajeError(error.message) }
+        localStorage.setItem(RECORDAR_KEY, recordar ? '1' : '0')
         const pend = await requiereNivel2()
         setTotpPendiente(pend)
         return pend ? { totp: true } : {}

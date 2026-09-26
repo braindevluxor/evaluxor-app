@@ -37,14 +37,18 @@ interface FieldProps {
   children: ReactNode
   className?: string
   hint?: string
+  /** Clases extra para el texto de la etiqueta (p. ej. reiniciar color en fondos oscuros). */
+  labelClassName?: string
+  /** Clases extra para el texto de la ayuda. */
+  hintClassName?: string
 }
 
-export function Field({ label, children, className, hint }: FieldProps) {
+export function Field({ label, children, className, hint, labelClassName, hintClassName }: FieldProps) {
   return (
     <label className={cn('flex flex-col gap-1.5', className)}>
-      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <span className={cn('text-sm font-medium text-slate-700', labelClassName)}>{label}</span>
       {children}
-      {hint ? <span className="text-xs text-slate-400">{hint}</span> : null}
+      {hint ? <span className={cn('text-xs text-slate-400', hintClassName)}>{hint}</span> : null}
     </label>
   )
 }
