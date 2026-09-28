@@ -95,7 +95,22 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
   }
 
   return (
-    <Modal open={sucursal != null} onClose={onClose} title={`Configurar sucursal${sucursal ? ` · ${sucursal.nombre}` : ''}`} wide>
+    <Modal
+      open={sucursal != null}
+      onClose={onClose}
+      title={`Configurar sucursal${sucursal ? ` · ${sucursal.nombre}` : ''}`}
+      wide
+      footer={
+        !cargando ? (
+          <div className="flex gap-3">
+            <Button variant="secondary" className="flex-1" onClick={onClose}>Cerrar</Button>
+            <Button className="flex-1" disabled={guardando} onClick={() => void guardar()}>
+              {guardando ? 'Guardando…' : 'Guardar configuración'}
+            </Button>
+          </div>
+        ) : undefined
+      }
+    >
       {cargando ? (
         <div className="space-y-5">
           <Skeleton className="h-16 w-full rounded-xl" />
@@ -207,13 +222,6 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
           </div>
 
           {msg ? <p className="rounded-xl bg-green-50 px-3 py-2 text-sm font-medium text-green-700">{msg}</p> : null}
-
-          <div className="flex gap-3">
-            <Button variant="secondary" className="flex-1" onClick={onClose}>Cerrar</Button>
-            <Button className="flex-1" disabled={guardando} onClick={() => void guardar()}>
-              {guardando ? 'Guardando…' : 'Guardar configuración'}
-            </Button>
-          </div>
         </div>
       )}
     </Modal>

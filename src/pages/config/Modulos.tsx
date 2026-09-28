@@ -61,7 +61,12 @@ export function ModulosPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => setModal(false)} title={editando ? 'Editar módulo' : 'Nuevo módulo'}>
+      <Modal
+        open={modal}
+        onClose={() => setModal(false)}
+        title={editando ? 'Editar módulo' : 'Nuevo módulo'}
+        footer={<Button type="submit" form="form-modulo" className="w-full">Guardar módulo</Button>}
+      >
         <FormModulo
           inicial={editando}
           onGuardar={async (d) => {
@@ -72,29 +77,34 @@ export function ModulosPage() {
         />
       </Modal>
 
-      <Modal open={!!aBorrar} onClose={() => setABorrar(null)} title="Eliminar módulo">
-        {aBorrar ? (
-          <div className="space-y-4">
-            <p className="text-sm text-slate-600">
-              ¿Seguro que deseas eliminar <strong>{aBorrar.nombre}</strong>? Se borrarán también sus {aBorrar._items.length} ítem(s) y las respuestas asociadas en evaluaciones ya realizadas. Esta acción no se puede deshacer.
-            </p>
-            <div className="flex gap-2">
-              <Button variant="secondary" className="flex-1" onClick={() => setABorrar(null)}>Cancelar</Button>
-              <Button
-                className="flex-1 bg-red-600 hover:bg-red-700"
-                disabled={borrando}
-                onClick={async () => {
-                  setBorrando(true)
-                  await eliminarModulo(aBorrar.id)
-                  setBorrando(false)
-                  setABorrar(null)
-                  await cargar()
-                }}
-              >
-                {borrando ? 'Eliminando…' : 'Eliminar módulo'}
-              </Button>
-            </div>
+      <Modal
+        open={!!aBorrar}
+        onClose={() => setABorrar(null)}
+        title="Eliminar módulo"
+        footer={
+          <div className="flex gap-2">
+            <Button variant="secondary" className="flex-1" onClick={() => setABorrar(null)}>Cancelar</Button>
+            <Button
+              className="flex-1 bg-red-600 hover:bg-red-700"
+              disabled={borrando}
+              onClick={async () => {
+                if (!aBorrar) return
+                setBorrando(true)
+                await eliminarModulo(aBorrar.id)
+                setBorrando(false)
+                setABorrar(null)
+                await cargar()
+              }}
+            >
+              {borrando ? 'Eliminando…' : 'Eliminar módulo'}
+            </Button>
           </div>
+        }
+      >
+        {aBorrar ? (
+          <p className="text-sm text-slate-600">
+            ¿Seguro que deseas eliminar <strong>{aBorrar.nombre}</strong>? Se borrarán también sus {aBorrar._items.length} ítem(s) y las respuestas asociadas en evaluaciones ya realizadas. Esta acción no se puede deshacer.
+          </p>
         ) : null}
       </Modal>
     </div>
@@ -111,6 +121,7 @@ function FormModulo({ inicial, onGuardar }: { inicial: Modulo | null; onGuardar:
 
   return (
     <form
+      id="form-modulo"
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
@@ -138,7 +149,6 @@ function FormModulo({ inicial, onGuardar }: { inicial: Modulo | null; onGuardar:
       {err ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
       ) : null}
-      <Button type="submit" className="w-full">Guardar módulo</Button>
     </form>
   )
 }

@@ -272,6 +272,9 @@ create index if not exists idx_items_modulo on public.items(modulo_id, orden);
 alter table public.items add column if not exists api_id text;
 alter table public.items add column if not exists api_campos jsonb not null default '[]'::jsonb;
 alter table public.items add column if not exists permitir_duplicados boolean not null default false;
+-- UNIDAD_CHECKLIST: repetible = permite cargar el checklist varias veces (una
+-- unidad por carga); con false solo se carga una sola vez.
+alter table public.items add column if not exists repetible boolean not null default true;
 
 -- La suma de los puntajes de un módulo no puede exceder 100: cuentan las secciones
 -- (CONTENEDOR, ponderadas) y los ítems sueltos (sin sección). Los ítems dentro de

@@ -181,7 +181,12 @@ export function UsuariosPage() {
         </div>
       )}
 
-      <Modal open={!!editando} onClose={() => setEditando(null)} title="Editar usuario">
+      <Modal
+        open={!!editando}
+        onClose={() => setEditando(null)}
+        title="Editar usuario"
+        footer={<Button type="submit" form="form-usuario" className="w-full">Guardar cambios</Button>}
+      >
         {editando ? (
           <FormUsuario
             usuario={editando}
@@ -195,7 +200,12 @@ export function UsuariosPage() {
         ) : null}
       </Modal>
 
-      <Modal open={invitando} onClose={() => { setInvitando(false); setLinkInv('') }} title="Invitar usuario">
+      <Modal
+        open={invitando}
+        onClose={() => { setInvitando(false); setLinkInv('') }}
+        title="Invitar usuario"
+        footer={<Button type="submit" form="form-invitacion" className="w-full">Crear invitación</Button>}
+      >
         <FormInvitacion
           sucursales={sucursales}
           onCrear={async (data) => {
@@ -221,9 +231,20 @@ export function UsuariosPage() {
         ) : null}
       </Modal>
 
-      <Modal open={!!desbloqueando} onClose={() => setDesbloqueando(null)} title="Desbloquear usuario">
+      <Modal
+        open={!!desbloqueando}
+        onClose={() => setDesbloqueando(null)}
+        title="Desbloquear usuario"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setDesbloqueando(null)} disabled={cargandoDes}>Cerrar</Button>
+            <Button type="submit" form="form-desbloquear" disabled={cargandoDes}>{cargandoDes ? 'Desbloqueando…' : 'Desbloquear'}</Button>
+          </div>
+        }
+      >
         {desbloqueando ? (
           <form
+            id="form-desbloquear"
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault()
@@ -256,10 +277,6 @@ export function UsuariosPage() {
                 {msgDes.texto}
               </div>
             ) : null}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setDesbloqueando(null)} disabled={cargandoDes}>Cerrar</Button>
-              <Button type="submit" disabled={cargandoDes}>{cargandoDes ? 'Desbloqueando…' : 'Desbloquear'}</Button>
-            </div>
           </form>
         ) : null}
       </Modal>
@@ -346,6 +363,7 @@ function FormUsuario({
 
   return (
     <form
+      id="form-usuario"
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
@@ -379,7 +397,6 @@ function FormUsuario({
         <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
         Usuario activo
       </label>
-      <Button type="submit" className="w-full">Guardar cambios</Button>
     </form>
   )
 }
@@ -398,6 +415,7 @@ function FormInvitacion({
 
   return (
     <form
+      id="form-invitacion"
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
@@ -427,7 +445,6 @@ function FormInvitacion({
         </Select>
       </Field>
       <p className="text-xs text-slate-400">Al registrarse, la cuenta queda vinculada al usuario de acceso indicado. El enlace de registro aparece tras guardar.</p>
-      <Button type="submit" className="w-full">Crear invitación</Button>
     </form>
   )
 }

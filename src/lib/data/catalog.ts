@@ -10,7 +10,7 @@ export async function refrescarCatalogo(evaluadorId: string): Promise<CacheData>
   const [modulos, items, sucursales, asignaciones, asignacionesModulos, sucursalModulos, sucursalItems, sucursalOpciones] = await Promise.all([
     selectSeguro(supabase.from('modulos').select('*').eq('activo', true).order('orden').order('nombre')),
     selectSeguro(supabase.from('items').select('*').eq('activo', true)),
-    selectSeguro(supabase.from('sucursales').select('*').eq('activa', true).order('nombre')),
+    selectSeguro(supabase.from('sucursales').select('*, gerente:profiles!sucursales_gerente_id_fkey(id, nombre)').eq('activa', true).order('nombre')),
     selectSeguro(supabase.from('asignaciones').select('*').eq('evaluador_id', evaluadorId).eq('activa', true)),
     selectSeguro(supabase.from('asignaciones_modulos').select('*').eq('evaluador_id', evaluadorId).eq('activa', true)),
     selectSeguro(supabase.from('sucursal_modulos').select('*').eq('activa', true)),
@@ -122,7 +122,8 @@ export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: 
     padre_id: i.padre_id ?? null,
     api_id: i.api_id ?? null,
     api_campos: apiCampos,
-    permitir_duplicados: i.permitir_duplicados ?? false
+    permitir_duplicados: i.permitir_duplicados ?? false,
+    repetible: i.repetible ?? true
   }).select('id').single()
   if (error) throw error
   return data?.id ?? null

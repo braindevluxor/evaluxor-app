@@ -601,6 +601,7 @@ export function EvaluarSucursal() {
               valor={actual.respuestas[claveRespuesta(hijoActual.id, registro.instanciaId)]?.valor}
               shopId={sucursal?.shop_id}
               branchId={sucursal?.branch_id}
+              gerente={sucursal?.gerente?.nombre ?? null}
               onChange={(v) => cambiarValor(hijoActual.id, registro.instanciaId, v)}
             />
           </div>
@@ -817,6 +818,7 @@ export function EvaluarSucursal() {
               valor={paso ? actual.respuestas[claveRespuesta(paso.id)]?.valor : undefined}
               shopId={sucursal?.shop_id}
               branchId={sucursal?.branch_id}
+              gerente={sucursal?.gerente?.nombre ?? null}
               onChange={(v) => cambiarValor(paso.id, null, v)}
             />
           </div>
@@ -994,16 +996,22 @@ export function EvaluarSucursal() {
         <p className="mt-3 text-center text-xs text-slate-400">Toca un módulo para ir directo a él.</p>
       </Modal>
 
-      <Modal open={!!confirmarBorrar} onClose={() => setConfirmarBorrar(null)} title="Eliminar registro">
+      <Modal
+        open={!!confirmarBorrar}
+        onClose={() => setConfirmarBorrar(null)}
+        title="Eliminar registro"
+        footer={
+          <div className="flex gap-2">
+            <Button variant="secondary" className="flex-1" onClick={() => setConfirmarBorrar(null)}>Cancelar</Button>
+            <Button variant="danger" className="flex-1" onClick={() => confirmarBorrar && eliminarInstancia(confirmarBorrar)}>
+              Eliminar
+            </Button>
+          </div>
+        }
+      >
         <p className="text-sm text-slate-600">
           Se eliminará este registro y todas sus respuestas. Esta acción no se puede deshacer.
         </p>
-        <div className="mt-4 flex gap-2">
-          <Button variant="secondary" className="flex-1" onClick={() => setConfirmarBorrar(null)}>Cancelar</Button>
-          <Button variant="danger" className="flex-1" onClick={() => confirmarBorrar && eliminarInstancia(confirmarBorrar)}>
-            Eliminar
-          </Button>
-        </div>
       </Modal>
     </MobileLayout>
   )

@@ -32,6 +32,8 @@ export function ItemsPage() {
   const [moduloId, setModuloId] = useState(() => params.get('modulo') ?? '')
   const [modal, setModal] = useState(false)
   const [editando, setEditando] = useState<Item | null>(null)
+  /** El botón de guardar vive en el footer fijo del modal; FormItem informa si es válido guardar (peso > 100, rango sin mínimo, API sin campos). */
+  const [itemValido, setItemValido] = useState(true)
   /** Al copiar un ítem, el modal trabaja sobre una copia sin id (inserta nuevo) y `origenCopia` guarda el ítem original (para duplicar también sus hijos si es sección). */
   const [esCopia, setEsCopia] = useState(false)
   const [origenCopia, setOrigenCopia] = useState<Item | null>(null)
@@ -264,6 +266,7 @@ export function ItemsPage() {
                       <Badge color={tipoColor(it.tipo)}>{etiquetaTipo(it.tipo)}</Badge>
                       {esSeccion && nHijos > 0 ? <Badge color={0}>{nHijos} ítem(s) dentro</Badge> : null}
                       {it.requerido ? <Badge color={0}>Obligatorio</Badge> : null}
+                      {it.tipo === 'UNIDAD_CHECKLIST' && it.repetible === false ? <Badge color={0}>Carga única</Badge> : null}
                       {!it.activo ? <Badge color={4}>Inactivo</Badge> : null}
                       {pesoItem(it) > 0 ? <Badge color={2}>{pesoItem(it)} pts</Badge> : <Badge color={4}>Sin puntos</Badge>}
                     </div>
@@ -306,7 +309,13 @@ export function ItemsPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => { setModal(false); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null) }} title={esCopia ? (origenCopia?.tipo === 'CONTENEDOR' ? 'Copiar sección' : 'Copiar ítem') : editando ? 'Editar ítem' : nuevoPadreId ? 'Nuevo ítem dentro de la sección' : 'Nuevo ítem'} wide>
+      <Modal
+        open={modal}
+        onClose={() => { setModal(false); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null); setItemValido(true) }}
+        title={esCopia ? (origenCopia?.tipo === 'CONTENEDOR' ? 'Copiar sección' : 'Copiar ítem') : editando ? 'Editar ítem' : nuevoPadreId ? 'Nuevo ítem dentro de la sección' : 'Nuevo ítem'}
+        wide
+        footer={<Button type="submit" form="form-item" className="w-full" disabled={!itemValido}>Guardar ítem</Button>}
+      >
         <FormItem
           moduloId={moduloId}
           modulos={modulos}
@@ -314,6 +323,7 @@ export function ItemsPage() {
           inicial={editando}
           items={items}
           padreIdInicial={nuevoPadreId}
+          onValido={setItemValido}
           onGuardar={async (d) => {
             setError('')
             try {
@@ -354,40 +364,47 @@ export function ItemsPage() {
         />
       </Modal>
 
-      <Modal open={!!aBorrar} onClose={() => setABorrar(null)} title="Eliminar ítem">
+      <Modal
+        open={!!aBorrar}
+        onClose={() => setABorrar(null)}
+        title="Eliminar ítem"
+        footer={
+          <div className="flex gap-2">
+            <Button variant="secondary" className="flex-1" onClick={() => setABorrar(null)}>Cancelar</Button>
+            <Button
+              className="flex-1 bg-red-600 hover:bg-red-700"
+              disabled={borrando}
+              onClick={async () => {
+                if (!aBorrar) return
+                setBorrando(true)
+                setError('')
+                try {
+                  await eliminarItem(aBorrar.id)
+                  setABorrar(null)
+                  await cargar()
+                } catch (e) {
+                  setError(mensajeError(e, 'No se pudo eliminar el ítem.'))
+                  setABorrar(null)
+                } finally {
+                  setBorrando(false)
+                }
+              }}
+            >
+              {borrando ? 'Eliminando…' : 'Eliminar ítem'}
+            </Button>
+          </div>
+        }
+      >
         {aBorrar ? (
-          <div className="space-y-4">
+          <div>
             <p className="text-sm text-slate-600">
               ¿Seguro que deseas eliminar el ítem <strong>{aBorrar.texto}</strong>? Se borrarán también las respuestas asociadas en evaluaciones ya realizadas. Esta acción no se puede deshacer.
             </p>
             {aBorrar.tipo === 'CONTENEDOR' && hijosDe(items, aBorrar.id).length > 0 ? (
-              <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+              <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
                 Esta sección contiene <strong>{hijosDe(items, aBorrar.id).length} ítem(s)</strong>. También se eliminarán junto con la sección.
               </p>
             ) : null}
-            <div className="flex gap-2">
-              <Button variant="secondary" className="flex-1" onClick={() => setABorrar(null)}>Cancelar</Button>
-              <Button
-                className="flex-1 bg-red-600 hover:bg-red-700"
-                disabled={borrando}
-                onClick={async () => {
-                  setBorrando(true)
-                  setError('')
-                  try {
-                    await eliminarItem(aBorrar.id)
-                    setABorrar(null)
-                    await cargar()
-                  } catch (e) {
-                    setError(mensajeError(e, 'No se pudo eliminar el ítem.'))
-                    setABorrar(null)
-                  } finally {
-                    setBorrando(false)
-                  }
-                }}
-              >
-                {borrando ? 'Eliminando…' : 'Eliminar ítem'}
-              </Button>
-            </div>
           </div>
         ) : null}
       </Modal>
@@ -406,6 +423,7 @@ function FormItem({
   inicial,
   items,
   padreIdInicial = null,
+  onValido,
   onGuardar
 }: {
   moduloId: string
@@ -414,6 +432,8 @@ function FormItem({
   inicial: Item | null
   items: Item[]
   padreIdInicial?: string | null
+  /** Reporta al padre si el ítem puede guardarse (el botón vive en el footer fijo del modal). */
+  onValido?: (valido: boolean) => void
   onGuardar: (d: Partial<Item> & { modulo_id: string; tipo: TipoItem; texto: string; sku?: string }) => Promise<void>
 }) {
   const [moduloSel, setModuloSel] = useState<string>(inicial?.modulo_id ?? moduloId)
@@ -442,6 +462,7 @@ function FormItem({
     inicial?.api_campos?.length ? (inicial.api_campos ?? []) : []
   )
   const [permitirDuplicados, setPermitirDuplicados] = useState(inicial?.permitir_duplicados ?? false)
+  const [repetible, setRepetible] = useState(inicial?.repetible ?? true)
   const [autoPuntaje, setAutoPuntaje] = useState(false)
 
   const esSeccion = tipo === 'CONTENEDOR'
@@ -483,11 +504,12 @@ function FormItem({
   }, [autoPuntaje, puntos, nOpcionesConTexto])
 
   // Un solo catálogo con los cargos de TODAS las sucursales (sin repetir cargos):
-  // no importa de qué branch venga cada uno.
+  // no importa de qué branch venga cada uno. Se carga para todo tipo de ítem
+  // excepto las secciones (CONTENEDOR): todos pueden llevar responsables.
   const branchIds = useMemo(() => ['5', ...sucursales.map((s) => s.branch_id ?? '')], [sucursales])
 
   useEffect(() => {
-    if (!conChecklist) return
+    if (esSeccion) return
     let activo = true
     setCargandoResponsables(true)
     setErrorResponsables('')
@@ -498,10 +520,17 @@ function FormItem({
       setCargandoResponsables(false)
     })
     return () => { activo = false }
-  }, [branchIds, conChecklist])
+  }, [branchIds, esSeccion])
+
+  // El botón «Guardar ítem» vive en el footer fijo del modal: le informamos
+  // al padre si el ítem está en condiciones de guardarse.
+  useEffect(() => {
+    onValido?.(!(excede || rangoIncompleto || apiSinCampos))
+  }, [excede, rangoIncompleto, apiSinCampos, onValido])
 
   return (
     <form
+      id="form-item"
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
@@ -525,13 +554,14 @@ function FormItem({
                   })
               : [],
           colaboradores_filtro: !esSeccion && tipo === 'LISTA_COLABORADORES' ? filtroColaboradores : null,
-          responsables: !esSeccion && conChecklist ? responsables.filter((r) => r.trim()) : [],
+          responsables: !esSeccion ? responsables.filter((r) => r.trim()) : [],
           requerido: esSeccion ? false : requerido,
           activo,
           padre_id: esSeccion ? null : padreId,
           api_id: esSeccion ? (apiId || null) : null,
           api_campos: esSeccion && apiId ? apiCampos : null,
-          permitir_duplicados: esSeccion && apiId ? permitirDuplicados : false
+          permitir_duplicados: esSeccion && apiId ? permitirDuplicados : false,
+          repetible: tipo === 'UNIDAD_CHECKLIST' ? repetible : true
         })
       }}
     >
@@ -728,12 +758,21 @@ function FormItem({
           <Field label="Checklist de cada unidad (se aplica a todas las unidades que se agreguen)">
             <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} />
           </Field>
+          <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-3 text-sm text-slate-700">
+            <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-primary" checked={repetible} onChange={(e) => setRepetible(e.target.checked)} />
+            <span>
+              <strong>Repetible</strong>
+              <span className="block text-xs font-normal text-slate-500">Permite cargar el checklist varias veces (una unidad por cada carga). Si lo desactivás, el evaluador solo carga el checklist una vez.</span>
+            </span>
+          </label>
           <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-            En la evaluación el evaluador agrega cada unidad (valor alfanumérico) una a una y marca este mismo checklist para cada una. El ítem cumple cuando todas las unidades agregadas tienen su checklist completo.
+            {repetible
+              ? 'En la evaluación el evaluador agrega cada unidad (valor alfanumérico) una a una y marca este mismo checklist para cada una. El ítem cumple cuando todas las unidades agregadas tienen su checklist completo.'
+              : 'En la evaluación se muestra este checklist una sola vez. El ítem cumple cuando todas las opciones están marcadas.'}
           </p>
         </>
       ) : null}
-      {conChecklist ? (
+      {!esSeccion ? (
         <EditorResponsables
           responsables={responsables}
           onChange={setResponsables}
@@ -759,7 +798,6 @@ function FormItem({
           Ítem activo (visible en evaluaciones)
         </label>
       </div>
-      <Button type="submit" className="w-full" disabled={excede || rangoIncompleto || apiSinCampos}>Guardar ítem</Button>
     </form>
   )
 }
@@ -997,7 +1035,7 @@ function EditorResponsables({ responsables, onChange, catalogo, cargando, error 
   }, [catalogo, filtro])
 
   return (
-    <Field label="Responsables" hint="Cargos y departamentos de todas las sucursales, sin repetidos. Lo que marques aquí podrás asignarlo a cada check; los checks que no se cumplan suman a cada uno de sus responsables.">
+    <Field label="Responsables" hint="Cargos y departamentos de todas las sucursales, sin repetidos. El peso del ítem se reparte en partes iguales entre los responsables; en ítems con opciones podrás asignarlos también punto por punto.">
       <div className="space-y-2">
         <Input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="Buscar cargo o departamento…" disabled={cargando} />
         {error ? <p className="text-xs font-medium text-amber-700">{error}</p> : null}
