@@ -38,7 +38,10 @@ export function ModulosPage() {
             <div key={m.id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4">
               <div className="mb-1 flex items-start justify-between gap-2">
                 <p className="font-bold text-primary-900">{m.nombre}</p>
-                <Badge color={m.activo ? 2 : 4}>{m.activo ? 'Activo' : 'Inactivo'}</Badge>
+                <div className="flex shrink-0 gap-1">
+                  {m.compartido ? <Badge color={1}>Compartido</Badge> : null}
+                  <Badge color={m.activo ? 2 : 4}>{m.activo ? 'Activo' : 'Inactivo'}</Badge>
+                </div>
               </div>
               <p className="mb-3 line-clamp-2 text-sm text-slate-500">{m.descripcion || 'Sin descripción'}</p>
               <p className="mb-3 text-xs text-slate-400">{m._items.length} ítem(s) configurados</p>
@@ -103,13 +106,19 @@ function FormModulo({ inicial, onGuardar }: { inicial: Modulo | null; onGuardar:
   const [descripcion, setDescripcion] = useState(inicial?.descripcion ?? '')
   const [orden, setOrden] = useState(inicial?.orden ?? 0)
   const [activo, setActivo] = useState(inicial?.activo ?? true)
+  const [compartido, setCompartido] = useState(inicial?.compartido ?? false)
+  const [err, setErr] = useState<string | null>(null)
 
   return (
     <form
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
-        void onGuardar({ id: inicial?.id, nombre, descripcion, orden: Number(orden), activo })
+        setErr(null)
+        void onGuardar({ id: inicial?.id, nombre, descripcion, orden: Number(orden), activo, compartido })
+          .catch((e2: unknown) => {
+            setErr(e2 instanceof Error ? e2.message : 'No se pudo guardar el módulo.')
+          })
       }}
     >
       <Field label="Nombre"><Input value={nombre} onChange={(e) => setNombre(e.target.value)} required /></Field>
@@ -119,6 +128,16 @@ function FormModulo({ inicial, onGuardar }: { inicial: Modulo | null; onGuardar:
         <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
         Módulo activo
       </label>
+      <label className="flex items-start gap-2 text-sm text-slate-700">
+        <input type="checkbox" className="mt-0.5 h-5 w-5 accent-primary" checked={compartido} onChange={(e) => setCompartido(e.target.checked)} />
+        <span>
+          Módulo compartido
+          <span className="block text-xs text-slate-400">Varios evaluadores pueden llenarlo a la vez y ver en vivo el avance del otro. Si lo quitás con evaluadores asignados, primero desasignalos.</span>
+        </span>
+      </label>
+      {err ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
+      ) : null}
       <Button type="submit" className="w-full">Guardar módulo</Button>
     </form>
   )

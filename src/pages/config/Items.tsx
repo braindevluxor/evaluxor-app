@@ -306,7 +306,7 @@ export function ItemsPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => { setModal(false); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null) }} title={esCopia ? (origenCopia?.tipo === 'CONTENEDOR' ? 'Copiar sección' : 'Copiar ítem') : editando ? 'Editar ítem' : nuevoPadreId ? 'Nuevo ítem dentro de la sección' : 'Nuevo ítem'} wide sinCerrarFuera>
+      <Modal open={modal} onClose={() => { setModal(false); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null) }} title={esCopia ? (origenCopia?.tipo === 'CONTENEDOR' ? 'Copiar sección' : 'Copiar ítem') : editando ? 'Editar ítem' : nuevoPadreId ? 'Nuevo ítem dentro de la sección' : 'Nuevo ítem'} wide>
         <FormItem
           moduloId={moduloId}
           modulos={modulos}

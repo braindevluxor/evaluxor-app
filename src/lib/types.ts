@@ -96,6 +96,8 @@ export interface Modulo {
   descripcion: string
   orden: number
   activo: boolean
+  /** Compartido: varios evaluadores pueden llenarlo a la vez (colaboración en vivo). No compartido = un solo evaluador. */
+  compartido?: boolean
   created_at: string
 }
 

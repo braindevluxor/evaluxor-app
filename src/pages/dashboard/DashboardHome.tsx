@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ChevronDown } from 'lucide-react'
 import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
@@ -153,25 +154,30 @@ export function DashboardHome() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <Card className="lg:col-span-2 border-0!">
             <h3 className="mb-1 font-bold text-primary-900">Cumplimiento por módulo</h3>
-            <p className="mb-3 text-xs text-slate-400">Promedio de la última evaluación de cada sucursal que tenga el módulo activo, en el rango seleccionado</p>
+            <p className="mb-3 text-xs text-slate-400">Promedio de la última evaluación de cada sucursal que tenga el módulo activo, en el rango seleccionado · haz clic en un módulo para ver su dashboard por ítem</p>
             {medidores.length ? (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
                 {medidores.map((m) => (
-                  <div key={m.modulo_id} className="rounded-xl bg-slate-50/50 p-3">
+                  <Link
+                    key={m.modulo_id}
+                    to={`/dashboard/modulo/${m.modulo_id}`}
+                    title={`Ver dashboard del módulo ${m.nombre}`}
+                    className="rounded-xl bg-slate-50/50 p-3 transition-all hover:-translate-y-0.5 hover:bg-primary-50/60 hover:shadow-lg hover:ring-2 hover:ring-primary/30"
+                  >
                     <div className="mx-auto w-full max-w-[150px]">
                       <MedidorModulo
                         nombre={m.nombre}
                         valor={m.promedio}
                         sub={
                           m.sucursales
-                            ? `${m.sucursales} de ${m.sucursales + m.sinDatos} sucursales`
+                            ? `${m.sucursales} de ${m.sucursales + m.sinDatos} sucursales · ver detalle`
                             : m.sinDatos
-                              ? `${m.sinDatos} sucursales sin evaluación`
+                              ? `${m.sinDatos} sucursales sin evaluación · ver detalle`
                               : 'Sin sucursales activas'
                         }
                       />
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             ) : (

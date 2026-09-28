@@ -6,6 +6,7 @@ import {
   Calculator,
   CheckCircle2,
   ClipboardCheck,
+  ExternalLink,
   LayoutGrid,
   Lightbulb,
   Presentation,
@@ -39,6 +40,9 @@ const COLOR_UMBRAL = {
   verde: 'border-green-200 bg-green-50 text-green-700'
 } as const
 
+const URL_PRESENTACION_CANVA =
+  'https://www.canva.com/design/DAHWZY28BoE/ixpVun4rbGtHLBcOeJD9YQ/view?utm_content=DAHWZY28BoE&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h63e167228f'
+
 const ETIQUETA = 'text-[10px] font-bold uppercase tracking-wider text-slate-500'
 
 export function BibliotecaPage() {
@@ -49,17 +53,28 @@ export function BibliotecaPage() {
   return (
     <div className="space-y-6">
       {/* Encabezado */}
-      <div className="flex items-start gap-3">
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-primary text-white shadow-sm">
-          <BookOpen className="h-6 w-6" />
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-primary text-white shadow-sm">
+            <BookOpen className="h-6 w-6" />
+          </div>
+          <div className="min-w-0">
+            <p className={ETIQUETA}>Documentación</p>
+            <h1 className="text-xl font-extrabold leading-tight text-primary-900">Procesos de evaluación</h1>
+            <p className="mt-0.5 text-sm text-slate-500">
+              De la recolección de la información a la presentación de resultados, interpretaciones y proyecciones.
+            </p>
+          </div>
         </div>
-        <div className="min-w-0">
-          <p className={ETIQUETA}>Documentación</p>
-          <h1 className="text-xl font-extrabold leading-tight text-primary-900">Procesos de evaluación</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            De la recolección de la información a la presentación de resultados, interpretaciones y proyecciones.
-          </p>
-        </div>
+        <a
+          href={URL_PRESENTACION_CANVA}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+        >
+          <ExternalLink className="h-4 w-4" />
+          Ver presentación
+        </a>
       </div>
 
       {/* Guía general por etapas */}

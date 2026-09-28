@@ -85,9 +85,11 @@ export async function listarModulosAdmin(): Promise<(Modulo & { _items: Item[] }
 export async function guardarModulo(m: Partial<Modulo> & { nombre: string }): Promise<void> {
   if (m.id) {
     const { id, ...rest } = m
-    await supabase.from('modulos').update(rest).eq('id', id)
+    const { error } = await supabase.from('modulos').update(rest).eq('id', id)
+    if (error) throw new Error(error.message)
   } else {
-    const { data } = await supabase.from('modulos').insert({ nombre: m.nombre, descripcion: m.descripcion ?? '', orden: m.orden ?? 0 }).select('id').single()
+    const { data, error } = await supabase.from('modulos').insert({ nombre: m.nombre, descripcion: m.descripcion ?? '', orden: m.orden ?? 0, compartido: m.compartido ?? false }).select('id').single()
+    if (error) throw new Error(error.message)
     void data
   }
 }

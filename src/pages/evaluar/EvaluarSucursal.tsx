@@ -33,6 +33,17 @@ export function EvaluarSucursal() {
   const { sucursales } = useCatalog()
   const sucursal = sucursales.find((s) => s.id === sucursalId)
 
+  // Ítems de módulos "Compartido": solo de ellos se fusiona el avance del otro
+  // evaluador. Los módulos no compartidos son exclusivos de un evaluador.
+  const itemsCompartidos = useMemo(() => {
+    const ids = new Set<string>()
+    for (const m of modulosActivos) {
+      if (!m.compartido) continue
+      for (const it of itemsDe(m)) ids.add(it.id)
+    }
+    return ids
+  }, [modulosActivos, itemsDe])
+
   const [draft, setDraft] = useState<DraftEval | null>(null)
   const [sinActiva, setSinActiva] = useState(false)
   const [cargando, setCargando] = useState(true)
@@ -59,6 +70,7 @@ export function EvaluarSucursal() {
   const [mensajeConsulta, setMensajeConsulta] = useState<string | null>(null)
   const [scanAbierto, setScanAbierto] = useState(false)
   const [confirmarBorrar, setConfirmarBorrar] = useState<string | null>(null)
+  const [evaluacionId, setEvaluacionId] = useState<string | null>(null)
   const etiquetaInputRef = useRef<HTMLInputElement | null>(null)
 
   const guardadoRef = useRef<Map<string, number>>(new Map())
@@ -152,6 +164,7 @@ export function EvaluarSucursal() {
         return
       }
       evaluacionIdRef.current = activa.id
+      setEvaluacionId(activa.id)
       const existente = await getDraft(sucursalId)
       const [enNube, instanciasNube] = await Promise.all([
         listarRespuestasEvaluacion(activa.id).catch(() => []),
@@ -159,11 +172,12 @@ export function EvaluarSucursal() {
       ])
       const nubeMias: DraftEval['respuestas'] = {}
       for (const r of enNube) {
-        if (r.respondido_por === profile.id) nubeMias[claveRespuesta(r.item_id, r.instancia_id)] = { valor: r.valor }
+        if (r.respondido_por === profile.id) nubeMias[claveRespuesta(r.item_id, r.instancia_id)] = { valor: r.valor, por: 'yo' }
       }
       // Borradores locales antiguos: claves sin '::' se normalizan; instancias ausentes → {}.
+      // Las entradas sin `por` son de este evaluador (escritas localmente antes de la colaboración en vivo).
       const respLocal: DraftEval['respuestas'] = {}
-      for (const [k, v] of Object.entries(existente?.respuestas ?? {})) respLocal[normalizarClave(k)] = v
+      for (const [k, v] of Object.entries(existente?.respuestas ?? {})) respLocal[normalizarClave(k)] = { valor: v.valor, por: v.por ?? 'yo' }
       const instanciasLocales: Record<string, DraftInstancia[]> = structuredClone(existente?.instancias ?? {})
       for (const ins of instanciasNube) {
         const ya = (instanciasLocales[ins.item_id] ?? []).some((i) => i.id === ins.id)
@@ -192,6 +206,87 @@ export function EvaluarSucursal() {
       setCargando(false)
     })()
   }, [sucursalId, profile])
+
+  // Colaboración en vivo: cuando otro evaluador guarda respuestas o registros para
+  // la misma evaluación, se fusionan aquí marcadas `por: 'otros'` para que ambos
+  // vean el avance del otro y no hagan el mismo trabajo. Solo se visualizan:
+  // `respuestasConInstancia` las excluye al sincronizar/envíar. Instancias nuevas
+  // se suman (add-only) y se actualizan vía realtime + un barrido de respaldo.
+  useEffect(() => {
+    const miId = profile?.id
+    if (!online || !miId || !evaluacionId) return
+    let vivo = true
+
+    const sincronizar = async () => {
+      if (!vivo) return
+      const base = draftRef.current
+      if (!base) return
+      try {
+        const [enNube, instanciasNube] = await Promise.all([
+          listarRespuestasEvaluacion(evaluacionId).catch(() => []),
+          listarInstanciasEvaluacion(evaluacionId).catch(() => [])
+        ])
+        if (!vivo) return
+        const actual2 = draftRef.current
+        if (!actual2) return
+        const respuestas: DraftEval['respuestas'] = { ...actual2.respuestas }
+        let cambio = false
+        for (const r of enNube) {
+          if (r.respondido_por === miId) continue
+          // Solo módulos compartido participan de la colaboración en vivo.
+          if (!itemsCompartidos.has(r.item_id)) continue
+          const key = claveRespuesta(r.item_id, r.instancia_id)
+          if (!respuestas[key]) {
+            respuestas[key] = { valor: r.valor, por: 'otros' }
+            cambio = true
+          }
+        }
+        const instancias: Record<string, DraftInstancia[]> = structuredClone(actual2.instancias ?? {})
+        for (const ins of instanciasNube) {
+          if (!itemsCompartidos.has(ins.item_id)) continue
+          const ya = (instancias[ins.item_id] ?? []).some((i) => i.id === ins.id)
+          if (!ya) {
+            ;(instancias[ins.item_id] ??= []).push({
+              id: ins.id,
+              etiqueta: ins.etiqueta,
+              orden: ins.orden,
+              api_id: ins.api_id ?? undefined,
+              datos: (ins.datos as Record<string, unknown> | null | undefined) ?? undefined
+            })
+            cambio = true
+          }
+        }
+        if (!cambio) return
+        const nuevo: DraftEval = { ...actual2, respuestas, instancias, updated_at: Date.now() }
+        draftRef.current = nuevo
+        setDraft(nuevo)
+        void putDraft(nuevo).catch(() => undefined)
+      } catch {
+        // Sin conexión en este instante; el siguiente evento o barrido reintenta.
+      }
+    }
+
+    const channel = supabase
+      .channel(`ev-vivo-${evaluacionId}:${miId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'respuestas', filter: `evaluacion_id=eq.${evaluacionId}` },
+        () => void sincronizar()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'instancias_grupo', filter: `evaluacion_id=eq.${evaluacionId}` },
+        () => void sincronizar()
+      )
+      .subscribe()
+    const iv = window.setInterval(() => void sincronizar(), 15000)
+    void sincronizar()
+    return () => {
+      vivo = false
+      void supabase.removeChannel(channel)
+      window.clearInterval(iv)
+    }
+  }, [evaluacionId, online, profile?.id, itemsCompartidos])
 
   useEffect(() => {
     if (!modulos.length) return
@@ -332,7 +427,7 @@ export function EvaluarSucursal() {
     const key = claveRespuesta(itemId, instanciaId)
     const nuevo: DraftEval = {
       ...actual,
-      respuestas: { ...actual.respuestas, [key]: { valor } }
+      respuestas: { ...actual.respuestas, [key]: { valor, por: 'yo' } }
     }
     setDraft(nuevo)
     const now = Date.now()

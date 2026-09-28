@@ -239,8 +239,13 @@ create table if not exists public.modulos (
   descripcion text not null default '',
   orden integer not null default 0,
   activo boolean not null default true,
+  -- Compartido: varios evaluadores pueden llenar el mismo módulo a la vez y ven
+  -- el avance del otro en vivo (colaboración). No compartido = un solo evaluador.
+  compartido boolean not null default false,
   created_at timestamptz not null default now()
 );
+-- Upgrade de instalaciones existentes.
+alter table public.modulos add column if not exists compartido boolean not null default false;
 
 create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
@@ -334,7 +339,8 @@ alter table public.items add constraint items_tipo_check check (tipo in (
 
 -- ----------------------------------------------------------------------------
 -- ASIGNACIONES DE MODULOS (el LIDER asigna módulos a evaluadores)
--- Regla de negocio: un módulo activo solo se asigna a UN evaluador a la vez.
+-- Regla de negocio: un módulo NO compartido se asigna a UN evaluador activo a la
+-- vez; un módulo COMPARTIDO puede tener varios evaluadores (colaboración en vivo).
 -- ----------------------------------------------------------------------------
 create table if not exists public.asignaciones_modulos (
   id uuid primary key default gen_random_uuid(),
@@ -347,15 +353,64 @@ create table if not exists public.asignaciones_modulos (
 );
 
 -- Se limpian asignaciones duplicadas previas conservando la mas antigua.
+-- (Solo aplica a módulos NO compartidos: los compartidos admiten varios evaluadores.)
 delete from public.asignaciones_modulos a
 using public.asignaciones_modulos b
 where a.activa and b.activa
   and a.modulo_id = b.modulo_id
-  and a.created_at > b.created_at;
+  and a.created_at > b.created_at
+  and not exists (select 1 from public.modulos m where m.id = a.modulo_id and m.compartido);
 
--- Exclusividad: un modulo activo solo puede pertenecer a un evaluador.
-create unique index if not exists uniq_asignaciones_modulos_activo
-  on public.asignaciones_modulos (modulo_id) where activa;
+-- Exclusividad condicional: solo se exige único evaluador para módulos NO compartidos.
+drop index if exists uniq_asignaciones_modulos_activo;
+
+create or replace function public.validar_unico_evaluador_modulo()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_compartido boolean;
+begin
+  select coalesce(m.compartido, false) into v_compartido
+  from public.modulos m where m.id = new.modulo_id;
+  if not v_compartido and new.activa then
+    if exists (
+      select 1 from public.asignaciones_modulos a
+      where a.activa and a.modulo_id = new.modulo_id
+        and a.evaluador_id <> new.evaluador_id
+    ) then
+      raise exception 'El módulo no está compartido: ya tiene un evaluador asignado.';
+    end if;
+  end if;
+  return new;
+end
+$$;
+
+drop trigger if exists trg_unico_evaluador_modulo on public.asignaciones_modulos;
+create trigger trg_unico_evaluador_modulo
+  before insert or update on public.asignaciones_modulos
+  for each row execute function public.validar_unico_evaluador_modulo();
+
+-- Protección al desactivar "compartido": si ya hay varios evaluadores activos
+-- asignados, hay que desasignar primero.
+create or replace function public.validar_modulo_compartido()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_asignados integer;
+begin
+  if old.compartido and not new.compartido then
+    select count(*) into v_asignados
+    from public.asignaciones_modulos a where a.activa and a.modulo_id = old.id;
+    if v_asignados > 1 then
+      raise exception 'No se puede quitar "compartido": hay % evaluadores activos asignados. Desasignalo primero.', v_asignados;
+    end if;
+  end if;
+  return new;
+end
+$$;
+
+drop trigger if exists trg_modulo_compartido on public.modulos;
+create trigger trg_modulo_compartido
+  before update on public.modulos
+  for each row execute function public.validar_modulo_compartido();
 
 -- ----------------------------------------------------------------------------
 -- CONFIGURACION POR SUCURSAL (que módulos e ítems aplican en cada sucursal)

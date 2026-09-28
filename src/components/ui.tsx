@@ -1,8 +1,23 @@
-import { useRef, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import { FolderOpen, X } from 'lucide-react'
 
 export function cn(...cls: (string | false | null | undefined)[]): string {
   return cls.filter(Boolean).join(' ')
+}
+
+/** Cierra un modal/overlay con la tecla Escape mientras está abierto. */
+function useCerrarConEscape(abierto: boolean, onCerrar: () => void): void {
+  useEffect(() => {
+    if (!abierto) return
+    const manejar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onCerrar()
+      }
+    }
+    window.addEventListener('keydown', manejar)
+    return () => window.removeEventListener('keydown', manejar)
+  }, [abierto, onCerrar])
 }
 
 type BtnVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success'
@@ -205,27 +220,22 @@ export function Modal({
   onClose,
   title,
   children,
-  wide,
-  sinCerrarFuera
+  wide
 }: {
   open: boolean
   onClose: () => void
   title: string
   children: ReactNode
   wide?: boolean
-  sinCerrarFuera?: boolean
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  useCerrarConEscape(open, onClose)
   if (!open) return null
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 p-0 sm:p-4"
-      onClick={sinCerrarFuera ? undefined : onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 p-0 sm:p-4">
       <div
         ref={scrollRef}
         className={cn('max-h-[92vh] w-full overflow-y-auto overscroll-contain rounded-t-2xl sm:rounded-2xl bg-white p-5 [overflow-anchor:none]', wide ? 'sm:max-w-2xl' : 'sm:max-w-md')}
-        onClick={(e) => e.stopPropagation()}
         onBlur={(e) => {
           // Al perder foco un campo interno (clic fuera de él), el navegador puede
           // reiniciar el scroll del modal al tope (reflow / cierre del teclado).
@@ -265,6 +275,7 @@ export function Confirmar({
   onConfirm: () => void
   onCancel: () => void
 }) {
+  useCerrarConEscape(open, onCancel)
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
