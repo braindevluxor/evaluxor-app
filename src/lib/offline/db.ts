@@ -6,6 +6,8 @@ export { claveRespuesta }
 
 export interface DraftResp {
   valor: unknown
+  /** En colaboración en vivo: 'yo' = escrita por este evaluador (se sincroniza); 'otros' = fusionada de otro evaluador solo para visualizarla (nunca se re-envía). */
+  por?: 'yo' | 'otros'
 }
 
 export interface DraftInstancia {
@@ -41,6 +43,17 @@ export function parsearClaveRespuesta(k: string): { item_id: string; instancia_i
 /** Normaliza claves de borradores antiguos (solo `item_id`) al formato actual (`item_id::`). */
 export function normalizarClave(k: string): string {
   return k.includes('::') ? k : claveRespuesta(k)
+}
+
+/**
+ * Respuestas del borrador listas para sincronizar. Excluye las fusionadas de
+ * otros evaluadores (`por: 'otros'`): son solo para visualizarlas en la
+ * colaboración en vivo y re-enviarlas pisaría la autoría/evidencias del otro.
+ */
+export function respuestasConInstancia(draft: DraftEval): { item_id: string; instancia_id: string | null; valor: unknown }[] {
+  return Object.entries(draft.respuestas)
+    .filter(([, r]) => r.por !== 'otros')
+    .map(([k, r]) => ({ ...parsearClaveRespuesta(k), valor: r.valor }))
 }
 
 /** Registros aplanados del borrador (item_id → orden) para calcular pasos. */

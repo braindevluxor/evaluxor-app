@@ -134,7 +134,10 @@ export function formatearValorConsulta(v: unknown): string {
   if (typeof v === 'string') {
     const t = v.trim()
     if (/^\d{4}-\d{2}-\d{2}/.test(t)) {
-      const d = new Date(t)
+      const fechaCalendario = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t)
+      const d = fechaCalendario
+        ? new Date(Number(fechaCalendario[1]), Number(fechaCalendario[2]) - 1, Number(fechaCalendario[3]))
+        : new Date(t)
       if (!Number.isNaN(d.getTime())) {
         return d.toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })
       }

@@ -96,13 +96,18 @@ export interface Modulo {
   descripcion: string
   orden: number
   activo: boolean
+  /** Compartido: varios evaluadores pueden llenarlo a la vez (colaboración en vivo). No compartido = un solo evaluador. */
+  compartido?: boolean
   created_at: string
 }
 
 export interface Opcion {
   id: string
   etiqueta: string
+  /** Responsable único (formato anterior). Se migra a `responsables` al editar el ítem. */
   responsable?: string
+  /** Responsables del check: admite varios. Si viene vacío se usa `responsable`. */
+  responsables?: string[]
   /** Puntos propios de la opción (solo CHECKLIST, hasta 3 decimales, mínimo 0.001). Si TODAS las opciones tienen puntos, la puntuación del ítem se reparte entre ellas. */
   puntos?: number
   /** Tipo de respuesta (solo CHECKLIST): 'CHECK' (casilla) o 'RANGO' (valor numérico con mínimo aceptable). */

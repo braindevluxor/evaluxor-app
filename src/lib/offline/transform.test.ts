@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { photoPath, convertirValor, extraerPhotoIds } from './transform'
+import { photoPath, convertirValor, extraerPhotoIds, valorSinFotos } from './transform'
 
 describe('photoPath', () => {
   it('construye ruta estable', () => {
@@ -28,6 +28,19 @@ describe('extraerPhotoIds', () => {
     ).toEqual(['x', 'y', 'z'])
     expect(extraerPhotoIds({ selected: ['a', 'b'], evidencias: {} })).toEqual([])
     expect(extraerPhotoIds({ selected: [] })).toEqual([])
+  })
+})
+
+describe('valorSinFotos', () => {
+  it('conserva los valores numéricos de opciones RANGO del checklist', () => {
+    expect(
+      valorSinFotos({ selected: ['a', 'b'], valores: { a: 40 }, evidencias: { a: { photoIds: ['f1'] } }, informativos: ['b'] })
+    ).toEqual({ selected: ['a', 'b'], valores: { a: 40 }, informativos: ['b'] })
+  })
+  it('omite valores vacíos y pasa intactos los demás tipos', () => {
+    expect(valorSinFotos({ selected: ['a'], valores: {}, evidencias: {} })).toEqual({ selected: ['a'] })
+    expect(valorSinFotos({ value: true, evidencias: [] })).toEqual({ value: true, evidencias: [] })
+    expect(valorSinFotos('texto')).toBe('texto')
   })
 })
 
@@ -66,6 +79,19 @@ describe('convertirValor', () => {
         a: { paths: ['ev/c/d/x.jpg'] },
         b: { paths: ['.local/y'] }
       }
+    })
+  })
+  it('conserva los valores numéricos de opciones RANGO del checklist', () => {
+    const map = new Map<string, string>()
+    expect(
+      convertirValor(
+        { selected: ['a', 'b'], valores: { a: 40, b: 25 }, evidencias: { a: { photoIds: ['x'] } } },
+        map
+      )
+    ).toEqual({
+      selected: ['a', 'b'],
+      valores: { a: 40, b: 25 },
+      evidencias: { a: { paths: ['.local/x'] } }
     })
   })
   it('deja pasar otros valores', () => {

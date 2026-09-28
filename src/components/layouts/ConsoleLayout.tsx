@@ -49,7 +49,11 @@ function ConsoleLayoutContenido() {
   const { abierto: filtrosAbiertos, alternar: alternarFiltros } = useDashboardFilters()
   const navigate = useNavigate()
   const { pathname } = useLocation()
-  const tituloVista = titulosVista[pathname]
+  const tituloVista =
+    titulosVista[pathname] ??
+    (pathname.startsWith('/dashboard/modulo/')
+      ? { titulo: 'Dashboard del módulo', subtitulo: 'Ítems del módulo con el gráfico más idóneo según su tipo' }
+      : undefined)
   const esDashboard = pathname.startsWith('/dashboard')
   const puedeEvaluar = profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER'
   const navRef = useRef<HTMLElement | null>(null)
@@ -81,6 +85,16 @@ function ConsoleLayoutContenido() {
     window.addEventListener('resize', actualizar)
     return () => window.removeEventListener('resize', actualizar)
   }, [colapsado, pathname])
+
+  // Cerrar el panel lateral móvil con Escape.
+  useEffect(() => {
+    if (!abierto) return
+    const manejar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAbierto(false)
+    }
+    window.addEventListener('keydown', manejar)
+    return () => window.removeEventListener('keydown', manejar)
+  }, [abierto])
 
   function mostrarTip(label: string, el: HTMLElement) {
     const r = el.getBoundingClientRect()
@@ -187,7 +201,7 @@ function ConsoleLayoutContenido() {
         </div>
       </aside>
 
-      {abierto ? <div className="fixed inset-0 z-30 bg-slate-900/40 lg:hidden" onClick={() => setAbierto(false)} /> : null}
+      {abierto ? <div className="fixed inset-0 z-30 bg-slate-900/40 lg:hidden" /> : null}
 
       <span
         className={cn(
@@ -256,7 +270,7 @@ function ConsoleLayoutContenido() {
           </div>
         ) : null}
         </div>
-        {pathname === '/dashboard' ? <BarraKpis /> : null}
+        {pathname === '/dashboard' || pathname.startsWith('/dashboard/modulo/') ? <BarraKpis /> : null}
         <SyncBanner />
         <main className="mx-auto max-w-7xl px-4 py-6 lg:px-8">
           <Outlet />

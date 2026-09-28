@@ -43,9 +43,10 @@ export function valorSinFotos(valor: unknown): unknown {
   }
   const checklist = isChecklistValor(valor)
   if (checklist) {
-    const v = valor as { selected?: string[]; informativos?: string[]; evidencias?: unknown }
+    const v = valor as { selected?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: unknown }
     const out: Record<string, unknown> = { selected: v.selected ?? [] }
     if ((v.informativos ?? []).length) out.informativos = v.informativos
+    if (v.valores && Object.keys(v.valores).length) out.valores = v.valores
     return out
   }
   if (isFotoValor(valor)) return { photoIds: [] }
@@ -78,7 +79,7 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
   }
   const checklistIds = isChecklistValor(valor)
   if (checklistIds) {
-    const v = valor as { selected?: string[]; informativos?: string[]; evidencias?: Record<string, { photoIds?: string[] } | null> }
+    const v = valor as { selected?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: Record<string, { photoIds?: string[] } | null> }
     const evidencias: Record<string, unknown> = {}
     for (const [optId, ids] of Object.entries(checklistIds)) {
       evidencias[optId] = { paths: ids.map((id) => map.get(id) ?? `.local/${id}`) }
@@ -88,6 +89,7 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
       evidencias
     }
     if ((v.informativos ?? []).length) out.informativos = v.informativos
+    if (v.valores && Object.keys(v.valores).length) out.valores = v.valores
     return out
   }
   return valor

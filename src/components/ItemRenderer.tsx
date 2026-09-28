@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, formatearLastSync, formatearPrecioBase, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, formatearLastSync, formatearPrecioBase, responsablesDeOpcion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores } from '../lib/data/colaboradores'
 import { formatearValorConsulta } from '../lib/data/apis'
@@ -19,6 +19,19 @@ interface Props {
   total: number
   shopId?: string | null
   branchId?: string | null
+}
+
+/** Etiquetas de los responsables de un check: puede haber más de uno. */
+function ChipsResponsables({ o }: { o: Opcion }) {
+  const rs = responsablesDeOpcion(o)
+  if (!rs.length) return null
+  return (
+    <>
+      {rs.map((r) => (
+        <span key={r} className="ml-1 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{r}</span>
+      ))}
+    </>
+  )
 }
 
 export function ItemRenderer({ item, valor, onChange, index, total, shopId, branchId }: Props) {
@@ -161,7 +174,7 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
                         {o.tipo_respuesta === 'RANGO' ? `Valor (mín. ${o.minimo ?? '—'}${o.unidad ? ` ${o.unidad}` : ''})` : ''}
                       </span>
                     ) : null}
-                    {o.responsable ? <span className="ml-1 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{o.responsable}</span> : null}
+                    <ChipsResponsables o={o} />
                     {o.puntos != null && o.puntos > 0 ? <span className="ml-1 shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span> : null}
                   </label>
                   <button
@@ -810,7 +823,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId }: { item
                                 onChange={() => toggleCheck(c.dni, o.id)}
                               />
                               <span className={cn('text-sm', c.aplica ? 'text-slate-700' : 'text-slate-400')}>{o.etiqueta}</span>
-                              {o.responsable ? <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{o.responsable}</span> : null}
+                              <ChipsResponsables o={o} />
                             </label>
                           )
                         })}
@@ -943,7 +956,7 @@ function UnidadesEditor({ item, valor, onChange }: { item: Item; valor: unknown;
                               onChange={() => toggleCheck(i, o.id)}
                             />
 <span className="text-sm text-slate-700">{o.etiqueta}</span>
-                            {o.responsable ? <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{o.responsable}</span> : null}
+                            <ChipsResponsables o={o} />
                           </label>
                         )
                       })}

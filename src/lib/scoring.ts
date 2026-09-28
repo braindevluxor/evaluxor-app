@@ -255,11 +255,21 @@ export interface ValorResponsable {
   porciento: number | null
 }
 
+/**
+ * Responsables de un check: la lista `responsables` (admite varios) unida al campo
+ * `responsable` de las opciones guardadas antes del cambio. Sin repetidos ni vacíos.
+ */
+export function responsablesDeOpcion(
+  opcion: { responsable?: string | null; responsables?: string[] | null } | null | undefined
+): string[] {
+  if (!opcion) return []
+  const base = [...(opcion.responsables ?? []), opcion.responsable ?? '']
+  return [...new Set(base.map((x) => (x ?? '').trim()).filter(Boolean))]
+}
+
 /** Responsables que participan en un ítem: los que están asignados a sus checks (opciones); si ningún check tiene responsable, la lista del ítem. */
 function responsablesDelItem(item: { opciones?: string[] | { id?: string; responsable?: string }[] | null; responsables?: string[] | null }): string[] {
-  const porOpciones = ((item.opciones ?? []) as { responsable?: string }[])
-    .map((o) => (o.responsable ?? '').trim())
-    .filter(Boolean)
+  const porOpciones = ((item.opciones ?? []) as { responsable?: string; responsables?: string[] }[]).flatMap((o) => responsablesDeOpcion(o))
   const base = porOpciones.length ? porOpciones : item.responsables ?? []
   return [...new Set(base.map((x) => x.trim()).filter(Boolean))]
 }
@@ -268,7 +278,7 @@ export type ItemRespLigero = {
   id?: string
   tipo?: string
   puntaje?: number | null
-  opciones?: string[] | { id?: string; responsable?: string }[] | null
+  opciones?: string[] | { id?: string; responsable?: string; responsables?: string[] }[] | null
   responsables?: string[] | null
 }
 
@@ -335,38 +345,39 @@ export function valorPorResponsable(items: ItemRespLigero[], respuestas?: { item
 }
 
 export function incumplimientosPorResponsable(
-  item: { tipo: string; opciones?: string[] | { id: string; responsable?: string }[] | null },
+  item: { tipo: string; opciones?: string[] | { id: string; responsable?: string; responsables?: string[] }[] | null },
   valor: unknown
 ): AcumuladoResponsable[] {
   if (valorBinario(item, valor) === null) return []
-  const puntos = ((item.opciones ?? []) as { id?: string; responsable?: string }[]).filter((o) => o.id && (o.responsable ?? '').trim())
+  const puntos = ((item.opciones ?? []) as { id?: string; responsable?: string; responsables?: string[] }[])
+    .map((o) => ({ o, rs: o.id ? responsablesDeOpcion(o) : [] }))
+    .filter((x) => x.rs.length)
   const acum = new Map<string, number>()
-  const sumar = (responsable: string) => {
-    const r = (responsable ?? '').trim()
-    if (!r) return
-    acum.set(r, (acum.get(r) ?? 0) + 1)
+  // Un check fallado suma 1 a cada uno de sus responsables.
+  const sumar = (rs: string[]) => {
+    for (const r of rs) acum.set(r, (acum.get(r) ?? 0) + 1)
   }
   if (puntos.length) {
     if (item.tipo === 'CHECKLIST') {
       const v = valor as ValorChecklist | null
       const informativos = v?.informativos ?? []
-      for (const o of puntos) {
-        if (!informativos.includes(o.id as string) && !opcionCumplida(o as { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }, v, o.id as string)) sumar(o.responsable ?? '')
+      for (const { o, rs } of puntos) {
+        if (!informativos.includes(o.id as string) && !opcionCumplida(o as { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }, v, o.id as string)) sumar(rs)
       }
     } else if (item.tipo === 'LISTA_COLABORADORES') {
       const v = valor as ValorListaColaboradores | null
       for (const c of (v?.colaboradores ?? []).filter((x) => x.aplica)) {
         const sel = c.selected ?? []
-        for (const o of puntos) {
-          if (!sel.includes(o.id as string)) sumar(o.responsable ?? '')
+        for (const { o, rs } of puntos) {
+          if (!sel.includes(o.id as string)) sumar(rs)
         }
       }
     } else if (item.tipo === 'UNIDAD_CHECKLIST') {
       const v = valor as ValorUnidadChecklist | null
       for (const u of v?.unidades ?? []) {
         const sel = u.selected ?? []
-        for (const o of puntos) {
-          if (!sel.includes(o.id as string)) sumar(o.responsable ?? '')
+        for (const { o, rs } of puntos) {
+          if (!sel.includes(o.id as string)) sumar(rs)
         }
       }
     }

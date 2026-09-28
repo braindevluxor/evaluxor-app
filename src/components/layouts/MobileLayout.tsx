@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { CheckCheck, History, LogOut, Menu, Settings, Check, LayoutDashboard, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
@@ -109,6 +109,14 @@ export function MobileLayout({
   const { profile, signOut } = useAuth()
   const [menuAbierto, setMenuAbierto] = useState(false)
   const cerrar = () => setMenuAbierto(false)
+  useEffect(() => {
+    if (!menuAbierto) return
+    const manejar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') cerrar()
+    }
+    window.addEventListener('keydown', manejar)
+    return () => window.removeEventListener('keydown', manejar)
+  }, [menuAbierto])
   return (
     <div className="min-h-screen bg-slate-100 pb-6">
       <HeaderMini titulo={titulo ?? 'EvaLuxor'} subtitulo={subtitulo} onClickMenu={() => setMenuAbierto(true)} extra={extra} />
@@ -117,7 +125,7 @@ export function MobileLayout({
 
       {menuAbierto ? (
         <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={cerrar} aria-hidden />
+          <div className="absolute inset-0 bg-black/40" aria-hidden />
           <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85%] flex-col bg-white">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <span className="text-lg font-extrabold text-primary">EvaLuxor</span>

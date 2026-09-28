@@ -1,15 +1,13 @@
 import { supabase } from '../supabase'
-import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, parsearClaveRespuesta, type SyncJob, type DraftEval } from './db'
+import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, respuestasConInstancia, type SyncJob, type DraftEval } from './db'
 import { photoPath, convertirValor, extraerPhotoIds, valorSinFotos } from './transform'
+
+export { respuestasConInstancia }
 
 export function instanciasDeDraft(draft: DraftEval): { id: string; item_id: string; etiqueta: string; orden: number; api_id?: string; datos?: Record<string, unknown> }[] {
   return Object.entries(draft.instancias ?? {}).flatMap(([item_id, arr]) =>
     arr.map((ins, i) => ({ id: ins.id, item_id, etiqueta: ins.etiqueta, orden: typeof ins.orden === 'number' ? ins.orden : i, api_id: ins.api_id, datos: ins.datos }))
   )
-}
-
-export function respuestasConInstancia(draft: DraftEval): { item_id: string; instancia_id: string | null; valor: unknown }[] {
-  return Object.entries(draft.respuestas).map(([k, r]) => ({ ...parsearClaveRespuesta(k), valor: r.valor }))
 }
 
 export async function encolarRespuestas(draft: DraftEval): Promise<void> {

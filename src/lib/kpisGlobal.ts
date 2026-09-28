@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react'
 
+/** Claves de icono soportadas por la franja azul de KPIs (BarraKpis). */
+export type IconoKpi = 'calendario' | 'check' | 'store' | 'target' | 'alerta' | 'lista' | 'badge'
+
+export interface ItemKpi {
+  etiqueta: string
+  valor: string | number | null
+  icono: IconoKpi
+}
+
 export interface EstadoKpis {
   global: number | null
   completadas: number
   cobertura: number
   incumplimientos: number
+  /** Cuando viene definido, la franja azul muestra estos ítems en lugar de los 4 KPIs estándar. */
+  items?: ItemKpi[]
 }
 
 let actual: EstadoKpis | null = null

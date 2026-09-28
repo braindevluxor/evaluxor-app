@@ -86,7 +86,7 @@ describe('formatearValorConsulta', () => {
     expect(formatearValorConsulta(10000000)).toBe('10000000')
     expect(formatearValorConsulta(5.25)).toBe('5.25')
     expect(formatearValorConsulta('2025-01-10T14:30:00Z')).toMatch(/10 ene|ene\.? 2025/i)
-    expect(formatearValorConsulta('2025-01-10')).toMatch(/2025/)
+    expect(formatearValorConsulta('2025-01-10')).toMatch(/10.*2025/)
     expect(formatearValorConsulta(null)).toBe('—')
     expect(formatearValorConsulta('')).toBe('—')
     expect(formatearValorConsulta(true)).toBe('Sí')

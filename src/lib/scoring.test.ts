@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable, agregarPuntaje, redondear3, valorPorResponsable } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable } from './scoring'
 
 describe('valorBinario', () => {
   it('cumple/no cumple', () => {
@@ -197,6 +197,39 @@ describe('incumplimientosPorResponsable', () => {
   it('tipos sin puntos con responsable no acumulan', () => {
     expect(incumplimientosPorResponsable({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: false })).toEqual([])
     expect(incumplimientosPorResponsable({ tipo: 'CONCILIACION', opciones: [{ id: 'a', responsable: 'X' }] }, { productos: [{ sku: 'A', teorica: 2, fisica: 1 }] })).toEqual([])
+  })
+  it('un check con varios responsables suma a cada uno', () => {
+    const item = {
+      tipo: 'CHECKLIST',
+      opciones: [{ id: 'a', etiqueta: 'A', responsables: ['Mecanico', 'Soldador'] }, { id: 'b', etiqueta: 'B', responsable: 'Chofer' }]
+    }
+    expect(incumplimientosPorResponsable(item, { selected: ['b'] })).toEqual([
+      { responsable: 'Mecanico', puntos: 1 },
+      { responsable: 'Soldador', puntos: 1 }
+    ])
+    expect(incumplimientosPorResponsable(item, { selected: ['a', 'b'] })).toEqual([])
+  })
+  it('lee el responsable guardado en el campo antiguo y no lo duplica', () => {
+    const item = {
+      tipo: 'CHECKLIST',
+      opciones: [
+        { id: 'a', etiqueta: 'A', responsable: 'Mecanico', responsables: ['Mecanico'] },
+        { id: 'b', etiqueta: 'B', responsable: 'Mecanico' }
+      ]
+    }
+    // Solo falla 'b': cuenta 1 punto, aunque 'a' conserve también el campo antiguo.
+    expect(incumplimientosPorResponsable(item, { selected: ['a'] })).toEqual([{ responsable: 'Mecanico', puntos: 1 }])
+  })
+})
+
+describe('responsablesDeOpcion', () => {
+  it('devuelve la lista de responsables sin repetidos ni vacíos', () => {
+    expect(responsablesDeOpcion({ responsables: ['A', ' B ', 'A', ''] })).toEqual(['A', 'B'])
+  })
+  it('usa el campo antiguo cuando no hay lista', () => {
+    expect(responsablesDeOpcion({ responsable: 'Mecanico' })).toEqual(['Mecanico'])
+    expect(responsablesDeOpcion({ responsable: 'Mecanico', responsables: ['Soldador'] })).toEqual(['Soldador', 'Mecanico'])
+    expect(responsablesDeOpcion(null)).toEqual([])
   })
 })
 

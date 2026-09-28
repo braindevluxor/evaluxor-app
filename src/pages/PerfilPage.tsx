@@ -190,7 +190,6 @@ export function PerfilPage() {
         open={configAbierto}
         onClose={() => setConfigAbierto(false)}
         title="Activar verificación en dos pasos"
-        sinCerrarFuera
       >
         {config ? (
           <form onSubmit={confirmarConfig} className="space-y-4">

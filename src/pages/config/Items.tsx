@@ -3,8 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { FolderOpen, GripVertical, Pencil, Plus, Copy, Trash2, X } from 'lucide-react'
 import { useCatalog } from '../../context/CatalogContext'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
-import { listarResponsables, type ResponsableCatalogo } from '../../lib/data/responsables'
-import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem, redondear3, valorPorResponsable } from '../../lib/scoring'
+import { agruparPorDepartamento, listarResponsables, type ResponsableCatalogo } from '../../lib/data/responsables'
+import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem, redondear3, responsablesDeOpcion, valorPorResponsable } from '../../lib/scoring'
 import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
 import { APIS_DISPONIBLES, apiDisponible } from '../../lib/data/apis'
 import type { FiltroColaboradores, Item, Modulo, Opcion, Sucursal, TipoItem } from '../../lib/types'
@@ -306,7 +306,7 @@ export function ItemsPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => { setModal(false); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null) }} title={esCopia ? (origenCopia?.tipo === 'CONTENEDOR' ? 'Copiar sección' : 'Copiar ítem') : editando ? 'Editar ítem' : nuevoPadreId ? 'Nuevo ítem dentro de la sección' : 'Nuevo ítem'} wide sinCerrarFuera>
+      <Modal open={modal} onClose={() => { setModal(false); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null) }} title={esCopia ? (origenCopia?.tipo === 'CONTENEDOR' ? 'Copiar sección' : 'Copiar ítem') : editando ? 'Editar ítem' : nuevoPadreId ? 'Nuevo ítem dentro de la sección' : 'Nuevo ítem'} wide>
         <FormItem
           moduloId={moduloId}
           modulos={modulos}
@@ -420,12 +420,19 @@ function FormItem({
   const [tipo, setTipo] = useState<TipoItem>(inicial?.tipo ?? 'CUMPLE_NO_CUMPLE')
   const [texto, setTexto] = useState(inicial?.texto ?? '')
   const [puntos, setPuntos] = useState<number | ''>(inicial?.puntaje ?? 0)
-  const [opciones, setOpciones] = useState<Opcion[]>(inicial?.opciones?.length ? inicial.opciones : [{ id: 'o1', etiqueta: '' }, { id: 'o2', etiqueta: '' }])
+  const [opciones, setOpciones] = useState<Opcion[]>(
+    inicial?.opciones?.length
+      ? inicial.opciones.map((o) => {
+          // Los checks guardados con un solo responsable pasan a la lista `responsables`.
+          const rs = responsablesDeOpcion(o)
+          return { ...o, responsable: undefined, responsables: rs.length ? rs : undefined }
+        })
+      : [{ id: 'o1', etiqueta: '' }, { id: 'o2', etiqueta: '' }]
+  )
   const [requerido, setRequerido] = useState(inicial?.requerido ?? false)
   const [activo, setActivo] = useState(inicial?.activo ?? true)
   const [filtroColaboradores, setFiltroColaboradores] = useState<FiltroColaboradores>(inicial?.colaboradores_filtro ?? 'ACTIVOS')
   const [responsables, setResponsables] = useState<string[]>(inicial?.responsables?.length ? inicial.responsables : [])
-  const [branchResponsables, setBranchResponsables] = useState('5')
   const [catalogoResponsables, setCatalogoResponsables] = useState<ResponsableCatalogo[]>([])
   const [cargandoResponsables, setCargandoResponsables] = useState(false)
   const [errorResponsables, setErrorResponsables] = useState('')
@@ -475,19 +482,23 @@ function FormItem({
     )
   }, [autoPuntaje, puntos, nOpcionesConTexto])
 
+  // Un solo catálogo con los cargos de TODAS las sucursales (sin repetir cargos):
+  // no importa de qué branch venga cada uno.
+  const branchIds = useMemo(() => ['5', ...sucursales.map((s) => s.branch_id ?? '')], [sucursales])
+
   useEffect(() => {
     if (!conChecklist) return
     let activo = true
     setCargandoResponsables(true)
     setErrorResponsables('')
-    void listarResponsables(branchResponsables).then((r) => {
+    void listarResponsables(branchIds).then((r) => {
       if (!activo) return
       setCatalogoResponsables(r.responsables)
       setErrorResponsables(r.mensaje ?? '')
       setCargandoResponsables(false)
     })
     return () => { activo = false }
-  }, [branchResponsables, conChecklist])
+  }, [branchIds, conChecklist])
 
   return (
     <form
@@ -506,7 +517,12 @@ function FormItem({
             : conChecklist
               ? opciones
                   .filter((o) => o.etiqueta.trim())
-                  .map((o) => (tipo === 'CHECKLIST' ? o : { id: o.id, etiqueta: o.etiqueta, responsable: o.responsable }))
+                  .map((o) => {
+                    const rs = o.responsables?.length ? o.responsables : undefined
+                    return tipo === 'CHECKLIST'
+                      ? { ...o, responsable: undefined, responsables: rs }
+                      : { id: o.id, etiqueta: o.etiqueta, responsables: rs }
+                  })
               : [],
           colaboradores_filtro: !esSeccion && tipo === 'LISTA_COLABORADORES' ? filtroColaboradores : null,
           responsables: !esSeccion && conChecklist ? responsables.filter((r) => r.trim()) : [],
@@ -721,9 +737,6 @@ function FormItem({
         <EditorResponsables
           responsables={responsables}
           onChange={setResponsables}
-          sucursales={sucursales}
-          branchId={branchResponsables}
-          onBranchChange={setBranchResponsables}
           catalogo={catalogoResponsables}
           cargando={cargandoResponsables}
           error={errorResponsables}
@@ -759,8 +772,8 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
     const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, etiqueta } : o))
     onChange(nuevo)
   }
-  const cambiarResponsable = (i: number, responsable: string) => {
-    const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, responsable: responsable.trim() || undefined } : o))
+  const cambiarResponsables = (i: number, rs: string[]) => {
+    const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, responsable: undefined, responsables: rs.length ? rs : undefined } : o))
     onChange(nuevo)
   }
   const cambiarPuntos = (i: number, valor: string) => {
@@ -858,13 +871,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
               </label>
             ) : null}
             {responsables.length && !conRango ? (
-              <label className="flex shrink-0 flex-col gap-1">
-                <span className="px-0.5 text-[11px] font-semibold text-slate-500">Responsable directo</span>
-                <Select value={o.responsable ?? ''} onChange={(e) => cambiarResponsable(i, e.target.value)} className="w-44 shrink-0">
-                  <option value="">(Sin asignar)</option>
-                  {responsables.map((r) => <option key={r} value={r}>{r}</option>)}
-                </Select>
-              </label>
+              <SelectorResponsables opciones={responsables} valor={responsablesDeOpcion(o)} onChange={(rs) => cambiarResponsables(i, rs)} />
             ) : null}
             <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-red-500 hover:bg-red-50" title="Eliminar opción"><Trash2 className="h-5 w-5" /></button>
           </div>
@@ -883,13 +890,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
                 </Select>
               </label>
               {responsables.length ? (
-                <label className="flex shrink-0 flex-col gap-1">
-                  <span className="px-0.5 text-[11px] font-semibold text-slate-500">Responsable directo</span>
-                  <Select value={o.responsable ?? ''} onChange={(e) => cambiarResponsable(i, e.target.value)} className="w-44 shrink-0">
-                    <option value="">(Sin asignar)</option>
-                    {responsables.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </Select>
-                </label>
+                <SelectorResponsables opciones={responsables} valor={responsablesDeOpcion(o)} onChange={(rs) => cambiarResponsables(i, rs)} />
               ) : null}
               {o.tipo_respuesta === 'RANGO' ? (
                 <>
@@ -936,70 +937,71 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
   )
 }
 
-function EditorResponsables({ responsables, onChange, sucursales, branchId, onBranchChange, catalogo, cargando, error }: {
+/** Selector de responsables de un check: acepta más de uno. */
+function SelectorResponsables({ opciones, valor, onChange }: {
+  opciones: string[]
+  valor: string[]
+  onChange: (rs: string[]) => void
+}) {
+  const restantes = opciones.filter((r) => !valor.includes(r))
+  return (
+    <div className="flex shrink-0 flex-col gap-1">
+      <span className="px-0.5 text-[11px] font-semibold text-slate-500">Responsables del check</span>
+      <div className="flex w-56 flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
+        {valor.map((r) => (
+          <span key={r} className="inline-flex items-center gap-0.5 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold text-primary-900">
+            {r}
+            <button type="button" onClick={() => onChange(valor.filter((x) => x !== r))} className="text-primary-400 hover:text-red-500" title={`Quitar ${r}`}>
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        <select
+          value=""
+          onChange={(e) => { if (e.target.value) onChange([...valor, e.target.value]) }}
+          className="min-w-24 flex-1 cursor-pointer rounded-md border-0 bg-transparent py-0.5 text-xs text-slate-500 hover:text-primary-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          aria-label="Agregar responsable al check"
+        >
+          <option value="">{restantes.length ? '+ Agregar' : 'Todos asignados'}</option>
+          {restantes.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+      </div>
+    </div>
+  )
+}
+
+function EditorResponsables({ responsables, onChange, catalogo, cargando, error }: {
   responsables: string[]
   onChange: (r: string[]) => void
-  sucursales: Sucursal[]
-  branchId: string
-  onBranchChange: (id: string) => void
   catalogo: ResponsableCatalogo[]
   cargando: boolean
   error: string
 }) {
-  const [nuevo, setNuevo] = useState('')
-  const [tipo, setTipo] = useState<'CARGO' | 'DEPARTAMENTO'>('CARGO')
+  const [filtro, setFiltro] = useState('')
 
-  const agregar = () => {
-    const r = nuevo.trim()
-    if (!r) return
-    if (responsables.some((x) => x.toLowerCase() === r.toLowerCase())) {
-      setNuevo('')
-      return
-    }
-    onChange([...responsables, r])
-    setNuevo('')
+  const alternar = (r: string) => {
+    onChange(responsables.includes(r) ? responsables.filter((x) => x !== r) : [...responsables, r])
   }
 
-  const departamentos = [...new Set(catalogo.map((r) => r.departamento))]
-  const cargosPorDepartamento = catalogo.filter((r) => r.cargo).reduce<Record<string, ResponsableCatalogo[]>>((grupos, responsable) => {
-    ;(grupos[responsable.departamento] ??= []).push(responsable)
-    return grupos
-  }, {})
+  // Una sola lista organizada por departamentos, con los cargos de todas las sucursales
+  // ya fusionados (sin repetir). El filtro no distingue mayúsculas ni acentos.
+  const grupos = useMemo(() => {
+    const normalizar = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    const busqueda = normalizar(filtro.trim())
+    return agruparPorDepartamento(catalogo)
+      .map((g) => ({
+        departamento: g.departamento,
+        cargos: busqueda ? g.cargos.filter((c) => normalizar(c).includes(busqueda)) : g.cargos
+      }))
+      .filter((g) => g.cargos.length)
+  }, [catalogo, filtro])
 
   return (
-    <Field label="Responsables" hint="Nombres que podrás asignar a cada punto con el selector de la derecha. Los puntos que no se cumplan se acumulan a su responsable.">
+    <Field label="Responsables" hint="Cargos y departamentos de todas las sucursales, sin repetidos. Lo que marques aquí podrás asignarlo a cada check; los checks que no se cumplan suman a cada uno de sus responsables.">
       <div className="space-y-2">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Field label="Sucursal de referencia">
-            <Select value={branchId} onChange={(e) => onBranchChange(e.target.value)}>
-              <option value="5">Oficina central (branch 5)</option>
-              {sucursales.filter((s) => s.branch_id && s.branch_id !== '5').map((s) => (
-                <option key={s.id} value={s.branch_id!}>{s.nombre} (branch {s.branch_id})</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Responsable por">
-            <Select value={tipo} onChange={(e) => { setTipo(e.target.value as 'CARGO' | 'DEPARTAMENTO'); setNuevo('') }}>
-              <option value="CARGO">Cargo</option>
-              <option value="DEPARTAMENTO">Departamento</option>
-            </Select>
-          </Field>
-        </div>
-        <div className="flex items-center gap-2">
-          <Select value={nuevo} onChange={(e) => setNuevo(e.target.value)} className="min-w-0 flex-1" disabled={cargando || !catalogo.length}>
-            <option value="">{cargando ? 'Cargando catálogo…' : `Seleccionar ${tipo === 'CARGO' ? 'cargo' : 'departamento'}`}</option>
-            {tipo === 'DEPARTAMENTO'
-              ? departamentos.map((departamento) => <option key={departamento} value={departamento}>{departamento}</option>)
-              : Object.entries(cargosPorDepartamento).map(([departamento, cargos]) => (
-                  <optgroup key={departamento} label={departamento}>
-                    {cargos.map((r) => <option key={`${r.departamento}-${r.cargo}`} value={r.cargo}>{r.cargo}</option>)}
-                  </optgroup>
-                ))}
-          </Select>
-          <Button type="button" variant="secondary" className="shrink-0" onClick={agregar} disabled={!nuevo.trim()}>Agregar</Button>
-        </div>
+        <Input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="Buscar cargo o departamento…" disabled={cargando} />
         {error ? <p className="text-xs font-medium text-amber-700">{error}</p> : null}
-        {!cargando && !error && !catalogo.length ? <p className="text-xs text-slate-400">No se encontraron cargos o departamentos para este branch.</p> : null}
+        {!cargando && !error && !catalogo.length ? <p className="text-xs text-slate-400">No se encontraron cargos ni departamentos en las sucursales configuradas.</p> : null}
         {responsables.length ? (
           <div className="flex flex-wrap gap-2">
             {responsables.map((r) => (
@@ -1014,6 +1016,40 @@ function EditorResponsables({ responsables, onChange, sucursales, branchId, onBr
         ) : (
           <p className="text-xs text-slate-400">Sin responsables configurados. Los puntos quedarán sin responsable y no se acumularán incumplimientos.</p>
         )}
+        {cargando ? (
+          <p className="text-xs text-slate-400">Consultando el catálogo de cargos de las sucursales…</p>
+        ) : grupos.length ? (
+          <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/60 p-2">
+            {grupos.map((g) => (
+              <div key={g.departamento} className="space-y-1">
+                <p className="px-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  {g.departamento} <span className="font-normal text-slate-400">({g.cargos.length})</span>
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {g.cargos.map((c) => {
+                    const activo = responsables.includes(c)
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => alternar(c)}
+                        aria-pressed={activo}
+                        className={cn(
+                          'rounded-full px-2.5 py-1 text-xs font-semibold transition-colors',
+                          activo ? 'bg-primary text-white' : 'bg-white text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-primary-50 hover:text-primary-800'
+                        )}
+                      >
+                        {c}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filtro ? (
+          <p className="text-xs text-slate-400">Ningún cargo coincide con “{filtro}”.</p>
+        ) : null}
       </div>
     </Field>
   )

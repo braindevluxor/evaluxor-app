@@ -1,6 +1,22 @@
 import { supabase } from '../supabase'
-import type { Evaluacion, Respuesta, Item, Foto, Modulo, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion, InstanciaGrupo, SucursalModulo } from '../types'
-import { proporcionItem, puntajePonderado, conSeccionesPonderadas, incumplimientosPorResponsable, type AcumuladoResponsable, type BinarioConPuntaje } from '../scoring'
+import type { Evaluacion, Respuesta, Item, Foto, Modulo, Opcion, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion, InstanciaGrupo, SucursalModulo } from '../types'
+import {
+  proporcionItem,
+  puntajePonderado,
+  conSeccionesPonderadas,
+  incumplimientosPorResponsable,
+  opcionCumplida,
+  colaboradorCumple,
+  unidadCumple,
+  pesoItem,
+  redondear3,
+  type AcumuladoResponsable,
+  type BinarioConPuntaje,
+  type ValorChecklist,
+  type ValorConciliacion,
+  type ValorListaColaboradores,
+  type ValorUnidadChecklist
+} from '../scoring'
 
 export interface FiltrosIndicadores {
   sucursal_ids: string[] | null
@@ -72,6 +88,22 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
   }
 }
 
+/**
+ * Ítems que componen un módulo dentro de una lista completa: los respondedidos más sus
+ * contenedores (grupos CONTENEDOR que no generan respuestas). Incluir los contenedores es
+ * necesario para conservar instancias (p. ej. placas de vehículos), cuyo item_id apunta al
+ * contenedor y no a ítems individuales, al filtrar por módulo.
+ */
+export function itemsDelModulo(todosItems: Item[], moduloId: string): Item[] {
+  const ids = new Set<string>()
+  for (const i of todosItems) {
+    if (i.modulo_id !== moduloId) continue
+    ids.add(i.id)
+    if (i.padre_id) ids.add(i.padre_id)
+  }
+  return todosItems.filter((i) => ids.has(i.id))
+}
+
 export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<ConjuntoDatos> {
   let query = supabase
     .from('evaluaciones')
@@ -114,20 +146,24 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
   const todosItems = (itemsResp ?? []) as Item[]
   const todosModulos = (mods.data ?? []) as Modulo[]
   const respuestas = (resp.data ?? []) as Respuesta[]
-  let items = todosItems.filter((i) => respuestas.some((r) => r.item_id === i.id))
+  // Ítems respondidos del rango (para el caso sin filtro de módulo; con módulo se usa itemsDelModulo).
+  const items = todosItems.filter((i) => respuestas.some((r) => r.item_id === i.id))
 
   if (f.modulo_id) {
-    const idsItemsModulo = items.filter((i) => i.modulo_id === f.modulo_id).map((i) => i.id)
-    items = items.filter((i) => idsItemsModulo.includes(i.id))
-    const respModulo = respuestas.filter((r) => idsItemsModulo.includes(r.item_id))
+    // El módulo se compone de ítems respondidos + sus contenedores (grupos sin respuestas).
+    // Incluir los contenedores es necesario para conservar instancias (p. ej. placas de vehículos),
+    // cuyo item_id apunta al contenedor y no a ítems individuales.
+    const itemsModulo = itemsDelModulo(todosItems, f.modulo_id)
+    const idsItemsModulo = new Set(itemsModulo.map((i) => i.id))
+    const respModulo = respuestas.filter((r) => idsItemsModulo.has(r.item_id))
     return {
       evaluaciones,
       respuestas: respModulo,
-      items,
+      items: itemsModulo,
       modulos: todosModulos.filter((m) => m.id === f.modulo_id),
-      fotos: ((fot.data ?? []) as Foto[]).filter((f2) => idsItemsModulo.includes(f2.item_id)),
+      fotos: ((fot.data ?? []) as Foto[]).filter((f2) => idsItemsModulo.has(f2.item_id)),
       sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[],
-      instancias: ((instancias.data ?? []) as InstanciaGrupo[]).filter((ins) => idsItemsModulo.includes(ins.item_id))
+      instancias: ((instancias.data ?? []) as InstanciaGrupo[]).filter((ins) => idsItemsModulo.has(ins.item_id))
     }
   }
 
@@ -253,6 +289,47 @@ function puntajeModuloEnEvaluacion(
  * el módulo. Si el módulo no tiene sucursales configuradas, se usan las
  * sucursales con datos del módulo en el rango, para evitar relojes en blanco.
  */
+/**
+ * Sucursales evaluadas del módulo: solo cuentan las sucursales que tienen el
+ * módulo habilitado (`sucursal_modulos.activa`; sin filas activas para la
+ * sucursal aplican todos los módulos) Y cuya evaluación en el rango tiene
+ * respuestas de ítems de ese módulo. Sin respuestas del módulo no cuenta.
+ */
+export function sucursalesConModuloEvaluado(
+  datos: ConjuntoDatos,
+  moduloId: string,
+  sucursalModulos: SucursalModulo[]
+): number {
+  // Módulos activos por sucursal según la configuración.
+  const activosPorSucursal = new Map<string, Set<string>>()
+  for (const sm of sucursalModulos) {
+    if (!sm.activa) continue
+    const arr = activosPorSucursal.get(sm.sucursal_id) ?? new Set<string>()
+    arr.add(sm.modulo_id)
+    activosPorSucursal.set(sm.sucursal_id, arr)
+  }
+  const habilitado = (sucursalId: string): boolean => {
+    const ids = activosPorSucursal.get(sucursalId)
+    // Sin filas activas para esa sucursal => aplican TODOS los módulos.
+    if (ids === undefined || ids.size === 0) return true
+    return ids.has(moduloId)
+  }
+  // Evaluaciones que tienen al menos una respuesta de ítems del módulo.
+  const idsItemsModulo = new Set(datos.items.filter((i) => i.modulo_id === moduloId).map((i) => i.id))
+  const conRespuestas = new Set<string>()
+  for (const r of datos.respuestas) {
+    if (!idsItemsModulo.has(r.item_id)) continue
+    conRespuestas.add(r.evaluacion_id)
+  }
+  const resultado = new Set<string>()
+  for (const e of datos.evaluaciones) {
+    if (!conRespuestas.has(e.id)) continue
+    if (!habilitado(e.sucursal_id)) continue
+    resultado.add(e.sucursal_id)
+  }
+  return resultado.size
+}
+
 export function medidoresPorModulo(
   datos: ConjuntoDatos,
   modulos: { id: string; nombre: string }[],
@@ -330,6 +407,329 @@ export function medidoresPorModulo(
       sinDatos
     }
   })
+}
+
+export interface ResumenOpcionChecklist {
+  id: string
+  etiqueta: string
+  tipo_respuesta: 'CHECK' | 'RANGO' | null
+  minimo: number | null
+  unidad: string | null
+  /** Nº de muestras puntuables en las que la opción estuvo presente (esperada). */
+  veces: number
+  /** De esas veces, en cuántas quedó cumplida. */
+  cumplida: number
+}
+
+export interface ResumenConciliacion {
+  /** Productos escaneados puntuables (con teórica > 0 y física ingresada). */
+  total: number
+  /** Productos donde la cantidad física coincide con la teórica. */
+  conciliados: number
+  /** % de productos sin coincidir (tasa de descuadre agregada). null si no hay productos. */
+  tasaDescuadre: number | null
+}
+
+export interface ResumenItemModulo {
+  item: Item
+  /** Peso del ítem en el módulo (0 si no tiene peso configurado). */
+  peso: number
+  /** Nº total de respuestas guardadas para el ítem en el rango. */
+  respondidas: number
+  /** Nº de respuestas puntuables (entran al puntaje). */
+  muestras: number
+  /** Suma de proporciones (0..1 por muestra). Para binarios = nº de muestras que cumplen. */
+  ok: number
+  /** Proporción promedio 0..1 (ok / muestras). null si no hay muestras. */
+  promedio: number | null
+  /** Solo LISTA_COLABORADORES: total de colaboradores evaluados (que aplican) y cuántos cumplen. */
+  colaboradores?: { total: number; ok: number }
+  /** Solo UNIDAD_CHECKLIST: total de unidades evaluadas y cuántas cumplen. */
+  unidades?: { total: number; ok: number }
+  /** Solo CONCILIACION: desglose de productos escaneados y conciliados. */
+  conciliacion?: ResumenConciliacion
+  /** Solo CHECKLIST: cumplimiento por opción a lo largo de las muestras. */
+  opciones?: ResumenOpcionChecklist[]
+}
+
+interface AcumuladoOpcion {
+  id: string
+  etiqueta: string
+  tipo_respuesta: 'CHECK' | 'RANGO' | null
+  minimo: number | null
+  unidad: string | null
+  veces: number
+  cumplida: number
+}
+
+interface AcumuladoItem {
+  respondidas: number
+  muestras: number
+  ok: number
+  colabTotal: number
+  colabOk: number
+  unidTotal: number
+  unidOk: number
+  concTotal: number
+  concOk: number
+  opciones: Map<string, AcumuladoOpcion>
+}
+
+function nuevoAcumulado(): AcumuladoItem {
+  return {
+    respondidas: 0,
+    muestras: 0,
+    ok: 0,
+    colabTotal: 0,
+    colabOk: 0,
+    unidTotal: 0,
+    unidOk: 0,
+    concTotal: 0,
+    concOk: 0,
+    opciones: new Map()
+  }
+}
+
+/**
+ * Resume por ítem el desempeño de un módulo en el rango: para cada ítem del
+ * módulo (secciones CONTENEDOR excluidas) computa el nº de muestras puntuables,
+ * el cumplimiento promedio y un desglose según el tipo de ítem (opciones de
+ * checklist, productos de conciliación, colaboradores o unidades) para elegir
+ * el gráfico más idóneo. `catalogoItems` aporta la estructura del módulo
+ * (aunque no haya respuestas en el rango) y por defecto usa los ítems de `datos`.
+ */
+export function resumenItemsModulo(
+  datos: ConjuntoDatos,
+  moduloId: string,
+  catalogoItems: Item[] = datos.items
+): ResumenItemModulo[] {
+  const sucursalDeEval = new Map<string, string>()
+  for (const e of datos.evaluaciones) sucursalDeEval.set(e.id, e.sucursal_id)
+
+  const acum = new Map<string, AcumuladoItem>()
+  const itemDe = new Map<string, Item>()
+  for (const i of datos.items) itemDe.set(i.id, i)
+
+  for (const r of datos.respuestas) {
+    const item = itemDe.get(r.item_id)
+    if (!item || item.modulo_id !== moduloId) continue
+    const sucursalId = sucursalDeEval.get(r.evaluacion_id)
+    const it = sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item
+    const p = proporcionItem(it, r.valor)
+
+    let a = acum.get(item.id)
+    if (!a) {
+      a = nuevoAcumulado()
+      acum.set(item.id, a)
+    }
+    a.respondidas++
+
+    if (it.tipo === 'CHECKLIST') {
+      const v = r.valor as ValorChecklist | null
+      const informativos = v?.informativos ?? []
+      const relevantes = ((it.opciones ?? []) as Opcion[]).filter((o) => !informativos.includes(o.id))
+      // Las opciones solo se cuentan dentro de muestras puntuables (mismo umbral que el scoring).
+      if (p === null) continue
+      a.muestras++
+      a.ok += p
+      for (const o of relevantes) {
+        const eo = a.opciones.get(o.id) ?? {
+          id: o.id,
+          etiqueta: o.etiqueta,
+          tipo_respuesta: o.tipo_respuesta ?? null,
+          minimo: (o.minimo ?? null) as number | null,
+          unidad: (o.unidad ?? null) as string | null,
+          veces: 0,
+          cumplida: 0
+        }
+        eo.veces++
+        if (opcionCumplida(o, v, o.id)) eo.cumplida++
+        a.opciones.set(o.id, eo)
+      }
+      continue
+    }
+
+    if (it.tipo === 'LISTA_COLABORADORES') {
+      const v = r.valor as ValorListaColaboradores | null
+      const aplican = (v?.colaboradores ?? []).filter((c) => c.aplica)
+      const opts = (it.opciones ?? []) as { id: string }[]
+      if (!opts.length || !aplican.length || p === null) continue
+      a.muestras++
+      a.ok += p
+      for (const c of aplican) {
+        a.colabTotal++
+        if (colaboradorCumple(c, opts)) a.colabOk++
+      }
+      continue
+    }
+
+    if (it.tipo === 'UNIDAD_CHECKLIST') {
+      const v = r.valor as ValorUnidadChecklist | null
+      const unidades = v?.unidades ?? []
+      const opts = (it.opciones ?? []) as { id: string }[]
+      if (!opts.length || !unidades.length || p === null) continue
+      a.muestras++
+      a.ok += p
+      for (const u of unidades) {
+        a.unidTotal++
+        if (unidadCumple(u, opts)) a.unidOk++
+      }
+      continue
+    }
+
+    if (it.tipo === 'CONCILIACION') {
+      const v = r.valor as ValorConciliacion | null
+      const validos = (v?.productos ?? []).filter(
+        (pro) => typeof pro.teorica === 'number' && typeof pro.fisica === 'number' && pro.teorica > 0
+      )
+      if (!validos.length) continue
+      a.muestras++
+      a.ok += p ?? 0
+      for (const pro of validos) {
+        a.concTotal++
+        if (pro.fisica === pro.teorica) a.concOk++
+      }
+      continue
+    }
+
+    if (p === null) continue
+    a.muestras++
+    a.ok += p
+  }
+
+  const ordenDeOpcion = (item: Item, id: string): number => {
+    const idx = ((item.opciones ?? []) as { id: string }[]).findIndex((o) => o.id === id)
+    return idx === -1 ? 99 : idx
+  }
+
+  const baseDeCatalogo = catalogoItems.length ? catalogoItems : datos.items
+  return baseDeCatalogo
+    .filter((i) => i.modulo_id === moduloId && i.activo && i.tipo !== 'CONTENEDOR')
+    .sort((x, y) => x.orden - y.orden)
+    .map((item) => {
+      const a = acum.get(item.id) ?? nuevoAcumulado()
+      const promedio = a.muestras ? redondear3(a.ok / a.muestras) : null
+      const base: ResumenItemModulo = {
+        item,
+        peso: pesoItem(item),
+        respondidas: a.respondidas,
+        muestras: a.muestras,
+        ok: redondear3(a.ok),
+        promedio
+      }
+      if (item.tipo === 'LISTA_COLABORADORES') {
+        base.colaboradores = { total: a.colabTotal, ok: a.colabOk }
+      } else if (item.tipo === 'UNIDAD_CHECKLIST') {
+        base.unidades = { total: a.unidTotal, ok: a.unidOk }
+      } else if (item.tipo === 'CONCILIACION') {
+        base.conciliacion = {
+          total: a.concTotal,
+          conciliados: a.concOk,
+          tasaDescuadre: a.concTotal ? Math.round(((a.concTotal - a.concOk) / a.concTotal) * 10000) / 100 : null
+        }
+      } else if (item.tipo === 'CHECKLIST') {
+        base.opciones = Array.from(a.opciones.values()).sort(
+          (x, y) => ordenDeOpcion(item, x.id) - ordenDeOpcion(item, y.id)
+        )
+      }
+      return base
+    })
+}
+
+export interface BarraModulo {
+  /** Id de sucursal o placa (etiqueta de la instancia). */
+  clave: string
+  /** Nombre para mostrar (sucursal o placa). */
+  etiqueta: string
+  /** Puntaje ponderado (0-100) agrupando las respuestas del rango. null si no hay datos. */
+  puntaje: number | null
+  /** Evaluaciones del rango que aportan datos al grupo. */
+  muestras: number
+}
+
+/**
+ * Barras para el gráfico general del módulo: promedio ponderado por sucursal,
+ * o por placa en el caso de módulos de vehículos (secciones con api 'vehiculos',
+ * donde la unidad de análisis es cada placa/instancia en lugar de la sucursal).
+ */
+export function barrasModulo(
+  datos: ConjuntoDatos,
+  moduloId: string,
+  sucursalesVisibles: { id: string; nombre: string }[],
+  porPlaca: boolean
+): { grupo: 'sucursal' | 'placa'; barras: BarraModulo[] } {
+  const sucursalDeEval = new Map<string, string>()
+  for (const e of datos.evaluaciones) sucursalDeEval.set(e.id, e.sucursal_id)
+  const itemDe = new Map<string, Item>()
+  for (const i of datos.items) itemDe.set(i.id, i)
+  const acum = (clave: string) =>
+    agrupado.get(clave) ?? { binarios: [] as { item: Item; cumple: number }[], evals: new Set<string>() }
+
+  const agrupado = new Map<string, { binarios: { item: Item; cumple: number }[]; evals: Set<string> }>()
+
+  if (!porPlaca) {
+    // Promedio por sucursal: agrupa todas las respuestas del módulo en el rango.
+    for (const r of datos.respuestas) {
+      const item = itemDe.get(r.item_id)
+      if (!item || item.modulo_id !== moduloId) continue
+      const suc = sucursalDeEval.get(r.evaluacion_id)
+      if (!suc) continue
+      const bin = proporcionItem(aplicarOpcionesSucursal(item, suc, datos.sucursalOpciones), r.valor)
+      if (bin === null) continue
+      const e = acum(suc)
+      e.binarios.push({ item, cumple: bin })
+      e.evals.add(r.evaluacion_id)
+      agrupado.set(suc, e)
+    }
+    const barras = sucursalesVisibles.map((s) => {
+      const e = agrupado.get(s.id)
+      return {
+        clave: s.id,
+        etiqueta: s.nombre,
+        puntaje: e?.binarios.length ? puntajePonderado(conSeccionesPonderadas(datos.items, e.binarios)) : null,
+        muestras: e?.evals.size ?? 0
+      }
+    })
+    return { grupo: 'sucursal', barras: ordenarBarras(barras) }
+  }
+
+  // Promedio por placa: agrupa por etiqueta de instancia (placa) dentro del rango.
+  const etiquetaDeInstancia = new Map<string, string>()
+  for (const i of datos.instancias) etiquetaDeInstancia.set(i.id, i.etiqueta)
+
+  for (const r of datos.respuestas) {
+    const item = itemDe.get(r.item_id)
+    if (!item || item.modulo_id !== moduloId || !r.instancia_id) continue
+    const placa = etiquetaDeInstancia.get(r.instancia_id)
+    if (!placa) continue
+    const suc = sucursalDeEval.get(r.evaluacion_id)
+    const bin = proporcionItem(suc ? aplicarOpcionesSucursal(item, suc, datos.sucursalOpciones) : item, r.valor)
+    if (bin === null) continue
+    const e = acum(placa)
+    e.binarios.push({ item, cumple: bin })
+    e.evals.add(r.evaluacion_id)
+    agrupado.set(placa, e)
+  }
+  // Incluye placas registradas aunque no tengan respuestas (barra sin datos).
+  for (const i of datos.instancias) {
+    const padre = itemDe.get(i.item_id)
+    if (!padre || padre.modulo_id !== moduloId) continue
+    if (!agrupado.has(i.etiqueta)) agrupado.set(i.etiqueta, { binarios: [], evals: new Set<string>() })
+  }
+
+  const barras = Array.from(agrupado.entries()).map(([placa, e]) => ({
+    clave: placa,
+    etiqueta: placa,
+    puntaje: e.binarios.length ? puntajePonderado(conSeccionesPonderadas(datos.items, e.binarios)) : null,
+    muestras: e.evals.size
+  }))
+  return { grupo: 'placa', barras: ordenarBarras(barras) }
+}
+
+function ordenarBarras(barras: BarraModulo[]): BarraModulo[] {
+  return [...barras].sort(
+    (a, b) => (b.puntaje ?? -1) - (a.puntaje ?? -1) || a.etiqueta.localeCompare(b.etiqueta, 'es')
+  )
 }
 
 export interface FilaSucursalModulo {

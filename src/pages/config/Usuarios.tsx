@@ -57,11 +57,14 @@ export function UsuariosPage() {
     const m = new Map<string, { id: string; nombre: string }>()
     for (const k of asignados) {
       const [eid, mid] = k.split('|')
+      const mod = modulos.find((x) => x.id === mid)
+      // En módulos compartidos cualquiera puede estar asignado (no hay "dueño" único).
+      if (mod?.compartido) continue
       const ev = usuarios.find((x) => x.id === eid)
       if (!m.has(mid)) m.set(mid, { id: eid, nombre: ev?.nombre || ev?.email || 'Otro evaluador' })
     }
     return m
-  }, [asignados, usuarios])
+  }, [asignados, usuarios, modulos])
 
   const cargarModulos = useCallback(async () => {
     setCargandoMod(true)
@@ -273,14 +276,14 @@ export function UsuariosPage() {
               const key = `${asignando.id}|${m.id}`
               const activo = asignados.has(key)
               const dueno = duenos.get(m.id)
-              const ajeno = dueno !== undefined && dueno.id !== asignando.id
+              const ajeno = !m.compartido && dueno !== undefined && dueno.id !== asignando.id
               return (
                 <button
                   key={m.id}
                   type="button"
                   disabled={guardandoMod === key || ajeno}
                   onClick={() => void toggleModulo(m.id)}
-                  title={ajeno ? `Asignado a ${dueno.nombre}` : undefined}
+                  title={ajeno ? `Asignado a ${dueno.nombre}` : m.compartido ? 'Módulo compartido: puede tener varios evaluadores' : undefined}
                   className={cn(
                     'truncate rounded-full border-2 px-3 py-2.5 text-center text-xs font-semibold transition-colors disabled:opacity-50',
                     activo
@@ -292,7 +295,7 @@ export function UsuariosPage() {
                 >
                   {m.nombre}
                   <span className="mt-0.5 block text-[10px] opacity-70">
-                    {activo ? 'Asignado' : ajeno ? `Otra persona · ${dueno.nombre}` : 'Sin asignar'}
+                    {activo ? 'Asignado' : ajeno ? `Otra persona · ${dueno.nombre}` : m.compartido ? 'Compartido · Sin asignar' : 'Sin asignar'}
                   </span>
                 </button>
               )
@@ -302,8 +305,8 @@ export function UsuariosPage() {
           <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-400">No hay módulos creados.</p>
         )}
         <p className="mt-4 rounded-xl bg-primary-50 px-3 py-2 text-[11px] leading-relaxed text-primary-700">
-          Regla de negocio: un módulo solo puede estar asignado a un evaluador a la vez. Si un módulo muestra «Otra persona · X», ya está en uso por ese evaluador.
-        </p>
+            Los módulos etiquetados «Compartido» pueden tener varios evaluadores asignados a la vez y ven el avance del otro en vivo. En los módulos no compartidos, un módulo solo puede estar asignado a un evaluador a la vez; si muestra «Otra persona · X», ya está en uso por ese evaluador.
+          </p>
       </Modal>
     </div>
   )
