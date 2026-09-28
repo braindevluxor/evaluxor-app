@@ -23,7 +23,7 @@ export function RegisterPage() {
       <AuthShell>
         <div className="text-center">
           <MarcaAuth titulo="Acceso solo por invitación" subtitulo="EvaLuxor" />
-          <p className="-mt-6 text-sm leading-relaxed text-primary-200/90">
+          <p className="-mt-6 text-sm leading-relaxed text-slate-500">
             Las cuentas las crea el Líder enviando una invitación. Pídele tu enlace de registro para continuar.
           </p>
           <Button className={`mt-8 ${botonAuth}`} onClick={() => navigate('/login')}>
@@ -93,17 +93,17 @@ export function RegisterPage() {
           />
         </Field>
         {error ? (
-          <p className="rounded-xl border border-red-400/30 bg-red-500/15 px-3 py-2 text-sm font-medium text-red-200">{error}</p>
+          <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</p>
         ) : null}
         {okMsg ? (
-          <p className="rounded-xl border border-green-400/30 bg-green-500/15 px-3 py-2 text-sm font-medium text-green-200">{okMsg}</p>
+          <p className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700">{okMsg}</p>
         ) : null}
         <Button type="submit" disabled={enviando} className={botonAuth}>
           {enviando ? 'Creando…' : 'Crear cuenta'}
         </Button>
-        <p className="pt-1 text-center text-sm text-primary-200/80">
+        <p className="pt-1 text-center text-sm text-slate-500">
           ¿Ya tienes cuenta?{' '}
-          <Link to="/login" className="font-semibold text-white underline-offset-4 hover:underline">
+          <Link to="/login" className="font-semibold text-primary underline-offset-4 hover:underline hover:text-primary-700">
             Ingresar
           </Link>
         </p>

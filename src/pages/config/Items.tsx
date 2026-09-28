@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { FolderOpen, GripVertical, Pencil, Plus, Copy, Trash2, X } from 'lucide-react'
+import { FolderOpen, GripVertical, Pencil, Plus, Copy, Trash2, X, Check } from 'lucide-react'
 import { useCatalog } from '../../context/CatalogContext'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
 import { agruparPorDepartamento, listarResponsables, type ResponsableCatalogo } from '../../lib/data/responsables'
@@ -1015,31 +1015,39 @@ function EditorResponsables({ responsables, onChange, catalogo, cargando, error 
   cargando: boolean
   error: string
 }) {
-  const [filtro, setFiltro] = useState('')
+  const [texto, setTexto] = useState('')
+  const [abierto, setAbierto] = useState(false)
 
-  const alternar = (r: string) => {
-    onChange(responsables.includes(r) ? responsables.filter((x) => x !== r) : [...responsables, r])
+  const normalizar = useCallback((s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(), [])
+
+  /** Cargos únicos de todas las sucursales con su departamento, filtrados mientras se escribe. */
+  const sugerencias = useMemo(() => {
+    const busqueda = normalizar(texto.trim())
+    const vistos = new Set<string>()
+    const lista: { cargo: string; departamento: string }[] = []
+    for (const g of agruparPorDepartamento(catalogo)) {
+      for (const c of g.cargos) {
+        if (vistos.has(c)) continue
+        vistos.add(c)
+        if (!busqueda || normalizar(c).includes(busqueda) || normalizar(g.departamento).includes(busqueda)) {
+          lista.push({ cargo: c, departamento: g.departamento })
+        }
+      }
+    }
+    return lista
+  }, [catalogo, texto, normalizar])
+
+  const agregar = (r: string) => {
+    if (!r.trim() || responsables.includes(r)) return
+    onChange([...responsables, r])
+    setTexto('')
+    setAbierto(true)
   }
-
-  // Una sola lista organizada por departamentos, con los cargos de todas las sucursales
-  // ya fusionados (sin repetir). El filtro no distingue mayúsculas ni acentos.
-  const grupos = useMemo(() => {
-    const normalizar = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-    const busqueda = normalizar(filtro.trim())
-    return agruparPorDepartamento(catalogo)
-      .map((g) => ({
-        departamento: g.departamento,
-        cargos: busqueda ? g.cargos.filter((c) => normalizar(c).includes(busqueda)) : g.cargos
-      }))
-      .filter((g) => g.cargos.length)
-  }, [catalogo, filtro])
 
   return (
     <Field label="Responsables" hint="Cargos y departamentos de todas las sucursales, sin repetidos. El peso del ítem se reparte en partes iguales entre los responsables; en ítems con opciones podrás asignarlos también punto por punto.">
       <div className="space-y-2">
-        <Input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="Buscar cargo o departamento…" disabled={cargando} />
         {error ? <p className="text-xs font-medium text-amber-700">{error}</p> : null}
-        {!cargando && !error && !catalogo.length ? <p className="text-xs text-slate-400">No se encontraron cargos ni departamentos en las sucursales configuradas.</p> : null}
         {responsables.length ? (
           <div className="flex flex-wrap gap-2">
             {responsables.map((r) => (
@@ -1054,40 +1062,63 @@ function EditorResponsables({ responsables, onChange, catalogo, cargando, error 
         ) : (
           <p className="text-xs text-slate-400">Sin responsables configurados. Los puntos quedarán sin responsable y no se acumularán incumplimientos.</p>
         )}
-        {cargando ? (
-          <p className="text-xs text-slate-400">Consultando el catálogo de cargos de las sucursales…</p>
-        ) : grupos.length ? (
-          <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/60 p-2">
-            {grupos.map((g) => (
-              <div key={g.departamento} className="space-y-1">
-                <p className="px-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  {g.departamento} <span className="font-normal text-slate-400">({g.cargos.length})</span>
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {g.cargos.map((c) => {
-                    const activo = responsables.includes(c)
-                    return (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => alternar(c)}
-                        aria-pressed={activo}
-                        className={cn(
-                          'rounded-full px-2.5 py-1 text-xs font-semibold transition-colors',
-                          activo ? 'bg-primary text-white' : 'bg-white text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-primary-50 hover:text-primary-800'
-                        )}
-                      >
-                        {c}
-                      </button>
-                    )
-                  })}
-                </div>
+        <div className="relative">
+          <Input
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            onFocus={() => setAbierto(true)}
+            onBlur={() => setTimeout(() => setAbierto(false), 120)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                if (sugerencias.length) agregar(sugerencias[0].cargo)
+              } else if (e.key === 'Escape') {
+                setTexto('')
+                setAbierto(false)
+              }
+            }}
+            placeholder={cargando ? 'Consultando catálogo…' : 'Escribe para buscar un cargo…'}
+            disabled={cargando}
+            aria-expanded={abierto}
+            aria-label="Buscar cargo o departamento"
+          />
+          {abierto && !cargando ? (
+            sugerencias.length ? (
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                {sugerencias.map((s) => {
+                  const activo = responsables.includes(s.cargo)
+                  return (
+                    <button
+                      key={s.cargo}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => agregar(s.cargo)}
+                      aria-pressed={activo}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors',
+                        activo ? 'bg-primary-50 text-primary-700' : 'text-slate-700 hover:bg-slate-50'
+                      )}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold">{s.cargo}{activo ? ' · ya asignado' : ''}</span>
+                        <span className="block truncate text-[11px] font-normal text-slate-400">{s.departamento}</span>
+                      </span>
+                      {activo ? <Check className="h-4 w-4 shrink-0 text-primary-600" /> : null}
+                    </button>
+                  )
+                })}
               </div>
-            ))}
-          </div>
-        ) : filtro ? (
-          <p className="text-xs text-slate-400">Ningún cargo coincide con “{filtro}”.</p>
-        ) : null}
+            ) : catalogo.length ? (
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-400 shadow-lg">
+                Ningún cargo coincide con “{texto}”.
+              </div>
+            ) : (
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-400 shadow-lg">
+                No se encontraron cargos ni departamentos en las sucursales configuradas.
+              </div>
+            )
+          ) : null}
+        </div>
       </div>
     </Field>
   )

@@ -6,10 +6,13 @@ import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import {
   consultarEvaluaciones,
+  detalleDeEvaluacion,
   medidoresPorModulo,
   sucursalesConModuloEvaluado,
   resumenItemsModulo,
   barrasModulo,
+  renglonesDrilldown,
+  type AlcanceDrilldown,
   type BarraModulo,
   type ConjuntoDatos,
   type ResumenItemModulo
@@ -17,10 +20,12 @@ import {
 import { Card, EmptyState, Field, Input, Select, Skeleton } from '../../components/ui'
 import { GraficoItem } from '../../components/dashboard/GraficoItem'
 import { MedidorModulo } from '../../components/dashboard/MedidorModulo'
+import { ModalDrilldown, DetalleEvalCabecera, DetalleRespuestasLista } from '../../components/dashboard/ModalDrilldown'
 import { etiquetaTipo, pesoItem } from '../../lib/scoring'
 import { setKpisGlobal, type EstadoKpis } from '../../lib/kpisGlobal'
 import { cn } from '../../components/ui'
-import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, ReferenceLine, LabelList } from 'recharts'
+import { num, pct as pctComa } from '../../lib/numeros'
 import type { Item } from '../../lib/types'
 
 function haceMeses(n: number): string {
@@ -45,6 +50,8 @@ function colorDePuntaje(p: number | null): string {
   if (p == null) return '#cbd5e1'
   return p >= 80 ? '#16a34a' : p >= 60 ? '#d97706' : '#dc2626'
 }
+
+const COLORES_BARRA = ['#16a34a', '#d97706', '#dc2626', '#cbd5e1']
 
 export function ModuloDashboard() {
   const { moduloId = '' } = useParams()
@@ -131,6 +138,54 @@ export function ModuloDashboard() {
     () => (datos ? barrasModulo(datos, moduloId, sucursalesVisibles, porPlaca) : null),
     [datos, moduloId, sucursalesVisibles, porPlaca]
   )
+
+  // Drilldown (modal): alcance clickeado y sus evaluaciones filtradas.
+  const [drill, setDrill] = useState<{ titulo: string; subtitulo?: string; alcance: AlcanceDrilldown } | null>(null)
+  const drillFilas = useMemo(
+    () => (datos && drill ? renglonesDrilldown(datos, drill.alcance) : []),
+    [datos, drill]
+  )
+  const detalleDe = (id: string) => {
+    const r = drillFilas.find((x) => x.id === id)
+    const etiquetaScope = drill?.alcance.item_id ? 'Nivel del ítem' : drill?.alcance.modulo_id ? 'Módulo' : undefined
+    return (
+      <div className="space-y-3">
+        {r ? (
+          <DetalleEvalCabecera
+            fecha={r.fecha}
+            sucursal={r.sucursal}
+            estado={r.estado}
+            puntaje={r.puntaje}
+            puntajeScope={r.puntajeScope}
+            etiquetaScope={etiquetaScope}
+            muestras={r.muestras}
+          />
+        ) : null}
+        <DetalleRespuestasLista filas={datos ? detalleDeEvaluacion(datos, id, drill?.alcance ?? {}) : []} />
+      </div>
+    )
+  }
+
+  const abrirBarra = (data: unknown) => {
+    const d = data as { payload?: Record<string, unknown> } | null | undefined
+    const clave = d?.payload?.clave
+    const etiqueta = d?.payload?.etiqueta
+    if (typeof clave !== 'string' || !barras) return
+    const nombre = typeof etiqueta === 'string' ? etiqueta : clave
+    if (barras.grupo === 'placa') {
+      setDrill({
+        titulo: nombre,
+        subtitulo: 'Evaluaciones del rango con respuestas de esta placa',
+        alcance: { modulo_id: moduloId, instancia_etiqueta: clave }
+      })
+    } else {
+      setDrill({
+        titulo: nombre,
+        subtitulo: 'Evaluaciones de esta sucursal con respuestas del módulo, en el rango',
+        alcance: { modulo_id: moduloId, sucursal_id: clave }
+      })
+    }
+  }
 
   const totalMuestras = resumen.reduce((a, r) => a + r.muestras, 0)
   // Sucursales evaluadas: solo cuentan las que tienen el módulo habilitado y cuya
@@ -243,22 +298,42 @@ export function ModuloDashboard() {
           <Skeleton className="h-80 w-full" />
         ) : barras && barras.barras.length ? (
           <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={barras.barras} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+            <BarChart data={barras.barras.map((b) => ({ ...b, puntajeTexto: b.puntaje == null ? null : num(b.puntaje) }))} margin={{ top: 26, right: 16, bottom: 8, left: 8 }}>
+              <defs>
+                {COLORES_BARRA.map((c) => (
+                  <linearGradient key={c} id={`grad-bar-${c.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={c} stopOpacity={0.95} />
+                    <stop offset="100%" stopColor={c} stopOpacity={0.55} />
+                  </linearGradient>
+                ))}
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
               <XAxis dataKey="etiqueta" interval={0} angle={-38} textAnchor="end" height={90} tick={{ fontSize: 11, fill: '#475569' }} />
               <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+              <ReferenceLine y={80} stroke="#16a34a" strokeDasharray="4 4" strokeOpacity={0.4} />
+              <ReferenceLine y={60} stroke="#d97706" strokeDasharray="4 4" strokeOpacity={0.4} />
               <Tooltip
-                formatter={(v) => [v == null ? '—' : `${v}%`, 'Puntaje']}
+                formatter={(v) => [v == null ? '—' : pctComa(Number(v)), 'Puntaje']}
                 labelFormatter={(etiqueta) => {
                   const b = (barras.barras as BarraModulo[]).find((x) => x.etiqueta === etiqueta)
                   return `${etiqueta}${b && b.muestras ? ` · ${b.muestras} ${b.muestras === 1 ? 'evaluación' : 'evaluaciones'}` : ''}`
                 }}
                 contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
+                cursor={{ fill: 'rgba(40,49,95,0.06)' }}
               />
-              <Bar dataKey="puntaje" name="Puntaje" radius={[6, 6, 0, 0]} maxBarSize={64}>
+              <Bar
+                dataKey="puntaje"
+                name="Puntaje"
+                radius={[6, 6, 0, 0]}
+                maxBarSize={64}
+                background={{ fill: '#f1f5f9', radius: 6 }}
+                onClick={abrirBarra}
+                activeBar={{ fillOpacity: 0.7 }}
+              >
                 {barras.barras.map((b) => (
-                  <Cell key={b.clave} fill={colorDePuntaje(b.puntaje)} />
+                  <Cell key={b.clave} fill={`url(#grad-bar-${colorDePuntaje(b.puntaje).replace('#', '')})`} />
                 ))}
+                <LabelList dataKey="puntajeTexto" position="top" fill="#334155" fontSize={11} fontWeight={700} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -281,13 +356,24 @@ export function ModuloDashboard() {
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               {sueltos.map((item) => {
                 const r = resumenDe.get(item.id)
-                return r ? <TarjetaItem key={item.id} resumen={r} /> : <TarjetaItemSinDatos key={item.id} item={item} />
+                return r
+                  ? <TarjetaItem
+                      key={item.id}
+                      resumen={r}
+                      onClick={() => setDrill({ titulo: item.texto, subtitulo: 'Evaluaciones del rango donde este ítem fue respondido', alcance: { modulo_id: moduloId, item_id: item.id } })}
+                    />
+                  : <TarjetaItemSinDatos key={item.id} item={item} />
               })}
             </div>
           ) : null}
 
           {contenedores.map((c) => (
-            <Seccion key={c.id} contenedor={c} resumenes={hijosDe(c.id).map((h) => resumenDe.get(h.id)).filter((x): x is ResumenItemModulo => !!x)} />
+            <Seccion
+              key={c.id}
+              contenedor={c}
+              resumenes={hijosDe(c.id).map((h) => resumenDe.get(h.id)).filter((x): x is ResumenItemModulo => !!x)}
+              onAbrirItem={(item) => setDrill({ titulo: item.texto, subtitulo: 'Evaluaciones del rango donde este ítem fue respondido', alcance: { modulo_id: moduloId, item_id: item.id } })}
+            />
           ))}
         </>
       ) : (
@@ -296,14 +382,29 @@ export function ModuloDashboard() {
           subtitle="Este módulo no tiene ítems configurados, o fueron desactivados. Configúralo en la sección de ítems."
         />
       )}
+
+      <ModalDrilldown
+        open={drill != null}
+        onCerrar={() => setDrill(null)}
+        titulo={drill?.titulo ?? 'Detalle'}
+        subtitulo={drill?.subtitulo}
+        filas={drillFilas}
+        renderDetalle={detalleDe}
+        urlDe={(id) => `/evaluaciones/${id}`}
+      />
     </div>
   )
 }
 
-function TarjetaItem({ resumen }: { resumen: ResumenItemModulo }) {
+function TarjetaItem({ resumen, onClick }: { resumen: ResumenItemModulo; onClick: () => void }) {
   const r = resumen
   return (
-    <div className="flex flex-col rounded-xl border border-slate-200 bg-white p-4">
+    <button
+      type="button"
+      onClick={onClick}
+      title="Ver las evaluaciones donde este ítem fue respondido"
+      className="flex flex-col rounded-xl border border-slate-200 bg-white p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-md"
+    >
       <div className="mb-2 flex items-start justify-between gap-3">
         <p className="min-w-0 flex-1 text-sm font-semibold leading-snug text-slate-800">{r.item.texto}</p>
         <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', COLOR_TIPO[r.item.tipo] ?? 'bg-slate-100 text-slate-600')}>
@@ -314,11 +415,12 @@ function TarjetaItem({ resumen }: { resumen: ResumenItemModulo }) {
         <span>Peso {r.peso > 0 ? `${r.peso}%` : 'sin peso'}</span>
         <span>{r.respondidas} respuestas</span>
         {r.muestras ? <span>{r.muestras} puntuables</span> : null}
+        <span className="font-semibold text-primary-600">Ver detalle →</span>
       </div>
       <div className="mt-auto">
         <GraficoItem resumen={r} />
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -338,7 +440,11 @@ function TarjetaItemSinDatos({ item }: { item: Item }) {
   )
 }
 
-function Seccion({ contenedor, resumenes }: { contenedor: Item; resumenes: ResumenItemModulo[] }) {
+function Seccion({ contenedor, resumenes, onAbrirItem }: {
+  contenedor: Item
+  resumenes: ResumenItemModulo[]
+  onAbrirItem: (item: Item) => void
+}) {
   return (
     <Card className="border-0!">
       <div className="mb-3 flex items-center gap-2.5">
@@ -354,7 +460,7 @@ function Seccion({ contenedor, resumenes }: { contenedor: Item; resumenes: Resum
       </div>
       {resumenes.length ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {resumenes.map((r) => <TarjetaItem key={r.item.id} resumen={r} />)}
+          {resumenes.map((r) => <TarjetaItem key={r.item.id} resumen={r} onClick={() => onAbrirItem(r.item)} />)}
         </div>
       ) : (
         <p className="text-sm text-slate-400">La sección no tiene ítems activos en este módulo.</p>

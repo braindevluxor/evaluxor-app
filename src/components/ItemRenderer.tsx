@@ -1054,11 +1054,26 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
     const completas = unidadCumple(unica, opts)
     const toggleCheck = (opcionId: string) => {
       const sel = marcadas.includes(opcionId) ? marcadas.filter((x) => x !== opcionId) : [...marcadas, opcionId]
-      actualizar([{ codigo: 'Única', selected: sel }])
+      actualizar([{ ...unica, selected: sel }])
     }
+    const setCodigoUnica = (codigo: string) => {
+      actualizar([{ ...unica, codigo }])
+    }
+    const codigoVisible = unica.codigo && unica.codigo !== 'Única' ? unica.codigo : ''
     return (
       <div className="space-y-3">
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Checklist (una sola carga)</p>
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-slate-500">Identificador (ej. Nº de serie)</p>
+          <Input
+            placeholder="Ej. serial de la impresora fiscal"
+            value={codigoVisible}
+            onChange={(e) => setCodigoUnica(e.target.value)}
+          />
+          <p className="mt-1.5 text-[10px] text-slate-400">
+            Identifica a qué elemento corresponde este checklist (impresora fiscal, caja registradora, etc.).
+          </p>
+        </div>
         {!opts.length ? (
           <p className="text-xs font-medium text-amber-600">Este ítem no tiene checklist definido. El Líder debe configurarlo desde Ítems de evaluación.</p>
         ) : (
@@ -1126,6 +1141,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
         )}
         {marcadas.length ? (
           <p className="text-sm text-slate-600">
+            {codigoVisible ? <span className="font-semibold text-slate-700">{codigoVisible} · </span> : null}
             {marcadas.length}/{opts.length} requerimientos · {completas ? 'Cumple' : 'Incompleto'}
           </p>
         ) : null}

@@ -54,11 +54,11 @@ export function LoginPage() {
 
       {enTotp ? (
         <form onSubmit={onSubmitTotp} className="space-y-5">
-          <div className="flex items-center gap-2 text-white">
-            <ShieldCheck className="h-5 w-5 text-primary-200" />
+          <div className="flex items-center gap-2 text-primary-900">
+            <ShieldCheck className="h-5 w-5 text-primary" />
             <p className="text-sm font-semibold">Verificación en dos pasos</p>
           </div>
-          <p className="text-sm leading-relaxed text-primary-200/90">
+          <p className="text-sm leading-relaxed text-slate-500">
             Ingresa el código de 6 dígitos de tu app de autenticación.
           </p>
           <Field label="Código" labelClassName={labelAuth}>
@@ -76,7 +76,7 @@ export function LoginPage() {
             />
           </Field>
           {error ? (
-            <p className="rounded-xl border border-red-400/30 bg-red-500/15 px-3 py-2 text-sm font-medium text-red-200">{error}</p>
+            <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</p>
           ) : null}
           <Button type="submit" disabled={enviando} className={botonAuth}>
             {enviando ? 'Verificando…' : 'Ingresar'}
@@ -111,24 +111,24 @@ export function LoginPage() {
                 onClick={() => setVer((v) => !v)}
                 aria-label={ver ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                 aria-pressed={ver}
-                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
               >
                 {ver ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
             </div>
           </Field>
           {error ? (
-            <p className="rounded-xl border border-red-400/30 bg-red-500/15 px-3 py-2 text-sm font-medium text-red-200">{error}</p>
+            <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</p>
           ) : null}
           <div className="flex items-center justify-between gap-2">
-            <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-primary-200">
+            <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-slate-600">
               <input
                 type="checkbox"
                 checked={recordar}
                 onChange={(e) => setRecordar(e.target.checked)}
                 className="peer sr-only"
               />
-              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md border border-white/25 bg-white/10 transition-colors peer-checked:border-primary-300 peer-checked:bg-primary-400 peer-focus-visible:ring-2 peer-focus-visible:ring-white/25">
+              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md border border-slate-300 bg-white transition-colors peer-checked:border-primary peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary/20">
                 {recordar ? <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} /> : null}
               </span>
               Recordarme
@@ -137,7 +137,7 @@ export function LoginPage() {
           <Button type="submit" disabled={enviando} className={botonAuth}>
             {enviando ? 'Ingresando…' : 'Ingresar'}
           </Button>
-          <p className="pt-1 text-center text-xs text-primary-200/70">
+          <p className="pt-1 text-center text-xs text-slate-400">
             ¿No tienes cuenta? Solo se accede por invitación del Líder.
           </p>
         </form>

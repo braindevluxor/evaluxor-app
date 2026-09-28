@@ -2,55 +2,55 @@ import type { ReactNode } from 'react'
 import { ShoppingCart } from 'lucide-react'
 
 /**
- * Fondo decorativo y marco de las pantallas de acceso (login / registro).
- * Diseño "sin contenedores": el formulario flota directo sobre un gradiente
- * con orbes difuminados y una trama de puntos; no hay tarjeta.
+ * Fondo y marco de las pantallas de acceso (login / registro), con el mismo
+ * lenguaje visual del sistema: fondo slate claro, halos suaves del color
+ * primario y tarjeta blanca redondeada como las de toda la app.
  */
 export function AuthShell({ children }: { children: ReactNode }) {
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-primary-900 px-4 py-10">
-      {/* Gradiente de base */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary-900 via-primary-800 to-primary-600" />
-      {/* Orbes difuminados */}
-      <div aria-hidden className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-primary-300/20 blur-3xl" />
-      <div aria-hidden className="pointer-events-none absolute -bottom-44 -right-24 h-[30rem] w-[30rem] rounded-full bg-primary-500/25 blur-3xl" />
-      <div aria-hidden className="pointer-events-none absolute left-1/3 top-0 h-64 w-64 rounded-full bg-primary-400/15 blur-3xl" />
-      {/* Trama de puntos desvanecida desde el centro */}
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-100 px-4 py-10">
+      {/* Halos suaves del color primario del sistema */}
+      <div aria-hidden className="pointer-events-none absolute -left-28 -top-28 h-96 w-96 rounded-full bg-primary-100/70 blur-3xl" />
+      <div aria-hidden className="pointer-events-none absolute -bottom-36 -right-28 h-[28rem] w-[28rem] rounded-full bg-primary-200/50 blur-3xl" />
+      <div aria-hidden className="pointer-events-none absolute left-1/2 top-1/3 h-72 w-72 -translate-x-1/2 rounded-full bg-primary-50 blur-3xl" />
+      {/* Trama de puntos sutil, atenuada hacia los bordes */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0"
+        className="pointer-events-none absolute inset-0 opacity-60"
         style={{
-          backgroundImage: 'radial-gradient(circle, rgb(255 255 255 / 0.08) 1px, transparent 1px)',
+          backgroundImage: 'radial-gradient(circle, rgb(15 23 42 / 0.045) 1px, transparent 1px)',
           backgroundSize: '26px 26px',
-          maskImage: 'radial-gradient(ellipse at center, black 15%, transparent 72%)',
-          WebkitMaskImage: 'radial-gradient(ellipse at center, black 15%, transparent 72%)'
+          maskImage: 'radial-gradient(ellipse at center, black 10%, transparent 75%)',
+          WebkitMaskImage: 'radial-gradient(ellipse at center, black 10%, transparent 75%)'
         }}
       />
-      <div className="relative z-10 w-full max-w-sm">{children}</div>
+      <div className="relative z-10 w-full max-w-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">{children}</div>
+      </div>
     </div>
   )
 }
 
-/** Input tipo glass: caja translúcida con difuminado, redondeada y sin tarjeta. */
-export const inputAuth =
-  'rounded-xl border border-white/20! bg-white/10! px-3.5 py-2.5! text-white! placeholder:text-white/40! backdrop-blur transition-colors focus:border-white/60! focus:bg-white/15! focus:ring-white/25!'
+/** Inputs: heredan el estilo base de `Input` del sistema (blanco, borde slate, foco primario). */
+export const inputAuth = ''
 
-/** Botón principal de acceso: píldora blanca sobre fondo oscuro. */
-export const botonAuth = 'w-full bg-white! text-primary-900! hover:bg-white/90! shadow-lg shadow-primary-900/40'
+/** Botón principal: misma píldora primaria que el resto de la app, a lo ancho. */
+export const botonAuth = 'w-full'
 
-export const labelAuth = 'text-white/70!'
-export const hintAuth = 'text-white/45!'
+/** Etiquetas y ayuda: usan los estilos por defecto del sistema (slate). */
+export const labelAuth = ''
+export const hintAuth = ''
 
-/** Marca (logo sin contenedor + título + subtítulo) centrada. */
+/** Marca (logo + título + subtítulo) centrada, en el azul primario del sistema. */
 export function MarcaAuth({ titulo, subtitulo }: { titulo: string; subtitulo: string }) {
   return (
-    <div className="mb-10 text-center">
-      <div className="relative mx-auto mb-5 h-16 w-16">
-        <div aria-hidden className="absolute inset-0 -z-10 rounded-full bg-primary-300/30 blur-2xl" />
-        <ShoppingCart className="h-16 w-16 text-white drop-shadow-lg" strokeWidth={1.3} />
+    <div className="mb-8 text-center">
+      <div className="relative mx-auto mb-4 h-14 w-14">
+        <div aria-hidden className="absolute inset-0 -z-10 rounded-2xl bg-primary-50 ring-1 ring-primary-100" />
+        <ShoppingCart className="h-14 w-14 p-2 text-primary" strokeWidth={1.6} />
       </div>
-      <h1 className="text-3xl font-extrabold tracking-tight text-white">{titulo}</h1>
-      <p className="mt-1.5 text-sm font-medium text-primary-200">{subtitulo}</p>
+      <h1 className="text-2xl font-extrabold tracking-tight text-primary-900">{titulo}</h1>
+      <p className="mt-1 text-sm font-medium text-slate-500">{subtitulo}</p>
     </div>
   )
 }

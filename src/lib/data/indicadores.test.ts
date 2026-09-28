@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Item, Modulo, Opcion, Respuesta, Sucursal, SucursalModulo, VistaEvaluacion } from '../types'
-import { medidoresPorModulo, puntajePorSucursalModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, type ConjuntoDatos } from './indicadores'
+import { medidoresPorModulo, puntajePorSucursalModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, type ConjuntoDatos } from './indicadores'
 
 const sucursales: Sucursal[] = [
   { id: 's1', nombre: 'Sucursal Norte', shop_id: null, branch_id: null, direccion: null, gerente_id: null, activa: true, created_at: '' },
@@ -598,5 +598,121 @@ describe('itemsDelModulo', () => {
     const r = itemsDelModulo(todos, MOD_BARRA)
 
     expect(r.map((i) => i.id)).toEqual(['icont', 'ih1', 'ih2'])
+  })
+})
+
+describe('renglonesDrilldown', () => {
+  const evs = [
+    mkEvaluacion('d1', 's1', '2026-09-05', 90),
+    mkEvaluacion('d2', 's2', '2026-08-20', 40)
+  ]
+
+  it('filtra por sucursal y muestra el nombre unido', () => {
+    const datos = {
+      evaluaciones: evs,
+      respuestas: [],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const filas = renglonesDrilldown(datos, { sucursal_id: 's1' })
+    expect(filas.map((f) => f.id)).toEqual(['d1'])
+    expect(filas[0].sucursal).toBe('S')
+  })
+
+  it('con soloNoCumple incluye solo las evaluaciones donde el ítem no llegó al 100%', () => {
+    const datos = {
+      evaluaciones: evs,
+      respuestas: [respuesta('d1', 'i1', true), respuesta('d2', 'i1', false)],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const filas = renglonesDrilldown(datos, { item_id: 'i1', soloNoCumple: true })
+    expect(filas.map((f) => f.id)).toEqual(['d2'])
+    expect(filas[0].puntajeScope).toBe(0)
+  })
+
+  it('filtra por mes (clave YYYY-MM) y respeta el puntaje global', () => {
+    const datos = {
+      evaluaciones: evs,
+      respuestas: [],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const filas = renglonesDrilldown(datos, { mes: '2026-09' })
+    expect(filas.map((f) => f.id)).toEqual(['d1'])
+    expect(filas[0].puntaje).toBe(90)
+  })
+
+  it('cuenta muestras puntuables del alcance y calcula el puntaje del módulo', () => {
+    const datos = {
+      evaluaciones: evs,
+      respuestas: [respuesta('d1', 'i1', true), respuesta('d1', 'i2', false), respuesta('d2', 'i1', false)],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const filas = renglonesDrilldown(datos, { modulo_id: 'm1' })
+    // d1: solo i1 responde al módulo m1 → 1 muestra, cumple 100
+    const d1 = filas.find((f) => f.id === 'd1')
+    expect(d1?.muestras).toBe(1)
+    expect(d1?.puntajeScope).toBe(100)
+    // d2: i1 (false) → 1 muestra, 0%
+    const d2 = filas.find((f) => f.id === 'd2')
+    expect(d2?.muestras).toBe(1)
+    expect(d2?.puntajeScope).toBe(0)
+  })
+})
+
+describe('detalleDeEvaluacion', () => {
+  it('resume el valor y el estado de cada respuesta puntuable, ordenado por módulo e ítem', () => {
+    const datos = {
+      evaluaciones,
+      respuestas: [respuesta('ev1', 'i1', true), respuesta('ev1', 'i2', false)],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const detalle = detalleDeEvaluacion(datos, 'ev1')
+    expect(detalle).toHaveLength(2)
+    expect(detalle[0].item_id).toBe('i1')
+    expect(detalle[0].cumple).toBe(true)
+    expect(detalle[0].resumen).toBe('Cumple')
+    expect(detalle[0].modulo).toBe('Módulo 1')
+    expect(detalle[0].peso).toBe(100)
+    expect(detalle[1].cumple).toBe(false)
+    expect(detalle[1].resumen).toBe('No cumple')
+  })
+
+  it('acota el detalle al ítem clickeado', () => {
+    const datos = {
+      evaluaciones,
+      respuestas: [respuesta('ev1', 'i1', true), respuesta('ev1', 'i3', true)],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const detalle = detalleDeEvaluacion(datos, 'ev1', { item_id: 'i1' })
+    expect(detalle.map((d) => d.item_id)).toEqual(['i1'])
   })
 })
