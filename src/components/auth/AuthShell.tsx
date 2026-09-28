@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import { ShoppingCart } from 'lucide-react'
 
 /**
  * Fondo y marco de las pantallas de acceso (login / registro):
@@ -23,14 +22,11 @@ export const botonAuth = 'w-full'
 export const labelAuth = ''
 export const hintAuth = ''
 
-/** Marca (logo + título + subtítulo) centrada, en el azul primario del sistema. */
+/** Marca (logo + título + subtítulo) centrada, con el logo real de la app. */
 export function MarcaAuth({ titulo, subtitulo }: { titulo: string; subtitulo: string }) {
   return (
     <div className="mb-8 text-center">
-      <div className="relative mx-auto mb-4 h-14 w-14">
-        <div aria-hidden className="absolute inset-0 -z-10 rounded-2xl bg-primary-50 ring-1 ring-primary-100" />
-        <ShoppingCart className="h-14 w-14 p-2 text-primary" strokeWidth={1.6} />
-      </div>
+      <img src="/logo.webp" alt={titulo} className="mx-auto mb-4 h-20 w-20 object-contain" />
       <h1 className="text-2xl font-extrabold tracking-tight text-primary-900">{titulo}</h1>
       <p className="mt-1 text-sm font-medium text-slate-500">{subtitulo}</p>
     </div>
