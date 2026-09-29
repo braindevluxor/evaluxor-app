@@ -763,6 +763,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
   const [info, setInfo] = useState('')
   const [abiertoDni, setAbiertoDni] = useState<number | null>(null)
   const [busqueda, setBusqueda] = useState('')
+  const [confirmarLimpiar, setConfirmarLimpiar] = useState(false)
 
   const v = (valor as ValorListaColaboradores | null) ?? { colaboradores: [] }
   const colaboradores = v.colaboradores ?? []
@@ -789,6 +790,13 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
   const idTrabajadores = branchId ?? shopId
 
   const actualizar = (cols: ColaboradorItem[]) => onChange({ ...v, colaboradores: cols })
+  const limpiar = () => {
+    setConfirmarLimpiar(false)
+    setBusqueda('')
+    setAbiertoDni(null)
+    setInfo('')
+    actualizar([])
+  }
   const toggleAbierto = (dni: number) => {
     setAbiertoDni((prev) => (prev === dni ? null : dni))
   }
@@ -876,6 +884,17 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
             {colaboradores.length ? <RefreshCw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
             {cargando ? 'Cargando…' : colaboradores.length ? 'Actualizar listado' : 'Cargar colaboradores'}
           </Button>
+          {colaboradores.length ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="shrink-0 min-h-0 px-3 py-2 text-red-600 hover:bg-red-50 hover:text-red-700"
+              onClick={() => setConfirmarLimpiar(true)}
+            >
+              <Trash2 className="h-4 w-4" />
+              Limpiar lista
+            </Button>
+          ) : null}
         </div>
         {cargando ? (
           <p className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Spinner /> Consultando colaboradores…</p>
@@ -999,6 +1018,13 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
       ) : (
         <p className="text-sm text-slate-400">Aún no hay colaboradores cargados. Pulsa “Cargar colaboradores” para traerlos de la tienda.</p>
       )}
+      <Confirmar
+        open={confirmarLimpiar}
+        texto="¿Querés vaciar la lista de colaboradores? Se quitarán todos y se descartan los avances del checklist. Después podés volver a cargarla desde la tienda con «Cargar colaboradores»."
+        textoConfirmar="Vaciar lista"
+        onConfirm={limpiar}
+        onCancel={() => setConfirmarLimpiar(false)}
+      />
     </div>
   )
 }

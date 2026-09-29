@@ -168,3 +168,37 @@ describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
     expect(html).toContain('Teórica (precio)')
   })
 })
+
+function itemColaboradores(): Item {
+  return {
+    id: 'it-5',
+    modulo_id: 'm1',
+    tipo: 'LISTA_COLABORADORES',
+    texto: 'Checklist por colaborador',
+    opciones: [{ id: 'o1', etiqueta: 'Contrato vigente' }],
+    orden: 0,
+    requerido: true,
+    activo: true,
+    puntaje: 10,
+    created_at: ''
+  }
+}
+
+describe('ItemRenderer · limpiar lista de colaboradores', () => {
+  it('ofrece el botón «Limpiar lista» cuando hay colaboradores cargados', () => {
+    const valor = {
+      colaboradores: [
+        { dni: 1, nationality: 'V-', name: 'Ana', lastname: 'Gómez', role_id: 1, role_name: 'Cajera', branch_id: 1, branch_name: '', admission_date: null, active: true, aplica: true, selected: ['o1'] }
+      ]
+    }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemColaboradores()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Limpiar lista')
+    expect(html).toContain('Colaboradores de la tienda')
+  })
+
+  it('sin colaboradores carga­dos solo muestra «Cargar colaboradores», sin botón de limpiar', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={itemColaboradores()} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Cargar colaboradores')
+    expect(html).not.toContain('Limpiar lista')
+  })
+})
