@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, FolderOpen, List, Plus, Search, Tag, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, FolderOpen, List, Plus, RefreshCw, Search, Tag, Trash2, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
@@ -28,7 +28,7 @@ export function EvaluarSucursal() {
   const { sucursalId = '' } = useParams()
   const navigate = useNavigate()
   const { profile } = useAuth()
-  const { online } = useOffline()
+  const { online, pendientes, sync: syncCola } = useOffline()
   const { modulosActivos, itemsDe } = useModulosActivos(sucursalId)
   const { sucursales } = useCatalog()
   const sucursal = sucursales.find((s) => s.id === sucursalId)
@@ -71,12 +71,23 @@ export function EvaluarSucursal() {
   const [scanAbierto, setScanAbierto] = useState(false)
   const [confirmarBorrar, setConfirmarBorrar] = useState<string | null>(null)
   const [evaluacionId, setEvaluacionId] = useState<string | null>(null)
+  // Botón de sincronización: subida de lo pendiente + bajada de los datos frescos.
+  const [sincronizando, setSincronizando] = useState(false)
+  const [avisoSync, setAvisoSync] = useState<{ texto: string; ok: boolean } | null>(null)
   const etiquetaInputRef = useRef<HTMLInputElement | null>(null)
 
   const guardadoRef = useRef<Map<string, number>>(new Map())
   const evaluacionIdRef = useRef<string | null>(null)
   const draftRef = useRef<DraftEval | null>(null)
   const nubeTimer = useRef<number | null>(null)
+  // Marca que la página sigue montada: las fusiones con la nube no tocan el estado si ya no lo están.
+  const vivoRef = useRef(false)
+
+  useEffect(() => {
+    if (!avisoSync) return
+    const t = window.setTimeout(() => setAvisoSync(null), 6000)
+    return () => window.clearTimeout(t)
+  }, [avisoSync])
 
   function agendarNube() {
     if (nubeTimer.current) window.clearTimeout(nubeTimer.current)
@@ -109,6 +120,7 @@ export function EvaluarSucursal() {
     }
     window.addEventListener('beforeunload', flush)
     return () => {
+      vivoRef.current = false
       flush()
       window.removeEventListener('beforeunload', flush)
       if (nubeTimer.current) window.clearTimeout(nubeTimer.current)
@@ -211,61 +223,65 @@ export function EvaluarSucursal() {
   // la misma evaluación, se fusionan aquí marcadas `por: 'otros'` para que ambos
   // vean el avance del otro y no hagan el mismo trabajo. Solo se visualizan:
   // `respuestasConInstancia` las excluye al sincronizar/envíar. Instancias nuevas
-  // se suman (add-only) y se actualizan vía realtime + un barrido de respaldo.
+  // se suman (add-only) y se actualizan vía realtime, un barrido de respaldo o
+  // el botón de sincronización.
+  const sincronizar = useCallback(async (): Promise<boolean> => {
+    if (!vivoRef.current) return false
+    const evId = evaluacionIdRef.current
+    const miId = profile?.id
+    if (!evId || !miId) return false
+    if (!draftRef.current) return false
+    try {
+      const [enNube, instanciasNube] = await Promise.all([
+        listarRespuestasEvaluacion(evId).catch(() => []),
+        listarInstanciasEvaluacion(evId).catch(() => [])
+      ])
+      if (!vivoRef.current) return false
+      const actual2 = draftRef.current
+      if (!actual2) return false
+      const respuestas: DraftEval['respuestas'] = { ...actual2.respuestas }
+      let cambio = false
+      for (const r of enNube) {
+        if (r.respondido_por === miId) continue
+        // Solo módulos compartido participan de la colaboración en vivo.
+        if (!itemsCompartidos.has(r.item_id)) continue
+        const key = claveRespuesta(r.item_id, r.instancia_id)
+        if (!respuestas[key]) {
+          respuestas[key] = { valor: r.valor, por: 'otros' }
+          cambio = true
+        }
+      }
+      const instancias: Record<string, DraftInstancia[]> = structuredClone(actual2.instancias ?? {})
+      for (const ins of instanciasNube) {
+        if (!itemsCompartidos.has(ins.item_id)) continue
+        const ya = (instancias[ins.item_id] ?? []).some((i) => i.id === ins.id)
+        if (!ya) {
+          ;(instancias[ins.item_id] ??= []).push({
+            id: ins.id,
+            etiqueta: ins.etiqueta,
+            orden: ins.orden,
+            api_id: ins.api_id ?? undefined,
+            datos: (ins.datos as Record<string, unknown> | null | undefined) ?? undefined
+          })
+          cambio = true
+        }
+      }
+      if (!cambio) return false
+      const nuevo: DraftEval = { ...actual2, respuestas, instancias, updated_at: Date.now() }
+      draftRef.current = nuevo
+      setDraft(nuevo)
+      void putDraft(nuevo).catch(() => undefined)
+      return true
+    } catch {
+      // Sin conexión en este instante; el siguiente evento o barrido reintenta.
+      return false
+    }
+  }, [profile?.id, itemsCompartidos])
+
   useEffect(() => {
+    vivoRef.current = true
     const miId = profile?.id
     if (!online || !miId || !evaluacionId) return
-    let vivo = true
-
-    const sincronizar = async () => {
-      if (!vivo) return
-      const base = draftRef.current
-      if (!base) return
-      try {
-        const [enNube, instanciasNube] = await Promise.all([
-          listarRespuestasEvaluacion(evaluacionId).catch(() => []),
-          listarInstanciasEvaluacion(evaluacionId).catch(() => [])
-        ])
-        if (!vivo) return
-        const actual2 = draftRef.current
-        if (!actual2) return
-        const respuestas: DraftEval['respuestas'] = { ...actual2.respuestas }
-        let cambio = false
-        for (const r of enNube) {
-          if (r.respondido_por === miId) continue
-          // Solo módulos compartido participan de la colaboración en vivo.
-          if (!itemsCompartidos.has(r.item_id)) continue
-          const key = claveRespuesta(r.item_id, r.instancia_id)
-          if (!respuestas[key]) {
-            respuestas[key] = { valor: r.valor, por: 'otros' }
-            cambio = true
-          }
-        }
-        const instancias: Record<string, DraftInstancia[]> = structuredClone(actual2.instancias ?? {})
-        for (const ins of instanciasNube) {
-          if (!itemsCompartidos.has(ins.item_id)) continue
-          const ya = (instancias[ins.item_id] ?? []).some((i) => i.id === ins.id)
-          if (!ya) {
-            ;(instancias[ins.item_id] ??= []).push({
-              id: ins.id,
-              etiqueta: ins.etiqueta,
-              orden: ins.orden,
-              api_id: ins.api_id ?? undefined,
-              datos: (ins.datos as Record<string, unknown> | null | undefined) ?? undefined
-            })
-            cambio = true
-          }
-        }
-        if (!cambio) return
-        const nuevo: DraftEval = { ...actual2, respuestas, instancias, updated_at: Date.now() }
-        draftRef.current = nuevo
-        setDraft(nuevo)
-        void putDraft(nuevo).catch(() => undefined)
-      } catch {
-        // Sin conexión en este instante; el siguiente evento o barrido reintenta.
-      }
-    }
-
     const channel = supabase
       .channel(`ev-vivo-${evaluacionId}:${miId}`)
       .on(
@@ -282,11 +298,54 @@ export function EvaluarSucursal() {
     const iv = window.setInterval(() => void sincronizar(), 15000)
     void sincronizar()
     return () => {
-      vivo = false
+      vivoRef.current = false
       void supabase.removeChannel(channel)
       window.clearInterval(iv)
     }
-  }, [evaluacionId, online, profile?.id, itemsCompartidos])
+  }, [evaluacionId, online, profile?.id, sincronizar])
+
+  /**
+   * Sincronización a pedido: sube lo que quedó pendiente en el dispositivo (la cola
+   * offline y el borrador en la nube) y después trae las respuestas/instancias más
+   * recientes del servidor. El resultado se avisa en un cartel arriba de todo.
+   */
+  const sincronizarAhora = async () => {
+    if (sincronizando) return
+    if (!online) {
+      setAvisoSync({ texto: 'Sin conexión: se sincronizará al recuperar la señal.', ok: false })
+      return
+    }
+    setSincronizando(true)
+    try {
+      // Se cancela el autoguardado diferido: acá se manda una sola vez.
+      if (nubeTimer.current) {
+        window.clearTimeout(nubeTimer.current)
+        nubeTimer.current = null
+      }
+      let fallidos = 0
+      if (pendientes > 0) fallidos = (await syncCola()).fail
+      const d = draftRef.current
+      const evId = evaluacionIdRef.current
+      let guardado = false
+      if (d && evId) {
+        const respuestas = respuestasConInstancia(d)
+        const instancias = instanciasDeDraft(d)
+        if (respuestas.length || instancias.length) {
+          await guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
+          guardado = true
+        }
+      }
+      const huboNovedad = await sincronizar()
+      if (fallidos) setAvisoSync({ texto: `Tu avance se guardó, pero ${fallidos} evaluación(es) no se pudieron subir.`, ok: false })
+      else if (huboNovedad) setAvisoSync({ texto: 'Listo: tu avance quedó guardado y se actualizaron los datos del otro evaluador.', ok: true })
+      else if (guardado) setAvisoSync({ texto: 'Listo: tu avance quedó guardado en la nube.', ok: true })
+      else setAvisoSync({ texto: 'Listo: no había nada nuevo para sincronizar.', ok: true })
+    } catch {
+      setAvisoSync({ texto: 'No se pudo sincronizar. Revisá la conexión.', ok: false })
+    } finally {
+      setSincronizando(false)
+    }
+  }
 
   useEffect(() => {
     if (!modulos.length) return
@@ -574,13 +633,47 @@ export function EvaluarSucursal() {
     </button>
   )
 
+  const botonSync = (
+    <button
+      type="button"
+      onClick={() => void sincronizarAhora()}
+      disabled={sincronizando}
+      title="Sincronizar: sube lo pendiente y recarga los datos"
+      aria-label="Sincronizar evaluación"
+      className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-60"
+    >
+      <RefreshCw className={cn('h-4 w-4', sincronizando && 'animate-spin')} />
+      {pendientes > 0 && !sincronizando ? (
+        <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-amber-300 px-1 text-[10px] font-black text-amber-950">
+          {pendientes}
+        </span>
+      ) : null}
+    </button>
+  )
+
   return (
     <MobileLayout
       titulo="Evaluación"
       subtitulo={`Módulo ${idxModulo + 1} de ${modulos.length} · ${new Date(`${actual.fecha}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })}`}
-      extra={burbuja}
+      extra={
+        <>
+          {botonSync}
+          {burbuja}
+        </>
+      }
     >
       <div className="space-y-4">
+        {avisoSync ? (
+          <div
+            className={cn(
+              'flex items-start gap-2 rounded-xl border px-3 py-2 text-xs font-semibold',
+              avisoSync.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-800'
+            )}
+          >
+            {avisoSync.ok ? <Check className="mt-px h-4 w-4 shrink-0" /> : <X className="mt-px h-4 w-4 shrink-0" />}
+            <span className="min-w-0 flex-1">{avisoSync.texto}</span>
+          </div>
+        ) : null}
         {registro && seccion && hijoActual ? (
           <div>
             <div className="mb-3 flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2">

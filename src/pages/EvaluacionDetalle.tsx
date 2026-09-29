@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, Fragment } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, FileDown, FolderOpen, Tag } from 'lucide-react'
+import { ArrowLeft, Check, FileDown, FolderOpen, RefreshCw, Tag, X } from 'lucide-react'
+import { useOffline } from '../context/OfflineContext'
 import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { descargarPdf } from '../lib/pdf'
 import { supabase } from '../lib/supabase'
@@ -229,12 +230,48 @@ export function EvaluacionDetalle() {
   const [detalle, setDetalle] = useState<DetalleEvaluacion | null>(null)
   const [estado, setEstado] = useState<'cargando' | 'error' | 'ok'>('cargando')
   const [descargando, setDescargando] = useState(false)
+  const [sincronizando, setSincronizando] = useState(false)
+  const [aviso, setAviso] = useState<{ texto: string; ok: boolean } | null>(null)
   const [error, setError] = useState('')
+  const { online, pendientes, sync } = useOffline()
 
   const recargar = useCallback(async () => {
     const d = await obtenerEvaluacion(evaluacionId)
     if (d) setDetalle(d)
   }, [evaluacionId])
+
+  useEffect(() => {
+    if (!aviso) return
+    const t = window.setTimeout(() => setAviso(null), 6000)
+    return () => window.clearTimeout(t)
+  }, [aviso])
+
+  // Sincronización manual: sube lo que quedó pendiente en el dispositivo (el
+  // Líder también puede haber respondido algo) y vuelve a traer la evaluación
+  // del servidor. La vista en vivo ya refresca sola cada 15 s; esto es para
+  // hacerlo en el momento.
+  const sincronizar = useCallback(async () => {
+    if (sincronizando) return
+    if (!online) {
+      setAviso({ texto: 'Sin conexión: no se puede sincronizar ahora.', ok: false })
+      return
+    }
+    setSincronizando(true)
+    try {
+      let mensaje: { texto: string; ok: boolean } = { texto: 'Datos actualizados.', ok: true }
+      if (pendientes > 0) {
+        const r = await sync()
+        if (r.fail) mensaje = { texto: `Se subieron ${r.ok}, pero ${r.fail} no se pudieron guardar.`, ok: false }
+        else if (r.ok) mensaje = { texto: `Se guardaron ${r.ok} evaluación(es) pendiente(s) y se actualizaron los datos.`, ok: true }
+      }
+      await recargar()
+      setAviso(mensaje)
+    } catch {
+      setAviso({ texto: 'No se pudo sincronizar. Revisá la conexión.', ok: false })
+    } finally {
+      setSincronizando(false)
+    }
+  }, [online, pendientes, sync, recargar, sincronizando])
 
   useEffect(() => {
     void (async () => {
@@ -351,21 +388,57 @@ export function EvaluacionDetalle() {
             </button>
             <h1 className="truncate text-base font-extrabold">Detalle de evaluación</h1>
           </div>
-          <Button
-            variant="secondary"
-            className="min-h-0 gap-1.5 bg-white/10 px-3 py-1.5 text-white hover:bg-white/20"
-            disabled={descargando}
-            onClick={() => void descargar()}
-          >
-            {descargando ? <Spinner size={16} /> : <FileDown className="h-4 w-4" />}
-            {descargando ? 'Generando…' : 'PDF'}
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void sincronizar()}
+              disabled={sincronizando}
+              title="Sincronizar: sube lo pendiente y recarga los datos"
+              aria-label="Sincronizar evaluación"
+              className="relative grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-60"
+            >
+              <RefreshCw className={cn('h-4 w-4', sincronizando && 'animate-spin')} />
+              {pendientes > 0 && !sincronizando ? (
+                <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-amber-400 px-1 text-[10px] font-black text-amber-950">
+                  {pendientes}
+                </span>
+              ) : null}
+            </button>
+            <Button
+              variant="secondary"
+              className="min-h-0 gap-1.5 bg-white/10 px-3 py-1.5 text-white hover:bg-white/20"
+              disabled={descargando}
+              onClick={() => void descargar()}
+            >
+              {descargando ? <Spinner size={16} /> : <FileDown className="h-4 w-4" />}
+              {descargando ? 'Generando…' : 'PDF'}
+            </Button>
+          </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-2xl space-y-4 px-4 py-4">
         {error ? (
           <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+        ) : null}
+        {aviso ? (
+          <div
+            className={cn(
+              'flex items-start gap-2 rounded-xl border px-3 py-2 text-sm',
+              aviso.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-800'
+            )}
+          >
+            {aviso.ok ? <Check className="mt-0.5 h-4 w-4 shrink-0" /> : <X className="mt-0.5 h-4 w-4 shrink-0" />}
+            <span className="min-w-0 flex-1">{aviso.texto}</span>
+            <button
+              type="button"
+              onClick={() => setAviso(null)}
+              aria-label="Cerrar aviso"
+              className={cn('shrink-0 hover:text-green-900', aviso.ok ? 'text-green-700' : 'text-amber-700')}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         ) : null}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
