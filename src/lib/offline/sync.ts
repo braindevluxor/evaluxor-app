@@ -40,6 +40,25 @@ async function upsertRespuestas(rows: { evaluacion_id: string; item_id: string; 
   if (error) throw error
 }
 
+// Marca de la última subida a la nube del usuario actual (`profiles.ultima_sync`,
+// ver supabase/schema.sql). Se llama solo cuando una subida terminó bien, así que
+// sirve para saber si el avance de cada evaluador realmente llegó al servidor.
+const INTERVALO_MARCA_SYNC = 2 * 60_000
+let ultimaMarca = 0
+
+/**
+ * Registra que este usuario logró subir datos. No falla nunca ni interrumpe la
+ * subida: como mucho la marca se pierde (si la RPC aún no está aplicada en
+ * Supabase) y se reintenta en la próxima subida exitosa.
+ */
+export async function marcarSyncNube(): Promise<void> {
+  const ahora = Date.now()
+  if (ahora - ultimaMarca < INTERVALO_MARCA_SYNC) return
+  ultimaMarca = ahora
+  const { error } = await supabase.rpc('registrar_sync')
+  if (error) ultimaMarca = 0 // no se pudo marcar: se reintenta en la próxima subida
+}
+
 export async function guardarBorradorNube(
   evaluacionId: string,
   evaluadorId: string,
@@ -68,6 +87,8 @@ export async function guardarBorradorNube(
     respondido_por: evaluadorId
   }))
   await upsertRespuestas(rows)
+  // La subida terminó bien: queda registrada como última sincronización del usuario.
+  void marcarSyncNube()
 }
 
 export async function procesarCola(): Promise<{ ok: number; fail: number }> {
@@ -149,5 +170,7 @@ export async function procesarCola(): Promise<{ ok: number; fail: number }> {
       fail++
     }
   }
+  // La cola se vació al menos una vez: el dispositivo volvió a tener señal.
+  if (ok) void marcarSyncNube()
   return { ok, fail }
 }

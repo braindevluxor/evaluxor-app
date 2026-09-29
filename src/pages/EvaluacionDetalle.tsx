@@ -2,15 +2,16 @@ import { useCallback, useEffect, useState, Fragment } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, FileDown, FolderOpen, RefreshCw, Tag, X } from 'lucide-react'
 import { useOffline } from '../context/OfflineContext'
-import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
+import { obtenerEvaluacion, resumirEvaluacion, listarPerfilesSync, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { descargarPdf } from '../lib/pdf'
 import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
-import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, formatearLastSync, formatearPrecioBase, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, formatearLastSync, formatearPrecioBase, tieneRespuesta, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Card, Puntaje, Skeleton, SkeletonTarjetas, Spinner, cn } from '../components/ui'
+import { UltimaSync } from '../components/UltimaSync'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
 import { PlanoLectura } from '../components/PlanoEditor'
 
@@ -228,6 +229,8 @@ export function EvaluacionDetalle() {
   const { evaluacionId = '' } = useParams()
   const navigate = useNavigate()
   const [detalle, setDetalle] = useState<DetalleEvaluacion | null>(null)
+  // Nombre y última subida a la nube de quienes respondieron en esta evaluación.
+  const [evaluadores, setEvaluadores] = useState<Record<string, { nombre: string; ultima_sync: string | null }>>({})
   const [estado, setEstado] = useState<'cargando' | 'error' | 'ok'>('cargando')
   const [descargando, setDescargando] = useState(false)
   const [sincronizando, setSincronizando] = useState(false)
@@ -237,7 +240,12 @@ export function EvaluacionDetalle() {
 
   const recargar = useCallback(async () => {
     const d = await obtenerEvaluacion(evaluacionId)
-    if (d) setDetalle(d)
+    if (!d) return
+    setDetalle(d)
+    // Quién respondió y cuándo subió su avance por última vez: se refresca junto
+    // con la evaluación (en vivo cada 15 s) para ver al instante si alguien sube.
+    const ids = Array.from(new Set(d.respuestas.map((r) => r.respondido_por).filter((x): x is string => !!x)))
+    void listarPerfilesSync(ids).then(setEvaluadores)
   }, [evaluacionId])
 
   useEffect(() => {
@@ -363,6 +371,16 @@ export function EvaluacionDetalle() {
       incumplimientos.set(a.responsable, (incumplimientos.get(a.responsable) ?? 0) + a.puntos)
     }
   }
+
+  // Ítems con respuesta real por evaluador (mismo criterio que los contadores de
+  // avance: una respuesta vacía no cuenta) para ver cuánto subió cada uno.
+  const porEvaluador = new Map<string, number>()
+  for (const r of respuestas) {
+    if (!r.respondido_por) continue
+    const it = items.find((i) => i.id === r.item_id)
+    if (!it || !tieneRespuesta(it, r.valor)) continue
+    porEvaluador.set(r.respondido_por, (porEvaluador.get(r.respondido_por) ?? 0) + 1)
+  }
   // Puntaje por responsable: cada ítem reparte su peso entre quienes participan en él
   // (peso ÷ nº de responsables); el % de cada responsable = logrado / posible.
   const valoresResp = valorPorResponsable(items.map(aplicarOpciones), respuestas)
@@ -475,6 +493,31 @@ export function EvaluacionDetalle() {
             </div>
           ) : null}
         </section>
+
+        {porEvaluador.size ? (
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="font-bold text-primary-900">Avance por evaluador</p>
+            <p className="mb-3 text-xs text-slate-400">
+              Última vez que cada uno logró subir su avance a la nube. En rojo o sin marca puede tener el avance
+              todavía solo en su teléfono.
+            </p>
+            <ul className="space-y-1.5">
+              {[...porEvaluador.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .map(([id, n]) => (
+                  <li key={id} className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-700">{evaluadores[id]?.nombre || 'Evaluador'}</p>
+                      <p className="text-xs text-slate-400">
+                        {n} ítem{n !== 1 ? 's' : ''} con respuesta
+                      </p>
+                    </div>
+                    <UltimaSync ultimaSync={evaluadores[id]?.ultima_sync} />
+                  </li>
+                ))}
+            </ul>
+          </section>
+        ) : null}
 
         {valoresResp.length ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

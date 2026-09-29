@@ -827,3 +827,25 @@ cross join (
   ) as it(modulo_nombre, tipo, texto, opciones, orden, requerido)
 where mod.nombre = it.modulo_nombre
   and not exists (select 1 from public.items);
+-- ============================================================================
+-- ULTIMA SINCRONIZACION POR USUARIO
+-- Ultima vez que cada usuario logro subir datos del dispositivo a la nube.
+-- Sirve para distinguir "esta trabajando offline" de "su avance no llega".
+-- El cliente la marca desde la RPC `registrar_sync` (ver src/lib/offline/sync.ts).
+-- ============================================================================
+alter table public.profiles add column if not exists ultima_sync timestamptz;
+
+-- Marca la subida del usuario actual. Es `security definer` para escribir sobre
+-- profiles sin abrir permisos de update a los usuarios sobre la fila de otro.
+create or replace function public.registrar_sync()
+returns timestamptz
+language sql
+security definer
+set search_path = public
+as $$
+  update public.profiles
+     set ultima_sync = now()
+   where id = auth.uid()
+  returning ultima_sync;
+$$;
+grant execute on function public.registrar_sync() to authenticated;

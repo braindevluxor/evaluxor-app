@@ -49,6 +49,19 @@ export interface DetalleEvaluacion {
   instancias: InstanciaGrupo[]
 }
 
+/** Datos de perfil (nombre + última subida a la nube) de los ids indicados. */
+export async function listarPerfilesSync(
+  ids: string[]
+): Promise<Record<string, { nombre: string; ultima_sync: string | null }>> {
+  const out: Record<string, { nombre: string; ultima_sync: string | null }> = {}
+  if (!ids.length) return out
+  const { data } = await supabase.from('profiles').select('id,nombre,ultima_sync').in('id', ids)
+  for (const p of (data ?? []) as { id: string; nombre: string; ultima_sync: string | null }[]) {
+    out[p.id] = { nombre: p.nombre, ultima_sync: p.ultima_sync ?? null }
+  }
+  return out
+}
+
 const SELECT_EVALUACION = '*, sucursal:sucursales(id,nombre,shop_id,branch_id,direccion), aperturador:profiles!evaluaciones_aperturada_por_fkey(id,nombre)'
 
 export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion | null> {

@@ -36,6 +36,8 @@ export interface Profile {
   activo: boolean
   intentos_fallidos?: number
   bloqueado?: boolean
+  /** Última vez que el usuario logró subir datos del dispositivo a la nube. */
+  ultima_sync?: string | null
   created_at: string
   updated_at: string
 }

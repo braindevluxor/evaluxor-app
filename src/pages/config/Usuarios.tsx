@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
 import type { Invitacion, Modulo, Rol, Sucursal } from '../../lib/types'
 import { Badge, Button, Field, Input, Modal, Select, Skeleton, SkeletonFilas, cn } from '../../components/ui'
+import { UltimaSync } from '../../components/UltimaSync'
 import { Copy, FolderOpen, Pencil, Unlock } from 'lucide-react'
 
 export function UsuariosPage() {
@@ -141,6 +142,7 @@ export function UsuariosPage() {
                 <th className="px-4 py-3">Rol</th>
                 <th className="px-4 py-3">Sucursal</th>
                 <th className="px-4 py-3">Estado</th>
+                <th className="px-4 py-3">Últ. sincronización</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -156,6 +158,9 @@ export function UsuariosPage() {
                   <td className="px-4 py-3">{u.sucursal?.nombre || '—'}</td>
                   <td className="px-4 py-3">
                     {u.bloqueado ? <Badge color={4}>Bloqueado</Badge> : u.activo ? <Badge color={2}>Activo</Badge> : <Badge color={0}>Inactivo</Badge>}
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <UltimaSync ultimaSync={u.ultima_sync} />
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1.5">
