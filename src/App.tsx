@@ -27,6 +27,9 @@ const ModulosPage = lazy(() => import('./pages/config/Modulos').then((m) => ({ d
 const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ default: m.ItemsPage })))
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
 const BibliotecaPage = lazy(() => import('./pages/biblioteca/BibliotecaPage').then((m) => ({ default: m.BibliotecaPage })))
+const ProyectosHome = lazy(() => import('./pages/proyectos/ProyectosHome').then((m) => ({ default: m.ProyectosHome })))
+const BiometricoProyecto = lazy(() => import('./pages/proyectos/BiometricoProyecto').then((m) => ({ default: m.BiometricoProyecto })))
+const ProyectoDetalle = lazy(() => import('./pages/proyectos/ProyectoDetalle').then((m) => ({ default: m.ProyectoDetalle })))
 
 const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH', 'EVALUADOR']
 
@@ -153,6 +156,9 @@ export default function App() {
                   <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
                   <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
                   <Route path="/biblioteca" element={<BibliotecaPage />} />
+                  <Route path="/proyectos" element={<ProyectosHome />} />
+                  <Route path="/proyectos/biometrico" element={<BiometricoProyecto />} />
+                  <Route path="/proyectos/:id" element={<ProyectoDetalle />} />
                 </Route>
 
                 <Route path="*" element={<HomeRedirect />} />

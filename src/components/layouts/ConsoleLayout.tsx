@@ -1,4 +1,4 @@
-import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen } from 'lucide-react'
+import { Gauge, FolderOpen, FolderKanban, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -22,6 +22,9 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
   ]},
   { seccion: 'Biblioteca', items: [
     { to: '/biblioteca', label: 'Procesos de evaluación', icon: <BookOpen className="h-5 w-5" /> }
+  ]},
+  { seccion: 'Proyectos', items: [
+    { to: '/proyectos', label: 'Proyectos', end: true, icon: <FolderKanban className="h-5 w-5" /> }
   ]}
 ]
 
@@ -33,7 +36,9 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/config/modulos': { titulo: 'Módulos', subtitulo: 'Áreas que se evalúan en cada visita' },
   '/config/items': { titulo: 'Ítems de evaluación', subtitulo: 'Preguntas y criterios de cada módulo' },
   '/config/usuarios': { titulo: 'Usuarios', subtitulo: 'Gestión de roles y accesos' },
-  '/biblioteca': { titulo: 'Biblioteca', subtitulo: 'Procesos de evaluación y documentación por KPI' }
+  '/biblioteca': { titulo: 'Biblioteca', subtitulo: 'Procesos de evaluación y documentación por KPI' },
+  '/proyectos': { titulo: 'Proyectos', subtitulo: 'Carpetas de trabajo de la organización' },
+  '/proyectos/biometrico': { titulo: 'Biométrico D100', subtitulo: 'Marcajes del lector Anviz conectado por USB' }
 }
 
 export function ConsoleLayout() {
@@ -53,7 +58,9 @@ function ConsoleLayoutContenido() {
     titulosVista[pathname] ??
     (pathname.startsWith('/dashboard/modulo/')
       ? { titulo: 'Dashboard del módulo', subtitulo: 'Ítems del módulo con el gráfico más idóneo según su tipo' }
-      : undefined)
+      : pathname.startsWith('/proyectos/')
+        ? { titulo: 'Proyecto', subtitulo: 'Detalle de la carpeta de trabajo' }
+        : undefined)
   const esDashboard = pathname.startsWith('/dashboard')
   const puedeEvaluar = profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER'
   const navRef = useRef<HTMLElement | null>(null)
