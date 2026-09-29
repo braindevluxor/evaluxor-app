@@ -302,6 +302,52 @@ if (item.tipo === 'CHECKLIST') {
 }
 
 /**
+ * ¿La respuesta guardada de un ítem está vacía? (la clave existe pero sin contenido
+ * real: un checklist sin marcar, una conciliación sin productos, un cumple/no cumple
+ * sin veredicto…). Los editores lo usan para el aviso de "obligatorio para enviar".
+ */
+export function estaVacioItem(item: { tipo: string; repetible?: boolean | null }, valor: unknown): boolean {
+  switch (item.tipo) {
+    case 'CUMPLE_NO_CUMPLE':
+      return (valor as ValorCumple | null)?.value !== true && (valor as ValorCumple | null)?.value !== false
+    case 'CHECKLIST':
+      return !((valor as ValorChecklist | null)?.selected?.length)
+    case 'CONCILIACION': {
+      const ps = (valor as ValorConciliacion | null)?.productos ?? []
+      return ps.length === 0 || ps.some((p) => !p.sku.trim() || p.teorica == null || p.fisica == null)
+    }
+    case 'LISTA_COLABORADORES':
+      return !((valor as ValorListaColaboradores | null)?.colaboradores?.length)
+    case 'UNIDAD_CHECKLIST': {
+      const unids = (valor as ValorUnidadChecklist | null)?.unidades ?? []
+      if (item.repetible === false) {
+        // Carga única: vacío hasta marcar al menos un requerimiento.
+        return unids.length === 0 || !(unids[0]?.selected?.length)
+      }
+      return !unids.length
+    }
+    case 'PLANO_XY':
+      // Vacío hasta que haya al menos un pin con veredicto (los pines sin marcar no cuentan).
+      return !puntosMarcadosPlano(valor as ValorPlano | null).length
+    default:
+      return false
+  }
+}
+
+/**
+ * ¿El ítem tiene una respuesta real? Es lo que usan los contadores de avance: que
+ * exista la clave NO alcanza, una respuesta vacía no cuenta como respondida (si no,
+ * abrir y tocar un ítem sin contestar lo dejaba marcado y el módulo arrancaba en
+ * 1/N con el checklist en blanco). Un ítem marcado como informativo SÍ cuenta: el
+ * evaluador decidió excluirlo del puntaje, es una respuesta concreta.
+ */
+export function tieneRespuesta(item: { tipo: string; repetible?: boolean | null }, valor: unknown): boolean {
+  if (valor == null) return false
+  if ((valor as { informativo?: boolean }).informativo === true) return true
+  return !estaVacioItem(item, valor)
+}
+
+/**
  * Proporción de puntos cumplidos de un CHECKLIST cuya configuración reparte la
  * puntuación entre sus opciones (todas con `puntos` definidos y > 0).
  * Devuelve 0..1 (fracción de puntos obtenidos) o null cuando no aplica el modo

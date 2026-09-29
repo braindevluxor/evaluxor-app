@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, formatearLastSync, formatearPrecioBase, opcionCumplida, valorBinario, responsablesDeOpcion, puntosMarcadosPlano, referenciaConciliacion, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist, type ValorPlano } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, formatearLastSync, formatearPrecioBase, opcionCumplida, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores } from '../lib/data/colaboradores'
 import { formatearValorConsulta } from '../lib/data/apis'
@@ -65,41 +65,12 @@ export function ItemRenderer({ item, valor, onChange, index, total, shopId, bran
         <Badge color={tipoColor}>{etiquetaTipo(item.tipo)}</Badge>
       </div>
       <Contenido item={item} valor={valor} onChange={onChange} shopId={shopId} branchId={branchId} gerente={gerente} />
-      {item.requerido && estaVacio(item, valor) ? (
+      {item.requerido && estaVacioItem(item, valor) ? (
         <p className="mt-2 text-xs font-medium text-red-600">Obligatorio para enviar la evaluación.</p>
       ) : null}
       <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Pregunta {index + 1} de {total}</p>
     </section>
   )
-}
-
-function estaVacio(item: Item, valor: unknown): boolean {
-  switch (item.tipo) {
-    case 'CUMPLE_NO_CUMPLE':
-      return (valor as ValorCumple | null)?.value !== true && (valor as ValorCumple | null)?.value !== false
-    case 'CHECKLIST':
-      return !((valor as { selected?: string[] } | null)?.selected?.length)
-    case 'CONCILIACION': {
-      const ps = (valor as ValorConciliacion | null)?.productos ?? []
-      return ps.length === 0 || ps.some((p) => !p.sku.trim() || p.teorica == null || p.fisica == null)
-    }
-    case 'LISTA_COLABORADORES':
-      return !((valor as ValorListaColaboradores | null)?.colaboradores?.length)
-    case 'UNIDAD_CHECKLIST': {
-      const v = valor as ValorUnidadChecklist | null
-      const unids = v?.unidades ?? []
-      if (item.repetible === false) {
-        // Carga única: vacío hasta marcar al menos un requerimiento.
-        return unids.length === 0 || !(unids[0]?.selected?.length)
-      }
-      return !unids.length
-    }
-    case 'PLANO_XY':
-      // Vacío hasta que haya al menos un pin con veredicto (los pines sin marcar no cuentan).
-      return !puntosMarcadosPlano(valor as ValorPlano | null).length
-    default:
-      return false
-  }
 }
 
 function Contenido({ item, valor, onChange, shopId, branchId, gerente }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; branchId?: string | null; gerente?: string | null }) {

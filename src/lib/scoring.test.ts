@@ -1,5 +1,42 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, ETIQUETAS_CONTRA_DATO } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, ETIQUETAS_CONTRA_DATO } from './scoring'
+
+describe('tieneRespuesta · una respuesta vacía no cuenta como respondida', () => {
+  it('detecta vacío por tipo de ítem', () => {
+    expect(estaVacioItem({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: null, evidencias: [] })).toBe(true)
+    expect(estaVacioItem({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: true })).toBe(false)
+    expect(estaVacioItem({ tipo: 'CHECKLIST' }, { selected: [] })).toBe(true)
+    expect(estaVacioItem({ tipo: 'CHECKLIST' }, { selected: ['a'] })).toBe(false)
+    expect(estaVacioItem({ tipo: 'CONCILIACION' }, { productos: [] })).toBe(true)
+    // Producto sin física cargada todavía no es una conciliación respondida.
+    expect(estaVacioItem({ tipo: 'CONCILIACION' }, { productos: [{ sku: 'A', teorica: 5, fisica: null }] })).toBe(true)
+    expect(estaVacioItem({ tipo: 'CONCILIACION' }, { productos: [{ sku: 'A', teorica: 5, fisica: 5 }] })).toBe(false)
+    expect(estaVacioItem({ tipo: 'LISTA_COLABORADORES' }, { colaboradores: [] })).toBe(true)
+    expect(estaVacioItem({ tipo: 'UNIDAD_CHECKLIST' }, { unidades: [] })).toBe(true)
+    expect(estaVacioItem({ tipo: 'PLANO_XY' }, { planos: [], puntos: [{ id: 'p', planoId: 'pl', x: 0.5, y: 0.5, cumple: null, comentario: '' }] })).toBe(true)
+    expect(estaVacioItem({ tipo: 'PLANO_XY' }, { planos: [], puntos: [{ id: 'p', planoId: 'pl', x: 0.5, y: 0.5, cumple: true, comentario: '' }] })).toBe(false)
+  })
+  it('un ítem marcado como informativo sí cuenta (decisión del evaluador)', () => {
+    expect(tieneRespuesta({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: null, evidencias: [], informativo: true })).toBe(true)
+    expect(tieneRespuesta({ tipo: 'CONCILIACION' }, { productos: [], informativo: true })).toBe(true)
+    expect(tieneRespuesta({ tipo: 'LISTA_COLABORADORES' }, { colaboradores: [], informativo: true })).toBe(true)
+  })
+  it('no cuenta claves guardadas sin contenido real (el caso del "1/9" sin cargar nada)', () => {
+    expect(tieneRespuesta({ tipo: 'CHECKLIST' }, { selected: [], informativos: [], evidencias: {} })).toBe(false)
+    expect(tieneRespuesta({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: null, evidencias: [] })).toBe(false)
+    expect(tieneRespuesta({ tipo: 'CONCILIACION' }, { productos: [] })).toBe(false)
+    expect(tieneRespuesta({ tipo: 'UNIDAD_CHECKLIST' }, { unidades: [] })).toBe(false)
+    expect(tieneRespuesta({ tipo: 'PLANO_XY' }, { planos: [], puntos: [] })).toBe(false)
+    expect(tieneRespuesta({ tipo: 'CHECKLIST' }, undefined)).toBe(false)
+    expect(tieneRespuesta({ tipo: 'CHECKLIST' }, null)).toBe(false)
+  })
+  it('sí cuenta cuando hay contenido', () => {
+    expect(tieneRespuesta({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: false })).toBe(true)
+    expect(tieneRespuesta({ tipo: 'CHECKLIST' }, { selected: ['a'] })).toBe(true)
+    expect(tieneRespuesta({ tipo: 'CONCILIACION' }, { productos: [{ sku: 'A', teorica: 5, fisica: 4 }] })).toBe(true)
+    expect(tieneRespuesta({ tipo: 'LISTA_COLABORADORES' }, { colaboradores: [{ dni: 1, name: 'A', lastname: 'B', active: true, aplica: true, selected: ['o1'] }] })).toBe(true)
+  })
+})
 
 describe('contra dato de conciliación', () => {
   it('referenciaConciliacion usa soh por defecto y finalBase en modo precio', () => {

@@ -11,6 +11,7 @@ import {
   pesoItem,
   puntosMarcadosPlano,
   redondear3,
+  tieneRespuesta,
   type AcumuladoResponsable,
   type BinarioConPuntaje,
   type ValorCumple,
@@ -537,7 +538,9 @@ export function resumenItemsModulo(
       a = nuevoAcumulado()
       acum.set(item.id, a)
     }
-    a.respondidas++
+    // Solo cuentan las respuestas con contenido: una fila guardada vacía (ítem abierto
+    // sin contestar) no es una respuesta y no debe inflar "n respuestas" del ítem.
+    if (tieneRespuesta(it, r.valor)) a.respondidas++
 
     if (it.tipo === 'CHECKLIST') {
       const v = r.valor as ValorChecklist | null

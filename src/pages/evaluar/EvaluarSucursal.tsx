@@ -6,6 +6,7 @@ import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
 import { hijosOrdenados } from '../../lib/hierarchy'
 import { claveRespuesta, pasosDeModulo, raicesDeModulo } from '../../lib/pasos'
+import { tieneRespuesta } from '../../lib/scoring'
 import { getDraft, putDraft, normalizarClave, instanciasPlanasDe, type DraftEval, type DraftInstancia } from '../../lib/offline/db'
 import { guardarBorradorNube, instanciasDeDraft, respuestasConInstancia } from '../../lib/offline/sync'
 import { listarEvaluacionesActivas, listarRespuestasEvaluacion, listarInstanciasEvaluacion } from '../../lib/data/indicadores'
@@ -468,7 +469,7 @@ export function EvaluarSucursal() {
   const ultimoHijo = registro ? idxRegistro >= hijosSeccion.length - 1 : false
 
   const pasosDe = (m: typeof modulo) => pasosDeModulo(itemsDe(m), instanciasPlanasDe(actual))
-  const resumir = (m: typeof modulo) => pasosDe(m).filter((p) => actual.respuestas[p.key]).length
+  const resumir = (m: typeof modulo) => pasosDe(m).filter((p) => tieneRespuesta(p.item, actual.respuestas[p.key]?.valor)).length
   const hechoModulo = resumir(modulo)
   const totalModulo = pasosDe(modulo).length
   const pctModulo = totalModulo ? Math.round((hechoModulo / totalModulo) * 100) : 0

@@ -6,7 +6,7 @@ import { useModulosActivos } from '../../context/CatalogContext'
 import { getDraft, instanciasPlanasDe, type DraftEval } from '../../lib/offline/db'
 import { encolarRespuestas } from '../../lib/offline/sync'
 import { pasosDeModulo } from '../../lib/pasos'
-import { calcularPuntaje, pesoItem } from '../../lib/scoring'
+import { calcularPuntaje, pesoItem, tieneRespuesta } from '../../lib/scoring'
 import { Button, Puntaje, cn } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 
@@ -36,7 +36,7 @@ export function EvaluarResumen() {
   const detalles = useMemo(() => {
     if (!draft) return { puntaje: null as number | null, incompletos: 0, total: 0 }
     const pasos = modulos.flatMap((m) => pasosDeModulo(itemsDe(m), instanciasPlanasDe(draft)))
-    const incompletos = pasos.filter((p) => p.item.requerido && !draft.respuestas[p.key]).length
+    const incompletos = pasos.filter((p) => p.item.requerido && !tieneRespuesta(p.item, draft.respuestas[p.key]?.valor)).length
     const puntaje = calcularPuntaje(
       pasos.flatMap((p) => [
         { item: p.item, valor: draft.respuestas[p.key]?.valor },
@@ -79,7 +79,7 @@ export function EvaluarResumen() {
         <div className="space-y-3">
           {modulos.map((m) => {
             const pasos = pasosDeModulo(itemsDe(m), instanciasPlanasDe(draft))
-            const respondidos = pasos.filter((p) => draft.respuestas[p.key]).length
+            const respondidos = pasos.filter((p) => tieneRespuesta(p.item, draft.respuestas[p.key]?.valor)).length
             const completo = pasos.length > 0 && respondidos === pasos.length
             return (
               <div key={m.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
