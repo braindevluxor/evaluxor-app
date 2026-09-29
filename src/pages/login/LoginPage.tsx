@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Check, Eye, EyeOff, ShieldCheck } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { homePorRol } from '../../lib/roles'
-import { Button, Field, Input } from '../../components/ui'
+import { Button, Field, Input, Spinner } from '../../components/ui'
 import { AuthShell, MarcaAuth, botonAuth, inputAuth, labelAuth } from '../../components/auth/AuthShell'
 
 export function LoginPage() {
@@ -79,7 +79,13 @@ export function LoginPage() {
             <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</p>
           ) : null}
           <Button type="submit" disabled={enviando} className={botonAuth}>
-            {enviando ? 'Verificando…' : 'Ingresar'}
+            {enviando ? (
+              <>
+                <Spinner size={16} light /> Verificando…
+              </>
+            ) : (
+              'Ingresar'
+            )}
           </Button>
         </form>
       ) : (
@@ -135,7 +141,13 @@ export function LoginPage() {
             </label>
           </div>
           <Button type="submit" disabled={enviando} className={botonAuth}>
-            {enviando ? 'Ingresando…' : 'Ingresar'}
+            {enviando ? (
+              <>
+                <Spinner size={16} light /> Ingresando…
+              </>
+            ) : (
+              'Ingresar'
+            )}
           </Button>
           <p className="pt-1 text-center text-xs text-slate-400">
             ¿No tienes cuenta? Solo se accede por invitación del Líder.

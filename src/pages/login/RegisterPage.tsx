@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { Button, Field, Input } from '../../components/ui'
+import { Button, Field, Input, Spinner } from '../../components/ui'
 import { AuthShell, MarcaAuth, botonAuth, hintAuth, inputAuth, labelAuth } from '../../components/auth/AuthShell'
 
 export function RegisterPage() {
@@ -99,7 +99,13 @@ export function RegisterPage() {
           <p className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700">{okMsg}</p>
         ) : null}
         <Button type="submit" disabled={enviando} className={botonAuth}>
-          {enviando ? 'Creando…' : 'Crear cuenta'}
+          {enviando ? (
+            <>
+              <Spinner size={16} light /> Creando…
+            </>
+          ) : (
+            'Crear cuenta'
+          )}
         </Button>
         <p className="pt-1 text-center text-sm text-slate-500">
           ¿Ya tienes cuenta?{' '}
