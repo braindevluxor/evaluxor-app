@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Item, Modulo, Opcion, Respuesta, Sucursal, SucursalModulo, VistaEvaluacion } from '../types'
-import { medidoresPorModulo, puntajePorSucursalModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, type ConjuntoDatos } from './indicadores'
+import { medidoresPorModulo, puntajePorSucursalModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, type ConjuntoDatos } from './indicadores'
 
 const sucursales: Sucursal[] = [
   { id: 's1', nombre: 'Sucursal Norte', shop_id: null, branch_id: null, direccion: null, gerente_id: null, activa: true, created_at: '' },
@@ -714,5 +714,30 @@ describe('detalleDeEvaluacion', () => {
 
     const detalle = detalleDeEvaluacion(datos, 'ev1', { item_id: 'i1' })
     expect(detalle.map((d) => d.item_id)).toEqual(['i1'])
+  })
+})
+
+describe('puntajeEnCurso', () => {
+  const activa: VistaEvaluacion = { ...evaluaciones[0], estado: 'ACTIVA', puntuacion: null }
+
+  it('calcula el puntaje en vivo con los ítems respondidos (1 de 2 pesos = 50)', () => {
+    const resps = [respuesta('ev1', 'i1', true), respuesta('ev1', 'i2', false), respuesta('ev2', 'i1', true)]
+    const r = puntajeEnCurso(activa, resps, items)
+    expect(r.puntaje).toBe(50)
+    expect(r.respondidos).toBe(2)
+  })
+
+  it('solo considera las respuestas de la propia evaluación', () => {
+    const resps = [respuesta('ev2', 'i1', true), respuesta('ev2', 'i2', true)]
+    expect(puntajeEnCurso(activa, resps, items)).toEqual({ puntaje: null, respondidos: 0 })
+  })
+
+  it('sin respuestas devuelve puntaje null y 0 ítems respondidos', () => {
+    expect(puntajeEnCurso(activa, [], items)).toEqual({ puntaje: null, respondidos: 0 })
+  })
+
+  it('con todos los ítems respondidos coincide con el puntaje final (cerrado)', () => {
+    const resps = [respuesta('ev1', 'i1', true), respuesta('ev1', 'i2', false), respuesta('ev1', 'i3', true)]
+    expect(puntajeEnCurso(activa, resps, items).puntaje).toBe(66.67)
   })
 })

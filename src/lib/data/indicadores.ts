@@ -213,6 +213,18 @@ export function resumirEvaluacion(ev: Evaluacion, resps: Respuesta[], items: Ite
   return { puntaje, itemsBinarios: binarios.length, itemsBinariosOk: binarios.filter((b) => b.cumple === 1).length }
 }
 
+/** Puntaje en curso de una evaluación a partir de sus respuestas (mismas reglas que al cerrar):
+ *  muestra el avance mientras los evaluadores responden. `respondidos` = ítems puntuables con respuesta. */
+export function puntajeEnCurso(
+  ev: Evaluacion,
+  resps: Respuesta[],
+  items: Item[],
+  sucursalOpciones: SucursalOpcion[] = []
+): { puntaje: number | null; respondidos: number } {
+  const r = resumirEvaluacion(ev, resps, items, sucursalOpciones)
+  return { puntaje: r.puntaje, respondidos: r.itemsBinarios }
+}
+
 export interface PuntajeModulo {
   modulo_id: string
   nombre: string

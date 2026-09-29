@@ -11,7 +11,9 @@ import {
   abrirEvaluacion,
   cerrarEvaluacion,
   obtenerEvaluacion,
-  resumirEvaluacion
+  resumirEvaluacion,
+  puntajeEnCurso,
+  type ConjuntoDatos
 } from '../../lib/data/indicadores'
 import type { EstadoEvaluacion, VistaEvaluacion } from '../../lib/types'
 import { descargarPdf } from '../../lib/pdf'
@@ -36,6 +38,25 @@ const ETIQUETA_ESTADO: Record<EstadoEvaluacion, string> = {
   CERRADA: 'Cerrada'
 }
 
+/** Puntaje en curso de una evaluación activa: valor en vivo + estado de avance. */
+function EnCursoPuntaje({ fila }: { fila?: { puntaje: number | null; respondidos: number } }) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <Puntaje value={fila?.puntaje ?? null} />
+      {fila && fila.respondidos > 0 ? (
+        <>
+          <Badge color={0}>Parcial</Badge>
+          <span className="whitespace-nowrap text-[11px] font-semibold text-slate-400">
+            {fila.respondidos} ítems respondidos
+          </span>
+        </>
+      ) : (
+        <span className="whitespace-nowrap text-[11px] font-semibold text-slate-400">Sin respuestas</span>
+      )}
+    </div>
+  )
+}
+
 export function Historial() {
   const { profile } = useAuth()
   const { sucursales } = useCatalog()
@@ -53,6 +74,7 @@ export function Historial() {
   const [hasta, setHasta] = useState('')
   const [sucursalSel, setSucursalSel] = useState('')
   const [evals, setEvals] = useState<VistaEvaluacion[] | null>(null)
+  const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
   const [descargando, setDescargando] = useState<string | null>(null)
   const [aEliminar, setAEliminar] = useState<VistaEvaluacion | null>(null)
   const [aReabrir, setAReabrir] = useState<VistaEvaluacion | null>(null)
@@ -65,17 +87,18 @@ export function Historial() {
 
   const sucursalesVisibles = scope ? sucursales.filter((s) => scope.includes(s.id)) : sucursales
 
-  const cargar = async () => {
-    setEvals(null)
+  const cargar = async (silencioso = false) => {
+    if (!silencioso) setEvals(null)
     try {
       const d = await consultarEvaluaciones({
         sucursal_ids: sucursalSel ? [sucursalSel] : scope,
         desde: desde || undefined,
         hasta: hasta || undefined
       })
+      setDatos(d)
       setEvals(d.evaluaciones)
     } catch {
-      setEvals([])
+      if (!silencioso) setEvals([])
     }
   }
 
@@ -89,7 +112,10 @@ export function Historial() {
           desde: desde || undefined,
           hasta: hasta || undefined
         })
-        if (activo) setEvals(d.evaluaciones)
+        if (activo) {
+          setDatos(d)
+          setEvals(d.evaluaciones)
+        }
       } catch {
         if (activo) setEvals([])
       }
@@ -97,6 +123,24 @@ export function Historial() {
     return () => { activo = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desde, hasta, sucursalSel, scope?.join(',')])
+
+  // Refresco automático: muestra el puntaje en curso mientras los evaluadores responden.
+  useEffect(() => {
+    const t = window.setInterval(() => { void cargar(true) }, 60000)
+    return () => window.clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desde, hasta, sucursalSel, scope?.join(',')])
+
+  // Puntaje en vivo de las evaluaciones activas: con las mismas reglas que al cerrar.
+  const puntajesVivos = useMemo(() => {
+    const m = new Map<string, { puntaje: number | null; respondidos: number }>()
+    if (!datos) return m
+    for (const ev of datos.evaluaciones) {
+      if (ev.estado !== 'ACTIVA') continue
+      m.set(ev.id, puntajeEnCurso(ev, datos.respuestas, datos.items, datos.sucursalOpciones))
+    }
+    return m
+  }, [datos])
 
   const descargar = async (ev: VistaEvaluacion) => {
     setError(null)
@@ -296,14 +340,18 @@ export function Historial() {
                       <Badge color={COLOR_ESTADO[ev.estado]}>{ETIQUETA_ESTADO[ev.estado]}</Badge>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-2">
-                        <Puntaje value={ev.puntuacion} />
-                        {ev.puntuacion != null ? (
-                          <Badge color={ev.puntuacion >= 80 ? 2 : ev.puntuacion >= 60 ? 3 : 4}>
-                            {ev.puntuacion >= 80 ? 'Cumple' : ev.puntuacion >= 60 ? 'Riesgo' : 'No cumple'}
-                          </Badge>
-                        ) : null}
-                      </div>
+                      {ev.estado === 'ACTIVA' ? (
+                        <EnCursoPuntaje fila={puntajesVivos.get(ev.id)} />
+                      ) : (
+                        <div className="flex items-center justify-end gap-2">
+                          <Puntaje value={ev.puntuacion} />
+                          {ev.puntuacion != null ? (
+                            <Badge color={ev.puntuacion >= 80 ? 2 : ev.puntuacion >= 60 ? 3 : 4}>
+                              {ev.puntuacion >= 80 ? 'Cumple' : ev.puntuacion >= 60 ? 'Riesgo' : 'No cumple'}
+                            </Badge>
+                          ) : null}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
