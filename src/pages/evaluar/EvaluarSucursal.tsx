@@ -210,7 +210,11 @@ export function EvaluarSucursal() {
     if (!profile) return
     void (async () => {
       const activas = await listarEvaluacionesActivas().catch(() => [])
-      const activa = activas.find((e) => e.sucursal_id === sucursalId)
+      // Si hay varias ACTIVAS para la sucursal (p.ej. una vieja sin cerrar), se
+      // trabaja sobre la más reciente para no abrir una evaluación anterior.
+      const activa = activas
+        .filter((e) => e.sucursal_id === sucursalId)
+        .sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))[0]
       if (!activa) {
         setSinActiva(true)
         setCargando(false)
@@ -219,6 +223,10 @@ export function EvaluarSucursal() {
       evaluacionIdRef.current = activa.id
       setEvaluacionId(activa.id)
       const existente = await getDraft(sucursalId)
+      // Un borrador local de OTRA evaluación (otra fecha) no debe "resurgir" en
+      // la nueva evaluación de la misma sucursal: se descartan sus respuestas,
+      // registros y comentario para que la medición arranque de cero.
+      const mismoDía = !!existente && existente.fecha === activa.fecha
       const [enNube, instanciasNube] = await Promise.all([
         listarRespuestasEvaluacion(activa.id).catch(() => []),
         listarInstanciasEvaluacion(activa.id).catch(() => [])
@@ -230,8 +238,10 @@ export function EvaluarSucursal() {
       // Borradores locales antiguos: claves sin '::' se normalizan; instancias ausentes → {}.
       // Las entradas sin `por` son de este evaluador (escritas localmente antes de la colaboración en vivo).
       const respLocal: DraftEval['respuestas'] = {}
-      for (const [k, v] of Object.entries(existente?.respuestas ?? {})) respLocal[normalizarClave(k)] = { valor: v.valor, por: v.por ?? 'yo' }
-      const instanciasLocales: Record<string, DraftInstancia[]> = structuredClone(existente?.instancias ?? {})
+      if (mismoDía) {
+        for (const [k, v] of Object.entries(existente?.respuestas ?? {})) respLocal[normalizarClave(k)] = { valor: v.valor, por: v.por ?? 'yo' }
+      }
+      const instanciasLocales: Record<string, DraftInstancia[]> = mismoDía ? structuredClone(existente?.instancias ?? {}) : {}
       for (const ins of instanciasNube) {
         const ya = (instanciasLocales[ins.item_id] ?? []).some((i) => i.id === ins.id)
         if (!ya) {
@@ -248,8 +258,8 @@ export function EvaluarSucursal() {
         sucursal_id: sucursalId,
         evaluador_id: profile.id,
         fecha: activa.fecha,
-        comentario_general: existente?.comentario_general ?? '',
-        puntuacion: existente?.puntuacion ?? null,
+        comentario_general: mismoDía ? existente?.comentario_general ?? '' : '',
+        puntuacion: mismoDía ? existente?.puntuacion ?? null : null,
         respuestas: { ...nubeMias, ...respLocal },
         instancias: instanciasLocales,
         updated_at: Date.now()
