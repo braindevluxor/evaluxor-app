@@ -21,9 +21,7 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
     { to: '/dashboard/historial', label: 'Historial', icon: <History className="h-5 w-5" /> }
   ]},
   { seccion: 'Biblioteca', items: [
-    { to: '/biblioteca', label: 'Procesos de evaluación', icon: <BookOpen className="h-5 w-5" /> }
-  ]},
-  { seccion: 'Proyectos', items: [
+    { to: '/biblioteca', label: 'Procesos de evaluación', icon: <BookOpen className="h-5 w-5" /> },
     { to: '/proyectos', label: 'Proyectos', end: true, icon: <FolderKanban className="h-5 w-5" /> }
   ]}
 ]
