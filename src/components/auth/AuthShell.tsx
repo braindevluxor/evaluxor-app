@@ -65,7 +65,7 @@ export function LogoAuth({ alt, className }: { alt: string; className?: string }
  */
 export function MarcaAuth({ titulo, subtitulo, soloLogo = false }: { titulo: string; subtitulo?: string; soloLogo?: boolean }) {
   return (
-    <div className="mb-6 text-center">
+    <div className="mb-5 text-center">
       <LogoAuth alt={titulo} className={cn('w-full', soloLogo ? '' : 'mb-5')} />
       {soloLogo ? (
         <h1 className="sr-only">{titulo}</h1>
