@@ -971,7 +971,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
                             <label key={o.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-50">
                               <input
                                 type="checkbox"
-                                className="h-5 w-5 shrink-0 accent-primary"
+                                className={cn('h-4 w-4 shrink-0', esta ? 'accent-green-600' : 'accent-primary')}
                                 checked={esta}
                                 onChange={() => toggleCheck(c.dni, o.id)}
                               />
