@@ -194,6 +194,25 @@ describe('incumplimientosPorResponsable', () => {
     const v = { colaboradores: [col(true, ['a']), col(false, [])] }
     expect(incumplimientosPorResponsable(item, v)).toEqual([{ responsable: 'Chofer', puntos: 1 }])
   })
+  it('lista de colaboradores: cada trabajador que falla un check aporta la falla a SUS responsables elegidos', () => {
+    const item = {
+      tipo: 'LISTA_COLABORADORES',
+      opciones: [
+        { id: 'a', etiqueta: 'A', responsable: 'Mecanico' },
+        { id: 'b', etiqueta: 'B', responsable: 'Chofer' }
+      ]
+    }
+    const col = (selected: string[], rp?: Record<string, string[]>) => ({
+      dni: 1, name: 'A', lastname: 'B', active: true, aplica: true, selected,
+      ...(rp ? { responsablesPorOpcion: rp } : {})
+    })
+    // Ambos marcaron 'a'. El primero falló 'b' → atribuido a Ana; el segundo falló 'b' sin elección → gerente.
+    const v = { colaboradores: [col(['a'], { b: ['Ana'] }), col(['a'])], responsablesGerente: 'Gerente' }
+    expect(incumplimientosPorResponsable(item, v)).toEqual([
+      { responsable: 'Ana', puntos: 1 },
+      { responsable: 'Gerente', puntos: 1 }
+    ])
+  })
   it('tipos sin puntos con responsable no acumulan', () => {
     expect(incumplimientosPorResponsable({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: false })).toEqual([])
     expect(incumplimientosPorResponsable({ tipo: 'CONCILIACION', opciones: [{ id: 'a', responsable: 'X' }] }, { productos: [{ sku: 'A', teorica: 2, fisica: 1 }] })).toEqual([])
@@ -740,6 +759,58 @@ describe('valorPorResponsable · selección de responsables del evaluador (falla
     expect(ana.posible).toBeCloseTo(25, 2) // 12.5 + 12.5
     expect(ana.logrado).toBeCloseTo(25, 2)
     expect(ana.items).toBe(2)
+  })
+
+  it('LISTA_COLABORADORES: cada trabajador que falla un check absorbe el peso con sus responsables', () => {
+    const item = {
+      id: 'i1',
+      tipo: 'LISTA_COLABORADORES',
+      puntaje: 50,
+      opciones: [{ id: 'a', responsable: 'Ana' }, { id: 'b', responsable: 'Beto' }],
+      responsables: ['Ana', 'Beto']
+    }
+    const col = (selected: string[], rp?: Record<string, string[]>) => ({
+      dni: selected.length, name: 'A', lastname: 'B', active: true, aplica: true, selected,
+      ...(rp ? { responsablesPorOpcion: rp } : {})
+    })
+    // 'a' cumplida por ambos → Ana 25 logrado (legado). 'b' fallada por ambos: el
+    // primero la atribuyó a Caro, el segundo no eligió → gerente 25.
+    const v = {
+      colaboradores: [col(['a'], { b: ['Caro'] }), col(['a'])],
+      responsablesGerente: 'Gerente'
+    }
+    const res = valorPorResponsable([item], [{ item_id: 'i1', valor: v }])
+    const ana = res.find((x) => x.responsable === 'Ana')!
+    const caro = res.find((x) => x.responsable === 'Caro')!
+    const ger = res.find((x) => x.responsable === 'Gerente')!
+    expect(ana.posible).toBeCloseTo(25, 2)
+    expect(ana.logrado).toBeCloseTo(25, 2)
+    expect(caro.posible).toBeCloseTo(25, 2)
+    expect(caro.logrado).toBe(0)
+    expect(ger.posible).toBeCloseTo(25, 2)
+    expect(ger.logrado).toBe(0)
+    expect(res.find((x) => x.responsable === 'Beto')).toBeUndefined()
+  })
+
+  it('LISTA_COLABORADORES legado: la selección del ítem absorbe la falla del punto una sola vez', () => {
+    const item = {
+      id: 'i1',
+      tipo: 'LISTA_COLABORADORES',
+      puntaje: 50,
+      opciones: [{ id: 'a', responsable: 'Ana' }, { id: 'b', responsable: 'Beto' }],
+      responsables: ['Ana', 'Beto']
+    }
+    const col = (selected: string[]) => ({ dni: 1, name: 'A', lastname: 'B', active: true, aplica: true, selected })
+    // Modelo viejo: selección a nivel de ítem. Ambos fallaron 'b' → la falla del punto se absorbe UNA vez (Beto).
+    const v = { colaboradores: [col(['a']), col(['a'])], responsablesPorOpcion: { b: ['Beto'] }, responsablesGerente: 'Gerente' }
+    const res = valorPorResponsable([item], [{ item_id: 'i1', valor: v }])
+    const ana = res.find((x) => x.responsable === 'Ana')!
+    const beto = res.find((x) => x.responsable === 'Beto')!
+    expect(ana.posible).toBeCloseTo(25, 2)
+    expect(ana.logrado).toBeCloseTo(25, 2)
+    expect(beto.posible).toBeCloseTo(25, 2)
+    expect(beto.logrado).toBe(0)
+    expect(res.find((x) => x.responsable === 'Gerente')).toBeUndefined()
   })
 })
 

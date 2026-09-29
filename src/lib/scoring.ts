@@ -74,6 +74,8 @@ export interface ColaboradorItem {
   active: boolean
   aplica: boolean
   selected: string[]
+  /** Responsables elegidos por el evaluador por cada check INCUMPLIDO DE ESTE TRABAJADOR: check → responsables que absorben la falla. */
+  responsablesPorOpcion?: Record<string, string[]>
 }
 
 export interface ValorListaColaboradores {
@@ -365,15 +367,24 @@ function responsablesDelItem(item: { opciones?: string[] | { id?: string; respon
   return [...new Set(base.map((x) => x.trim()).filter(Boolean))]
 }
 
-/** ¿El valor trae la selección nueva de responsables del evaluador (por ítem o por check)? Su ausencia = comportamiento legado retrocompatible. */
+/** ¿El valor trae la selección nueva de responsables del evaluador (por ítem o por check)? Su ausencia = comportamiento legado retrocompatible. También detecta la selección guardada por cada colaborador en LISTA_COLABORADORES. */
 export function tieneSeleccionResponsables(valor: unknown): boolean {
   if (!valor || typeof valor !== 'object') return false
   const v = valor as Record<string, unknown>
-  return (
+  if (
     Array.isArray(v.responsables) ||
     (v.responsablesPorOpcion != null && typeof v.responsablesPorOpcion === 'object') ||
     'responsablesGerente' in v
-  )
+  ) {
+    return true
+  }
+  // LISTA_COLABORADORES: la selección por check puede vivir en cada colaborador.
+  if (Array.isArray(v.colaboradores)) {
+    return (v.colaboradores as unknown[]).some(
+      (c) => c != null && typeof c === 'object' && (c as { responsablesPorOpcion?: unknown }).responsablesPorOpcion != null
+    )
+  }
+  return false
 }
 
 /** Selección de responsables por ítem (modo binario) guardada en el valor. */
@@ -453,6 +464,38 @@ function contribucionNueva(it: ItemRespLigero, P: number, valor: unknown): Contr
         // Punto cumplido → reparto legado: cada responsable configurado del check recibe su parte completa.
         const parte = redondear3(peso / rs.length)
         for (const r of rs) add(r, parte, parte)
+      } else if (it.tipo === 'LISTA_COLABORADORES') {
+        // Punto incumplido del listado de trabajadores: con selección por trabajador,
+        // cada trabajador que NO marcó el punto absorbe la falla con SUS responsables
+        // elegidos (o la selección antigua del ítem, o el gerente, o legado). Sin esa
+        // selección (legado) la falla del punto completo se absorbe una sola vez.
+        const vLista = valor as ValorListaColaboradores | null
+        const aplican = (vLista?.colaboradores ?? []).filter((x) => x.aplica)
+        const modoPorTrabajador = aplican.some((c) => c.responsablesPorOpcion)
+        if (modoPorTrabajador) {
+          for (const c of aplican) {
+            if ((c.selected ?? []).includes(o.id as string)) continue
+            const sel = c.responsablesPorOpcion?.[o.id as string] ?? record?.[o.id as string] ?? []
+            if (sel.length) {
+              for (const r of sel) add(r, peso, 0)
+            } else if (gerente) {
+              add(gerente, peso, 0)
+            } else {
+              const parte = redondear3(peso / rs.length)
+              for (const r of rs) add(r, parte, 0)
+            }
+          }
+        } else {
+          const sel = o.id ? (record?.[o.id] ?? []) : []
+          if (sel.length) {
+            for (const r of sel) add(r, peso, 0)
+          } else if (gerente) {
+            add(gerente, peso, 0)
+          } else {
+            const parte = redondear3(peso / rs.length)
+            for (const r of rs) add(r, parte, 0)
+          }
+        }
       } else {
         // Punto incumplido → la selección del evaluador absorbe la falla (posible sin logrado).
         const sel = o.id ? (record?.[o.id] ?? []) : []
@@ -691,11 +734,31 @@ export function incumplimientosPorResponsable(
         if (!informativos.includes(o.id as string) && !opcionCumplida(o as { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }, v2, o.id as string)) sumar(rs)
       }
     } else if (item.tipo === 'LISTA_COLABORADORES') {
+      // Cada trabajador que falla un check acumula una falla a SUS responsables
+      // elegidos (o la selección antigua del ítem, o el gerente, o los configurados).
       const v2 = valor as ValorListaColaboradores | null
-      for (const c of (v2?.colaboradores ?? []).filter((x) => x.aplica)) {
-        const sel = c.selected ?? []
-        for (const { o, rs } of puntos) {
-          if (!sel.includes(o.id as string)) sumar(rs)
+      const modoPorTrabajador = (v2?.colaboradores ?? []).some((c) => c.responsablesPorOpcion)
+      const aplican = (v2?.colaboradores ?? []).filter((x) => x.aplica)
+      if (modoPorTrabajador) {
+        for (const c of aplican) {
+          const sel = c.selected ?? []
+          const cmap = c.responsablesPorOpcion ?? {}
+          for (const o of (item.opciones ?? []) as { id?: string; responsable?: string; responsables?: string[] }[]) {
+            if (!o.id || sel.includes(o.id)) continue
+            const rs =
+              cmap[o.id]?.length ? cmap[o.id]
+              : porOpcion?.[o.id]?.length ? porOpcion[o.id]
+              : gerente ? [gerente]
+              : responsablesDeOpcion(o)
+            if (rs.length) sumar(rs)
+          }
+        }
+      } else {
+        for (const c of aplican) {
+          const sel = c.selected ?? []
+          for (const { o, rs } of puntos) {
+            if (!sel.includes(o.id as string)) sumar(rs)
+          }
         }
       }
     } else if (item.tipo === 'UNIDAD_CHECKLIST') {

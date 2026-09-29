@@ -53,38 +53,6 @@ function checkIncumplido(item: Item, o: Opcion, valor: unknown): boolean {
   return false
 }
 
-/** Selector de responsables de los puntos INCUMPLIDOS de un checklist: un bloque por check que no está cumplido. */
-function SelectorResponsablesPorTipo({ item, valor, onChange, opts, gerente }: {
-  item: Item
-  valor: unknown
-  onChange: (v: unknown) => void
-  opts: Opcion[]
-  gerente?: string | null
-}) {
-  const v = (valor ?? {}) as { responsablesPorOpcion?: Record<string, string[]> }
-  const porOpcion = v.responsablesPorOpcion ?? {}
-  const fallidos = opts.filter((o) => checkIncumplido(item, o, valor) && responsablesDeCheck(item, o).length > 0)
-  if (!fallidos.length) return null
-  return (
-    <div className="min-w-0 space-y-2">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Responsables de los puntos incumplidos</p>
-      {fallidos.map((o) => (
-        <div key={o.id} className="min-w-0 overflow-hidden rounded-xl border border-red-100 bg-red-50/60 p-2.5">
-          <p className="mb-1.5 w-full min-w-0 break-words text-xs font-medium text-slate-600">
-            {o.etiqueta} <span className="text-red-500">· sin cumplir</span>
-          </p>
-          <SelectorResponsables
-            responsables={responsablesDeCheck(item, o)}
-            seleccion={porOpcion[o.id] ?? []}
-            gerente={gerente}
-            onChange={(sel) => onChange({ ...v, responsablesPorOpcion: { ...porOpcion, [o.id]: sel } })}
-          />
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export function ItemRenderer({ item, valor, onChange, index, total, shopId, branchId, gerente }: Props) {
   const preg = `${index + 1}. ${item.texto}` + (item.requerido ? ' *' : '')
   const tipoColor =
@@ -874,6 +842,10 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
     }))
   }
 
+  const marcarResponsables = (dni: number, opcionId: string, rs: string[]) => {
+    actualizar(colaboradores.map((c) => (c.dni === dni ? { ...c, responsablesPorOpcion: { ...(c.responsablesPorOpcion ?? {}), [opcionId]: rs } } : c)))
+  }
+
   const aplicando = colaboradores.filter((c) => c.aplica)
   const cumplidos = aplicando.filter((c) => colaboradorCumple(c, opts)).length
 
@@ -967,16 +939,46 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
                       <div className="space-y-1 border-t border-slate-100 px-3 pb-3 pt-2">
                         {opts.map((o) => {
                           const esta = c.selected.includes(o.id)
+                          const respFallidos = responsablesDeCheck(item, o).length > 0
                           return (
-                            <label key={o.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-50">
-                              <input
-                                type="checkbox"
-                                className={cn('h-4 w-4 shrink-0', esta ? 'accent-green-600' : 'accent-primary')}
-                                checked={esta}
-                                onChange={() => toggleCheck(c.dni, o.id)}
-                              />
-                              <span className={cn('text-sm', c.aplica ? 'text-slate-700' : 'text-slate-400')}>{o.etiqueta}</span>
-                            </label>
+                            <div
+                              key={o.id}
+                              className={cn(
+                                'min-w-0 overflow-hidden rounded-xl border transition-colors',
+                                esta ? 'border-slate-200 bg-white' : 'border-red-300 bg-red-50'
+                              )}
+                            >
+                              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
+                                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    className={cn('h-4 w-4 shrink-0', esta ? 'accent-green-600' : 'accent-primary')}
+                                    checked={esta}
+                                    onChange={() => toggleCheck(c.dni, o.id)}
+                                  />
+                                  <span className={cn('min-w-0 flex-1 break-words text-sm', c.aplica ? 'text-slate-700' : 'text-slate-400')}>{o.etiqueta}</span>
+                                </label>
+                                {o.puntos != null && o.puntos > 0 ? (
+                                  <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
+                                ) : null}
+                              </div>
+                              {!esta ? (
+                                // Punto sin marcar de ESTE trabajador: responsables de la falla junto al punto, como en CHECKLIST/UNIDAD.
+                                <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
+                                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                    Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
+                                  </p>
+                                  {respFallidos ? (
+                                    <SelectorResponsables
+                                      responsables={responsablesDeCheck(item, o)}
+                                      seleccion={c.responsablesPorOpcion?.[o.id] ?? []}
+                                      gerente={gerente}
+                                      onChange={(sel) => marcarResponsables(c.dni, o.id, sel)}
+                                    />
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
                           )
                         })}
                       </div>
@@ -994,7 +996,6 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
       ) : (
         <p className="text-sm text-slate-400">Aún no hay colaboradores cargados. Pulsa “Cargar colaboradores” para traerlos de la tienda.</p>
       )}
-      <SelectorResponsablesPorTipo item={item} valor={v} onChange={onChange} opts={opts} gerente={gerente} />
     </div>
   )
 }
