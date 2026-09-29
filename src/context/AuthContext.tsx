@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { Session } from '@supabase/supabase-js'
+import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { emailPorUsuario, intentoLogin } from '../lib/data/usuarios'
 import { factorsTotpActivos } from '../lib/mfa'
@@ -7,6 +7,13 @@ import type { Profile, Rol } from '../lib/types'
 
 const PROFILE_KEY = 'evaluxor.profile'
 const RECORDAR_KEY = 'evaluxor.recordar'
+
+/**
+ * Mismo margen que supabase-js (EXPIRY_MARGIN_MS = 3 ticks x 30 s) a partir del
+ * cual el cliente intenta renovar el access token. Se usa para verificar en el
+ * arranque que la sesión guardada sigue siendo renovable.
+ */
+const MARGIN_REFRESCO_MS = 90_000
 
 /** "Recordarme": la sesión se restaura tras volver a abrir la app solo si quedó marcado. */
 function leerRecordar(): boolean {
@@ -85,19 +92,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [requiereNivel2, cargarPerfil])
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
-      if (s && !leerRecordar()) {
-        // El usuario pidió "no recordarme": al volver a abrir la app se cierra la sesión local.
-        try {
-          await supabase.auth.signOut()
-        } catch {
-          // Sin conexión: igual se deja la app sin sesión activa.
+    void (async () => {
+      let sesionInicial: Session | null = null
+      try {
+        const { data: { session: s }, error } = await supabase.auth.getSession()
+        sesionInicial = s
+        if (error) {
+          // El arranque no pudo recuperar la sesión guardada: se limpia lo local.
+          await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+          sesionInicial = null
+        } else if (s && !leerRecordar()) {
+          // El usuario pidió "no recordarme": al volver a abrir la app se cierra la sesión local.
+          await supabase.auth.signOut().catch(() => {})
+          sesionInicial = null
+        } else if (s && (s.expires_at ?? Infinity) * 1000 - Date.now() < MARGIN_REFRESCO_MS) {
+          // El access token está por vencer y la app debe renovarlo. Si el token de
+          // refresco ya no es válido (400 invalid_grant, p. ej. tras rotar las claves
+          // JWT en Supabase), la sesión queda "zombie": supabase-js la conserva y el
+          // error se repetiría en cada carga hasta la expiración. Se cierra la sesión
+          // local para arrancar limpio. Los errores de red NO cierran la sesión, así
+          // la app sigue abriéndose normalmente sin conexión.
+          try {
+            const { data, error: refError } = await supabase.auth.refreshSession()
+            if (refError && !isAuthRetryableFetchError(refError)) {
+              await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+              sesionInicial = null
+            } else if (data.session) {
+              sesionInicial = data.session
+            }
+          } catch {
+            // Red caída durante la verificación: se conserva la sesión guardada.
+          }
         }
-        procesarSesion(null).finally(() => setLoading(false))
-        return
+      } catch {
+        // Cualquier fallo de arranque se resuelve como "sin sesión".
+        sesionInicial = null
       }
-      void procesarSesion(s).finally(() => setLoading(false))
-    })
+      void procesarSesion(sesionInicial).finally(() => setLoading(false))
+    })()
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       void procesarSesion(s)
