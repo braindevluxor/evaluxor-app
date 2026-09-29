@@ -1384,9 +1384,9 @@ function BotonNoCumple({ activo, onPick }: { activo: boolean; onPick: () => void
 
 function CampoConciliacion({ etiqueta, valor, onChange }: { etiqueta: string; valor: number | null; onChange: (n: number | null) => void }) {
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
-      <label className="min-w-0 flex-1 truncate text-xs font-medium text-slate-500">{etiqueta}</label>
-      <div className="w-28 shrink-0 sm:w-32">
+    <div className="min-w-0 flex-1">
+      <label className="mb-1 block text-xs font-medium text-slate-500">{etiqueta}</label>
+      <div className="w-full">
         <Input
           type="number"
           inputMode="decimal"
