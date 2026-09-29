@@ -190,9 +190,21 @@ export function PerfilPage() {
         open={configAbierto}
         onClose={() => setConfigAbierto(false)}
         title="Activar verificación en dos pasos"
+        footer={
+          config ? (
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setConfigAbierto(false)} disabled={cargandoTotp}>
+                Cancelar
+              </Button>
+              <Button type="submit" form="form-totp-config" disabled={cargandoTotp}>
+                {cargandoTotp ? 'Verificando…' : 'Activar'}
+              </Button>
+            </div>
+          ) : undefined
+        }
       >
         {config ? (
-          <form onSubmit={confirmarConfig} className="space-y-4">
+          <form id="form-totp-config" onSubmit={confirmarConfig} className="space-y-4">
             <div className="grid place-items-center rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <img src={config.qr} alt="Código QR para tu autenticador" className="h-52 w-52" />
             </div>
@@ -214,22 +226,28 @@ export function PerfilPage() {
               />
             </Field>
             {msgTotp?.tipo === 'err' ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-600">{msgTotp.texto}</p> : null}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setConfigAbierto(false)} disabled={cargandoTotp}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={cargandoTotp}>
-                {cargandoTotp ? 'Verificando…' : 'Activar'}
-              </Button>
-            </div>
           </form>
         ) : (
           <p className="text-sm text-slate-500">Generando código QR…</p>
         )}
       </Modal>
 
-      <Modal open={desAbierto} onClose={() => setDesAbierto(false)} title="Desactivar verificación en dos pasos">
-        <form onSubmit={desactivar} className="space-y-4">
+      <Modal
+        open={desAbierto}
+        onClose={() => setDesAbierto(false)}
+        title="Desactivar verificación en dos pasos"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setDesAbierto(false)} disabled={cargandoTotp}>
+              Cancelar
+            </Button>
+            <Button type="submit" form="form-totp-des" variant="danger" disabled={cargandoTotp}>
+              {cargandoTotp ? 'Desactivando…' : 'Desactivar'}
+            </Button>
+          </div>
+        }
+      >
+        <form id="form-totp-des" onSubmit={desactivar} className="space-y-4">
           <p className="text-sm text-slate-600">
             Ingresa el código actual de tu app de autenticación para confirmar que eres tú.
           </p>
@@ -246,14 +264,6 @@ export function PerfilPage() {
             />
           </Field>
           {msgTotp?.tipo === 'err' ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-600">{msgTotp.texto}</p> : null}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setDesAbierto(false)} disabled={cargandoTotp}>
-              Cancelar
-            </Button>
-            <Button type="submit" variant="danger" disabled={cargandoTotp}>
-              {cargandoTotp ? 'Desactivando…' : 'Desactivar'}
-            </Button>
-          </div>
         </form>
       </Modal>
     </div>

@@ -29,6 +29,19 @@ describe('extraerPhotoIds', () => {
     expect(extraerPhotoIds({ selected: ['a', 'b'], evidencias: {} })).toEqual([])
     expect(extraerPhotoIds({ selected: [] })).toEqual([])
   })
+  it('extrae las imágenes de los planos de un ítem Cumplimiento XY', () => {
+    const valor = {
+      planos: [
+        { id: 'p1', nombre: 'Planta baja', photoIds: ['a', 'b'] },
+        { id: 'p2', nombre: 'Mezanine', photoIds: [] }
+      ],
+      puntos: [{ id: 'x', planoId: 'p1', x: 0.5, y: 0.5, cumple: false, comentario: '' }]
+    }
+    expect(extraerPhotoIds(valor)).toEqual(['a', 'b'])
+    // Un valor con `planos` pero sin fotos (o vacío) no aporta ids.
+    expect(extraerPhotoIds({ planos: [], puntos: [] })).toEqual([])
+    expect(extraerPhotoIds({ planos: [{ id: 'p', nombre: 'x' }], puntos: [] })).toEqual([])
+  })
 })
 
 describe('valorSinFotos', () => {
@@ -41,6 +54,23 @@ describe('valorSinFotos', () => {
     expect(valorSinFotos({ selected: ['a'], valores: {}, evidencias: {} })).toEqual({ selected: ['a'] })
     expect(valorSinFotos({ value: true, evidencias: [] })).toEqual({ value: true, evidencias: [] })
     expect(valorSinFotos('texto')).toBe('texto')
+  })
+  it('en un plano conserva planos y pines pero quita las fotos locales', () => {
+    // El auto-guardado en nube va sin fotos (se suben al enviar); los pines se conservan.
+    expect(
+      valorSinFotos({
+        planos: [{ id: 'p1', nombre: 'Planta baja', photoIds: ['a'] }],
+        puntos: [{ id: 'x', planoId: 'p1', x: 0.25, y: 0.75, cumple: false, comentario: 'falta góndola' }]
+      })
+    ).toEqual({
+      planos: [{ id: 'p1', nombre: 'Planta baja', photoIds: [] }],
+      puntos: [{ id: 'x', planoId: 'p1', x: 0.25, y: 0.75, cumple: false, comentario: 'falta góndola' }]
+    })
+    expect(valorSinFotos({ planos: [{ id: 'p1', nombre: 'X', photoIds: ['a'] }], puntos: [], informativo: true })).toEqual({
+      planos: [{ id: 'p1', nombre: 'X', photoIds: [] }],
+      puntos: [],
+      informativo: true
+    })
   })
 })
 
@@ -79,6 +109,32 @@ describe('convertirValor', () => {
         a: { paths: ['ev/c/d/x.jpg'] },
         b: { paths: ['.local/y'] }
       }
+    })
+  })
+  it('convierte las imágenes de los planos y deja los pines intactos', () => {
+    const map = new Map([['a', 'ev/job/evidencia/a.jpg']])
+    const puntos = [{ id: 'x', planoId: 'p1', x: 0.25, y: 0.75, cumple: false, comentario: 'falta góndola' }]
+    expect(
+      convertirValor(
+        {
+          planos: [
+            { id: 'p1', nombre: 'Planta baja', photoIds: ['a'] },
+            { id: 'p2', nombre: 'Mezanine', photoIds: ['b'] }
+          ],
+          puntos,
+          responsables: ['Caro'],
+          responsablesGerente: 'Elena'
+        },
+        map
+      )
+    ).toEqual({
+      planos: [
+        { id: 'p1', nombre: 'Planta baja', paths: ['ev/job/evidencia/a.jpg'] },
+        { id: 'p2', nombre: 'Mezanine', paths: ['.local/b'] }
+      ],
+      puntos,
+      responsables: ['Caro'],
+      responsablesGerente: 'Elena'
     })
   })
   it('conserva los valores numéricos de opciones RANGO del checklist', () => {

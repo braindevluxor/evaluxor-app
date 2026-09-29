@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import type { Evaluacion, Respuesta, Item, Foto, Modulo, Opcion, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion, InstanciaGrupo, SucursalModulo } from '../types'
+import type { Evaluacion, Respuesta, Item, Foto, Modulo, Opcion, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion, InstanciaGrupo, SucursalModulo, TipoItem } from '../types'
 import {
   proporcionItem,
   puntajePonderado,
@@ -9,12 +9,15 @@ import {
   colaboradorCumple,
   unidadCumple,
   pesoItem,
+  puntosMarcadosPlano,
   redondear3,
   type AcumuladoResponsable,
   type BinarioConPuntaje,
+  type ValorCumple,
   type ValorChecklist,
   type ValorConciliacion,
   type ValorListaColaboradores,
+  type ValorPlano,
   type ValorUnidadChecklist
 } from '../scoring'
 
@@ -814,6 +817,8 @@ export function rankingSucursales(
 }
 
 export interface SerieMes {
+  /** Clave 'YYYY-MM' del mes (útil para filtrar evaluaciones en un drilldown). */
+  key: string
   mes: string
   puntaje: number | null
   completadas: number
@@ -835,9 +840,10 @@ export function evolucionMensual(datos: ConjuntoDatos): SerieMes[] {
   const espanol = new Intl.DateTimeFormat('es', { month: 'short', year: '2-digit' })
   return Array.from(porMes.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([mes, v]) => {
-      const fecha = new Date(mes + '-01T12:00:00')
+    .map(([key, v]) => {
+      const fecha = new Date(key + '-01T12:00:00')
       return {
+        key,
         mes: espanol.format(fecha),
         puntaje: v.puntajes.length ? Math.round((v.puntajes.reduce((a, b) => a + b, 0) / v.puntajes.length) * 100) / 100 : null,
         completadas: v.completadas
@@ -1011,4 +1017,242 @@ export async function cerrarEvaluacion(id: string, puntuacion: number | null, co
     .update({ estado: 'CERRADA', cerrada_en: new Date().toISOString(), puntuacion, comentario_general: comentario })
     .eq('id', id)
   if (error) throw new Error(error.message)
+}
+
+/* --- Drilldown: datos filtrados para el modal al hacer clic en un gráfico --- */
+
+/** Alcance del drilldown: qué evaluaciones y qué respuestas incluir. */
+export type AlcanceDrilldown = {
+  sucursal_id?: string
+  modulo_id?: string
+  item_id?: string
+  /** Solo evaluaciones donde el ítem quedó sin cumplir (proporción < 1). */
+  soloNoCumple?: boolean
+  evaluador_id?: string
+  /** 'YYYY-MM'. */
+  mes?: string
+  /** Pista/placa (etiqueta de una instancia) del módulo de vehículos. */
+  instancia_etiqueta?: string
+}
+
+export interface FilaDrilldownEval {
+  id: string
+  fecha: string
+  sucursal: string
+  estado: EstadoEvaluacion
+  /** Puntaje global de la evaluación (0-100), o null si quedó sin cerrar. */
+  puntaje: number | null
+  /** Puntaje del elemento clickeado dentro de esa evaluación (módulo o ítem, 0-100). */
+  puntajeScope: number | null
+  /** Nº de respuestas puntuables dentro del alcance para esa evaluación. */
+  muestras: number
+  aperturador: string | null
+}
+
+export interface DetalleRespuestaEval {
+  item_id: string
+  texto: string
+  modulo: string | null
+  tipo: TipoItem
+  peso: number
+  /** 0..1 o null si la respuesta no puntúa. */
+  proporcion: number | null
+  cumple: boolean | null
+  resumen: string
+  instancia: string | null
+  fotos: number
+}
+
+/**
+ * Resume el valor de una respuesta en una línea legible, según el tipo de ítem.
+ * Devuelve la proporción (0..1) y un texto corto del contenido cargado.
+ */
+export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: number | null; resumen: string } {
+  const p = proporcionItem(item, valor)
+  switch (item.tipo) {
+    case 'CUMPLE_NO_CUMPLE': {
+      const v = valor as ValorCumple | null
+      const estado = v?.value == null ? 'Sin responder' : v.value ? 'Cumple' : 'No cumple'
+      const info = v?.informativo ? ' · informativo' : ''
+      return { proporcion: p, resumen: `${estado}${info}` }
+    }
+    case 'CHECKLIST': {
+      const v = valor as ValorChecklist | null
+      const opts = (item.opciones ?? []) as Opcion[]
+      const sel = v?.selected ?? []
+      const labels = sel.map((id) => {
+        const o = opts.find((x) => x.id === id)
+        if (o?.tipo_respuesta === 'RANGO') return `${o.etiqueta}: ${v?.valores?.[id] ?? '—'}${o.unidad ? ` ${o.unidad}` : ''}`
+        return o?.etiqueta ?? id
+      })
+      if (p === null) {
+        if (v?.informativos?.length) return { proporcion: p, resumen: `${v.informativos.length} opción(es) informativa(s)` }
+        return { proporcion: p, resumen: 'Sin opciones marcadas' }
+      }
+      return { proporcion: p, resumen: `${sel.length} de ${opts.length} opciones${labels.length ? ` · ${labels.join(' · ')}` : ''}` }
+    }
+    case 'LISTA_COLABORADORES': {
+      const v = valor as ValorListaColaboradores | null
+      const cols = v?.colaboradores ?? []
+      if (!cols.length) return { proporcion: p, resumen: 'Sin colaboradores' }
+      const opts = (item.opciones ?? []) as Opcion[]
+      const aplican = cols.filter((c) => c.aplica)
+      const cumplen = aplican.filter((c) => colaboradorCumple(c, opts)).length
+      return { proporcion: p, resumen: `${cumplen}/${aplican.length} colaboradores cumplen${cols.some((c) => !c.aplica) ? ` (${cols.length - aplican.length} no aplican)` : ''}` }
+    }
+    case 'UNIDAD_CHECKLIST': {
+      const v = valor as ValorUnidadChecklist | null
+      const unids = v?.unidades ?? []
+      if (!unids.length) return { proporcion: p, resumen: 'Sin unidades' }
+      const opts = (item.opciones ?? []) as Opcion[]
+      const cumplen = unids.filter((u) => unidadCumple(u, opts)).length
+      return { proporcion: p, resumen: `${cumplen}/${unids.length} unidades completas` }
+    }
+    case 'PLANO_XY': {
+      const v = valor as ValorPlano | null
+      const pts = v?.puntos ?? []
+      const marcados = puntosMarcadosPlano(v)
+      const cumplen = marcados.filter((x) => x.cumple === true).length
+      if (!pts.length) return { proporcion: p, resumen: 'Sin plano cargado' }
+      if (!marcados.length) return { proporcion: p, resumen: `${pts.length} punto(s) sin veredicto` }
+      return { proporcion: p, resumen: `${cumplen}/${marcados.length} puntos cumplen · ${pts.length} marcado(s)${v?.informativo ? ' · informativo' : ''}` }
+    }
+    case 'CONCILIACION': {
+      const v = valor as ValorConciliacion | null
+      const validos = (v?.productos ?? []).filter(
+        (pro) => typeof pro.teorica === 'number' && typeof pro.fisica === 'number' && pro.teorica > 0
+      )
+      if (!validos.length) {
+        return { proporcion: p, resumen: v?.productos?.length ? `${v.productos.length} producto(s) escaneados` : 'Sin productos escaneados' }
+      }
+      const conc = validos.filter((pro) => pro.fisica === pro.teorica).length
+      const tasa = Math.round(((validos.length - conc) / validos.length) * 100)
+      return { proporcion: p, resumen: `${conc}/${validos.length} productos conciliados · descuadre ${tasa}%` }
+    }
+    default:
+      return { proporcion: p, resumen: p != null ? `${Math.round(p * 100)}% de cumplimiento` : 'Sin responder' }
+  }
+}
+
+/**
+ * Evaluaciones del conjunto (ya acotado por rango/sucursal desde la consulta)
+ * que caen dentro del alcance clickeado, con el puntaje global y el puntaje del
+ * elemento al que se hizo clic. Ordenadas por fecha descendente.
+ */
+export function renglonesDrilldown(datos: ConjuntoDatos, f: AlcanceDrilldown = {}): FilaDrilldownEval[] {
+  const itemDe = new Map<string, Item>()
+  for (const i of datos.items) itemDe.set(i.id, i)
+  const respuestasPorEval = new Map<string, Respuesta[]>()
+  for (const r of datos.respuestas) {
+    const arr = respuestasPorEval.get(r.evaluacion_id) ?? []
+    arr.push(r)
+    respuestasPorEval.set(r.evaluacion_id, arr)
+  }
+  const instanciaEtiqueta = new Map<string, string>()
+  for (const ins of datos.instancias) instanciaEtiqueta.set(ins.id, ins.etiqueta)
+
+  const filas: FilaDrilldownEval[] = []
+  for (const ev of datos.evaluaciones) {
+    if (f.sucursal_id && ev.sucursal_id !== f.sucursal_id) continue
+    if (f.evaluador_id && (ev.aperturada_por || ev.id) !== f.evaluador_id) continue
+    if (f.mes && ev.fecha.slice(0, 7) !== f.mes) continue
+
+    const resp = respuestasPorEval.get(ev.id) ?? []
+    let muestras = 0
+    let okItem = 0
+    let itemVisto = false
+    for (const r of resp) {
+      const item = itemDe.get(r.item_id)
+      if (!item) continue
+      if (f.modulo_id && item.modulo_id !== f.modulo_id) continue
+      if (f.item_id && item.id !== f.item_id) continue
+      if (f.instancia_etiqueta) {
+        const etiq = r.instancia_id ? instanciaEtiqueta.get(r.instancia_id) : null
+        if (etiq !== f.instancia_etiqueta) continue
+      }
+      const p = proporcionItem(aplicarOpcionesSucursal(item, ev.sucursal_id, datos.sucursalOpciones), r.valor)
+      if (p === null) continue
+      muestras++
+      if (f.item_id) {
+        itemVisto = true
+        okItem = p
+      }
+    }
+    if (f.item_id && !itemVisto) continue
+    if (f.item_id && f.soloNoCumple && okItem >= 1) continue
+    if (!f.item_id && f.modulo_id && muestras === 0) continue
+
+    let puntajeScope: number | null = null
+    if (f.modulo_id) {
+      puntajeScope = puntajeModuloEnEvaluacion(datos, ev, f.modulo_id, respuestasPorEval, itemDe)
+    } else if (f.item_id) {
+      puntajeScope = Math.round(okItem * 100)
+    }
+
+    filas.push({
+      id: ev.id,
+      fecha: ev.fecha,
+      sucursal: ev.sucursal?.nombre ?? ev.sucursal_id,
+      estado: ev.estado,
+      puntaje: ev.puntuacion,
+      puntajeScope,
+      muestras,
+      aperturador: ev.aperturador?.nombre ?? null
+    })
+  }
+  return filas.sort((a, b) => b.fecha.localeCompare(a.fecha) || a.sucursal.localeCompare(b.sucursal, 'es'))
+}
+
+/**
+ * Detalle de respuestas de una evaluación dentro del alcance (para el segundo
+ * paso del modal): cada fila con el ítem, su contenido resumido y si cumple.
+ */
+export function detalleDeEvaluacion(datos: ConjuntoDatos, evaluacionId: string, f: AlcanceDrilldown = {}): DetalleRespuestaEval[] {
+  const ev = datos.evaluaciones.find((e) => e.id === evaluacionId)
+  const itemDe = new Map<string, Item>()
+  for (const i of datos.items) itemDe.set(i.id, i)
+  const moduloIndex = new Map<string, number>()
+  datos.modulos.forEach((m, i) => moduloIndex.set(m.id, i))
+  const instanciaEtiqueta = new Map<string, string>()
+  for (const ins of datos.instancias) instanciaEtiqueta.set(ins.id, ins.etiqueta)
+  const fotoPor = new Map<string, number>()
+  for (const fot of datos.fotos) {
+    const k = `${fot.evaluacion_id}|${fot.item_id}|${fot.instancia_id ?? ''}`
+    fotoPor.set(k, (fotoPor.get(k) ?? 0) + 1)
+  }
+
+  const filas: DetalleRespuestaEval[] = []
+  for (const r of datos.respuestas) {
+    if (r.evaluacion_id !== evaluacionId) continue
+    const item = itemDe.get(r.item_id)
+    if (!item) continue
+    if (f.modulo_id && item.modulo_id !== f.modulo_id) continue
+    if (f.item_id && item.id !== f.item_id) continue
+    if (f.instancia_etiqueta) {
+      const etiq = r.instancia_id ? instanciaEtiqueta.get(r.instancia_id) : null
+      if (etiq !== f.instancia_etiqueta) continue
+    }
+    const aplicado = aplicarOpcionesSucursal(item, ev?.sucursal_id ?? '', datos.sucursalOpciones)
+    const { proporcion, resumen } = resumenDeRespuesta(aplicado, r.valor)
+    filas.push({
+      item_id: item.id,
+      texto: item.texto,
+      modulo: datos.modulos.find((m) => m.id === item.modulo_id)?.nombre ?? null,
+      tipo: item.tipo,
+      peso: pesoItem(item),
+      proporcion,
+      cumple: proporcion == null ? null : proporcion >= 1,
+      resumen,
+      instancia: r.instancia_id ? instanciaEtiqueta.get(r.instancia_id) ?? null : null,
+      fotos: fotoPor.get(`${evaluacionId}|${item.id}|${r.instancia_id ?? ''}`) ?? 0
+    })
+  }
+
+  const ordenIndex = (a: DetalleRespuestaEval) => {
+    const item = itemDe.get(a.item_id)
+    return (moduloIndex.get(item?.modulo_id ?? '') ?? 99) * 1000 + (item?.orden ?? 99)
+  }
+  return filas.sort(
+    (a, b) => ordenIndex(a) - ordenIndex(b) || (a.instancia ?? '').localeCompare(b.instancia ?? '', 'es') || a.texto.localeCompare(b.texto, 'es')
+  )
 }

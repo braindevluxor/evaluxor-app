@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { FolderOpen, GripVertical, Pencil, Plus, Copy, Trash2, X } from 'lucide-react'
+import { FolderOpen, GripVertical, Pencil, Plus, Copy, Trash2, X, Check } from 'lucide-react'
 import { useCatalog } from '../../context/CatalogContext'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
 import { agruparPorDepartamento, listarResponsables, type ResponsableCatalogo } from '../../lib/data/responsables'
@@ -32,6 +32,8 @@ export function ItemsPage() {
   const [moduloId, setModuloId] = useState(() => params.get('modulo') ?? '')
   const [modal, setModal] = useState(false)
   const [editando, setEditando] = useState<Item | null>(null)
+  /** El botón de guardar vive en el footer fijo del modal; FormItem informa si es válido guardar (peso > 100, rango sin mínimo, API sin campos). */
+  const [itemValido, setItemValido] = useState(true)
   /** Al copiar un ítem, el modal trabaja sobre una copia sin id (inserta nuevo) y `origenCopia` guarda el ítem original (para duplicar también sus hijos si es sección). */
   const [esCopia, setEsCopia] = useState(false)
   const [origenCopia, setOrigenCopia] = useState<Item | null>(null)
@@ -264,6 +266,7 @@ export function ItemsPage() {
                       <Badge color={tipoColor(it.tipo)}>{etiquetaTipo(it.tipo)}</Badge>
                       {esSeccion && nHijos > 0 ? <Badge color={0}>{nHijos} ítem(s) dentro</Badge> : null}
                       {it.requerido ? <Badge color={0}>Obligatorio</Badge> : null}
+                      {it.tipo === 'UNIDAD_CHECKLIST' && it.repetible === false ? <Badge color={0}>Carga única</Badge> : null}
                       {!it.activo ? <Badge color={4}>Inactivo</Badge> : null}
                       {pesoItem(it) > 0 ? <Badge color={2}>{pesoItem(it)} pts</Badge> : <Badge color={4}>Sin puntos</Badge>}
                     </div>
@@ -306,7 +309,13 @@ export function ItemsPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => { setModal(false); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null) }} title={esCopia ? (origenCopia?.tipo === 'CONTENEDOR' ? 'Copiar sección' : 'Copiar ítem') : editando ? 'Editar ítem' : nuevoPadreId ? 'Nuevo ítem dentro de la sección' : 'Nuevo ítem'} wide>
+      <Modal
+        open={modal}
+        onClose={() => { setModal(false); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null); setItemValido(true) }}
+        title={esCopia ? (origenCopia?.tipo === 'CONTENEDOR' ? 'Copiar sección' : 'Copiar ítem') : editando ? 'Editar ítem' : nuevoPadreId ? 'Nuevo ítem dentro de la sección' : 'Nuevo ítem'}
+        wide
+        footer={<Button type="submit" form="form-item" className="w-full" disabled={!itemValido}>Guardar ítem</Button>}
+      >
         <FormItem
           moduloId={moduloId}
           modulos={modulos}
@@ -314,6 +323,7 @@ export function ItemsPage() {
           inicial={editando}
           items={items}
           padreIdInicial={nuevoPadreId}
+          onValido={setItemValido}
           onGuardar={async (d) => {
             setError('')
             try {
@@ -354,40 +364,47 @@ export function ItemsPage() {
         />
       </Modal>
 
-      <Modal open={!!aBorrar} onClose={() => setABorrar(null)} title="Eliminar ítem">
+      <Modal
+        open={!!aBorrar}
+        onClose={() => setABorrar(null)}
+        title="Eliminar ítem"
+        footer={
+          <div className="flex gap-2">
+            <Button variant="secondary" className="flex-1" onClick={() => setABorrar(null)}>Cancelar</Button>
+            <Button
+              className="flex-1 bg-red-600 hover:bg-red-700"
+              disabled={borrando}
+              onClick={async () => {
+                if (!aBorrar) return
+                setBorrando(true)
+                setError('')
+                try {
+                  await eliminarItem(aBorrar.id)
+                  setABorrar(null)
+                  await cargar()
+                } catch (e) {
+                  setError(mensajeError(e, 'No se pudo eliminar el ítem.'))
+                  setABorrar(null)
+                } finally {
+                  setBorrando(false)
+                }
+              }}
+            >
+              {borrando ? 'Eliminando…' : 'Eliminar ítem'}
+            </Button>
+          </div>
+        }
+      >
         {aBorrar ? (
-          <div className="space-y-4">
+          <div>
             <p className="text-sm text-slate-600">
               ¿Seguro que deseas eliminar el ítem <strong>{aBorrar.texto}</strong>? Se borrarán también las respuestas asociadas en evaluaciones ya realizadas. Esta acción no se puede deshacer.
             </p>
             {aBorrar.tipo === 'CONTENEDOR' && hijosDe(items, aBorrar.id).length > 0 ? (
-              <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+              <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
                 Esta sección contiene <strong>{hijosDe(items, aBorrar.id).length} ítem(s)</strong>. También se eliminarán junto con la sección.
               </p>
             ) : null}
-            <div className="flex gap-2">
-              <Button variant="secondary" className="flex-1" onClick={() => setABorrar(null)}>Cancelar</Button>
-              <Button
-                className="flex-1 bg-red-600 hover:bg-red-700"
-                disabled={borrando}
-                onClick={async () => {
-                  setBorrando(true)
-                  setError('')
-                  try {
-                    await eliminarItem(aBorrar.id)
-                    setABorrar(null)
-                    await cargar()
-                  } catch (e) {
-                    setError(mensajeError(e, 'No se pudo eliminar el ítem.'))
-                    setABorrar(null)
-                  } finally {
-                    setBorrando(false)
-                  }
-                }}
-              >
-                {borrando ? 'Eliminando…' : 'Eliminar ítem'}
-              </Button>
-            </div>
           </div>
         ) : null}
       </Modal>
@@ -396,7 +413,7 @@ export function ItemsPage() {
 }
 
 function tipoColor(t: TipoItem): number {
-  return t === 'CUMPLE_NO_CUMPLE' ? 3 : t === 'CONCILIACION' ? 6 : t === 'CHECKLIST' ? 5 : t === 'LISTA_COLABORADORES' ? 1 : t === 'UNIDAD_CHECKLIST' ? 1 : 4
+  return t === 'CUMPLE_NO_CUMPLE' ? 3 : t === 'CONCILIACION' ? 6 : t === 'CHECKLIST' ? 5 : t === 'LISTA_COLABORADORES' ? 1 : t === 'UNIDAD_CHECKLIST' ? 1 : t === 'PLANO_XY' ? 2 : 4
 }
 
 function FormItem({
@@ -406,6 +423,7 @@ function FormItem({
   inicial,
   items,
   padreIdInicial = null,
+  onValido,
   onGuardar
 }: {
   moduloId: string
@@ -414,6 +432,8 @@ function FormItem({
   inicial: Item | null
   items: Item[]
   padreIdInicial?: string | null
+  /** Reporta al padre si el ítem puede guardarse (el botón vive en el footer fijo del modal). */
+  onValido?: (valido: boolean) => void
   onGuardar: (d: Partial<Item> & { modulo_id: string; tipo: TipoItem; texto: string; sku?: string }) => Promise<void>
 }) {
   const [moduloSel, setModuloSel] = useState<string>(inicial?.modulo_id ?? moduloId)
@@ -442,6 +462,7 @@ function FormItem({
     inicial?.api_campos?.length ? (inicial.api_campos ?? []) : []
   )
   const [permitirDuplicados, setPermitirDuplicados] = useState(inicial?.permitir_duplicados ?? false)
+  const [repetible, setRepetible] = useState(inicial?.repetible ?? true)
   const [autoPuntaje, setAutoPuntaje] = useState(false)
 
   const esSeccion = tipo === 'CONTENEDOR'
@@ -483,11 +504,12 @@ function FormItem({
   }, [autoPuntaje, puntos, nOpcionesConTexto])
 
   // Un solo catálogo con los cargos de TODAS las sucursales (sin repetir cargos):
-  // no importa de qué branch venga cada uno.
+  // no importa de qué branch venga cada uno. Se carga para todo tipo de ítem
+  // excepto las secciones (CONTENEDOR): todos pueden llevar responsables.
   const branchIds = useMemo(() => ['5', ...sucursales.map((s) => s.branch_id ?? '')], [sucursales])
 
   useEffect(() => {
-    if (!conChecklist) return
+    if (esSeccion) return
     let activo = true
     setCargandoResponsables(true)
     setErrorResponsables('')
@@ -498,10 +520,17 @@ function FormItem({
       setCargandoResponsables(false)
     })
     return () => { activo = false }
-  }, [branchIds, conChecklist])
+  }, [branchIds, esSeccion])
+
+  // El botón «Guardar ítem» vive en el footer fijo del modal: le informamos
+  // al padre si el ítem está en condiciones de guardarse.
+  useEffect(() => {
+    onValido?.(!(excede || rangoIncompleto || apiSinCampos))
+  }, [excede, rangoIncompleto, apiSinCampos, onValido])
 
   return (
     <form
+      id="form-item"
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
@@ -525,13 +554,14 @@ function FormItem({
                   })
               : [],
           colaboradores_filtro: !esSeccion && tipo === 'LISTA_COLABORADORES' ? filtroColaboradores : null,
-          responsables: !esSeccion && conChecklist ? responsables.filter((r) => r.trim()) : [],
+          responsables: !esSeccion ? responsables.filter((r) => r.trim()) : [],
           requerido: esSeccion ? false : requerido,
           activo,
           padre_id: esSeccion ? null : padreId,
           api_id: esSeccion ? (apiId || null) : null,
           api_campos: esSeccion && apiId ? apiCampos : null,
-          permitir_duplicados: esSeccion && apiId ? permitirDuplicados : false
+          permitir_duplicados: esSeccion && apiId ? permitirDuplicados : false,
+          repetible: tipo === 'UNIDAD_CHECKLIST' ? repetible : true
         })
       }}
     >
@@ -728,12 +758,21 @@ function FormItem({
           <Field label="Checklist de cada unidad (se aplica a todas las unidades que se agreguen)">
             <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} />
           </Field>
+          <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-3 text-sm text-slate-700">
+            <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-primary" checked={repetible} onChange={(e) => setRepetible(e.target.checked)} />
+            <span>
+              <strong>Repetible</strong>
+              <span className="block text-xs font-normal text-slate-500">Permite cargar el checklist varias veces (una unidad por cada carga). Si lo desactivás, el evaluador solo carga el checklist una vez.</span>
+            </span>
+          </label>
           <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-            En la evaluación el evaluador agrega cada unidad (valor alfanumérico) una a una y marca este mismo checklist para cada una. El ítem cumple cuando todas las unidades agregadas tienen su checklist completo.
+            {repetible
+              ? 'En la evaluación el evaluador agrega cada unidad (valor alfanumérico) una a una y marca este mismo checklist para cada una. El ítem cumple cuando todas las unidades agregadas tienen su checklist completo.'
+              : 'En la evaluación se muestra este checklist una sola vez. El ítem cumple cuando todas las opciones están marcadas.'}
           </p>
         </>
       ) : null}
-      {conChecklist ? (
+      {!esSeccion ? (
         <EditorResponsables
           responsables={responsables}
           onChange={setResponsables}
@@ -741,6 +780,13 @@ function FormItem({
           cargando={cargandoResponsables}
           error={errorResponsables}
         />
+      ) : null}
+      {tipo === 'PLANO_XY' ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+          En la evaluación, el evaluador sube la imagen del layout (piso de venta), la amplía y marca sobre ella los puntos que quiere
+          revisar. Cada punto lleva un comentario y su veredicto (cumple / no cumple). El puntaje del ítem sale de la proporción de
+          puntos que cumplen: si marcó 15 puntos y 11 cumplen, el ítem vale 73.33% de su peso. Los puntos sin veredicto no cuentan.
+        </p>
       ) : null}
       {tipo === 'CONCILIACION' ? (
         <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
@@ -759,7 +805,6 @@ function FormItem({
           Ítem activo (visible en evaluaciones)
         </label>
       </div>
-      <Button type="submit" className="w-full" disabled={excede || rangoIncompleto || apiSinCampos}>Guardar ítem</Button>
     </form>
   )
 }
@@ -977,31 +1022,39 @@ function EditorResponsables({ responsables, onChange, catalogo, cargando, error 
   cargando: boolean
   error: string
 }) {
-  const [filtro, setFiltro] = useState('')
+  const [texto, setTexto] = useState('')
+  const [abierto, setAbierto] = useState(false)
 
-  const alternar = (r: string) => {
-    onChange(responsables.includes(r) ? responsables.filter((x) => x !== r) : [...responsables, r])
+  const normalizar = useCallback((s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(), [])
+
+  /** Cargos únicos de todas las sucursales con su departamento, filtrados mientras se escribe. */
+  const sugerencias = useMemo(() => {
+    const busqueda = normalizar(texto.trim())
+    const vistos = new Set<string>()
+    const lista: { cargo: string; departamento: string }[] = []
+    for (const g of agruparPorDepartamento(catalogo)) {
+      for (const c of g.cargos) {
+        if (vistos.has(c)) continue
+        vistos.add(c)
+        if (!busqueda || normalizar(c).includes(busqueda) || normalizar(g.departamento).includes(busqueda)) {
+          lista.push({ cargo: c, departamento: g.departamento })
+        }
+      }
+    }
+    return lista
+  }, [catalogo, texto, normalizar])
+
+  const agregar = (r: string) => {
+    if (!r.trim() || responsables.includes(r)) return
+    onChange([...responsables, r])
+    setTexto('')
+    setAbierto(true)
   }
 
-  // Una sola lista organizada por departamentos, con los cargos de todas las sucursales
-  // ya fusionados (sin repetir). El filtro no distingue mayúsculas ni acentos.
-  const grupos = useMemo(() => {
-    const normalizar = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-    const busqueda = normalizar(filtro.trim())
-    return agruparPorDepartamento(catalogo)
-      .map((g) => ({
-        departamento: g.departamento,
-        cargos: busqueda ? g.cargos.filter((c) => normalizar(c).includes(busqueda)) : g.cargos
-      }))
-      .filter((g) => g.cargos.length)
-  }, [catalogo, filtro])
-
   return (
-    <Field label="Responsables" hint="Cargos y departamentos de todas las sucursales, sin repetidos. Lo que marques aquí podrás asignarlo a cada check; los checks que no se cumplan suman a cada uno de sus responsables.">
+    <Field label="Responsables" hint="Cargos y departamentos de todas las sucursales, sin repetidos. El peso del ítem se reparte en partes iguales entre los responsables; en ítems con opciones podrás asignarlos también punto por punto.">
       <div className="space-y-2">
-        <Input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="Buscar cargo o departamento…" disabled={cargando} />
         {error ? <p className="text-xs font-medium text-amber-700">{error}</p> : null}
-        {!cargando && !error && !catalogo.length ? <p className="text-xs text-slate-400">No se encontraron cargos ni departamentos en las sucursales configuradas.</p> : null}
         {responsables.length ? (
           <div className="flex flex-wrap gap-2">
             {responsables.map((r) => (
@@ -1016,40 +1069,63 @@ function EditorResponsables({ responsables, onChange, catalogo, cargando, error 
         ) : (
           <p className="text-xs text-slate-400">Sin responsables configurados. Los puntos quedarán sin responsable y no se acumularán incumplimientos.</p>
         )}
-        {cargando ? (
-          <p className="text-xs text-slate-400">Consultando el catálogo de cargos de las sucursales…</p>
-        ) : grupos.length ? (
-          <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/60 p-2">
-            {grupos.map((g) => (
-              <div key={g.departamento} className="space-y-1">
-                <p className="px-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  {g.departamento} <span className="font-normal text-slate-400">({g.cargos.length})</span>
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {g.cargos.map((c) => {
-                    const activo = responsables.includes(c)
-                    return (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => alternar(c)}
-                        aria-pressed={activo}
-                        className={cn(
-                          'rounded-full px-2.5 py-1 text-xs font-semibold transition-colors',
-                          activo ? 'bg-primary text-white' : 'bg-white text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-primary-50 hover:text-primary-800'
-                        )}
-                      >
-                        {c}
-                      </button>
-                    )
-                  })}
-                </div>
+        <div className="relative">
+          <Input
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            onFocus={() => setAbierto(true)}
+            onBlur={() => setTimeout(() => setAbierto(false), 120)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                if (sugerencias.length) agregar(sugerencias[0].cargo)
+              } else if (e.key === 'Escape') {
+                setTexto('')
+                setAbierto(false)
+              }
+            }}
+            placeholder={cargando ? 'Consultando catálogo…' : 'Escribe para buscar un cargo…'}
+            disabled={cargando}
+            aria-expanded={abierto}
+            aria-label="Buscar cargo o departamento"
+          />
+          {abierto && !cargando ? (
+            sugerencias.length ? (
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                {sugerencias.map((s) => {
+                  const activo = responsables.includes(s.cargo)
+                  return (
+                    <button
+                      key={s.cargo}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => agregar(s.cargo)}
+                      aria-pressed={activo}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors',
+                        activo ? 'bg-primary-50 text-primary-700' : 'text-slate-700 hover:bg-slate-50'
+                      )}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold">{s.cargo}{activo ? ' · ya asignado' : ''}</span>
+                        <span className="block truncate text-[11px] font-normal text-slate-400">{s.departamento}</span>
+                      </span>
+                      {activo ? <Check className="h-4 w-4 shrink-0 text-primary-600" /> : null}
+                    </button>
+                  )
+                })}
               </div>
-            ))}
-          </div>
-        ) : filtro ? (
-          <p className="text-xs text-slate-400">Ningún cargo coincide con “{filtro}”.</p>
-        ) : null}
+            ) : catalogo.length ? (
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-400 shadow-lg">
+                Ningún cargo coincide con “{texto}”.
+              </div>
+            ) : (
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-400 shadow-lg">
+                No se encontraron cargos ni departamentos en las sucursales configuradas.
+              </div>
+            )
+          ) : null}
+        </div>
       </div>
     </Field>
   )

@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
-import { consultarEvaluaciones, evolucionMensual, porEvaluador } from '../../lib/data/indicadores'
-import type { ConjuntoDatos } from '../../lib/data/indicadores'
+import { consultarEvaluaciones, detalleDeEvaluacion, evolucionMensual, porEvaluador, renglonesDrilldown } from '../../lib/data/indicadores'
+import type { AlcanceDrilldown, ConjuntoDatos } from '../../lib/data/indicadores'
 import { Card, Field, Input, Select, Skeleton } from '../../components/ui'
-import { BarChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, ComposedChart, Legend, Cell } from 'recharts'
+import { ModalDrilldown, DetalleEvalCabecera, DetalleRespuestasLista } from '../../components/dashboard/ModalDrilldown'
+import { pct as pctComa } from '../../lib/numeros'
+import { BarChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, ComposedChart, Legend, Cell, ReferenceLine } from 'recharts'
 
 type Dimension = 'evaluador' | 'mes' | 'sucursal'
 type Metrica = 'puntaje' | 'completadas'
@@ -24,6 +26,7 @@ export function Comparativas() {
   const [sucursalSel, setSucursalSel] = useState('')
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
   const [cargando, setCargando] = useState(true)
+  const [drill, setDrill] = useState<{ titulo: string; subtitulo?: string; alcance: AlcanceDrilldown } | null>(null)
 
   useEffect(() => {
     let activo = true
@@ -52,7 +55,7 @@ export function Comparativas() {
       return porEvaluador(datos).map((e) => ({ nombre: e.nombre, puntaje: e.puntaje, completadas: e.evaluaciones, key: e.nombre }))
     }
     if (dimension === 'mes') {
-      return evolucionMensual(datos).map((s) => ({ nombre: s.mes, puntaje: s.puntaje, completadas: s.completadas, key: s.mes }))
+      return evolucionMensual(datos).map((s) => ({ nombre: s.mes, puntaje: s.puntaje, completadas: s.completadas, key: s.key }))
     }
     const porSuc = new Map<string, { nombre: string; puntajes: (number | null)[]; completadas: number }>()
     for (const ev of datos.evaluaciones) {
@@ -79,6 +82,61 @@ export function Comparativas() {
   const datosF = datosComparados as { nombre: string; puntaje: number | null; completadas: number; key: string }[]
 
   const altura = Math.max(220, (dimension === 'evaluador' || dimension === 'sucursal' ? datosF.length * 44 : 60))
+
+  // Drilldown (modal): mapas por dimensión + alcance clickeado.
+  const mapas = useMemo(() => {
+    const idPorNombreSuc = new Map<string, string>()
+    const idPorEvaluador = new Map<string, string>()
+    for (const ev of datos?.evaluaciones ?? []) {
+      idPorNombreSuc.set(ev.sucursal?.nombre ?? ev.sucursal_id, ev.sucursal_id)
+      const n = ev.aperturador?.nombre ?? 'Sin nombre'
+      if (!idPorEvaluador.has(n)) idPorEvaluador.set(n, ev.aperturada_por || ev.id)
+    }
+    return { idPorNombreSuc, idPorEvaluador }
+  }, [datos])
+
+  const drillFilas = useMemo(
+    () => (datos && drill ? renglonesDrilldown(datos, drill.alcance) : []),
+    [datos, drill]
+  )
+
+  const detalleDe = (id: string) => {
+    const r = drillFilas.find((x) => x.id === id)
+    return (
+      <div className="space-y-3">
+        {r ? (
+          <DetalleEvalCabecera
+            fecha={r.fecha}
+            sucursal={r.sucursal}
+            estado={r.estado}
+            puntaje={r.puntaje}
+            puntajeScope={r.puntajeScope}
+            etiquetaScope="Puntaje global"
+            muestras={r.muestras}
+          />
+        ) : null}
+        <DetalleRespuestasLista filas={datos ? detalleDeEvaluacion(datos, id, drill?.alcance ?? {}) : []} />
+      </div>
+    )
+  }
+
+  const abrirDesdeGrafico = (data: unknown) => {
+    const d = data as { payload?: Record<string, unknown> } | null | undefined
+    const nombre = d?.payload?.nombre
+    if (typeof nombre !== 'string') return
+    if (dimension === 'mes') {
+      const key = d?.payload?.key
+      if (typeof key === 'string') {
+        setDrill({ titulo: nombre, subtitulo: 'Evaluaciones de ese mes en el rango seleccionado', alcance: { mes: key } })
+      }
+    } else if (dimension === 'sucursal') {
+      const id = mapas.idPorNombreSuc.get(nombre)
+      if (id) setDrill({ titulo: nombre, subtitulo: 'Evaluaciones de esta sucursal en el rango seleccionado', alcance: { sucursal_id: id } })
+    } else {
+      const id = mapas.idPorEvaluador.get(nombre)
+      if (id) setDrill({ titulo: nombre, subtitulo: 'Evaluaciones aperturadas por este evaluador en el rango', alcance: { evaluador_id: id } })
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -136,8 +194,14 @@ export function Comparativas() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
                 <XAxis type="number" domain={[0, 100]} />
                 <YAxis type="category" dataKey="nombre" width={140} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v) => [`${v}%`, 'Cumplimiento']} />
-                <Bar dataKey="puntaje" radius={[0, 6, 6, 0]}>
+                <ReferenceLine x={80} stroke="#16a34a" strokeDasharray="4 4" strokeOpacity={0.4} />
+                <ReferenceLine x={60} stroke="#d97706" strokeDasharray="4 4" strokeOpacity={0.4} />
+                <Tooltip
+                  formatter={(v) => [v == null ? '—' : pctComa(Number(v)), 'Cumplimiento']}
+                  contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
+                  cursor={{ fill: 'rgba(40,49,95,0.06)' }}
+                />
+                <Bar dataKey="puntaje" radius={[0, 6, 6, 0]} onClick={abrirDesdeGrafico} activeBar={{ fillOpacity: 0.8 }}>
                   {datosF.map((_, i) => <Cell key={i} fill={COLORES[i % COLORES.length]} />)}
                 </Bar>
               </BarChart>
@@ -146,13 +210,18 @@ export function Comparativas() {
             <ResponsiveContainer width="100%" height={300}>
               <ComposedChart data={datosF}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="nombre" />
-                <YAxis yAxisId="l" domain={[0, 100]} />
-                <YAxis yAxisId="r" orientation="right" />
-                <Tooltip />
-                <Legend />
-                <Line yAxisId="l" type="monotone" dataKey="puntaje" name="Cumplimiento %" stroke="#0B2545" strokeWidth={3} dot={{ r: 4 }} />
-                <Bar yAxisId="r" dataKey="completadas" name="Completadas" fill="#93c5fd" radius={[4, 4, 0, 0]} />
+                <XAxis dataKey="nombre" tick={{ fontSize: 11 }} />
+                <YAxis yAxisId="l" domain={[0, 100]} tick={{ fontSize: 11 }} />
+                <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 11 }} allowDecimals={false} />
+                <ReferenceLine yAxisId="l" y={80} stroke="#16a34a" strokeDasharray="4 4" strokeOpacity={0.4} />
+                <Tooltip
+                  formatter={(v, nombre) => [nombre === 'Cumplimiento %' ? pctComa(Number(v)) : String(v), String(nombre)]}
+                  contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
+                  cursor={{ fill: 'rgba(40,49,95,0.06)' }}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Line yAxisId="l" type="monotone" dataKey="puntaje" name="Cumplimiento %" stroke="#0B2545" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 5.5 }} onClick={abrirDesdeGrafico} style={{ cursor: 'pointer' }} />
+                <Bar yAxisId="r" dataKey="completadas" name="Completadas" fill="#93c5fd" radius={[4, 4, 0, 0]} onClick={abrirDesdeGrafico} style={{ cursor: 'pointer' }} />
               </ComposedChart>
             </ResponsiveContainer>
           ) : (
@@ -160,9 +229,12 @@ export function Comparativas() {
               <BarChart data={datosF}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="nombre" tick={{ fontSize: 11 }} />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="completadas" name="Completadas" radius={[6, 6, 0, 0]}>
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                <Tooltip
+                  contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
+                  cursor={{ fill: 'rgba(40,49,95,0.06)' }}
+                />
+                <Bar dataKey="completadas" name="Completadas" radius={[6, 6, 0, 0]} maxBarSize={56} onClick={abrirDesdeGrafico} activeBar={{ fillOpacity: 0.8 }}>
                   {datosF.map((_, i) => <Cell key={i} fill={COLORES[i % COLORES.length]} />)}
                 </Bar>
               </BarChart>
@@ -170,6 +242,16 @@ export function Comparativas() {
           )}
         </Card>
       )}
+
+      <ModalDrilldown
+        open={drill != null}
+        onCerrar={() => setDrill(null)}
+        titulo={drill?.titulo ?? 'Detalle'}
+        subtitulo={drill?.subtitulo}
+        filas={drillFilas}
+        renderDetalle={detalleDe}
+        urlDe={(id) => `/evaluaciones/${id}`}
+      />
     </div>
   )
 }

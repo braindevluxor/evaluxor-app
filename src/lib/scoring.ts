@@ -4,6 +4,7 @@ const ETIQUETAS_TIPO: Record<string, string> = {
   CONCILIACION: 'Conciliación',
   LISTA_COLABORADORES: 'Listado de colaboradores',
   UNIDAD_CHECKLIST: 'Unidad check list',
+  PLANO_XY: 'Cumplimiento XY',
   CONTENEDOR: 'Sección (grupo)'
 }
 
@@ -19,6 +20,12 @@ export interface ValorChecklist {
   evidencias?: Record<string, { photoIds: string[] }>
   /** Valores numéricos ingresados para las opciones de tipo RANGO (id de la opción → valor). */
   valores?: Record<string, number>
+  /** Responsables elegidos por el evaluador para atribuir una FALLA del ítem: cada uno absorbe el punto fallado. */
+  responsables?: string[]
+  /** Responsables elegidos por el evaluador por cada check INCUMPLIDO: check → responsables que absorben la falla. */
+  responsablesPorOpcion?: Record<string, string[]>
+  /** Nombre del gerente de la sucursal, horneado al responder: destino por defecto de los puntos incumplidos. */
+  responsablesGerente?: string | null
 }
 export interface EvidenciaCumple {
   photoIds: string[]
@@ -28,10 +35,18 @@ export interface ValorCumple {
   value: boolean | null
   evidencias: EvidenciaCumple[]
   informativo?: boolean
+  /** Responsables elegidos por el evaluador para atribuir una FALLA del ítem: cada uno absorbe el punto fallado. */
+  responsables?: string[]
+  /** Nombre del gerente de la sucursal, horneado al responder: destino por defecto de los puntos incumplidos. */
+  responsablesGerente?: string | null
 }
 export interface ValorConciliacion {
   productos: ProductoConciliacion[]
   informativo?: boolean
+  /** Responsables elegidos por el evaluador para atribuir una FALLA del ítem: cada uno absorbe el punto fallado. */
+  responsables?: string[]
+  /** Nombre del gerente de la sucursal (horneado al responder): destino por defecto de los puntos incumplidos. */
+  responsablesGerente?: string | null
 }
 export interface ProductoConciliacion {
   sku: string
@@ -65,6 +80,12 @@ export interface ValorListaColaboradores {
   colaboradores: ColaboradorItem[]
   informativo?: boolean
   loadedAt?: number
+  /** Responsables elegidos por el evaluador a nivel de ítem (modo binario): cada uno recibe el punto completo. */
+  responsables?: string[]
+  /** Responsables elegidos por el evaluador por cada check INCUMPLIDO: check → responsables que absorben la falla. */
+  responsablesPorOpcion?: Record<string, string[]>
+  /** Nombre del gerente de la sucursal, horneado al responder: destino por defecto de los puntos incumplidos. */
+  responsablesGerente?: string | null
 }
 
 export interface UnidadChecklist {
@@ -75,6 +96,63 @@ export interface UnidadChecklist {
 export interface ValorUnidadChecklist {
   unidades: UnidadChecklist[]
   informativo?: boolean
+  /** Responsables elegidos por el evaluador a nivel de ítem (modo binario): cada uno recibe el punto completo. */
+  responsables?: string[]
+  /** Responsables elegidos por el evaluador por cada check INCUMPLIDO: check → responsables que absorben la falla. */
+  responsablesPorOpcion?: Record<string, string[]>
+  /** Nombre del gerente de la sucursal, horneado al responder: destino por defecto de los puntos incumplidos. */
+  responsablesGerente?: string | null
+}
+
+/** Imagen del plano (layout) de un ítem PLANO_XY: la sube el evaluador dentro de la evaluación. */
+export interface PlanoImagen {
+  id: string
+  /** Nombre del archivo, para distinguir plantas (ej. "Planta baja", "Mezanine"). */
+  nombre: string
+  /** En el borrador local: ids de las fotos en IndexedDB. Ya sincronizado: rutas del bucket. */
+  photoIds?: string[]
+  paths?: string[]
+}
+
+/** Punto marcado sobre el plano: coordenadas normalizadas 0..1 + veredicto y comentario. */
+export interface PuntoPlano {
+  id: string
+  planoId: string
+  x: number
+  y: number
+  cumple: boolean | null
+  comentario: string
+}
+
+export interface ValorPlano {
+  planos: PlanoImagen[]
+  puntos: PuntoPlano[]
+  informativo?: boolean
+  /** Responsables elegidos por el evaluador a nivel de ítem (modo binario): cada uno recibe el punto completo. */
+  responsables?: string[]
+  /** Nombre del gerente de la sucursal, horneado al responder. */
+  responsablesGerente?: string | null
+}
+
+/** ¿El punto tiene veredicto (cumple / no cumple)? Los pines sin marcar no puntúan. */
+export function puntoMarcado(p: PuntoPlano | null | undefined): boolean {
+  return p?.cumple === true || p?.cumple === false
+}
+
+/** Puntos con veredicto del ítem PLANO_XY. */
+export function puntosMarcadosPlano(valor: ValorPlano | null | undefined): PuntoPlano[] {
+  return (valor?.puntos ?? []).filter((p) => puntoMarcado(p))
+}
+
+/**
+ * Proporción 0..1 de un PLANO_XY: pines que cumplen sobre pines marcados
+ * (11 de 15 → 0.7333). null = sin pines con veredicto (no puntúa) o informativo.
+ */
+export function proporcionPlano(valor: ValorPlano | null | undefined): number | null {
+  if (valor?.informativo) return null
+  const marcados = puntosMarcadosPlano(valor)
+  if (!marcados.length) return null
+  return marcados.filter((p) => p.cumple === true).length / marcados.length
 }
 
 export function colaboradorCumple(colab: ColaboradorItem, opciones: { id: string }[] | null | undefined): boolean {
@@ -190,6 +268,15 @@ if (item.tipo === 'CHECKLIST') {
     if (!opts.length) return null
     return unidades.every((u) => unidadCumple(u, opts))
   }
+  if (item.tipo === 'PLANO_XY') {
+    const v = valor as ValorPlano | null
+    if (v?.informativo) return null
+    // Sin pines con veredicto no hay veredicto del ítem. Con pines marcados, cumple
+    // solo si ninguno quedó en "no cumple" (el puntaje fino va en proporcionPlano).
+    const marcados = puntosMarcadosPlano(v)
+    if (!marcados.length) return null
+    return marcados.every((p) => p.cumple === true)
+  }
   return null
 }
 
@@ -219,13 +306,17 @@ export function proporcionChecklist(
   return Math.min(1, obtenido / total)
 }
 
-/** Proporción 0..1 de cumplimiento de un ítem (1 = cumple, 0 = no cumple, parcial para CHECKLIST con puntos). null = no puntuable. */
+/** Proporción 0..1 de cumplimiento de un ítem (1 = cumple, 0 = no cumple, parcial para CHECKLIST con puntos y PLANO_XY por pines). null = no puntuable. */
 export function proporcionItem(
   item: { tipo: string; opciones?: string[] | { id: string; puntos?: number }[] | null },
   valor: unknown
 ): number | null {
   if (item.tipo === 'CHECKLIST') {
     const p = proporcionChecklist(item, valor)
+    if (p !== null) return p
+  }
+  if (item.tipo === 'PLANO_XY') {
+    const p = proporcionPlano(valor as ValorPlano | null)
     if (p !== null) return p
   }
   const b = valorBinario(item, valor)
@@ -274,6 +365,163 @@ function responsablesDelItem(item: { opciones?: string[] | { id?: string; respon
   return [...new Set(base.map((x) => x.trim()).filter(Boolean))]
 }
 
+/** ¿El valor trae la selección nueva de responsables del evaluador (por ítem o por check)? Su ausencia = comportamiento legado retrocompatible. */
+export function tieneSeleccionResponsables(valor: unknown): boolean {
+  if (!valor || typeof valor !== 'object') return false
+  const v = valor as Record<string, unknown>
+  return (
+    Array.isArray(v.responsables) ||
+    (v.responsablesPorOpcion != null && typeof v.responsablesPorOpcion === 'object') ||
+    'responsablesGerente' in v
+  )
+}
+
+/** Selección de responsables por ítem (modo binario) guardada en el valor. */
+function getRespArray(valor: unknown): string[] {
+  const v = valor as { responsables?: unknown } | null
+  return Array.isArray(v?.responsables) ? v.responsables : []
+}
+
+type OpcionScoring = { id?: string; puntos?: number; tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number; responsable?: string | null; responsables?: string[] | null }
+
+/** ¿Un check puntúa (está cumplido) según el tipo de ítem y el valor? LISTA/UNIDAD exigen que TODAS sus filas lo tengan marcado. null = sin filas puntuables (saltar). */
+function puntoCumplido(tipo: string | undefined, o: OpcionScoring, valor: unknown): boolean | null {
+  if (tipo === 'CHECKLIST') return opcionCumplida(o, valor as ValorChecklist, o.id ?? '')
+  if (tipo === 'LISTA_COLABORADORES') {
+    const v = valor as ValorListaColaboradores | null
+    const aplican = (v?.colaboradores ?? []).filter((c) => c.aplica)
+    if (!aplican.length) return null
+    return aplican.every((c) => (c.selected ?? []).includes(o.id ?? ''))
+  }
+  if (tipo === 'UNIDAD_CHECKLIST') {
+    const v = valor as ValorUnidadChecklist | null
+    const unids = v?.unidades ?? []
+    if (!unids.length) return null
+    return unids.every((u) => (u.selected ?? []).includes(o.id ?? ''))
+  }
+  return null
+}
+
+type Contribucion = Map<string, { pos: number; log: number }>
+
+/**
+ * Contribución de un ítem respondido con la selección nueva de responsables de
+ * las FALLAS (puntos incumplidos):
+ * - Los checks CUMPLIDOS se reparten en modo legado: cada responsable configurado
+ *   del check recibe su parte del peso del check (logrado = parte).
+ * - Cada check INCUMPLIDO es absorbido por los responsables elegidos para él:
+ *   cada elegido carga el punto completo como posible sin logrado (la pérdida del
+ *   punto se atribuye a ellos; elegir varios puede superar el 100% del módulo).
+ *   Sin selección → gerente (responsablesGerente); sin gerente → el peso se
+ *   reparte entre los responsables configurados del check (legado).
+ * - CUMPLE_NO_CUMPLE y CONCILIACION: ítem cumplido → reparto legado; ítem
+ *   incumplido (value=false / desconciliado) → misma lógica de absorción a nivel
+ *   del ítem completo.
+ */
+function contribucionNueva(it: ItemRespLigero, P: number, valor: unknown): Contribucion {
+  const res = new Map<string, { pos: number; log: number }>()
+  const v = valor as { responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
+  const add = (r: string, pos: number, log: number) => {
+    const x = (r ?? '').trim()
+    if (!x) return
+    const a = res.get(x) ?? { pos: 0, log: 0 }
+    a.pos += pos
+    a.log += log
+    res.set(x, a)
+  }
+  const gerente = typeof v.responsablesGerente === 'string' && v.responsablesGerente ? v.responsablesGerente : null
+
+  const esChecklist = it.tipo === 'CHECKLIST' || it.tipo === 'LISTA_COLABORADORES' || it.tipo === 'UNIDAD_CHECKLIST'
+  const record = esChecklist && v.responsablesPorOpcion != null && typeof v.responsablesPorOpcion === 'object' && !Array.isArray(v.responsablesPorOpcion) ? v.responsablesPorOpcion : null
+
+  if (esChecklist) {
+    const opts = ((it.opciones ?? []) as OpcionScoring[]).filter((o) => o.id)
+    const informativos = ((valor as ValorChecklist | null)?.informativos) ?? []
+    const relevantes = opts.filter((o) => o.id && !informativos.includes(o.id as string))
+    if (!relevantes.length) return res
+    const conPuntos = relevantes.every((o) => typeof o.puntos === 'number' && (o.puntos as number) > 0)
+    const totalPuntos = conPuntos ? relevantes.reduce((a, o) => a + ((o.puntos as number) ?? 0), 0) : 0
+    for (const o of relevantes) {
+      const cumple = puntoCumplido(it.tipo, o, valor)
+      if (cumple === null) continue // sin filas puntuables: el punto no aplica
+      // Peso del check: P × puntos/total si el ítem reparte por puntos; si no, reparto igual entre checks relevantes.
+      const peso = conPuntos && totalPuntos > 0 ? redondear3((P * ((o.puntos as number) ?? 0)) / totalPuntos) : redondear3(P / relevantes.length)
+      const conf = o.id ? responsablesDeOpcion(o) : []
+      const rs = conf.length ? conf : responsablesDelItem(it)
+      if (!rs.length) continue
+      if (cumple) {
+        // Punto cumplido → reparto legado: cada responsable configurado del check recibe su parte completa.
+        const parte = redondear3(peso / rs.length)
+        for (const r of rs) add(r, parte, parte)
+      } else {
+        // Punto incumplido → la selección del evaluador absorbe la falla (posible sin logrado).
+        const sel = o.id ? (record?.[o.id] ?? []) : []
+        if (sel.length) {
+          for (const r of sel) add(r, peso, 0)
+        } else if (gerente) {
+          add(gerente, peso, 0)
+        } else {
+          const parte = redondear3(peso / rs.length)
+          for (const r of rs) add(r, parte, 0)
+        }
+      }
+    }
+    return res
+  }
+
+  // PLANO_XY: el peso del ítem se reparte entre los pines con veredicto. La parte
+  // cumplida se reparte entre los responsables configurados; la fallada la absorbe la
+  // selección del evaluador (o el gerente) como posible sin logrado. Los pines sin
+  // veredicto no cuentan: no son una respuesta.
+  if (it.tipo === 'PLANO_XY') {
+    const prop = proporcionPlano(valor as ValorPlano | null)
+    if (prop === null) return res
+    const rsItem = responsablesDelItem(it)
+    const cumple = redondear3(P * prop)
+    const falla = redondear3(P - cumple)
+    if (cumple > 0 && rsItem.length) {
+      const parte = redondear3(cumple / rsItem.length)
+      for (const r of rsItem) add(r, parte, parte)
+    }
+    if (falla > 0) {
+      const sel = getRespArray(valor)
+      if (sel.length) {
+        for (const r of sel) add(r, falla, 0)
+      } else if (gerente) {
+        add(gerente, falla, 0)
+      } else if (rsItem.length) {
+        const parte = redondear3(falla / rsItem.length)
+        for (const r of rsItem) add(r, parte, 0)
+      }
+    }
+    return res
+  }
+
+  // CUMPLE_NO_CUMPLE / CONCILIACION: ítem binario (no usa opciones).
+  const b = valorBinario({ tipo: it.tipo ?? '' }, valor)
+  if (b === null) return res
+  const rsItem = responsablesDelItem(it)
+  if (b) {
+    // Cumple → reparto legado del ítem completo entre todos sus responsables.
+    if (!rsItem.length) return res
+    const parte = redondear3(P / rsItem.length)
+    for (const r of rsItem) add(r, parte, parte)
+  } else {
+    // No cumple → la selección del evaluador absorbe el punto fallado del ítem.
+    const sel = getRespArray(valor)
+    if (sel.length) {
+      for (const r of sel) add(r, P, 0)
+    } else if (gerente) {
+      add(gerente, P, 0)
+    } else {
+      if (!rsItem.length) return res
+      const parte = redondear3(P / rsItem.length)
+      for (const r of rsItem) add(r, parte, 0)
+    }
+  }
+  return res
+}
+
 export type ItemRespLigero = {
   id?: string
   tipo?: string
@@ -312,10 +560,43 @@ export function valorPorResponsable(items: ItemRespLigero[], respuestas?: { item
     if (!it?.id || it.tipo === 'CONTENEDOR') continue
     const P = pesoItem(it)
     if (!(P > 0)) continue
+    const muestras = muestrasPorItem.get(it.id) ?? []
+
+    // Modelo nuevo: el evaluador respondió con selección de responsables de
+    // fallas (por check o por ítem). Cada check INCUMPLIDO es absorbido por los
+    // elegidos (o el gerente); los checks cumplidos se reparten en legado.
+    if (muestras.some((m) => tieneSeleccionResponsables(m))) {
+      const porResp = new Map<string, { pos: number; log: number }>()
+      const sumarM = (r: string, pos: number, log: number) => {
+        const a = porResp.get(r) ?? { pos: 0, log: 0 }
+        a.pos += pos
+        a.log += log
+        porResp.set(r, a)
+      }
+      for (const valor of muestras) {
+        if (tieneSeleccionResponsables(valor)) {
+          const contrib = contribucionNueva(it, P, valor)
+          for (const [r, a] of contrib) sumarM(r, a.pos, a.log)
+        } else {
+          // Muestra legada dentro de un ítem con selección: reparto original.
+          const rs = responsablesDelItem(it)
+          if (!rs.length) continue
+          const share = redondear3(P / rs.length)
+          const prop = proporcionItem(it as { tipo: string }, valor)
+          if (prop == null) continue
+          for (const r of rs) sumarM(r, share, share * prop)
+        }
+      }
+      for (const [r, a] of porResp) {
+        if (a.pos > 0 || a.log > 0) sumar(r, 1, a.pos, a.log)
+      }
+      continue
+    }
+
+    // Legado: comportamiento original intacto.
     const rs = responsablesDelItem(it)
     if (!rs.length) continue
     const share = redondear3(P / rs.length)
-    const muestras = muestrasPorItem.get(it.id) ?? []
     for (const r of rs) {
       if (!muestras.length) {
         sumar(r, 1, share, 0)
@@ -348,33 +629,78 @@ export function incumplimientosPorResponsable(
   item: { tipo: string; opciones?: string[] | { id: string; responsable?: string; responsables?: string[] }[] | null },
   valor: unknown
 ): AcumuladoResponsable[] {
-  if (valorBinario(item, valor) === null) return []
-  const puntos = ((item.opciones ?? []) as { id?: string; responsable?: string; responsables?: string[] }[])
-    .map((o) => ({ o, rs: o.id ? responsablesDeOpcion(o) : [] }))
-    .filter((x) => x.rs.length)
+  const esChecklist = item.tipo === 'CHECKLIST' || item.tipo === 'LISTA_COLABORADORES' || item.tipo === 'UNIDAD_CHECKLIST'
+  const v = valor as { responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null } | null
+  const porOpcion =
+    esChecklist && v?.responsablesPorOpcion != null && typeof v.responsablesPorOpcion === 'object' && !Array.isArray(v.responsablesPorOpcion)
+      ? v.responsablesPorOpcion
+      : null
+  const gerente = typeof v?.responsablesGerente === 'string' && v.responsablesGerente ? v.responsablesGerente : null
   const acum = new Map<string, number>()
   // Un check fallado suma 1 a cada uno de sus responsables.
-  const sumar = (rs: string[]) => {
-    for (const r of rs) acum.set(r, (acum.get(r) ?? 0) + 1)
+  const sumar = (rs: string[], n = 1) => {
+    for (const r of rs) acum.set(r, (acum.get(r) ?? 0) + n)
   }
+
+  if (item.tipo === 'PLANO_XY') {
+    // Cada pin marcado "no cumple" es una falla, atribuida a los responsables elegidos
+    // a nivel de ítem (o al gerente). Sin selección no se registra.
+    const fallados = puntosMarcadosPlano(valor as ValorPlano | null).filter((p) => p.cumple === false).length
+    if (!fallados) return []
+    const selItem = Array.isArray(v?.responsables) ? v.responsables : []
+    if (selItem.length) sumar(selItem, fallados)
+    else if (gerente) sumar([gerente], fallados)
+    return Array.from(acum.entries())
+      .map(([responsable, n]) => ({ responsable: responsable as string, puntos: n }))
+      .sort((a, b) => b.puntos - a.puntos || a.responsable.localeCompare(b.responsable))
+  }
+
+  if (!esChecklist) {
+    // CUMPLE_NO_CUMPLE / CONCILIACION: el ítem fallado es UNA falla, atribuida a
+    // los responsables elegidos por el evaluador (o al gerente). Sin selección
+    // no se registra (legado: estos tipos no acumulaban incumplimientos).
+    if (valorBinario(item, valor) !== false) return []
+    const selItem = Array.isArray(v?.responsables) ? v.responsables : []
+    if (selItem.length) sumar(selItem)
+    else if (gerente) sumar([gerente])
+    return Array.from(acum.entries())
+      .map(([responsable, n]) => ({ responsable: responsable as string, puntos: n }))
+      .sort((a, b) => b.puntos - a.puntos || a.responsable.localeCompare(b.responsable))
+  }
+
+  if (valorBinario(item, valor) === null) return []
+  // Con selección por check, un check fallado se atribuye a los responsables
+  // elegidos para él (o al gerente); sin modo por check → responsables
+  // configurados (legado).
+  const resolver = (o: { id?: string; responsable?: string; responsables?: string[] }): string[] => {
+    if (porOpcion) {
+      const sel = o.id ? porOpcion[o.id] : undefined
+      if (sel?.length) return sel
+      if (gerente) return [gerente]
+    }
+    return o.id ? responsablesDeOpcion(o) : []
+  }
+  const puntos = ((item.opciones ?? []) as { id?: string; responsable?: string; responsables?: string[] }[])
+    .map((o) => ({ o, rs: resolver(o) }))
+    .filter((x) => x.rs.length)
   if (puntos.length) {
     if (item.tipo === 'CHECKLIST') {
-      const v = valor as ValorChecklist | null
-      const informativos = v?.informativos ?? []
+      const v2 = valor as ValorChecklist | null
+      const informativos = v2?.informativos ?? []
       for (const { o, rs } of puntos) {
-        if (!informativos.includes(o.id as string) && !opcionCumplida(o as { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }, v, o.id as string)) sumar(rs)
+        if (!informativos.includes(o.id as string) && !opcionCumplida(o as { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }, v2, o.id as string)) sumar(rs)
       }
     } else if (item.tipo === 'LISTA_COLABORADORES') {
-      const v = valor as ValorListaColaboradores | null
-      for (const c of (v?.colaboradores ?? []).filter((x) => x.aplica)) {
+      const v2 = valor as ValorListaColaboradores | null
+      for (const c of (v2?.colaboradores ?? []).filter((x) => x.aplica)) {
         const sel = c.selected ?? []
         for (const { o, rs } of puntos) {
           if (!sel.includes(o.id as string)) sumar(rs)
         }
       }
     } else if (item.tipo === 'UNIDAD_CHECKLIST') {
-      const v = valor as ValorUnidadChecklist | null
-      for (const u of v?.unidades ?? []) {
+      const v2 = valor as ValorUnidadChecklist | null
+      for (const u of v2?.unidades ?? []) {
         const sel = u.selected ?? []
         for (const { o, rs } of puntos) {
           if (!sel.includes(o.id as string)) sumar(rs)

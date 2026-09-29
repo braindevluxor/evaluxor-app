@@ -11,6 +11,7 @@ import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Card, Puntaje, Skeleton, SkeletonTarjetas, Spinner, cn } from '../components/ui'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
+import { PlanoLectura } from '../components/PlanoEditor'
 
 function extraerPaths(v: unknown): string[] {
   const p = (v as { paths?: unknown } | null)?.paths
@@ -185,6 +186,8 @@ function ValorRespuesta({ item, valor }: { item: Item; valor: unknown }) {
         </div>
       )
     }
+    case 'PLANO_XY':
+      return <PlanoLectura valor={valor} />
     case 'CONCILIACION': {
       const v = valor as ValorConciliacion | null
       const ps = v?.productos ?? []

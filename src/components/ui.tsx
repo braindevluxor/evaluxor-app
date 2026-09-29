@@ -220,13 +220,15 @@ export function Modal({
   onClose,
   title,
   children,
-  wide
+  wide,
+  footer
 }: {
   open: boolean
   onClose: () => void
   title: string
   children: ReactNode
   wide?: boolean
+  footer?: ReactNode
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   useCerrarConEscape(open, onClose)
@@ -234,31 +236,39 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 p-0 sm:p-4">
       <div
-        ref={scrollRef}
-        className={cn('max-h-[92vh] w-full overflow-y-auto overscroll-contain rounded-t-2xl sm:rounded-2xl bg-white p-5 [overflow-anchor:none]', wide ? 'sm:max-w-2xl' : 'sm:max-w-md')}
-        onBlur={(e) => {
-          // Al perder foco un campo interno (clic fuera de él), el navegador puede
-          // reiniciar el scroll del modal al tope (reflow / cierre del teclado).
-          // Conservamos la posición mientras el foco no quede en otro elemento del modal.
-          const destino = e.relatedTarget as Node | null
-          if (destino && scrollRef.current?.contains(destino)) return
-          const top = scrollRef.current?.scrollTop ?? 0
-          const restaurar = () => {
-            if (scrollRef.current && (!document.activeElement || !scrollRef.current.contains(document.activeElement))) {
-              scrollRef.current.scrollTop = top
-            }
-          }
-          requestAnimationFrame(restaurar)
-          window.setTimeout(restaurar, 300)
-        }}
+        className={cn('flex max-h-[92vh] w-full flex-col rounded-t-2xl sm:rounded-2xl bg-white', wide ? 'sm:max-w-2xl' : 'sm:max-w-md')}
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-bold text-primary-900">{title}</h3>
-          <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full text-slate-400 hover:bg-slate-100">
+        {/* Cabecera fija: título y botón de cerrar siempre visibles. */}
+        <div className="flex shrink-0 items-center justify-between gap-2 px-5 pt-5 pb-3">
+          <h3 className="min-w-0 text-lg font-bold text-primary-900">{title}</h3>
+          <button onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-400 hover:bg-slate-100">
             <X className="h-5 w-5" />
           </button>
         </div>
-        {children}
+        <div
+          ref={scrollRef}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5 [overflow-anchor:none]"
+          onBlur={(e) => {
+            // Al perder foco un campo interno (clic fuera de él), el navegador puede
+            // reiniciar el scroll del modal al tope (reflow / cierre del teclado).
+            // Conservamos la posición mientras el foco no quede en otro elemento del modal.
+            const destino = e.relatedTarget as Node | null
+            if (destino && scrollRef.current?.contains(destino)) return
+            const top = scrollRef.current?.scrollTop ?? 0
+            const restaurar = () => {
+              if (scrollRef.current && (!document.activeElement || !scrollRef.current.contains(document.activeElement))) {
+                scrollRef.current.scrollTop = top
+              }
+            }
+            requestAnimationFrame(restaurar)
+            window.setTimeout(restaurar, 300)
+          }}
+        >
+          {children}
+        </div>
+        {footer ? (
+          <div className="shrink-0 border-t border-slate-100 px-5 py-3.5">{footer}</div>
+        ) : null}
       </div>
     </div>
   )

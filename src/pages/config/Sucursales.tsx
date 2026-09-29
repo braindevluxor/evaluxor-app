@@ -77,7 +77,12 @@ export function SucursalesPage() {
         </div>
       )}
 
-      <Modal open={modal} onClose={() => setModal(false)} title={editando ? 'Editar sucursal' : 'Nueva sucursal'}>
+      <Modal
+        open={modal}
+        onClose={() => setModal(false)}
+        title={editando ? 'Editar sucursal' : 'Nueva sucursal'}
+        footer={<Button type="submit" form="form-sucursal" className="w-full">Guardar sucursal</Button>}
+      >
         <FormSucursal
           inicial={editando}
           onGuardar={async (data) => {
@@ -114,6 +119,7 @@ function FormSucursal({ inicial, onGuardar }: { inicial: Sucursal | null; onGuar
 
   return (
     <form
+      id="form-sucursal"
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
@@ -136,7 +142,6 @@ function FormSucursal({ inicial, onGuardar }: { inicial: Sucursal | null; onGuar
         <input type="checkbox" className="h-5 w-5 accent-primary" checked={activa} onChange={(e) => setActiva(e.target.checked)} />
         Sucursal activa
       </label>
-      <Button type="submit" className="w-full">Guardar sucursal</Button>
     </form>
   )
 }

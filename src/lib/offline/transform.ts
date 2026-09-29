@@ -15,6 +15,12 @@ function isCumpleValor(valor: unknown): string[][] | null {
   return v.evidencias.map((e) => (Array.isArray(e.photoIds) ? e.photoIds.filter((x) => typeof x === 'string') : []))
 }
 
+function isPlanoValor(valor: unknown): { planos: { photoIds?: unknown }[] } | null {
+  const v = valor as { planos?: unknown } | null
+  if (!v || !Array.isArray(v.planos)) return null
+  return v as { planos: { photoIds?: unknown }[] }
+}
+
 function isChecklistValor(valor: unknown): Record<string, string[]> | null {
   const v = valor as { selected?: string[]; evidencias?: Record<string, { photoIds?: unknown } | null> } | null
   if (!v || !Array.isArray(v.selected)) return null
@@ -31,6 +37,15 @@ function isChecklistValor(valor: unknown): Record<string, string[]> | null {
 // Versión del valor sin fotos, para el auto-guardado en vivo del borrador
 // (las fotos se suben cuando el evaluador envía la evaluación).
 export function valorSinFotos(valor: unknown): unknown {
+  const plano = isPlanoValor(valor)
+  if (plano) {
+    const v = valor as { planos: { id: string; nombre: string; photoIds?: string[] }[]; puntos?: unknown; informativo?: boolean }
+    return {
+      planos: v.planos.map((p) => ({ id: p.id, nombre: p.nombre, photoIds: [] })),
+      puntos: v.puntos ?? [],
+      ...(v.informativo ? { informativo: true } : {})
+    }
+  }
   const cumple = isCumpleValor(valor)
   if (cumple) {
     const v = valor as { value?: boolean | null; evidencias?: { comentario?: string }[]; informativo?: boolean }
@@ -54,6 +69,8 @@ export function valorSinFotos(valor: unknown): unknown {
 }
 
 export function extraerPhotoIds(valor: unknown): string[] {
+  const plano = isPlanoValor(valor)
+  if (plano) return plano.planos.flatMap((p) => (Array.isArray(p.photoIds) ? p.photoIds.filter((x) => typeof x === 'string') : []))
   const directos = isFotoValor(valor)
   if (directos) return directos
   const checklist = isChecklistValor(valor)
@@ -62,6 +79,24 @@ export function extraerPhotoIds(valor: unknown): string[] {
 }
 
 export function convertirValor(valor: unknown, map: Map<string, string>): unknown {
+  const plano = isPlanoValor(valor)
+  if (plano) {
+    const v = valor as { planos: { id: string; nombre: string; photoIds?: string[] }[]; puntos?: unknown; informativo?: boolean; responsables?: string[]; responsablesGerente?: string | null }
+    const out: Record<string, unknown> = {
+      planos: v.planos.map((p) => ({
+        id: p.id,
+        nombre: p.nombre,
+        // La imagen del plano se sube al bucket como evidencia: al pintarle los pines
+        // el evaluador carga el layout real de la sucursal, así que es su foto.
+        paths: (p.photoIds ?? []).map((id) => map.get(id) ?? `.local/${id}`)
+      })),
+      puntos: v.puntos ?? []
+    }
+    if (v.informativo) out.informativo = true
+    if (v.responsables?.length) out.responsables = v.responsables
+    if (v.responsablesGerente !== undefined) out.responsablesGerente = v.responsablesGerente
+    return out
+  }
   const ids = isFotoValor(valor)
   if (ids) return { paths: ids.map((id) => map.get(id) ?? `.local/${id}`) }
   const cumpleIds = isCumpleValor(valor)

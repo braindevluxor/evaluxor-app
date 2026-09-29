@@ -1,56 +1,80 @@
 import type { ReactNode } from 'react'
-import { ShoppingCart } from 'lucide-react'
+import { cn } from '../ui'
 
 /**
- * Fondo decorativo y marco de las pantallas de acceso (login / registro).
- * Diseño "sin contenedores": el formulario flota directo sobre un gradiente
- * con orbes difuminados y una trama de puntos; no hay tarjeta.
+ * Fondo y marco de las pantallas de acceso (login / registro):
+ * fondo blanco plano y el formulario flotando directo sobre él, sin contenedor.
+ * El contenido va centrado: con el logo ya recortado el bloque es compacto y
+ * alineado al fondo dejaba demasiado aire arriba.
  */
 export function AuthShell({ children }: { children: ReactNode }) {
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-primary-900 px-4 py-10">
-      {/* Gradiente de base */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary-900 via-primary-800 to-primary-600" />
-      {/* Orbes difuminados */}
-      <div aria-hidden className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-primary-300/20 blur-3xl" />
-      <div aria-hidden className="pointer-events-none absolute -bottom-44 -right-24 h-[30rem] w-[30rem] rounded-full bg-primary-500/25 blur-3xl" />
-      <div aria-hidden className="pointer-events-none absolute left-1/3 top-0 h-64 w-64 rounded-full bg-primary-400/15 blur-3xl" />
-      {/* Trama de puntos desvanecida desde el centro */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage: 'radial-gradient(circle, rgb(255 255 255 / 0.08) 1px, transparent 1px)',
-          backgroundSize: '26px 26px',
-          maskImage: 'radial-gradient(ellipse at center, black 15%, transparent 72%)',
-          WebkitMaskImage: 'radial-gradient(ellipse at center, black 15%, transparent 72%)'
-        }}
-      />
-      <div className="relative z-10 w-full max-w-sm">{children}</div>
+    <div className="flex min-h-screen items-center justify-center bg-white px-4 py-10">
+      <div className="w-full max-w-sm">{children}</div>
     </div>
   )
 }
 
-/** Input tipo glass: caja translúcida con difuminado, redondeada y sin tarjeta. */
-export const inputAuth =
-  'rounded-xl border border-white/20! bg-white/10! px-3.5 py-2.5! text-white! placeholder:text-white/40! backdrop-blur transition-colors focus:border-white/60! focus:bg-white/15! focus:ring-white/25!'
+/** Inputs: heredan el estilo base de `Input` del sistema (blanco, borde slate, foco primario). */
+export const inputAuth = ''
 
-/** Botón principal de acceso: píldora blanca sobre fondo oscuro. */
-export const botonAuth = 'w-full bg-white! text-primary-900! hover:bg-white/90! shadow-lg shadow-primary-900/40'
+/** Botón principal: misma píldora primaria que el resto de la app, a lo ancho. */
+export const botonAuth = 'w-full'
 
-export const labelAuth = 'text-white/70!'
-export const hintAuth = 'text-white/45!'
+/** Etiquetas y ayuda: usan los estilos por defecto del sistema (slate). */
+export const labelAuth = ''
+export const hintAuth = ''
 
-/** Marca (logo sin contenedor + título + subtítulo) centrada. */
-export function MarcaAuth({ titulo, subtitulo }: { titulo: string; subtitulo: string }) {
+/**
+ * Límites del logo dentro de public/logo.webp, medidos sobre el canal alfa:
+ * el archivo es un lienzo de 1920x1080 y el wordmark ocupa solo la franja
+ * x 115–1833 / y 471–642 (1719x172), con ~471px vacíos arriba y ~437px abajo.
+ */
+const LOGO = { lienzo: 1920, x: 115, y: 471, ancho: 1719, alto: 172 } as const
+
+/** Porcentaje del ancho del contenedor que vale un píxel del logo. */
+const LOGO_ESCALA = 100 / LOGO.ancho
+
+/**
+ * Logo recortado a su contenido visible: sin las franjas transparentes el <img>
+ * ocuparía una caja 16:9 con el wordmark flotando en el medio y el formulario
+ * quedaría separado por un hueco invisible. El contenedor toma la proporción real
+ * del logo y la imagen se corre con márgenes negativos hasta encuadrarla.
+ */
+export function LogoAuth({ alt, className }: { alt: string; className?: string }) {
   return (
-    <div className="mb-10 text-center">
-      <div className="relative mx-auto mb-5 h-16 w-16">
-        <div aria-hidden className="absolute inset-0 -z-10 rounded-full bg-primary-300/30 blur-2xl" />
-        <ShoppingCart className="h-16 w-16 text-white drop-shadow-lg" strokeWidth={1.3} />
-      </div>
-      <h1 className="text-3xl font-extrabold tracking-tight text-white">{titulo}</h1>
-      <p className="mt-1.5 text-sm font-medium text-primary-200">{subtitulo}</p>
+    <div className={cn('overflow-hidden', className)} style={{ aspectRatio: `${LOGO.ancho} / ${LOGO.alto}` }}>
+      <img
+        src="/logo.webp"
+        alt={alt}
+        className="max-w-none"
+        style={{
+          width: `${(LOGO.lienzo * LOGO_ESCALA).toFixed(2)}%`,
+          marginLeft: `${(-LOGO.x * LOGO_ESCALA).toFixed(2)}%`,
+          marginTop: `${(-LOGO.y * LOGO_ESCALA).toFixed(2)}%`
+        }}
+      />
+    </div>
+  )
+}
+
+/**
+ * Marca de las pantallas de acceso. Con `soloLogo` el logo ya identifica la app
+ * (y ocupa todo el ancho del formulario), así que el texto visible se omite; el
+ * título queda como nombre accesible del logo y como encabezado de la página.
+ */
+export function MarcaAuth({ titulo, subtitulo, soloLogo = false }: { titulo: string; subtitulo?: string; soloLogo?: boolean }) {
+  return (
+    <div className="mb-6 text-center">
+      <LogoAuth alt={titulo} className={cn('w-full', soloLogo ? '' : 'mb-5')} />
+      {soloLogo ? (
+        <h1 className="sr-only">{titulo}</h1>
+      ) : (
+        <>
+          <h1 className="text-2xl font-extrabold tracking-tight text-primary-900">{titulo}</h1>
+          {subtitulo ? <p className="mt-1 text-sm font-medium text-slate-500">{subtitulo}</p> : null}
+        </>
+      )}
     </div>
   )
 }

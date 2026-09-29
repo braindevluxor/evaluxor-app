@@ -251,10 +251,10 @@ create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
   modulo_id uuid not null references public.modulos(id) on delete cascade,
   tipo text not null check (tipo in (
-    'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES','UNIDAD_CHECKLIST','CONTENEDOR'
+    'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES','UNIDAD_CHECKLIST','PLANO_XY','CONTENEDOR'
   )),
   texto text not null,
-  opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"...","puntos":3?,"tipo_respuesta":"CHECK|RANGO","minimo":30?,"unidad":"cm"?}]; puntos por opcion (opcional, hasta 3 decimales y mín. 0.001): si TODAS las opciones del CHECKLIST tienen puntos, la puntuacion del item se reparte entre ellas. tipo_respuesta RANGO: el evaluador ingresa un valor numerico y el punto cumple si alcanza el minimo aceptable. LISTA_COLABORADORES: checklist compartido por cada colaborador
+  opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"...","puntos":3?,"tipo_respuesta":"CHECK|RANGO","minimo":30?,"unidad":"cm"?}]; puntos por opcion (opcional, hasta 3 decimales y mín. 0.001): si TODAS las opciones del CHECKLIST tienen puntos, la puntuacion del item se reparte entre ellas. tipo_respuesta RANGO: el evaluador ingresa un valor numerico y el punto cumple si alcanza el minimo aceptable. LISTA_COLABORADORES: checklist compartido por cada colaborador. PLANO_XY: sin opciones; el evaluador sube la imagen del layout y marca puntos (pines) con cumple/no cumple
   colaboradores_filtro text check (colaboradores_filtro in ('ACTIVOS','INACTIVOS','TODOS')), -- LISTA_COLABORADORES: filtro aplicado al cargar colaboradores
   responsables jsonb not null default '[]'::jsonb, -- responsables configurables; cada opcion usa opciones[i].responsable
   orden integer not null default 0,
@@ -272,6 +272,9 @@ create index if not exists idx_items_modulo on public.items(modulo_id, orden);
 alter table public.items add column if not exists api_id text;
 alter table public.items add column if not exists api_campos jsonb not null default '[]'::jsonb;
 alter table public.items add column if not exists permitir_duplicados boolean not null default false;
+-- UNIDAD_CHECKLIST: repetible = permite cargar el checklist varias veces (una
+-- unidad por carga); con false solo se carga una sola vez.
+alter table public.items add column if not exists repetible boolean not null default true;
 
 -- La suma de los puntajes de un módulo no puede exceder 100: cuentan las secciones
 -- (CONTENEDOR, ponderadas) y los ítems sueltos (sin sección). Los ítems dentro de
@@ -334,7 +337,7 @@ delete from public.items where tipo in ('COMENTARIO','FOTO','DESCRIPCION','CANTI
 alter table public.items add column if not exists padre_id uuid references public.items(id) on delete cascade;
 alter table public.items drop constraint if exists items_tipo_check;
 alter table public.items add constraint items_tipo_check check (tipo in (
-  'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES','UNIDAD_CHECKLIST','CONTENEDOR'
+  'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES','UNIDAD_CHECKLIST','PLANO_XY','CONTENEDOR'
 ));
 
 -- ----------------------------------------------------------------------------

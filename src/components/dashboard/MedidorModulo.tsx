@@ -6,6 +6,7 @@
  */
 import { useId } from 'react'
 import { TRANSICION, useAnimacionActiva, useNumeroAnimado } from './useAnimacion'
+import { num } from '../../lib/numeros'
 
 /** Cortes (%) de estado y su gradiente (tono claro → intenso). */
 const ETAPAS: { umbral: number; color: string; claro: string }[] = [
@@ -43,7 +44,7 @@ function arco(r: number, a0: number, a1: number): string {
 }
 
 function fmt(v: number): string {
-  return `${Math.round(v * 100) / 100}%`
+  return `${num(v)}%`
 }
 
 /** Máximo de caracteres aprox. por línea (≈ ancho del viewBox a font 14 bold). */

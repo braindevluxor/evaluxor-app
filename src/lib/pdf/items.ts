@@ -30,6 +30,7 @@ import {
   type ValorConciliacion,
   type ValorCumple,
   type ValorListaColaboradores,
+  type ValorPlano,
   type ValorUnidadChecklist
 } from '../scoring'
 
@@ -488,6 +489,33 @@ export function renderUnidades(li: Lienzo, item: Item, valor: unknown): number {
   return renderListaBase(li, item, filas)
 }
 
+/**
+ * PLANO_XY: una fila por punto marcado sobre el layout, con su veredicto. El puntaje
+ * del ítem es la proporción de puntos que cumplen, así que el resumen usa esa misma
+ * cuenta (los puntos sin veredicto no cuentan).
+ */
+export function renderPlano(li: Lienzo, item: Item, valor: unknown): number {
+  const v = valor as ValorPlano | null
+  const puntos = v?.puntos ?? []
+  const planos = v?.planos ?? []
+  const nombreDe = (id: string) => planos.find((p) => p.id === id)?.nombre ?? ''
+
+  const filas = puntos.map((p) => {
+    const estado: ChipTxt =
+      p.cumple === true
+        ? { texto: 'CUMPLE', fondo: VERDE_CLARO, color: VERDE }
+        : p.cumple === false
+          ? { texto: 'NO CUMPLE', fondo: ROJO_CLARO, color: ROJO }
+          : { texto: 'SIN MARCAR', fondo: GRIS_CLARO, color: GRIS }
+    return {
+      titulo: p.comentario?.trim() ? p.comentario : 'Punto sin comentario',
+      estado,
+      detalle: nombreDe(p.planoId)
+    }
+  })
+  return renderListaBase(li, item, filas)
+}
+
 /** Despacho por tipo de ítem; avanza el cursor. */
 export function renderItem(li: Lienzo, item: Item, valor: unknown): void {
   let h: number
@@ -506,6 +534,9 @@ export function renderItem(li: Lienzo, item: Item, valor: unknown): void {
       break
     case 'UNIDAD_CHECKLIST':
       h = renderUnidades(li, item, valor)
+      break
+    case 'PLANO_XY':
+      h = renderPlano(li, item, valor)
       break
     default:
       h = renderCumple(li, item, valor)

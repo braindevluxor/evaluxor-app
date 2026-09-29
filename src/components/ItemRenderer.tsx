@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, formatearLastSync, formatearPrecioBase, responsablesDeOpcion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, formatearLastSync, formatearPrecioBase, opcionCumplida, valorBinario, responsablesDeOpcion, puntosMarcadosPlano, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist, type ValorPlano } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores } from '../lib/data/colaboradores'
 import { formatearValorConsulta } from '../lib/data/apis'
@@ -10,6 +10,8 @@ import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
 import { BarcodeScanner } from './BarcodeScanner'
 import { deletePhoto } from '../lib/offline/db'
+import { BotonInformativo, SelectorResponsables } from './WidgetsEvaluacion'
+import { PlanoEditor } from './PlanoEditor'
 
 interface Props {
   item: Item
@@ -19,25 +21,74 @@ interface Props {
   total: number
   shopId?: string | null
   branchId?: string | null
+  /** Nombre del gerente de la sucursal: destino por defecto de cada punto cuando el evaluador no elige responsables. */
+  gerente?: string | null
 }
 
-/** Etiquetas de los responsables de un check: puede haber más de uno. */
-function ChipsResponsables({ o }: { o: Opcion }) {
-  const rs = responsablesDeOpcion(o)
-  if (!rs.length) return null
+/** Responsables elegibles para un check: los configurados en el check; si el check no tiene, los del ítem. */
+function responsablesDeCheck(item: { responsables?: string[] | null }, o: Opcion): string[] {
+  const deOpcion = responsablesDeOpcion(o)
+  return deOpcion.length ? deOpcion : (item.responsables ?? [])
+}
+
+/** ¿Un check NO está cumplido (punto incumplido)? CHECKLIST: no marcado o rango bajo el mínimo. LISTA/UNIDAD: no todas las filas lo tienen. Sin filas puntuables → false. */
+function checkIncumplido(item: Item, o: Opcion, valor: unknown): boolean {
+  if (item.tipo === 'CHECKLIST') {
+    const v = valor as ValorChecklist | null
+    if ((v?.informativos ?? []).includes(o.id)) return false
+    return !opcionCumplida(o, v, o.id)
+  }
+  if (item.tipo === 'LISTA_COLABORADORES') {
+    const v = valor as ValorListaColaboradores | null
+    const aplican = (v?.colaboradores ?? []).filter((c) => c.aplica)
+    if (!aplican.length) return false
+    return !aplican.every((c) => (c.selected ?? []).includes(o.id))
+  }
+  if (item.tipo === 'UNIDAD_CHECKLIST') {
+    const v = valor as ValorUnidadChecklist | null
+    const unids = v?.unidades ?? []
+    if (!unids.length) return false
+    return !unids.every((u) => (u.selected ?? []).includes(o.id))
+  }
+  return false
+}
+
+/** Selector de responsables de los puntos INCUMPLIDOS de un checklist: un bloque por check que no está cumplido. */
+function SelectorResponsablesPorTipo({ item, valor, onChange, opts, gerente }: {
+  item: Item
+  valor: unknown
+  onChange: (v: unknown) => void
+  opts: Opcion[]
+  gerente?: string | null
+}) {
+  const v = (valor ?? {}) as { responsablesPorOpcion?: Record<string, string[]> }
+  const porOpcion = v.responsablesPorOpcion ?? {}
+  const fallidos = opts.filter((o) => checkIncumplido(item, o, valor) && responsablesDeCheck(item, o).length > 0)
+  if (!fallidos.length) return null
   return (
-    <>
-      {rs.map((r) => (
-        <span key={r} className="ml-1 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{r}</span>
+    <div className="min-w-0 space-y-2">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Responsables de los puntos incumplidos</p>
+      {fallidos.map((o) => (
+        <div key={o.id} className="min-w-0 overflow-hidden rounded-xl border border-red-100 bg-red-50/60 p-2.5">
+          <p className="mb-1.5 w-full min-w-0 break-words text-xs font-medium text-slate-600">
+            {o.etiqueta} <span className="text-red-500">· sin cumplir</span>
+          </p>
+          <SelectorResponsables
+            responsables={responsablesDeCheck(item, o)}
+            seleccion={porOpcion[o.id] ?? []}
+            gerente={gerente}
+            onChange={(sel) => onChange({ ...v, responsablesPorOpcion: { ...porOpcion, [o.id]: sel } })}
+          />
+        </div>
       ))}
-    </>
+    </div>
   )
 }
 
-export function ItemRenderer({ item, valor, onChange, index, total, shopId, branchId }: Props) {
+export function ItemRenderer({ item, valor, onChange, index, total, shopId, branchId, gerente }: Props) {
   const preg = `${index + 1}. ${item.texto}` + (item.requerido ? ' *' : '')
   const tipoColor =
-    item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'CHECKLIST' ? 5 : item.tipo === 'LISTA_COLABORADORES' || item.tipo === 'UNIDAD_CHECKLIST' ? 1 : 4
+    item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'CHECKLIST' ? 5 : item.tipo === 'LISTA_COLABORADORES' || item.tipo === 'UNIDAD_CHECKLIST' ? 1 : item.tipo === 'PLANO_XY' ? 2 : 4
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -45,7 +96,7 @@ export function ItemRenderer({ item, valor, onChange, index, total, shopId, bran
         <p className="font-semibold text-slate-800">{preg}</p>
         <Badge color={tipoColor}>{etiquetaTipo(item.tipo)}</Badge>
       </div>
-      <Contenido item={item} valor={valor} onChange={onChange} shopId={shopId} branchId={branchId} />
+      <Contenido item={item} valor={valor} onChange={onChange} shopId={shopId} branchId={branchId} gerente={gerente} />
       {item.requerido && estaVacio(item, valor) ? (
         <p className="mt-2 text-xs font-medium text-red-600">Obligatorio para enviar la evaluación.</p>
       ) : null}
@@ -66,23 +117,45 @@ function estaVacio(item: Item, valor: unknown): boolean {
     }
     case 'LISTA_COLABORADORES':
       return !((valor as ValorListaColaboradores | null)?.colaboradores?.length)
-    case 'UNIDAD_CHECKLIST':
-      return !((valor as ValorUnidadChecklist | null)?.unidades?.length)
+    case 'UNIDAD_CHECKLIST': {
+      const v = valor as ValorUnidadChecklist | null
+      const unids = v?.unidades ?? []
+      if (item.repetible === false) {
+        // Carga única: vacío hasta marcar al menos un requerimiento.
+        return unids.length === 0 || !(unids[0]?.selected?.length)
+      }
+      return !unids.length
+    }
+    case 'PLANO_XY':
+      // Vacío hasta que haya al menos un pin con veredicto (los pines sin marcar no cuentan).
+      return !puntosMarcadosPlano(valor as ValorPlano | null).length
     default:
       return false
   }
 }
 
-function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; branchId?: string | null }) {
+function Contenido({ item, valor, onChange, shopId, branchId, gerente }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; branchId?: string | null; gerente?: string | null }) {
+  // Hornea el gerente como destino por defecto de los puntos incumplidos cuando
+  // el ítem tiene responsables configurables (a nivel del ítem o por check) y el
+  // valor es un objeto: sin selección de la falla → gerente.
+  const tieneRespConfig = (item.responsables?.length ?? 0) > 0 || (item.opciones ?? []).some((o) => responsablesDeOpcion(o).length)
+  const guardar = (v: unknown) => {
+    const esObjeto = !!v && typeof v === 'object' && !Array.isArray(v)
+    if (item.tipo !== 'CONTENEDOR' && tieneRespConfig && esObjeto) {
+      onChange({ ...(v as object), responsablesGerente: gerente ?? null })
+    } else {
+      onChange(v)
+    }
+  }
   switch (item.tipo) {
     case 'CUMPLE_NO_CUMPLE': {
       const v = (valor as ValorCumple | null) ?? { value: null, evidencias: [] }
       const value = v.value ?? null
       const evidencias = v.evidencias ?? []
       const informativo = v.informativo ?? false
-      const setValue = (valor2: boolean) => onChange({ ...v, value: valor2 })
-      const setEvidencias = (evs: EvidenciaCumple[]) => onChange({ ...v, evidencias: evs })
-      const setInformativo = (b: boolean) => onChange({ ...v, informativo: b })
+      const setValue = (valor2: boolean) => guardar({ ...v, value: valor2 })
+      const setEvidencias = (evs: EvidenciaCumple[]) => guardar({ ...v, evidencias: evs })
+      const setInformativo = (b: boolean) => guardar({ ...v, informativo: b })
       return (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -93,6 +166,17 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
             Informativo · no descuenta puntos
           </BotonInformativo>
           <EvidenciasEditor evidencias={evidencias} onChange={setEvidencias} />
+          {value === false ? (
+            <div className="rounded-xl border border-red-100 bg-red-50/60 p-2.5">
+              <SelectorResponsables
+                etiqueta="Responsable de que no cumpla"
+                responsables={item.responsables ?? []}
+                seleccion={v.responsables ?? []}
+                gerente={gerente}
+                onChange={(sel) => guardar({ ...v, responsables: sel })}
+              />
+            </div>
+          ) : null}
         </div>
       )
     }
@@ -109,13 +193,13 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
         if (existe) {
           const valores2 = { ...(value.valores ?? {}) }
           delete valores2[id]
-          onChange({ ...value, selected: seleccion.filter((x) => x !== id), valores: valores2 })
+          guardar({ ...value, selected: seleccion.filter((x) => x !== id), valores: valores2 })
         } else {
-          onChange({ ...value, selected: [...seleccion, id] })
+          guardar({ ...value, selected: [...seleccion, id] })
         }
       }
       const setValorRango = (id: string, n: number) => {
-        onChange({
+        guardar({
           ...value,
           selected: seleccion.includes(id) ? seleccion : [...seleccion, id],
           valores: { ...(value.valores ?? {}), [id]: n }
@@ -123,20 +207,21 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
       }
       const toggleInformativo = (id: string) => {
         const existe = informativos.includes(id)
-        onChange({ ...value, informativos: existe ? informativos.filter((x) => x !== id) : [...informativos, id] })
+        guardar({ ...value, informativos: existe ? informativos.filter((x) => x !== id) : [...informativos, id] })
       }
       const setEvidencia = (id: string, photoIds: string[]) => {
-        onChange({ ...value, evidencias: { ...evidencias, [id]: { photoIds } } })
+        guardar({ ...value, evidencias: { ...evidencias, [id]: { photoIds } } })
       }
       const quitarEvidencia = (id: string, photoId: string) => {
         void deletePhoto(photoId)
         setEvidencia(id, (evidencias[id]?.photoIds ?? []).filter((x) => x !== photoId))
       }
       return (
+        <>
         <div className="space-y-2">
           <p className="text-xs text-slate-400">
             {conPuntos
-              ? 'El ítem otorga los puntos de las opciones marcadas. Marca “Informativo” en la opción cuya falla corresponde a otra área; no descontará puntos.'
+              ? 'El ítem otorga los puntos de las opciones validadas. Marca “Informativo” en la opción cuya falla corresponde a otra área; no descontará puntos.'
               : 'Marca “Informativo” en la opción cuya falla corresponde a otra área; no descontará puntos.'}
           </p>
           {opts.map((o) => {
@@ -145,38 +230,30 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
             const idsEv = evidencias[o.id]?.photoIds ?? []
             const esRango = o.tipo_respuesta === 'RANGO'
             const valorRango = esRango ? (value.valores?.[o.id] ?? null) : null
-            const rangoOk = esRango && typeof valorRango === 'number' && typeof o.minimo === 'number' && valorRango >= o.minimo
+            const cumpleOpcion = opcionCumplida(o, value, o.id)
+            const respFallidos = responsablesDeCheck(item, o).length > 0
             return (
               <div
                 key={o.id}
                 className={cn(
-                  'rounded-xl border transition-colors',
+                  'min-w-0 overflow-hidden rounded-xl border transition-colors',
                   esInformativo
                     ? 'border-amber-200 bg-amber-50'
-                    : activo && esRango && !rangoOk
-                      ? 'border-red-200 bg-red-50'
-                      : activo
-                        ? 'border-primary bg-primary-50'
-                        : 'border-slate-200 bg-white'
+                    : cumpleOpcion
+                      ? 'border-slate-200 bg-white'
+                      : 'border-red-300 bg-red-50'
                 )}
               >
-                <div className="flex items-center gap-2 px-3 py-2.5">
-                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-                    <input
-                      type="checkbox"
-                      className="h-5 w-5 shrink-0 accent-primary"
-                      checked={activo}
-                      onChange={() => toggle(o.id)}
-                    />
-                    <span className="text-sm text-slate-700">{o.etiqueta}</span>
-                    {esRango ? (
-                      <span className="ml-1 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                        {o.tipo_respuesta === 'RANGO' ? `Valor (mín. ${o.minimo ?? '—'}${o.unidad ? ` ${o.unidad}` : ''})` : ''}
-                      </span>
-                    ) : null}
-                    <ChipsResponsables o={o} />
-                    {o.puntos != null && o.puntos > 0 ? <span className="ml-1 shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span> : null}
-                  </label>
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
+                  <span className="min-w-0 flex-1 break-words text-sm text-slate-700">{o.etiqueta}</span>
+                  {esRango ? (
+                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                      Valor (mín. {o.minimo ?? '—'}{o.unidad ? ` ${o.unidad}` : ''})
+                    </span>
+                  ) : null}
+                  {o.puntos != null && o.puntos > 0 ? (
+                    <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => toggleInformativo(o.id)}
@@ -213,18 +290,79 @@ function Contenido({ item, valor, onChange, shopId, branchId }: { item: Item; va
                     <MinaFotos photoIds={idsEv} onQuitar={(fid) => quitarEvidencia(o.id, fid)} />
                   </div>
                 ) : null}
+                {!esInformativo ? (
+                  cumpleOpcion ? (
+                    // Estado neutro (validado): sin alerta roja y sin responsables.
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2.5">
+                      {esRango ? (
+                        <span className="text-xs font-semibold text-green-700">
+                          Punto validado <span className="font-normal text-slate-400">· valor {valorRango ?? '—'}{o.unidad ? ` ${o.unidad}` : ''}</span>
+                        </span>
+                      ) : (
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 shrink-0 accent-green-600"
+                            checked={activo}
+                            onChange={() => toggle(o.id)}
+                          />
+                          <span className="text-xs font-semibold text-green-700">Punto validado</span>
+                        </label>
+                      )}
+                    </div>
+                  ) : (
+                    // Estado de error (sin cumplir): validar el punto + responsables de la falla.
+                    <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
+                      {esRango ? (
+                        <>
+                          <p className="mb-1 text-xs font-semibold text-slate-600">
+                            Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
+                          </p>
+                          <p className="mb-2 text-[10px] text-slate-400">
+                            Ingresa un valor mayor o igual a {o.minimo ?? '—'}{o.unidad ? ` ${o.unidad}` : ''} para validar el punto.
+                          </p>
+                        </>
+                      ) : (
+                        <label className="mb-2 flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 shrink-0 accent-primary"
+                            checked={activo}
+                            onChange={() => toggle(o.id)}
+                          />
+                          <span className="text-xs font-bold text-slate-600">
+                            Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
+                          </span>
+                        </label>
+                      )}
+                      {respFallidos ? (
+                        <SelectorResponsables
+                          responsables={responsablesDeCheck(item, o)}
+                          seleccion={value.responsablesPorOpcion?.[o.id] ?? []}
+                          gerente={gerente}
+                          onChange={(sel) =>
+                            guardar({ ...value, responsablesPorOpcion: { ...(value.responsablesPorOpcion ?? {}), [o.id]: sel } })
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  )
+                ) : null}
               </div>
             )
           })}
         </div>
-      )
+      </>
+    )
     }
     case 'CONCILIACION':
-      return <ConciliacionEditor valor={valor} onChange={onChange} shopId={shopId} />
+      return <ConciliacionEditor valor={valor} onChange={guardar} shopId={shopId} item={item} gerente={gerente} />
     case 'LISTA_COLABORADORES':
-      return <ColaboradoresEditor item={item} valor={valor} onChange={onChange} shopId={shopId} branchId={branchId} />
+      return <ColaboradoresEditor item={item} valor={valor} onChange={guardar} shopId={shopId} branchId={branchId} gerente={gerente} />
     case 'UNIDAD_CHECKLIST':
-      return <UnidadesEditor item={item} valor={valor} onChange={onChange} />
+      return <UnidadesEditor item={item} valor={valor} onChange={guardar} gerente={gerente} />
+    case 'PLANO_XY':
+      return <PlanoEditor item={item} valor={valor} onChange={guardar} gerente={gerente} />
     default:
       return null
   }
@@ -247,7 +385,7 @@ function tieneInfoSistema(p: { soh?: number | null; lastSync?: string | null; fi
   return !!(p && (p.soh != null || p.lastSync || p.finalBase != null))
 }
 
-export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
+export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; item?: Item; gerente?: string | null }) {
   const [escaneando, setEscaneando] = useState(false)
   const [consultando, setConsultando] = useState(false)
   const [info, setInfo] = useState('')
@@ -261,6 +399,10 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
   const productos = v.productos ?? []
   const informativo = v.informativo ?? false
+
+  // La conciliación no cumple cuando hay productos escaneados, todos con ambas
+  // cantidades, y al menos uno no coincide: ahí aparece el selector de responsables.
+  const noCumple = item ? valorBinario({ tipo: item.tipo, opciones: item.opciones ?? null }, valor) === false : false
 
   const actualizar = (items: ProductoConciliacion[]) => onChange({ ...v, productos: items })
   const actualizarProducto = (i: number, patch: Partial<ProductoConciliacion>) =>
@@ -630,11 +772,22 @@ export function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown
           onCancel={() => setAEliminar(null)}
         />
       ) : null}
+      {noCumple ? (
+        <div className="rounded-xl border border-red-100 bg-red-50/60 p-2.5">
+          <SelectorResponsables
+            etiqueta="Responsable de que no concilie"
+            responsables={item?.responsables ?? []}
+            seleccion={v.responsables ?? []}
+            gerente={gerente}
+            onChange={(sel) => onChange({ ...v, responsables: sel })}
+          />
+        </div>
+      ) : null}
     </div>
   )
 }
 
-function ColaboradoresEditor({ item, valor, onChange, shopId, branchId }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; branchId?: string | null }) {
+function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; branchId?: string | null; gerente?: string | null }) {
   const [cargando, setCargando] = useState(false)
   const [info, setInfo] = useState('')
   const [abiertoDni, setAbiertoDni] = useState<number | null>(null)
@@ -823,7 +976,6 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId }: { item
                                 onChange={() => toggleCheck(c.dni, o.id)}
                               />
                               <span className={cn('text-sm', c.aplica ? 'text-slate-700' : 'text-slate-400')}>{o.etiqueta}</span>
-                              <ChipsResponsables o={o} />
                             </label>
                           )
                         })}
@@ -842,11 +994,12 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId }: { item
       ) : (
         <p className="text-sm text-slate-400">Aún no hay colaboradores cargados. Pulsa “Cargar colaboradores” para traerlos de la tienda.</p>
       )}
+      <SelectorResponsablesPorTipo item={item} valor={v} onChange={onChange} opts={opts} gerente={gerente} />
     </div>
   )
 }
 
-function UnidadesEditor({ item, valor, onChange }: { item: Item; valor: unknown; onChange: (v: unknown) => void }) {
+function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor: unknown; onChange: (v: unknown) => void; gerente?: string | null }) {
   const [info, setInfo] = useState('')
   const [codigo, setCodigo] = useState('')
   const [abiertoIdx, setAbiertoIdx] = useState<number | null>(null)
@@ -856,6 +1009,108 @@ function UnidadesEditor({ item, valor, onChange }: { item: Item; valor: unknown;
   const opts = (item.opciones ?? []) as Opcion[]
 
   const actualizar = (unids: UnidadChecklist[]) => onChange({ ...v, unidades: unids })
+
+  // Carga única (repetible = false): el checklist se marca una sola vez.
+  if (item.repetible === false) {
+    const unica = unidades[0] ?? { codigo: 'Única', selected: [] }
+    const marcadas = unica.selected ?? []
+    const completas = unidadCumple(unica, opts)
+    const toggleCheck = (opcionId: string) => {
+      const sel = marcadas.includes(opcionId) ? marcadas.filter((x) => x !== opcionId) : [...marcadas, opcionId]
+      actualizar([{ ...unica, selected: sel }])
+    }
+    const setCodigoUnica = (codigo: string) => {
+      actualizar([{ ...unica, codigo }])
+    }
+    const codigoVisible = unica.codigo && unica.codigo !== 'Única' ? unica.codigo : ''
+    return (
+      <div className="space-y-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Checklist (una sola carga)</p>
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-slate-500">Identificador (ej. Nº de serie)</p>
+          <Input
+            placeholder="Ej. serial de la impresora fiscal"
+            value={codigoVisible}
+            onChange={(e) => setCodigoUnica(e.target.value)}
+          />
+          <p className="mt-1.5 text-[10px] text-slate-400">
+            Identifica a qué elemento corresponde este checklist (impresora fiscal, caja registradora, etc.).
+          </p>
+        </div>
+        {!opts.length ? (
+          <p className="text-xs font-medium text-amber-600">Este ítem no tiene checklist definido. El Líder debe configurarlo desde Ítems de evaluación.</p>
+        ) : (
+          <div className="space-y-2">
+            {opts.map((o) => {
+              const esta = marcadas.includes(o.id)
+              const respFallidos = responsablesDeCheck(item, o).length > 0
+              return (
+                <div
+                  key={o.id}
+                  className={cn(
+                    'min-w-0 overflow-hidden rounded-xl border transition-colors',
+                    esta ? 'border-slate-200 bg-white' : 'border-red-300 bg-red-50'
+                  )}
+                >
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
+                    <span className="min-w-0 flex-1 break-words text-sm text-slate-700">{o.etiqueta}</span>
+                    {o.puntos != null && o.puntos > 0 ? (
+                      <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
+                    ) : null}
+                  </div>
+                  {esta ? (
+                    // Estado neutro (validado): sin alerta roja ni responsables.
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2.5">
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 shrink-0 accent-green-600"
+                          checked={esta}
+                          onChange={() => toggleCheck(o.id)}
+                        />
+                        <span className="text-xs font-semibold text-green-700">Punto validado</span>
+                      </label>
+                    </div>
+                  ) : (
+                    // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
+                    <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
+                      <label className="mb-2 flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 shrink-0 accent-primary"
+                          checked={esta}
+                          onChange={() => toggleCheck(o.id)}
+                        />
+                        <span className="text-xs font-bold text-slate-600">
+                          Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
+                        </span>
+                      </label>
+                      {respFallidos ? (
+                        <SelectorResponsables
+                          responsables={responsablesDeCheck(item, o)}
+                          seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
+                          gerente={gerente}
+                          onChange={(sel) =>
+                            onChange({ ...v, responsablesPorOpcion: { ...(v.responsablesPorOpcion ?? {}), [o.id]: sel } })
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {marcadas.length ? (
+          <p className="text-sm text-slate-600">
+            {codigoVisible ? <span className="font-semibold text-slate-700">{codigoVisible} · </span> : null}
+            {marcadas.length}/{opts.length} requerimientos · {completas ? 'Cumple' : 'Incompleto'}
+          </p>
+        ) : null}
+      </div>
+    )
+  }
 
   const agregar = () => {
     const c = codigo.trim()
@@ -944,20 +1199,65 @@ function UnidadesEditor({ item, valor, onChange }: { item: Item; valor: unknown;
                     </button>
                   </div>
                   {abierto ? (
-                    <div className="space-y-1 border-t border-slate-100 px-3 pb-3 pt-2">
+                    <div className="space-y-2 border-t border-slate-100 px-3 pb-3 pt-2">
                       {opts.map((o) => {
                         const esta = u.selected.includes(o.id)
+                        const incumple = checkIncumplido(item, o, v)
+                        const respFallidos = responsablesDeCheck(item, o).length > 0
                         return (
-                          <label key={o.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-50">
-                            <input
-                              type="checkbox"
-                              className="h-5 w-5 shrink-0 accent-primary"
-                              checked={esta}
-                              onChange={() => toggleCheck(i, o.id)}
-                            />
-<span className="text-sm text-slate-700">{o.etiqueta}</span>
-                            <ChipsResponsables o={o} />
-                          </label>
+                          <div
+                            key={o.id}
+                            className={cn(
+                              'min-w-0 overflow-hidden rounded-xl border transition-colors',
+                              incumple ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white'
+                            )}
+                          >
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
+                              <span className="min-w-0 flex-1 break-words text-sm text-slate-700">{o.etiqueta}</span>
+                              {o.puntos != null && o.puntos > 0 ? (
+                                <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
+                              ) : null}
+                            </div>
+                            {incumple ? (
+                              // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
+                              <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
+                                <label className="mb-2 flex cursor-pointer items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 shrink-0 accent-primary"
+                                    checked={esta}
+                                    onChange={() => toggleCheck(i, o.id)}
+                                  />
+                                  <span className="text-xs font-bold text-slate-600">
+                                    Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
+                                  </span>
+                                </label>
+                                {respFallidos ? (
+                                  <SelectorResponsables
+                                    responsables={responsablesDeCheck(item, o)}
+                                    seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
+                                    gerente={gerente}
+                                    onChange={(sel) =>
+                                      onChange({ ...v, responsablesPorOpcion: { ...(v.responsablesPorOpcion ?? {}), [o.id]: sel } })
+                                    }
+                                  />
+                                ) : null}
+                              </div>
+                            ) : (
+                              // Estado neutro (validado): sin alerta roja ni responsables.
+                              <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2.5">
+                                <label className="flex cursor-pointer items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 shrink-0 accent-green-600"
+                                    checked={esta}
+                                    onChange={() => toggleCheck(i, o.id)}
+                                  />
+                                  <span className="text-xs font-semibold text-green-700">Punto validado</span>
+                                </label>
+                              </div>
+                            )}
+                          </div>
                         )
                       })}
                     </div>
@@ -1074,24 +1374,6 @@ function BotonNoCumple({ activo, onPick }: { activo: boolean; onPick: () => void
     >
       <X className="text-2xl" strokeWidth={2.5} />
       <span className="text-sm font-bold">No cumple</span>
-    </button>
-  )
-}
-
-function BotonInformativo({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors',
-        activo
-          ? 'border-amber-300 bg-amber-100 text-amber-800'
-          : 'border-slate-200 bg-white text-slate-400 hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700'
-      )}
-    >
-      <Info className="h-3.5 w-3.5" />
-      {children}
     </button>
   )
 }

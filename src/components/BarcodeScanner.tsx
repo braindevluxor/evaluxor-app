@@ -67,7 +67,25 @@ export function BarcodeScanner({ open, onClose, onDetect }: Props) {
   }, [open, onDetect])
 
   return (
-    <Modal open={open} onClose={onClose} title="Escanear código de barras">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Escanear código de barras"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+          <Button
+            variant="success"
+            onClick={() => {
+              const c = codigoManual.trim()
+              if (c) onDetect(c)
+            }}
+          >
+            Usar
+          </Button>
+        </div>
+      }
+    >
       <div className="space-y-4">
         <p className="text-sm text-slate-500">
           Apunta la cámara al código de barras del producto, o escribe el código interno manualmente.
@@ -86,27 +104,13 @@ export function BarcodeScanner({ open, onClose, onDetect }: Props) {
             <Spinner /> Iniciando cámara…
           </div>
         ) : null}
-        <div className="flex items-center gap-2">
-          <input
-            className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-            placeholder="Código interno o SKU"
-            value={codigoManual}
-            onChange={(e) => setCodigoManual(e.target.value)}
-            autoFocus={estado === 'error'}
-          />
-          <Button
-            variant="success"
-            onClick={() => {
-              const c = codigoManual.trim()
-              if (c) onDetect(c)
-            }}
-          >
-            Usar
-          </Button>
-        </div>
-        <div className="flex justify-end">
-          <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-        </div>
+        <input
+          className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          placeholder="Código interno o SKU"
+          value={codigoManual}
+          onChange={(e) => setCodigoManual(e.target.value)}
+          autoFocus={estado === 'error'}
+        />
       </div>
     </Modal>
   )

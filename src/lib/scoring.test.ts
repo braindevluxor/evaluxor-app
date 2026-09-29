@@ -502,6 +502,84 @@ describe('valorPorResponsable', () => {
     expect(beto.porciento).toBe(50)
   })
 
+  it('proporcionItem del plano es la proporción de pines que cumplen (11/15 = 73.33%)', () => {
+    const puntos = [
+      ...Array.from({ length: 11 }, (_, i) => ({ id: `ok${i}`, planoId: 'p1', x: 0.1, y: 0.1, cumple: true, comentario: '' })),
+      ...Array.from({ length: 4 }, (_, i) => ({ id: `no${i}`, planoId: 'p1', x: 0.5, y: 0.5, cumple: false, comentario: '' }))
+    ]
+    expect(proporcionItem({ tipo: 'PLANO_XY' }, { planos: [], puntos })).toBeCloseTo(11 / 15, 6)
+    expect(valorBinario({ tipo: 'PLANO_XY' }, { planos: [], puntos })).toBe(false)
+    // Un pin sin veredicto no cuenta: 11 de 11 cumple.
+    expect(proporcionItem({ tipo: 'PLANO_XY' }, { planos: [], puntos: [...puntos.slice(0, 11), { id: 'x', planoId: 'p1', x: 0.9, y: 0.9, cumple: null, comentario: '' }] })).toBe(1)
+    expect(proporcionItem({ tipo: 'PLANO_XY' }, { planos: [], puntos: [] })).toBe(null)
+    expect(proporcionItem({ tipo: 'PLANO_XY' }, { planos: [], puntos, informativo: true })).toBe(null)
+  })
+
+  it('plano: cada pin no cumplido es una falla del responsable elegido', () => {
+    const puntos = [
+      { id: 'a', planoId: 'p1', x: 0.1, y: 0.1, cumple: false, comentario: '' },
+      { id: 'b', planoId: 'p1', x: 0.2, y: 0.2, cumple: true, comentario: '' },
+      { id: 'c', planoId: 'p1', x: 0.3, y: 0.3, cumple: false, comentario: '' }
+    ]
+    const v = { planos: [], puntos, responsables: ['Caro', 'Dani'] }
+    expect(incumplimientosPorResponsable({ tipo: 'PLANO_XY' }, v)).toEqual([
+      { responsable: 'Caro', puntos: 2 },
+      { responsable: 'Dani', puntos: 2 }
+    ])
+    // Sin selección va al gerente.
+    expect(incumplimientosPorResponsable({ tipo: 'PLANO_XY' }, { ...v, responsables: [], responsablesGerente: 'Elena' })).toEqual([
+      { responsable: 'Elena', puntos: 2 }
+    ])
+    // Todo cumple → sin fallas.
+    expect(incumplimientosPorResponsable({ tipo: 'PLANO_XY' }, { planos: [], puntos: [puntos[1]] })).toEqual([])
+  })
+
+  it('plano: reparte el peso según la proporción de puntos que cumplen', () => {
+    // 11 pines cumplen de 15 → 73.33% del ítem. La parte cumplida se reparte entre
+    // los responsables configurados; la fallada la absorbe la selección.
+    const items = [{ id: 'i1', tipo: 'PLANO_XY', puntaje: 30, responsables: ['Ana', 'Beto'] }]
+    const valor = {
+      planos: [{ id: 'p1', nombre: 'Planta baja', paths: ['ev/1/x.jpg'] }],
+      puntos: [
+        ...Array.from({ length: 11 }, (_, i) => ({ id: `ok${i}`, planoId: 'p1', x: 0.1, y: 0.1, cumple: true, comentario: '' })),
+        ...Array.from({ length: 4 }, (_, i) => ({ id: `no${i}`, planoId: 'p1', x: 0.5, y: 0.5, cumple: false, comentario: 'x' }))
+      ],
+      responsables: ['Caro']
+    }
+    const v = valorPorResponsable(items, [{ item_id: 'i1', valor }])
+    const por = Object.fromEntries(v.map((x) => [x.responsable, x]))
+    // 30 × 11/15 = 22 logrado (11 a Ana + 11 a Beto); la parte caída (8) es posible de Caro.
+    expect(por['Ana'].logrado).toBeCloseTo(11, 1)
+    expect(por['Beto'].logrado).toBeCloseTo(11, 1)
+    expect(por['Ana'].porciento).toBe(100)
+    expect(por['Caro'].logrado).toBe(0)
+    expect(por['Caro'].porciento).toBe(0)
+    // El posible total reconstruye el peso del ítem.
+    expect(v.reduce((a, x) => a + x.posible, 0)).toBeCloseTo(30, 1)
+  })
+
+  it('plano: los pines sin veredicto no cuentan y sin marcado no puntúa', () => {
+    const items = [{ id: 'i1', tipo: 'PLANO_XY', puntaje: 30, responsables: ['Ana'] }]
+    const soloSinMarcar = valorPorResponsable(items, [
+      { item_id: 'i1', valor: { planos: [], puntos: [{ id: 'a', planoId: 'p1', x: 0.1, y: 0.1, cumple: null, comentario: '' }] } }
+    ])
+    expect(soloSinMarcar).toEqual([])
+    const parte = valorPorResponsable(items, [
+      {
+        item_id: 'i1',
+        valor: {
+          planos: [],
+          puntos: [
+            { id: 'a', planoId: 'p1', x: 0.1, y: 0.1, cumple: true, comentario: '' },
+            { id: 'b', planoId: 'p1', x: 0.2, y: 0.2, cumple: null, comentario: '' }
+          ]
+        }
+      }
+    ])
+    // 1 de 1 cumple → 100%, aunque haya un pin sin marcar.
+    expect(parte[0].porciento).toBe(100)
+  })
+
   it('ítems sin responsables o sin puntaje no generan valor', () => {
     const v = valorPorResponsable([
       { id: 'a', tipo: 'CHECKLIST', puntaje: 25, opciones: [] },
@@ -535,5 +613,176 @@ describe('valorPorResponsable', () => {
     expect(pablo.posible).toBe(67.3)
     expect(pablo.logrado).toBeCloseTo(52.4, 2)
     expect(pablo.porciento).toBe(77.86)
+  })
+})
+
+describe('valorPorResponsable · selección de responsables del evaluador (fallas)', () => {
+  const itemCon = (id: string, tipo: string, puntaje: number, participantes: string[]) => ({
+    id,
+    tipo,
+    puntaje,
+    opciones: participantes.map((p) => ({ id: `o-${id}-${p}`, responsable: p })),
+    responsables: participantes
+  })
+
+  it('punto cumplido: reparto legado entre los configurados (la selección no acredita mérito)', () => {
+    const items = [itemCon('i1', 'CUMPLE_NO_CUMPLE', 25, ['Ana', 'Beto', 'Caro'])]
+    const v = valorPorResponsable(items, [{ item_id: 'i1', valor: { value: true, responsablesGerente: 'Gerente' } }])
+    expect(v.map((x) => x.responsable).sort()).toEqual(['Ana', 'Beto', 'Caro'])
+    for (const x of v) {
+      expect(x.posible).toBeCloseTo(25 / 3, 2)
+      expect(x.logrado).toBeCloseTo(25 / 3, 2)
+    }
+    expect(v.some((x) => x.responsable === 'Gerente')).toBe(false)
+  })
+
+  it('punto incumplido sin selección: el punto fallado queda para el gerente', () => {
+    const items = [itemCon('i1', 'CUMPLE_NO_CUMPLE', 25, ['Ana', 'Beto'])]
+    const v = valorPorResponsable(items, [{ item_id: 'i1', valor: { value: false, responsablesGerente: 'Gerente' } }])
+    const ger = v.find((x) => x.responsable === 'Gerente')!
+    expect(ger.posible).toBe(25)
+    expect(ger.logrado).toBe(0)
+    expect(v).toHaveLength(1)
+  })
+
+  it('punto incumplido con selección múltiple: cada elegido absorbe el punto fallado (puede superar el 100% del módulo)', () => {
+    const items = [itemCon('i1', 'CUMPLE_NO_CUMPLE', 25, ['Ana', 'Beto', 'Caro'])]
+    const v = valorPorResponsable(items, [{ item_id: 'i1', valor: { value: false, responsables: ['Ana', 'Beto'], responsablesGerente: 'Gerente' } }])
+    const ana = v.find((x) => x.responsable === 'Ana')!
+    const beto = v.find((x) => x.responsable === 'Beto')!
+    const caro = v.find((x) => x.responsable === 'Caro')
+    expect(ana.posible).toBe(25) // punto fallado COMPLETO, no share
+    expect(ana.logrado).toBe(0)
+    expect(beto.posible).toBe(25)
+    expect(beto.logrado).toBe(0)
+    expect(v.reduce((a, x) => a + x.posible, 0)).toBe(50) // > 100% del módulo
+    expect(caro).toBeUndefined() // no elegido no carga la falla
+    expect(ana.items).toBe(1)
+  })
+
+  it('punto incumplido sin selección ni gerente (responsablesGerente null) cae al reparto legado', () => {
+    const items = [itemCon('i1', 'CUMPLE_NO_CUMPLE', 24, ['Ana', 'Beto'])]
+    const v = valorPorResponsable(items, [{ item_id: 'i1', valor: { value: false, responsablesGerente: null } }])
+    const ana = v.find((x) => x.responsable === 'Ana')!
+    const beto = v.find((x) => x.responsable === 'Beto')!
+    expect(ana.posible).toBe(12)
+    expect(ana.logrado).toBe(0)
+    expect(beto.posible).toBe(12)
+    expect(beto.logrado).toBe(0)
+  })
+
+  it('modo por check: checks cumplidos en legado; checks incumplidos absorbidos por la selección', () => {
+    const item = {
+      id: 'i1',
+      tipo: 'CHECKLIST',
+      puntaje: 60,
+      opciones: [
+        { id: 'a', responsable: 'Ana', puntos: 3 },
+        { id: 'b', responsable: 'Beto', puntos: 1 },
+        { id: 'c', responsable: 'Caro', puntos: 2 }
+      ],
+      responsables: ['Ana', 'Beto', 'Caro']
+    }
+    // a cumplida → Ana 30 (60×3/6) logrado; b fallada y elegida → Beto 10 logrado 0;
+    // c fallada sin elección → gerente 20 logrado 0.
+    const v = valorPorResponsable([item], [{
+      item_id: 'i1',
+      valor: { selected: ['a'], responsablesPorOpcion: { b: ['Beto'] }, responsablesGerente: 'Gerente' }
+    }])
+    const ana = v.find((x) => x.responsable === 'Ana')!
+    const beto = v.find((x) => x.responsable === 'Beto')!
+    const ger = v.find((x) => x.responsable === 'Gerente')!
+    const caro = v.find((x) => x.responsable === 'Caro')
+    expect(ana.posible).toBeCloseTo(30, 2)
+    expect(ana.logrado).toBeCloseTo(30, 2)
+    expect(beto.posible).toBeCloseTo(10, 2)
+    expect(beto.logrado).toBe(0)
+    expect(ger.posible).toBeCloseTo(20, 2)
+    expect(ger.logrado).toBe(0)
+    expect(caro).toBeUndefined()
+    expect(v.reduce((a, x) => a + x.posible, 0)).toBeCloseTo(60, 1) // reconstruye los puntos del módulo
+  })
+
+  it('checklist binario (sin puntos por opción): cada check incumplido pesa P/n y absorbe la selección', () => {
+    const item = {
+      id: 'i1',
+      tipo: 'CHECKLIST',
+      puntaje: 40,
+      opciones: [
+        { id: 'a', responsable: 'Ana' },
+        { id: 'b', responsable: 'Beto' }
+      ],
+      responsables: ['Ana', 'Beto']
+    }
+    // a cumplida → Ana 20 (40/2); b fallada y elegida → Beto 20 logrado 0.
+    const v = valorPorResponsable([item], [{
+      item_id: 'i1',
+      valor: { selected: ['a'], responsablesPorOpcion: { b: ['Beto'] }, responsablesGerente: 'Gerente' }
+    }])
+    const ana = v.find((x) => x.responsable === 'Ana')!
+    const beto = v.find((x) => x.responsable === 'Beto')!
+    expect(ana.posible).toBeCloseTo(20, 2)
+    expect(ana.logrado).toBeCloseTo(20, 2)
+    expect(beto.posible).toBeCloseTo(20, 2)
+    expect(beto.logrado).toBe(0)
+  })
+
+  it('retrocompatibilidad: valores del modelo viejo (sin campos nuevos) mantienen el reparto legado', () => {
+    const items = [
+      itemCon('i1', 'CUMPLE_NO_CUMPLE', 25, ['Ana', 'Beto']),
+      itemCon('i2', 'CUMPLE_NO_CUMPLE', 25, ['Ana', 'Beto'])
+    ]
+    const v = valorPorResponsable(items, [
+      { item_id: 'i1', valor: { value: true } },
+      { item_id: 'i2', valor: { value: true } }
+    ])
+    const ana = v.find((x) => x.responsable === 'Ana')!
+    expect(ana.posible).toBeCloseTo(25, 2) // 12.5 + 12.5
+    expect(ana.logrado).toBeCloseTo(25, 2)
+    expect(ana.items).toBe(2)
+  })
+})
+
+describe('incumplimientosPorResponsable · selección de responsables del evaluador (fallas)', () => {
+  const itemChecklist = {
+    tipo: 'CHECKLIST',
+    opciones: [{ id: 'a', etiqueta: 'A', responsable: 'Mecanico' }, { id: 'b', etiqueta: 'B', responsable: 'Chofer' }]
+  }
+
+  it('un check fallado con selección por check se atribuye a los responsables elegidos', () => {
+    // a no está marcada (fallada); el evaluador la atribuyó a Ana.
+    const v = { selected: ['b'], responsablesPorOpcion: { a: ['Ana'] } }
+    expect(incumplimientosPorResponsable(itemChecklist, v)).toEqual([{ responsable: 'Ana', puntos: 1 }])
+  })
+
+  it('check fallado sin selección y con gerente: el incumplimiento queda para el gerente', () => {
+    const v = { selected: ['b'], responsablesPorOpcion: {}, responsablesGerente: 'Gerente' }
+    expect(incumplimientosPorResponsable(itemChecklist, v)).toEqual([{ responsable: 'Gerente', puntos: 1 }])
+  })
+
+  it('check fallado sin selección, sin gerente y sin modo por check: usa los responsables configurados', () => {
+    const v = { selected: ['b'], responsables: ['Ana'] }
+    expect(incumplimientosPorResponsable(itemChecklist, v)).toEqual([{ responsable: 'Mecanico', puntos: 1 }])
+  })
+
+  it('CUMPLE_NO_CUMPLE fallado con selección: el incumplimiento se atribuye a los elegidos', () => {
+    const item = { tipo: 'CUMPLE_NO_CUMPLE' }
+    expect(incumplimientosPorResponsable(item, { value: false, responsables: ['Ana'] })).toEqual([{ responsable: 'Ana', puntos: 1 }])
+  })
+
+  it('CUMPLE_NO_CUMPLE fallado sin selección con gerente: el incumplimiento queda para el gerente', () => {
+    const item = { tipo: 'CUMPLE_NO_CUMPLE' }
+    expect(incumplimientosPorResponsable(item, { value: false, responsables: [], responsablesGerente: 'Gerente' })).toEqual([{ responsable: 'Gerente', puntos: 1 }])
+  })
+
+  it('CUMPLE_NO_CUMPLE cumplido no genera incumplimientos', () => {
+    const item = { tipo: 'CUMPLE_NO_CUMPLE' }
+    expect(incumplimientosPorResponsable(item, { value: true, responsables: ['Ana'] })).toEqual([])
+  })
+
+  it('CONCILIACION desconciliada con selección: el incumplimiento se atribuye a los elegidos', () => {
+    const item = { tipo: 'CONCILIACION', opciones: [{ id: 'a', responsable: 'X' }] }
+    const v = { productos: [{ sku: 'A', nombre: null, teorica: 2, fisica: 1 }], responsables: ['Ana'] }
+    expect(incumplimientosPorResponsable(item, v)).toEqual([{ responsable: 'Ana', puntos: 1 }])
   })
 })

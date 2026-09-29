@@ -6,6 +6,7 @@ export type TipoItem =
   | 'CONCILIACION'
   | 'LISTA_COLABORADORES'
   | 'UNIDAD_CHECKLIST'
+  | 'PLANO_XY'
   | 'CONTENEDOR'
 
 export type FiltroColaboradores = 'ACTIVOS' | 'INACTIVOS' | 'TODOS'
@@ -19,6 +20,8 @@ export interface Sucursal {
   gerente_id: string | null
   activa: boolean
   created_at: string
+  /** Gerente (perfil) embebido por el join en el catálogo/evaluación. Opcional: solo está cuando se hace el join. */
+  gerente?: { id?: string; nombre: string } | null
 }
 
 export interface Profile {
@@ -141,6 +144,8 @@ export interface Item {
   api_campos?: string[] | null
   /** Permite repetir el mismo valor identificador en los registros de una sección API. */
   permitir_duplicados?: boolean | null
+  /** UNIDAD_CHECKLIST: repetible (default) permite cargar el checklist varias veces (una unidad por carga); false lo carga una sola vez. */
+  repetible?: boolean | null
   created_at: string
 }
 
