@@ -102,3 +102,35 @@ describe('ItemRenderer · Cumplimiento XY (PLANO_XY)', () => {
     expect(html).toContain('Obligatorio para enviar la evaluación')
   })
 })
+
+function itemChecklist(): Item {
+  return {
+    id: 'it-3',
+    modulo_id: 'm1',
+    tipo: 'CHECKLIST',
+    texto: 'Presentación de góndolas',
+    opciones: [
+      { id: 'o1', etiqueta: 'Góndola de panadería' },
+      { id: 'o2', etiqueta: 'Góndola de bebidas' }
+    ],
+    orden: 0,
+    requerido: true,
+    activo: true,
+    puntaje: 10,
+    created_at: ''
+  }
+}
+
+describe('ItemRenderer · evidencia fotográfica del checklist', () => {
+  it('ofrece la cámara en todas las opciones, también en la que ya está validada', () => {
+    const valor = { selected: ['o1'], informativos: [], evidencias: {} }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemChecklist()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Punto validado')
+    expect(html.split('Tomar foto de evidencia').length - 1).toBe(2)
+  })
+
+  it('también con el punto sin cumplir', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={itemChecklist()} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(html.split('Tomar foto de evidencia').length - 1).toBe(2)
+  })
+})

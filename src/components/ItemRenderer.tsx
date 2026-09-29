@@ -266,12 +266,12 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente }: { item:
                     <Info className="h-3 w-3" />
                     {esInformativo ? 'Informativo' : 'Marcar'}
                   </button>
-                  {!activo ? (
-                    <FotoOpcion
-                      photoIds={idsEv}
-                      onChange={(ids) => setEvidencia(o.id, ids)}
-                    />
-                  ) : null}
+                  {/* La foto se puede adjuntar en cualquier estado: el punto puede estar
+                      validado (cumple) o sin cumplir, y en los dos casos sirve de evidencia. */}
+                  <FotoOpcion
+                    photoIds={idsEv}
+                    onChange={(ids) => setEvidencia(o.id, ids)}
+                  />
                 </div>
                 {esRango ? (
                   <div className="space-y-2 px-3 pb-3 pt-1">
@@ -285,7 +285,7 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente }: { item:
                     />
                   </div>
                 ) : null}
-                {!activo && idsEv.length > 0 ? (
+                {idsEv.length > 0 ? (
                   <div className="px-3 pb-3">
                     <MinaFotos photoIds={idsEv} onQuitar={(fid) => quitarEvidencia(o.id, fid)} />
                   </div>
