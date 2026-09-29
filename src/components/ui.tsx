@@ -278,12 +278,17 @@ export function Confirmar({
   open,
   texto,
   onConfirm,
-  onCancel
+  onCancel,
+  textoConfirmar = 'Sí, confirmar',
+  variant = 'danger'
 }: {
   open: boolean
   texto: string
   onConfirm: () => void
   onCancel: () => void
+  /** Etiqueta y color del botón: rojo por defecto (borrar); otro para acciones que no destruyen. */
+  textoConfirmar?: string
+  variant?: BtnVariant
 }) {
   useCerrarConEscape(open, onCancel)
   if (!open) return null
@@ -293,7 +298,7 @@ export function Confirmar({
         <p className="text-sm text-slate-700">{texto}</p>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="ghost" onClick={onCancel}>Cancelar</Button>
-          <Button variant="danger" onClick={onConfirm}>Sí, confirmar</Button>
+          <Button variant={variant} onClick={onConfirm}>{textoConfirmar}</Button>
         </div>
       </div>
     </div>

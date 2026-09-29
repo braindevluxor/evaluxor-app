@@ -1003,10 +1003,18 @@ export async function crearEvaluacion(args: {
   if (error) throw new Error(error.message)
 }
 
+/**
+ * Pasa la evaluación a ACTIVA. Sirve para abrir una PROGRAMADA y también para
+ * reabrir una CERRADA: en ambos casos se limpia `cerrada_en`. No se borra el
+ * `puntuacion` ni el `comentario_general` del cierre anterior; quedan como están
+ * hasta que el Líder vuelva a cerrarla (ahí se recalculan).
+ * Las RLS ya dan escritura sobre respuestas/instancias/fotos cuando la
+ * evaluación está ACTIVA, así que al reabrir los evaluadores recuperan permisos.
+ */
 export async function abrirEvaluacion(id: string): Promise<void> {
   const { error } = await supabase
     .from('evaluaciones')
-    .update({ estado: 'ACTIVA', abierta_en: new Date().toISOString() })
+    .update({ estado: 'ACTIVA', abierta_en: new Date().toISOString(), cerrada_en: null })
     .eq('id', id)
   if (error) throw new Error(error.message)
 }

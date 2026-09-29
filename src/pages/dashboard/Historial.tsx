@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarPlus, Eye, FileDown, Lock, Pencil, Play, Trash2 } from 'lucide-react'
+import { CalendarPlus, Eye, FileDown, Lock, Pencil, Play, Trash2, Unlock } from 'lucide-react'
 import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
@@ -55,6 +55,7 @@ export function Historial() {
   const [evals, setEvals] = useState<VistaEvaluacion[] | null>(null)
   const [descargando, setDescargando] = useState<string | null>(null)
   const [aEliminar, setAEliminar] = useState<VistaEvaluacion | null>(null)
+  const [aReabrir, setAReabrir] = useState<VistaEvaluacion | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Apertura / programación
@@ -148,6 +149,12 @@ export function Historial() {
   }
 
   const abrir = async (ev: VistaEvaluacion) => {
+    // Reabrir una cerrada tiene consecuencias (vuelve a habilitar las respuestas),
+    // por eso pasa por confirmación; abrir una programada es directo.
+    if (ev.estado === 'CERRADA') {
+      setAReabrir(ev)
+      return
+    }
     setError(null)
     setGestionando(true)
     try {
@@ -155,6 +162,20 @@ export function Historial() {
       await cargar()
     } catch {
       setError('No se pudo abrir la evaluación.')
+    }
+    setGestionando(false)
+  }
+
+  const reabrir = async () => {
+    if (!aReabrir) return
+    setError(null)
+    setGestionando(true)
+    try {
+      await abrirEvaluacion(aReabrir.id)
+      setAReabrir(null)
+      await cargar()
+    } catch {
+      setError('No se pudo reabrir la evaluación.')
     }
     setGestionando(false)
   }
@@ -310,6 +331,11 @@ export function Historial() {
                             </Button>
                           </>
                         ) : null}
+                        {esLider && ev.estado === 'CERRADA' ? (
+                          <Button variant="secondary" className="min-h-0 gap-1.5 px-3 py-1.5" disabled={gestionando} onClick={() => void abrir(ev)}>
+                            <Unlock className="h-4 w-4" /> Reabrir
+                          </Button>
+                        ) : null}
                         <Link
                           to={`/evaluaciones/${ev.id}`}
                           className="inline-flex min-h-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-primary hover:underline"
@@ -343,6 +369,15 @@ export function Historial() {
           </div>
         </Card>
       )}
+
+      <Confirmar
+        open={aReabrir != null}
+        texto={`¿Reabrir la evaluación de ${aReabrir?.sucursal?.nombre ?? 'esta sucursal'} (${new Date(`${aReabrir?.fecha}T12:00:00`).toLocaleDateString('es')})? Volverá a quedar Activa: los evaluadores podrán responder y modificar sus respuestas, y se pueden volver a subir las fotos. El puntaje y el comentario del cierre quedan como están hasta que la cierres otra vez.`}
+        textoConfirmar="Reabrir"
+        variant="primary"
+        onConfirm={() => void reabrir()}
+        onCancel={() => setAReabrir(null)}
+      />
 
       <Confirmar
         open={aEliminar != null}
