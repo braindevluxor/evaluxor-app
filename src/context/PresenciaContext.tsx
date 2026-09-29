@@ -4,6 +4,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 import { useAuth } from './AuthContext'
 import { useCatalog } from './CatalogContext'
 import { supabase } from '../lib/supabase'
+import { APP_VERSION, BUILD_ID } from '../lib/version'
 import {
   etiquetaDispositivo,
   etiquetaPantalla,
@@ -61,6 +62,10 @@ export function PresenciaProvider({ children }: { children: ReactNode }) {
             ruta: pathname,
             pantalla: miPantalla,
             dispositivo: etiquetaDispositivo(),
+            // Con qué build corre el dispositivo: el líder ve así quién quedó
+            // atrás y por eso le sigue fallando.
+            version: APP_VERSION,
+            build_id: BUILD_ID,
             sucursal_id: profile.sucursal_id,
             visto: Date.now()
           }

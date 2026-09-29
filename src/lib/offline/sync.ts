@@ -1,4 +1,5 @@
 import { supabase } from '../supabase'
+import { errorSubida } from '../subida'
 import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, respuestasConInstancia, type SyncJob, type DraftEval } from './db'
 import { photoPath, convertirValor, extraerPhotoIds, valorSinFotos } from './transform'
 
@@ -66,27 +67,33 @@ export async function guardarBorradorNube(
   instancias: { id: string; item_id: string; etiqueta: string; orden: number; api_id?: string; datos?: Record<string, unknown> }[] = []
 ): Promise<void> {
   if (!respuestas.length && !instancias.length) return
-  if (instancias.length) {
-    const rows = instancias.map((ins) => ({
-      id: ins.id,
+  try {
+    if (instancias.length) {
+      const rows = instancias.map((ins) => ({
+        id: ins.id,
+        evaluacion_id: evaluacionId,
+        item_id: ins.item_id,
+        etiqueta: ins.etiqueta,
+        orden: ins.orden,
+        api_id: ins.api_id ?? null,
+        datos: ins.datos ?? null
+      }))
+      const { error } = await supabase.from('instancias_grupo').upsert(rows, { onConflict: 'id' })
+      if (error) throw error
+    }
+    const rows = respuestas.map((r) => ({
       evaluacion_id: evaluacionId,
-      item_id: ins.item_id,
-      etiqueta: ins.etiqueta,
-      orden: ins.orden,
-      api_id: ins.api_id ?? null,
-      datos: ins.datos ?? null
+      item_id: r.item_id,
+      instancia_id: r.instancia_id,
+      valor: valorSinFotos(r.valor),
+      respondido_por: evaluadorId
     }))
-    const { error } = await supabase.from('instancias_grupo').upsert(rows, { onConflict: 'id' })
-    if (error) throw error
+    await upsertRespuestas(rows)
+  } catch (e) {
+    // Se propaga tipado (causa + detalle técnico) para que la pantalla diga qué
+    // pasó de verdad en vez de culpar siempre a la conexión.
+    throw errorSubida(e, 'guardar el avance')
   }
-  const rows = respuestas.map((r) => ({
-    evaluacion_id: evaluacionId,
-    item_id: r.item_id,
-    instancia_id: r.instancia_id,
-    valor: valorSinFotos(r.valor),
-    respondido_por: evaluadorId
-  }))
-  await upsertRespuestas(rows)
   // La subida terminó bien: queda registrada como última sincronización del usuario.
   void marcarSyncNube()
 }

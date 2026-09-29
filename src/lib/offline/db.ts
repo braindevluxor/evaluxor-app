@@ -116,15 +116,46 @@ export function getDB(): Promise<IDBPDatabase<EvaluxorDB>> {
         if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos')
         if (!db.objectStoreNames.contains('queue')) db.createObjectStore('queue')
         if (oldVersion > 0 && oldVersion < 4) {
+          // Solo se renueva el catálogo cacheado, que es lo único que puede quedar
+          // incompatible con el código nuevo. La cola y los borradores son trabajo
+          // real del evaluador: antes esto los borraba y se perdía lo que no había
+          // llegado a la nube.
           db.deleteObjectStore('cache')
           db.createObjectStore('cache')
-          db.deleteObjectStore('queue')
-          db.createObjectStore('queue')
         }
       }
     })
   }
   return dbPromise
+}
+
+/** Cierra la conexión para poder borrar la base (usado por "Restaurar app"). */
+export async function cerrarDB(): Promise<void> {
+  const p = dbPromise
+  dbPromise = null
+  if (!p) return
+  try {
+    ;(await p).close()
+  } catch {
+    // Si nunca llegó a abrir, no hay nada que cerrar.
+  }
+}
+
+/** Tira el catálogo cacheado para que se vuelva a bajar del servidor. */
+export async function limpiarCacheCatalogo(): Promise<void> {
+  const db = await getDB()
+  await db.delete('cache', 'data')
+}
+
+/** Qué hay guardado en el dispositivo, para poder avisar antes de borrar. */
+export async function resumenAlmacenamiento(): Promise<{ borradores: number; cola: number; fotos: number }> {
+  try {
+    const db = await getDB()
+    const [borradores, cola, fotos] = await Promise.all([db.count('drafts'), db.count('queue'), db.count('photos')])
+    return { borradores, cola, fotos }
+  } catch {
+    return { borradores: 0, cola: 0, fotos: 0 }
+  }
 }
 
 export async function getCache(): Promise<CacheData | undefined> {

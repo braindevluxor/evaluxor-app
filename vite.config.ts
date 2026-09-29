@@ -1,10 +1,53 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
+import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+/**
+ * Identidad de esta build. Se inyecta en el bundle (`__APP_VERSION__` /
+ * `__BUILD_ID__` / `__BUILD_FECHA__`) y además se publica como `version.json` en
+ * la raíz, que es lo que la app consulta para saber si hay una versión nueva.
+ * Con eso cada teléfono puede decir con qué build está trabajando y el Líder ve
+ * en /usuarios quién quedó atrás.
+ */
+function identidadBuild(): { version: string; buildId: string; commit: string; fecha: string } {
+  const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as { version: string }
+  const fecha = new Date().toISOString()
+  let commit = 'sinc-git'
+  try {
+    // En Vercel el clon es shallow, pero el HEAD siempre está disponible.
+    commit = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || commit
+  } catch {
+    // Build sin .git (o sin git instalado): se degrada a la fecha, sin romper.
+  }
+  // Ordenable por fecha: 20260929-1912-a1b2c3
+  const buildId = `${fecha.slice(0, 10).replace(/-/g, '')}-${fecha.slice(11, 16).replace(':', '')}-${commit}`
+  return { version: pkg.version, buildId, commit, fecha }
+}
+
+/** Publica `/version.json` (el service worker no lo precachea: siempre fresco). */
+function pluginVersion(info: ReturnType<typeof identidadBuild>): Plugin {
+  return {
+    name: 'evaluxor-version-json',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'version.json', source: `${JSON.stringify(info, null, 2)}\n` })
+    }
+  }
+}
+
+const build = identidadBuild()
+
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(build.version),
+    __BUILD_ID__: JSON.stringify(build.buildId),
+    __BUILD_FECHA__: JSON.stringify(build.fecha)
+  },
   plugins: [
+    pluginVersion(build),
     react(),
     tailwindcss(),
     VitePWA({

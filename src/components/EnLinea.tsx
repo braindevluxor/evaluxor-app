@@ -1,10 +1,15 @@
 import { cn } from './ui'
 import type { Conectado } from '../context/PresenciaContext'
+import { BUILD_ID } from '../lib/version'
 
 /**
  * Punto verde + en qué pantalla está la persona. Sin conexión muestra un punto
  * apagado: la presencia solo dice que la app está abierta con señal, no que haya
  * subido datos (para eso está la última sincronización).
+ *
+ * Si el dispositivo corre una build distinta a la del que mira la pantalla, se
+ * marca en rojo: es la forma de ver de un vistazo a quién le va a seguir fallando
+ * por tener la app vieja.
  */
 export function EnLinea({ conectado, className }: { conectado?: Conectado | null; className?: string }) {
   if (!conectado) {
@@ -16,8 +21,12 @@ export function EnLinea({ conectado, className }: { conectado?: Conectado | null
     )
   }
   const extra = conectado.dispositivos > 1 ? ` · ${conectado.dispositivos} dispositivos` : ''
+  const atrasada = !!conectado.build_id && conectado.build_id !== BUILD_ID
   return (
-    <span className={cn('inline-flex min-w-0 items-center gap-1.5', className)} title={`${conectado.nombre} · ${conectado.dispositivo}${extra}`}>
+    <span
+      className={cn('inline-flex min-w-0 items-center gap-1.5', className)}
+      title={`${conectado.nombre} · ${conectado.dispositivo}${extra}${atrasada ? ` · build ${conectado.build_id}` : ''}`}
+    >
       <span className="relative flex h-2 w-2 shrink-0">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
         <span className="relative inline-flex h-2 w-2 rounded-full bg-green-600" />
@@ -25,6 +34,11 @@ export function EnLinea({ conectado, className }: { conectado?: Conectado | null
       <span className="min-w-0">
         <span className="block text-xs font-semibold text-green-700">En línea</span>
         <span className="block truncate text-xs text-slate-500">{conectado.pantalla}</span>
+        {atrasada ? (
+          <span className="block text-[10px] font-bold uppercase tracking-wide text-red-600">
+            Versión vieja · {conectado.version}
+          </span>
+        ) : null}
       </span>
     </span>
   )

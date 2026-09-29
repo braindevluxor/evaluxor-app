@@ -4,6 +4,7 @@ import type { Rol } from './lib/types'
 import { AuthProvider } from './context/AuthContext'
 import { CatalogProvider } from './context/CatalogContext'
 import { PresenciaProvider } from './context/PresenciaContext'
+import { VersionProvider } from './context/VersionContext'
 import { OfflineProvider } from './context/OfflineContext'
 import { RequireAuth, RequireRol, RequireSesion, SoloLider } from './components/guards'
 import { ConsoleLayout } from './components/layouts/ConsoleLayout'
@@ -48,127 +49,131 @@ export default function App() {
                 Necesita la sesión (identidad) y el catálogo (nombres de sucursal
                 y módulo), por eso va dentro de ambos. */}
             <PresenciaProvider>
-              <Suspense fallback={<Susp />}>
-                <Routes>
-                  <Route path="/" element={<HomeRedirect />} />
-                  <Route path="/login" element={<LoginPage />} />
-                  <Route path="/registro" element={<RegisterPage />} />
-                  <Route path="/perfil" element={<RequireAuth><PerfilPage /></RequireAuth>} />
-                  <Route
-                    path="/evaluaciones/:evaluacionId"
-                    element={
-                      <RequireAuth>
-                        <RequireRol roles={[...ROLES_DASHBOARD, 'EVALUADOR']}>
-                          <EvaluacionDetalle />
-                        </RequireRol>
-                      </RequireAuth>
-                    }
-                  />
-                  <Route
-                    path="/evaluaciones/:evaluacionId/conciliacion"
-                    element={
-                      <RequireAuth>
-                        <SoloLider>
-                          <EditarConciliacion />
-                        </SoloLider>
-                      </RequireAuth>
-                    }
-                  />
-                  <Route path="/pendiente" element={<RequireSesion><PendientePage /></RequireSesion>} />
+              {/* Versión: avisa (o actualiza sola) cuando hay una build nueva en
+                  el servidor, sin cortar a quien está evaluando. */}
+              <VersionProvider>
+                <Suspense fallback={<Susp />}>
+                  <Routes>
+                    <Route path="/" element={<HomeRedirect />} />
+                    <Route path="/login" element={<LoginPage />} />
+                    <Route path="/registro" element={<RegisterPage />} />
+                    <Route path="/perfil" element={<RequireAuth><PerfilPage /></RequireAuth>} />
+                    <Route
+                      path="/evaluaciones/:evaluacionId"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={[...ROLES_DASHBOARD, 'EVALUADOR']}>
+                            <EvaluacionDetalle />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/evaluaciones/:evaluacionId/conciliacion"
+                      element={
+                        <RequireAuth>
+                          <SoloLider>
+                            <EditarConciliacion />
+                          </SoloLider>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route path="/pendiente" element={<RequireSesion><PendientePage /></RequireSesion>} />
 
-                  <Route
-                    path="/evaluar"
-                    element={
-                      <RequireAuth>
-                        <RequireRol roles={['EVALUADOR', 'LIDER']}>
-                          <EvaluarHome />
-                        </RequireRol>
-                      </RequireAuth>
-                    }
-                  />
-                  <Route
-                    path="/evaluar/historial"
-                    element={
-                      <RequireAuth>
-                        <RequireRol roles={['EVALUADOR', 'LIDER']}>
-                          <MisEvaluaciones />
-                        </RequireRol>
-                      </RequireAuth>
-                    }
-                  />
-                  <Route
-                    path="/evaluar/:sucursalId"
-                    element={
-                      <RequireAuth>
-                        <RequireRol roles={['EVALUADOR', 'LIDER']}>
-                          <EvaluarSucursal />
-                        </RequireRol>
-                      </RequireAuth>
-                    }
-                  />
-                  <Route
-                    path="/evaluar/:sucursalId/resumen"
-                    element={
-                      <RequireAuth>
-                        <RequireRol roles={['EVALUADOR', 'LIDER']}>
-                          <EvaluarResumen />
-                        </RequireRol>
-                      </RequireAuth>
-                    }
-                  />
+                    <Route
+                      path="/evaluar"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <EvaluarHome />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/evaluar/historial"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <MisEvaluaciones />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/evaluar/:sucursalId"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <EvaluarSucursal />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/evaluar/:sucursalId/resumen"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <EvaluarResumen />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
 
-                  <Route
-                    element={
-                      <RequireAuth>
-                        <ConsoleLayout />
-                      </RequireAuth>
-                    }
-                  >
                     <Route
-                      path="/dashboard"
                       element={
-                        <RequireRol roles={ROLES_DASHBOARD}>
-                          <DashboardHome />
-                        </RequireRol>
+                        <RequireAuth>
+                          <ConsoleLayout />
+                        </RequireAuth>
                       }
-                    />
-                    <Route
-                      path="/dashboard/historial"
-                      element={
-                        <RequireRol roles={ROLES_DASHBOARD}>
-                          <Historial />
-                        </RequireRol>
-                      }
-                    />
-                    <Route
-                      path="/dashboard/comparativas"
-                      element={
-                        <RequireRol roles={ROLES_DASHBOARD}>
-                          <Comparativas />
-                        </RequireRol>
-                      }
-                    />
-                    <Route
-                      path="/dashboard/modulo/:moduloId"
-                      element={
-                        <RequireRol roles={ROLES_DASHBOARD}>
-                          <ModuloDashboard />
-                        </RequireRol>
-                      }
-                    />
-                    <Route path="/config/sucursales" element={<SoloLider><SucursalesPage /></SoloLider>} />
-                    <Route path="/config/modulos" element={<SoloLider><ModulosPage /></SoloLider>} />
-                    <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
-                    <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
-                    <Route path="/biblioteca" element={<BibliotecaPage />} />
-                    <Route path="/proyectos" element={<ProyectosHome />} />
-                    <Route path="/proyectos/biometrico" element={<BiometricoProyecto />} />
-                    <Route path="/proyectos/:id" element={<ProyectoDetalle />} />
-                  </Route>
+                    >
+                      <Route
+                        path="/dashboard"
+                        element={
+                          <RequireRol roles={ROLES_DASHBOARD}>
+                            <DashboardHome />
+                          </RequireRol>
+                        }
+                      />
+                      <Route
+                        path="/dashboard/historial"
+                        element={
+                          <RequireRol roles={ROLES_DASHBOARD}>
+                            <Historial />
+                          </RequireRol>
+                        }
+                      />
+                      <Route
+                        path="/dashboard/comparativas"
+                        element={
+                          <RequireRol roles={ROLES_DASHBOARD}>
+                            <Comparativas />
+                          </RequireRol>
+                        }
+                      />
+                      <Route
+                        path="/dashboard/modulo/:moduloId"
+                        element={
+                          <RequireRol roles={ROLES_DASHBOARD}>
+                            <ModuloDashboard />
+                          </RequireRol>
+                        }
+                      />
+                      <Route path="/config/sucursales" element={<SoloLider><SucursalesPage /></SoloLider>} />
+                      <Route path="/config/modulos" element={<SoloLider><ModulosPage /></SoloLider>} />
+                      <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
+                      <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
+                      <Route path="/biblioteca" element={<BibliotecaPage />} />
+                      <Route path="/proyectos" element={<ProyectosHome />} />
+                      <Route path="/proyectos/biometrico" element={<BiometricoProyecto />} />
+                      <Route path="/proyectos/:id" element={<ProyectoDetalle />} />
+                    </Route>
 
-                  <Route path="*" element={<HomeRedirect />} />
-                </Routes>
-              </Suspense>
+                    <Route path="*" element={<HomeRedirect />} />
+                  </Routes>
+                </Suspense>
+              </VersionProvider>
             </PresenciaProvider>
           </CatalogProvider>
         </OfflineProvider>

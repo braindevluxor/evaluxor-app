@@ -20,6 +20,10 @@ export interface PresenciaUsuario {
   pantalla: string
   /** 'Celular' | 'Tablet' | 'Notebook' */
   dispositivo: string
+  /** Versión de la app que corre en ese dispositivo ("0.1.0"). */
+  version: string
+  /** Build exacta ("20260929-1912-a1b2c3"): lo que distingue dos despliegues. */
+  build_id: string
   sucursal_id: string | null
   /** Marca de tiempo del último anuncio (Date.now). */
   visto: number

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { EnLinea } from './EnLinea'
+import { BUILD_ID } from '../lib/version'
 import type { Conectado } from '../context/PresenciaContext'
 
 function fuente(rel: string): string {
@@ -17,6 +18,8 @@ const conectado = (over: Partial<Conectado> = {}): Conectado => ({
   ruta: '/evaluar/s1',
   pantalla: 'Evaluando · Sucursal Norte',
   dispositivo: 'Celular',
+  version: '0.1.0',
+  build_id: '0.0.0-dev',
   sucursal_id: 's1',
   visto: Date.now(),
   dispositivos: 1,
@@ -42,6 +45,17 @@ describe('presencia · punto en línea', () => {
     expect(html).toContain('Desconectado')
     expect(html).toContain('bg-slate-300')
     expect(html).not.toContain('En línea')
+  })
+
+  it('marca en rojo a quien corre una build vieja', () => {
+    const html = renderToStaticMarkup(<EnLinea conectado={conectado({ build_id: '20200101-0000-vieja' })} />)
+    expect(html).toContain('Versión vieja')
+    expect(html).toContain('text-red-600')
+  })
+
+  it('no marca versión vieja cuando corre la misma build', () => {
+    const html = renderToStaticMarkup(<EnLinea conectado={conectado({ build_id: BUILD_ID })} />)
+    expect(html).not.toContain('Versión vieja')
   })
 })
 

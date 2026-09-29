@@ -7,6 +7,7 @@ import { useOffline } from '../../context/OfflineContext'
 import { hijosOrdenados } from '../../lib/hierarchy'
 import { claveRespuesta, pasosDeModulo, raicesDeModulo } from '../../lib/pasos'
 import { tieneRespuesta } from '../../lib/scoring'
+import { causaSubida, detalleTecnico, mensajeSubida, type CausaSubida } from '../../lib/subida'
 import { getDraft, putDraft, normalizarClave, instanciasPlanasDe, type DraftEval, type DraftInstancia } from '../../lib/offline/db'
 import { guardarBorradorNube, instanciasDeDraft, respuestasConInstancia } from '../../lib/offline/sync'
 import { listarEvaluacionesActivas, listarRespuestasEvaluacion, listarInstanciasEvaluacion } from '../../lib/data/indicadores'
@@ -81,9 +82,10 @@ export function EvaluarSucursal() {
   const evaluacionIdRef = useRef<string | null>(null)
   const draftRef = useRef<DraftEval | null>(null)
   const nubeTimer = useRef<number | null>(null)
-  // `false` cuando hay avance que todavía no llegó a la nube (sin conexión o
-  // error transitorio de subida). Se muestra en un cartel y se reintenta solo.
-  const [subidaOk, setSubidaOk] = useState(true)
+  // Fallo de la última subida, con su causa real (`sin_conexion`, `rechazada` por
+  // RLS, `servidor`...). Antes era un booleano que siempre terminaba diciendo
+  // "revisá tu conexión", con reintento cada 12 s pase lo que pase.
+  const [fallaSubida, setFallaSubida] = useState<{ causa: CausaSubida; detalle: string } | null>(null)
   // Marca que la página sigue montada: las fusiones con la nube no tocan el estado si ya no lo están.
   const vivoRef = useRef(false)
 
@@ -100,15 +102,15 @@ export function EvaluarSucursal() {
       const evId = evaluacionIdRef.current
       if (!d || !evId) return
       if (!online) {
-        setSubidaOk(false)
+        setFallaSubida({ causa: 'sin_conexion', detalle: 'El navegador reporta que no hay conexión.' })
         return
       }
       const respuestas = respuestasConInstancia(d)
       const instancias = instanciasDeDraft(d)
       if (!respuestas.length && !instancias.length) return
       void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
-        .then(() => setSubidaOk(true))
-        .catch(() => setSubidaOk(false))
+        .then(() => setFallaSubida(null))
+        .catch((e: unknown) => setFallaSubida({ causa: causaSubida(e), detalle: detalleTecnico(e) }))
     }, 800)
   }
 
@@ -139,30 +141,33 @@ export function EvaluarSucursal() {
 
   useEffect(() => {
     if (!online) {
-      setSubidaOk(false)
+      setFallaSubida({ causa: 'sin_conexion', detalle: 'El navegador reporta que no hay conexión.' })
       return
     }
     const d = draftRef.current
     const evId = evaluacionIdRef.current
     if (!d || !evId) {
-      setSubidaOk(true)
+      setFallaSubida(null)
       return
     }
     const respuestas = respuestasConInstancia(d)
     const instancias = instanciasDeDraft(d)
     if (!respuestas.length && !instancias.length) {
-      setSubidaOk(true)
+      setFallaSubida(null)
       return
     }
     void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
-      .then(() => setSubidaOk(true))
-      .catch(() => setSubidaOk(false))
+      .then(() => setFallaSubida(null))
+      .catch((e: unknown) => setFallaSubida({ causa: causaSubida(e), detalle: detalleTecnico(e) }))
   }, [online])
 
-  // Reintento automático mientras el avance no llegue a la nube (fallos
-  // transitorios de red o de RLS), para que el Líder lo vea en el Historial.
+  // Reintento automático mientras el avance no llegue a la nube. El intervalo
+  // depende de la causa: 12 s para un corte de internet, pero 2 min si el
+  // servidor rechazó el guardado (RLS), porque ahí reintentar cada 12 s no
+  // servía de nada y solo saturaba el servidor.
   useEffect(() => {
-    if (subidaOk || !online) return
+    if (!fallaSubida || !online) return
+    const cada = mensajeSubida(fallaSubida.causa).cadaMs
     const t = window.setInterval(() => {
       const d = draftRef.current
       const evId = evaluacionIdRef.current
@@ -170,15 +175,15 @@ export function EvaluarSucursal() {
       const respuestas = respuestasConInstancia(d)
       const instancias = instanciasDeDraft(d)
       if (!respuestas.length && !instancias.length) {
-        setSubidaOk(true)
+        setFallaSubida(null)
         return
       }
       void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
-        .then(() => setSubidaOk(true))
-        .catch(() => undefined)
-    }, 12000)
+        .then(() => setFallaSubida(null))
+        .catch(() => undefined) // el siguiente tick vuelve a intentar
+    }, cada)
     return () => window.clearInterval(t)
-  }, [subidaOk, online])
+  }, [fallaSubida, online])
 
   useEffect(() => {
     if (focoEtiqueta > 0) etiquetaInputRef.current?.focus()
@@ -389,7 +394,7 @@ export function EvaluarSucursal() {
         const instancias = instanciasDeDraft(d)
         if (respuestas.length || instancias.length) {
           await guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
-          setSubidaOk(true)
+          setFallaSubida(null)
           guardado = true
         }
       }
@@ -398,9 +403,11 @@ export function EvaluarSucursal() {
       else if (huboNovedad) setAvisoSync({ texto: 'Listo: tu avance quedó guardado y se actualizaron los datos del otro evaluador.', ok: true })
       else if (guardado) setAvisoSync({ texto: 'Listo: tu avance quedó guardado en la nube.', ok: true })
       else setAvisoSync({ texto: 'Listo: no había nada nuevo para sincronizar.', ok: true })
-    } catch {
-      setSubidaOk(false)
-      setAvisoSync({ texto: 'No se pudo sincronizar. Revisá la conexión.', ok: false })
+    } catch (e) {
+      // Se dice la causa real (el rechazo del servidor no es "revisá la conexión").
+      const causa = causaSubida(e)
+      setFallaSubida({ causa, detalle: detalleTecnico(e) })
+      setAvisoSync({ texto: `${mensajeSubida(causa, 'sincronizar').titulo}. Tu avance sigue en el teléfono.`, ok: false })
     } finally {
       setSincronizando(false)
     }
@@ -733,19 +740,39 @@ export function EvaluarSucursal() {
             <span className="min-w-0 flex-1">{avisoSync.texto}</span>
           </div>
         ) : null}
-        {online && !subidaOk ? (
-          <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
-            <CloudOff className="mt-px h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1">
-              Tu avance está guardado en este teléfono, pero <b>aún no llegó a la nube</b>. Se reintenta solo cada 12 segundos.
-            </span>
-            <button
-              type="button"
-              onClick={() => void sincronizarAhora()}
-              className="shrink-0 font-black text-amber-900 underline underline-offset-2"
-            >
-              Reintentar
-            </button>
+        {online && fallaSubida ? (
+          <div
+            className={cn(
+              'flex flex-col gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold',
+              // Un rechazo del servidor no es un problema de conexión: se ve rojo
+              // para que no se piense en el WiFi y conviene avisar al Líder.
+              fallaSubida.causa === 'rechazada' ? 'border-red-300 bg-red-50 text-red-900' : 'border-amber-300 bg-amber-50 text-amber-900'
+            )}
+          >
+            <div className="flex items-start gap-2">
+              <CloudOff className="mt-px h-4 w-4 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="font-black">
+                  {mensajeSubida(fallaSubida.causa).titulo}: tu avance está guardado en este teléfono
+                  <span className="font-medium"> pero aún no llegó a la nube.</span>
+                </p>
+                <p className="mt-0.5 font-medium leading-snug">{mensajeSubida(fallaSubida.causa).ayuda}</p>
+                <p className="mt-0.5 font-medium">
+                  Se reintenta solo cada {Math.round(mensajeSubida(fallaSubida.causa).cadaMs / 1000)} s.
+                </p>
+                {/* Detalle crudo: con una foto de esto se puede diagnosticar sin adivinar. */}
+                <p className="mt-1 break-all font-mono text-[10px] font-normal text-slate-500" title={fallaSubida.detalle}>
+                  {fallaSubida.detalle}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void sincronizarAhora()}
+                className="shrink-0 self-start font-black underline underline-offset-2"
+              >
+                Reintentar
+              </button>
+            </div>
           </div>
         ) : null}
         {registro && seccion && hijoActual ? (

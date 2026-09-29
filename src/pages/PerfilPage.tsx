@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ShieldCheck } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { Badge, Button, Card, Field, Input, Modal } from '../components/ui'
+import { TarjetaVersionApp } from '../components/VersionApp'
 import { confirmarConfigTotp, desactivarTotp, factorsTotpActivos, iniciarConfigTotp } from '../lib/mfa'
 import type { FactorTotp } from '../lib/mfa'
 
@@ -133,6 +134,8 @@ export function PerfilPage() {
           )}
         </div>
       </Card>
+
+      <TarjetaVersionApp />
 
       <Card>
         <h3 className="mb-3 text-base font-bold text-slate-800">Cambiar contraseña</h3>
