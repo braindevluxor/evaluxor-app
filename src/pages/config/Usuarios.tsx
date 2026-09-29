@@ -6,9 +6,13 @@ import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
 import type { Invitacion, Modulo, Rol, Sucursal } from '../../lib/types'
 import { Badge, Button, Field, Input, Modal, Select, Skeleton, SkeletonFilas, cn } from '../../components/ui'
 import { UltimaSync } from '../../components/UltimaSync'
+import { EnLinea } from '../../components/EnLinea'
+import { usePresencia } from '../../context/PresenciaContext'
+import { totalConectados } from '../../lib/presencia'
 import { Copy, FolderOpen, Pencil, Unlock } from 'lucide-react'
 
 export function UsuariosPage() {
+  const { conectados, disponible: presenciaOk } = usePresencia()
   const [usuarios, setUsuarios] = useState<ProfileVista[]>([])
   const [invitaciones, setInvitaciones] = useState<Invitacion[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
@@ -127,6 +131,19 @@ export function UsuariosPage() {
         <div className="whitespace-pre-wrap rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
       ) : null}
 
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+        <span title="Personas con la app abierta en este momento, incluyendo tu propia sesión">
+          Conectados ahora: {totalConectados(conectados)} de {usuarios.length}
+        </span>
+        {presenciaOk ? (
+          <span>· se actualiza solo, sin recargar</span>
+        ) : (
+          <span className="text-amber-600">
+            · el canal en vivo no está disponible: usá la última sincronización para saber si hay avances
+          </span>
+        )}
+      </div>
+
       {cargando ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <SkeletonFilas n={7} />
@@ -143,6 +160,7 @@ export function UsuariosPage() {
                 <th className="px-4 py-3">Sucursal</th>
                 <th className="px-4 py-3">Estado</th>
                 <th className="px-4 py-3">Últ. sincronización</th>
+                <th className="px-4 py-3">En línea</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -161,6 +179,9 @@ export function UsuariosPage() {
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <UltimaSync ultimaSync={u.ultima_sync} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <EnLinea conectado={conectados[u.id]} />
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1.5">
