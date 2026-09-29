@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, FolderOpen, List, Plus, RefreshCw, Search, Tag, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, CloudOff, FolderOpen, List, Plus, RefreshCw, Search, Tag, Trash2, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
@@ -80,6 +80,9 @@ export function EvaluarSucursal() {
   const evaluacionIdRef = useRef<string | null>(null)
   const draftRef = useRef<DraftEval | null>(null)
   const nubeTimer = useRef<number | null>(null)
+  // `false` cuando hay avance que todavía no llegó a la nube (sin conexión o
+  // error transitorio de subida). Se muestra en un cartel y se reintenta solo.
+  const [subidaOk, setSubidaOk] = useState(true)
   // Marca que la página sigue montada: las fusiones con la nube no tocan el estado si ya no lo están.
   const vivoRef = useRef(false)
 
@@ -94,11 +97,17 @@ export function EvaluarSucursal() {
     nubeTimer.current = window.setTimeout(() => {
       const d = draftRef.current
       const evId = evaluacionIdRef.current
-      if (!d || !evId || !online) return
+      if (!d || !evId) return
+      if (!online) {
+        setSubidaOk(false)
+        return
+      }
       const respuestas = respuestasConInstancia(d)
       const instancias = instanciasDeDraft(d)
       if (!respuestas.length && !instancias.length) return
-      void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias).catch(() => undefined)
+      void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
+        .then(() => setSubidaOk(true))
+        .catch(() => setSubidaOk(false))
     }, 800)
   }
 
@@ -128,15 +137,47 @@ export function EvaluarSucursal() {
   }, [])
 
   useEffect(() => {
-    if (!online) return
+    if (!online) {
+      setSubidaOk(false)
+      return
+    }
     const d = draftRef.current
     const evId = evaluacionIdRef.current
-    if (!d || !evId) return
+    if (!d || !evId) {
+      setSubidaOk(true)
+      return
+    }
     const respuestas = respuestasConInstancia(d)
     const instancias = instanciasDeDraft(d)
-    if (!respuestas.length && !instancias.length) return
-    void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias).catch(() => undefined)
+    if (!respuestas.length && !instancias.length) {
+      setSubidaOk(true)
+      return
+    }
+    void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
+      .then(() => setSubidaOk(true))
+      .catch(() => setSubidaOk(false))
   }, [online])
+
+  // Reintento automático mientras el avance no llegue a la nube (fallos
+  // transitorios de red o de RLS), para que el Líder lo vea en el Historial.
+  useEffect(() => {
+    if (subidaOk || !online) return
+    const t = window.setInterval(() => {
+      const d = draftRef.current
+      const evId = evaluacionIdRef.current
+      if (!d || !evId) return
+      const respuestas = respuestasConInstancia(d)
+      const instancias = instanciasDeDraft(d)
+      if (!respuestas.length && !instancias.length) {
+        setSubidaOk(true)
+        return
+      }
+      void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
+        .then(() => setSubidaOk(true))
+        .catch(() => undefined)
+    }, 12000)
+    return () => window.clearInterval(t)
+  }, [subidaOk, online])
 
   useEffect(() => {
     if (focoEtiqueta > 0) etiquetaInputRef.current?.focus()
@@ -214,9 +255,14 @@ export function EvaluarSucursal() {
         updated_at: Date.now()
       }
       await putDraft(d).catch(() => undefined)
+      draftRef.current = d
       setDraft(d)
       setCargando(false)
+      // Re-subida al reabrir: si quedó avance sin conexión (o con errores
+      // silenciosos), se empuja a la nube apenas se carga la pantalla.
+      agendarNube()
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sucursalId, profile])
 
   // Colaboración en vivo: cuando otro evaluador guarda respuestas o registros para
@@ -332,6 +378,7 @@ export function EvaluarSucursal() {
         const instancias = instanciasDeDraft(d)
         if (respuestas.length || instancias.length) {
           await guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
+          setSubidaOk(true)
           guardado = true
         }
       }
@@ -341,6 +388,7 @@ export function EvaluarSucursal() {
       else if (guardado) setAvisoSync({ texto: 'Listo: tu avance quedó guardado en la nube.', ok: true })
       else setAvisoSync({ texto: 'Listo: no había nada nuevo para sincronizar.', ok: true })
     } catch {
+      setSubidaOk(false)
       setAvisoSync({ texto: 'No se pudo sincronizar. Revisá la conexión.', ok: false })
     } finally {
       setSincronizando(false)
@@ -672,6 +720,21 @@ export function EvaluarSucursal() {
           >
             {avisoSync.ok ? <Check className="mt-px h-4 w-4 shrink-0" /> : <X className="mt-px h-4 w-4 shrink-0" />}
             <span className="min-w-0 flex-1">{avisoSync.texto}</span>
+          </div>
+        ) : null}
+        {online && !subidaOk ? (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+            <CloudOff className="mt-px h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1">
+              Tu avance está guardado en este teléfono, pero <b>aún no llegó a la nube</b>. Se reintenta solo cada 12 segundos.
+            </span>
+            <button
+              type="button"
+              onClick={() => void sincronizarAhora()}
+              className="shrink-0 font-black text-amber-900 underline underline-offset-2"
+            >
+              Reintentar
+            </button>
           </div>
         ) : null}
         {registro && seccion && hijoActual ? (
