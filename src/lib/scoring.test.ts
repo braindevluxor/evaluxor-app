@@ -1,5 +1,24 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, ETIQUETAS_CONTRA_DATO } from './scoring'
+
+describe('contra dato de conciliación', () => {
+  it('referenciaConciliacion usa soh por defecto y finalBase en modo precio', () => {
+    const p = { teorica: 99, soh: 42, finalBase: 12990.5 }
+    expect(referenciaConciliacion(p)).toBe(42)
+    expect(referenciaConciliacion(p, 'SOH')).toBe(42)
+    expect(referenciaConciliacion(p, 'FINAL_BASE')).toBe(12990.5)
+  })
+  it('referenciaConciliacion cae a la teórica ya cargada cuando falta el dato elegido', () => {
+    expect(referenciaConciliacion({ teorica: 7, soh: null }, 'SOH')).toBe(7)
+    expect(referenciaConciliacion({ teorica: 5, soh: 2 }, 'FINAL_BASE')).toBe(5)
+    expect(referenciaConciliacion(null, 'SOH')).toBe(null)
+    expect(referenciaConciliacion(undefined, 'FINAL_BASE')).toBe(null)
+  })
+  it('ETIQUETAS_CONTRA_DATO expone ambas opciones', () => {
+    expect(ETIQUETAS_CONTRA_DATO.SOH).toContain('SOH')
+    expect(ETIQUETAS_CONTRA_DATO.FINAL_BASE).toContain('Precio')
+  })
+})
 
 describe('valorBinario', () => {
   it('cumple/no cumple', () => {

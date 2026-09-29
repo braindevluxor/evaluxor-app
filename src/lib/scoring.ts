@@ -40,8 +40,18 @@ export interface ValorCumple {
   /** Nombre del gerente de la sucursal, horneado al responder: destino por defecto de los puntos incumplidos. */
   responsablesGerente?: string | null
 }
+/** Dato del sistema usado como referencia ("contra dato") en una conciliación: stock teórico (soh) o precio base (finalBase). */
+export type ContraDatoConciliacion = 'SOH' | 'FINAL_BASE'
+
+export const ETIQUETAS_CONTRA_DATO: Record<ContraDatoConciliacion, string> = {
+  SOH: 'SOH (stock)',
+  FINAL_BASE: 'Precio base'
+}
+
 export interface ValorConciliacion {
   productos: ProductoConciliacion[]
+  /** Contra qué dato del sistema se calcula la conciliación de cada producto (soh → stock, finalBase → precio). */
+  contraDato?: ContraDatoConciliacion
   informativo?: boolean
   /** Responsables elegidos por el evaluador para atribuir una FALLA del ítem: cada uno absorbe el punto fallado. */
   responsables?: string[]
@@ -59,6 +69,17 @@ export interface ProductoConciliacion {
   lastSync?: string | null
   /** Precio base final (pricing.finalBase) reportado por el sistema. */
   finalBase?: number | null
+}
+
+/** Referencia contra la que se compara la física: el contra dato elegido (soh → stock, finalBase → precio) o, si falta, la teórica ya cargada. */
+export function referenciaConciliacion(
+  p: { teorica?: number | null; soh?: number | null; finalBase?: number | null } | null | undefined,
+  contraDato: ContraDatoConciliacion = 'SOH'
+): number | null {
+  if (!p) return null
+  const dato = contraDato === 'FINAL_BASE' ? p.finalBase : p.soh
+  if (typeof dato === 'number') return dato
+  return p.teorica ?? null
 }
 
 export interface ColaboradorItem {

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, formatearLastSync, formatearPrecioBase, opcionCumplida, valorBinario, responsablesDeOpcion, puntosMarcadosPlano, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist, type ValorPlano } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, formatearLastSync, formatearPrecioBase, opcionCumplida, valorBinario, responsablesDeOpcion, puntosMarcadosPlano, referenciaConciliacion, ETIQUETAS_CONTRA_DATO, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist, type ValorPlano } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores } from '../lib/data/colaboradores'
 import { formatearValorConsulta } from '../lib/data/apis'
@@ -336,12 +336,12 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente }: { item:
   }
 }
 
-/** Aplica el resultado del escaneo a la API al borrador: autocompleta la Teórica (sistema) con el SOH reportado y conserva la info consultada. */
-function aplicarResultadoScan(b: ProductoConciliacion, r: ResultadoScan): ProductoConciliacion {
+/** Aplica el resultado del escaneo al borrador: autocompleta la Teórica (sistema) con el contra dato elegido (SOH o precio base) y conserva la info consultada. */
+function aplicarResultadoScan(b: ProductoConciliacion, r: ResultadoScan, contraDato: ContraDatoConciliacion): ProductoConciliacion {
   return {
     ...b,
     nombre: r.nombre ?? b.nombre,
-    teorica: typeof r.soh === 'number' ? r.soh : b.teorica,
+    teorica: referenciaConciliacion(r, contraDato) ?? b.teorica,
     soh: r.soh,
     lastSync: r.lastSync,
     finalBase: r.finalBase
@@ -367,6 +367,26 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
   const productos = v.productos ?? []
   const informativo = v.informativo ?? false
+  const contraDato = v.contraDato ?? 'SOH'
+
+  /** Cambia el dato del sistema contra el que se calcula la conciliación y recalcula la teórica de los productos ya agregados con ese dato. */
+  const cambiarContraDato = (m: ContraDatoConciliacion) => {
+    if (m === contraDato) return
+    setInfo('')
+    setExito('')
+    onChange({
+      ...v,
+      contraDato: m,
+      productos: productos.map((p) => {
+        const teorica = referenciaConciliacion(p, m)
+        return typeof teorica === 'number' && teorica !== p.teorica ? { ...p, teorica } : p
+      })
+    })
+    setBorrador((b) => {
+      const teorica = referenciaConciliacion(b, m)
+      return typeof teorica === 'number' && teorica !== b.teorica ? { ...b, teorica } : b
+    })
+  }
 
   // La conciliación no cumple cuando hay productos escaneados, todos con ambas
   // cantidades, y al menos uno no coincide: ahí aparece el selector de responsables.
@@ -410,7 +430,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
     const r = await buscarProducto(codigo, shopId)
     setConsultando(false)
     if (r.nombre) {
-      setBorrador((b) => aplicarResultadoScan(b, r))
+      setBorrador((b) => aplicarResultadoScan(b, r, contraDato))
     } else {
       setInfo(r.mensaje ?? 'Producto no encontrado.')
     }
@@ -473,6 +493,21 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
 
       <div className="space-y-2 rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Escanea y agrega un producto</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Calcular contra</span>
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-semibold">
+            {(['SOH', 'FINAL_BASE'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => cambiarContraDato(m)}
+                className={cn('rounded-md px-2.5 py-1 transition-colors', contraDato === m ? 'bg-primary text-white shadow-sm' : 'text-slate-500 hover:text-slate-700')}
+              >
+                {ETIQUETAS_CONTRA_DATO[m]}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <Input
             placeholder="SKU / código interno del producto"
@@ -534,7 +569,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
         />
         <div className="flex flex-wrap items-end gap-2">
           <CampoConciliacion
-            etiqueta="Teórica (sistema)"
+            etiqueta={contraDato === 'FINAL_BASE' ? 'Teórica (precio)' : 'Teórica (SOH)'}
             valor={borrador.teorica}
             onChange={(n) => setBorrador((b) => ({ ...b, teorica: n }))}
           />
@@ -720,7 +755,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
               const r = await buscarProducto(codigo, shopId)
               setConsultando(false)
               if (r.nombre) {
-                setBorrador((b) => aplicarResultadoScan(b, r))
+                setBorrador((b) => aplicarResultadoScan(b, r, contraDato))
               } else {
                 setInfo(r.mensaje ?? 'Producto no encontrado.')
               }
