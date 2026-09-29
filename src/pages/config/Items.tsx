@@ -599,23 +599,36 @@ function FormItem({
           </Select>
         </Field>
       ) : null}
-      <Field
-        label={esSeccion ? 'Puntos de la sección (ponderación)' : 'Puntos (ponderación)'}
-        hint={esSeccion
-          ? 'Peso de la sección en el módulo (ej. 25 pts). Sus ítems suman el 100% del grupo y el % logrado se aplica sobre este peso; secciones + ítems sueltos del módulo no pueden superar 100.'
-          : padreId
-            ? 'Peso del ítem dentro del grupo. Los ítems del grupo suman el 100% del grupo (ej. 100 pts): el % logrado en sus checks se aplica sobre el puntaje de la sección.'
-            : 'Peso del ítem en el módulo. La suma de todos los ítems del módulo no puede superar 100.'}
-      >
-        <Input
-          type="number"
-          min={0}
-          max={100}
-          step={0.001}
-          value={puntos}
-          onChange={(e) => setPuntos(e.target.value === '' ? '' : Number(e.target.value))}
-        />
-      </Field>
+      <div className={cn('grid gap-3', tipo === 'CONCILIACION' ? 'sm:grid-cols-2' : '')}>
+        <Field
+          label={esSeccion ? 'Puntos de la sección (ponderación)' : 'Puntos (ponderación)'}
+          hint={esSeccion
+            ? 'Peso de la sección en el módulo (ej. 25 pts). Sus ítems suman el 100% del grupo y el % logrado se aplica sobre este peso; secciones + ítems sueltos del módulo no pueden superar 100.'
+            : padreId
+              ? 'Peso del ítem dentro del grupo. Los ítems del grupo suman el 100% del grupo (ej. 100 pts): el % logrado en sus checks se aplica sobre el puntaje de la sección.'
+              : 'Peso del ítem en el módulo. La suma de todos los ítems del módulo no puede superar 100.'}
+        >
+          <Input
+            type="number"
+            min={0}
+            max={100}
+            step={0.001}
+            value={puntos}
+            onChange={(e) => setPuntos(e.target.value === '' ? '' : Number(e.target.value))}
+          />
+        </Field>
+        {tipo === 'CONCILIACION' ? (
+          <Field
+            label="Calcular contra"
+            hint="Dato del sistema contra el que se autocompleta la teórica al escanear: stock (SOH) o precio base (finalBase). El evaluador solo registra la física."
+          >
+            <Select value={contraDato} onChange={(e) => setContraDato(e.target.value as ContraDatoConciliacion)}>
+              <option value="SOH">{ETIQUETAS_CONTRA_DATO.SOH}</option>
+              <option value="FINAL_BASE">{ETIQUETAS_CONTRA_DATO.FINAL_BASE}</option>
+            </Select>
+          </Field>
+        ) : null}
+      </div>
       {esSeccion ? (
         <p className="rounded-xl border border-primary-200 bg-primary-50 p-3 text-xs text-slate-600">
           {sumaHijosPropios > 0 ? (
@@ -791,20 +804,9 @@ function FormItem({
         </p>
       ) : null}
       {tipo === 'CONCILIACION' ? (
-        <>
-          <Field
-            label="Calcular contra"
-            hint="Dato del sistema que se usa como teórica de referencia al escanear un producto: el stock (SOH) o el precio base (finalBase). El evaluador solo registra la cantidad física."
-          >
-            <Select value={contraDato} onChange={(e) => setContraDato(e.target.value as ContraDatoConciliacion)}>
-              <option value="SOH">{ETIQUETAS_CONTRA_DATO.SOH}</option>
-              <option value="FINAL_BASE">{ETIQUETAS_CONTRA_DATO.FINAL_BASE}</option>
-            </Select>
-          </Field>
-          <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-            En la evaluación, el evaluador agrega los productos (escaneando o escribiendo el SKU); la teórica se autocompleta contra el dato elegido y él registra la cantidad física.
-          </p>
-        </>
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+          En la evaluación, el evaluador agrega los productos (escaneando o escribiendo el SKU); la teórica se autocompleta contra el dato elegido y él registra la cantidad física.
+        </p>
       ) : null}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-3">
         {!esSeccion ? (
