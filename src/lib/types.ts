@@ -1,3 +1,5 @@
+import type { ContraDatoConciliacion } from './scoring'
+
 export type Rol = 'SIN_ROL' | 'LIDER' | 'EVALUADOR' | 'GERENTE_S' | 'GERENTE_C' | 'GERENTE_TH'
 
 export type TipoItem =
@@ -146,6 +148,8 @@ export interface Item {
   permitir_duplicados?: boolean | null
   /** UNIDAD_CHECKLIST: repetible (default) permite cargar el checklist varias veces (una unidad por carga); false lo carga una sola vez. */
   repetible?: boolean | null
+  /** CONCILIACION: dato del sistema que se usa como teórica de referencia al escanear (soh → stock o finalBase → precio base). Se configura al crear el ítem en Config. */
+  contra_dato?: ContraDatoConciliacion | null
   created_at: string
 }
 

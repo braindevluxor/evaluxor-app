@@ -50,8 +50,6 @@ export const ETIQUETAS_CONTRA_DATO: Record<ContraDatoConciliacion, string> = {
 
 export interface ValorConciliacion {
   productos: ProductoConciliacion[]
-  /** Contra qué dato del sistema se calcula la conciliación de cada producto (soh → stock, finalBase → precio). */
-  contraDato?: ContraDatoConciliacion
   informativo?: boolean
   /** Responsables elegidos por el evaluador para atribuir una FALLA del ítem: cada uno absorbe el punto fallado. */
   responsables?: string[]

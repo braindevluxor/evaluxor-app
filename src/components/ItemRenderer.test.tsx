@@ -134,3 +134,37 @@ describe('ItemRenderer · evidencia fotográfica del checklist', () => {
     expect(html.split('Tomar foto de evidencia').length - 1).toBe(2)
   })
 })
+
+function itemConciliacion(contraDato?: 'SOH' | 'FINAL_BASE'): Item {
+  return {
+    id: 'it-4',
+    modulo_id: 'm1',
+    tipo: 'CONCILIACION',
+    texto: 'Concilia stock contra el sistema',
+    opciones: [],
+    orden: 0,
+    requerido: true,
+    activo: true,
+    puntaje: 10,
+    contra_dato: contraDato,
+    created_at: ''
+  }
+}
+
+describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
+  it('no muestra el selector de contra dato en la evaluación (se configura al crear el ítem)', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(html).not.toContain('Calcular contra')
+  })
+
+  it('sin contra dato configurado usa SOH por defecto (etiqueta Teórica SOH)', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Teórica (SOH)')
+    expect(html).toContain('Física')
+  })
+
+  it('con contra dato FINAL_BASE el campo teórica se etiqueta como precio', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion('FINAL_BASE')} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Teórica (precio)')
+  })
+})

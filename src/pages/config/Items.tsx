@@ -4,7 +4,7 @@ import { FolderOpen, GripVertical, Pencil, Plus, Copy, Trash2, X, Check } from '
 import { useCatalog } from '../../context/CatalogContext'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
 import { agruparPorDepartamento, listarResponsables, type ResponsableCatalogo } from '../../lib/data/responsables'
-import { etiquetaTipo, ETIQUETAS_TIPO, pesoItem, redondear3, responsablesDeOpcion, valorPorResponsable } from '../../lib/scoring'
+import { etiquetaTipo, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, pesoItem, redondear3, responsablesDeOpcion, valorPorResponsable, type ContraDatoConciliacion } from '../../lib/scoring'
 import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
 import { APIS_DISPONIBLES, apiDisponible } from '../../lib/data/apis'
 import type { FiltroColaboradores, Item, Modulo, Opcion, Sucursal, TipoItem } from '../../lib/types'
@@ -463,6 +463,7 @@ function FormItem({
   )
   const [permitirDuplicados, setPermitirDuplicados] = useState(inicial?.permitir_duplicados ?? false)
   const [repetible, setRepetible] = useState(inicial?.repetible ?? true)
+  const [contraDato, setContraDato] = useState<ContraDatoConciliacion>(inicial?.contra_dato ?? 'SOH')
   const [autoPuntaje, setAutoPuntaje] = useState(false)
 
   const esSeccion = tipo === 'CONTENEDOR'
@@ -561,7 +562,8 @@ function FormItem({
           api_id: esSeccion ? (apiId || null) : null,
           api_campos: esSeccion && apiId ? apiCampos : null,
           permitir_duplicados: esSeccion && apiId ? permitirDuplicados : false,
-          repetible: tipo === 'UNIDAD_CHECKLIST' ? repetible : true
+          repetible: tipo === 'UNIDAD_CHECKLIST' ? repetible : true,
+          contra_dato: tipo === 'CONCILIACION' ? contraDato : 'SOH'
         })
       }}
     >
@@ -789,9 +791,20 @@ function FormItem({
         </p>
       ) : null}
       {tipo === 'CONCILIACION' ? (
-        <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-          En la evaluación, el evaluador agrega los productos (escaneando o escribiendo el SKU) y registra las cantidades teórica y física por cada uno.
-        </p>
+        <>
+          <Field
+            label="Calcular contra"
+            hint="Dato del sistema que se usa como teórica de referencia al escanear un producto: el stock (SOH) o el precio base (finalBase). El evaluador solo registra la cantidad física."
+          >
+            <Select value={contraDato} onChange={(e) => setContraDato(e.target.value as ContraDatoConciliacion)}>
+              <option value="SOH">{ETIQUETAS_CONTRA_DATO.SOH}</option>
+              <option value="FINAL_BASE">{ETIQUETAS_CONTRA_DATO.FINAL_BASE}</option>
+            </Select>
+          </Field>
+          <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+            En la evaluación, el evaluador agrega los productos (escaneando o escribiendo el SKU); la teórica se autocompleta contra el dato elegido y él registra la cantidad física.
+          </p>
+        </>
       ) : null}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-3">
         {!esSeccion ? (

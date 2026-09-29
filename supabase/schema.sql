@@ -275,6 +275,12 @@ alter table public.items add column if not exists permitir_duplicados boolean no
 -- UNIDAD_CHECKLIST: repetible = permite cargar el checklist varias veces (una
 -- unidad por carga); con false solo se carga una sola vez.
 alter table public.items add column if not exists repetible boolean not null default true;
+-- CONCILIACION: dato del sistema que se usa como teórica de referencia al
+-- escanear un producto (soh → stock o finalBase → precio base). Se configura
+-- al crear/editar el ítem en Config.
+alter table public.items add column if not exists contra_dato text not null default 'SOH';
+alter table public.items drop constraint if exists items_contra_dato_check;
+alter table public.items add constraint items_contra_dato_check check (contra_dato in ('SOH','FINAL_BASE'));
 
 -- La suma de los puntajes de un módulo no puede exceder 100: cuentan las secciones
 -- (CONTENEDOR, ponderadas) y los ítems sueltos (sin sección). Los ítems dentro de

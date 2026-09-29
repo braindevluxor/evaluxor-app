@@ -145,6 +145,7 @@ export function EditarConciliacion() {
                     valor={valores[item.id]}
                     onChange={(v) => guardar(item.id, v)}
                     shopId={shopId}
+                    item={item}
                   />
                   <div className={cn('mt-2 flex items-center justify-end gap-1.5 text-[11px] font-bold', g === 'ok' ? 'text-green-600' : g === 'error' ? 'text-red-500' : 'text-slate-400')}>
                     {g === 'guardando' ? (<><RefreshCw className="h-3 w-3 animate-spin" /> Guardando…</>) : null}
