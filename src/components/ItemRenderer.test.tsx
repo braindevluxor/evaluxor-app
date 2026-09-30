@@ -201,4 +201,20 @@ describe('ItemRenderer · limpiar lista de colaboradores', () => {
     expect(html).toContain('Cargar colaboradores')
     expect(html).not.toContain('Limpiar lista')
   })
+
+  it('el buscador queda fijo al hacer scroll (no se pierde con la lista larga)', () => {
+    const valor = {
+      colaboradores: [
+        { dni: 1, nationality: 'V-', name: 'Ana', lastname: 'Gómez', role_id: 1, role_name: 'Cajera', branch_id: 1, branch_name: '', admission_date: null, active: true, aplica: true, selected: ['o1'] }
+      ]
+    }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemColaboradores()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    // El buscador se pega debajo de la cabecera sticky del layout: sticky + top-16,
+    // con fondo blanco opaco para tapar el contenido que pasa por debajo. El div
+    // sticky envuelve al input, así que tiene que estar antes del placeholder.
+    const posSticky = html.indexOf('sticky top-16 z-20 -mx-4')
+    expect(posSticky).toBeGreaterThan(-1)
+    expect(html.indexOf('Buscar por documento')).toBeGreaterThan(posSticky)
+    expect(html.slice(posSticky, html.indexOf('Buscar por documento'))).toMatch(/bg-white/)
+  })
 })

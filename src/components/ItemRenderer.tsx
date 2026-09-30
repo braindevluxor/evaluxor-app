@@ -876,7 +876,10 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
 
       {colaboradores.length ? (
         <div className="space-y-3">
-          <div className="relative">
+          {/* Buscador fijo: no se pierde al hacer scroll en listas largas. Se pega
+              debajo de la cabecera sticky del layout (top-16 = 64px) y -mx-4/px-4
+              lo estira hasta los bordes de la tarjeta blanca que lo contiene. */}
+          <div className="sticky top-16 z-20 -mx-4 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm">
             <Input
               type="text"
               value={busqueda}
