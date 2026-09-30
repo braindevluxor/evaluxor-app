@@ -3,6 +3,8 @@ import { NavLink } from 'react-router-dom'
 import { CheckCheck, History, LogOut, Menu, Settings, Check, LayoutDashboard, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useOffline } from '../../context/OfflineContext'
+import { useVersion } from '../../context/VersionContext'
+import { versionCorta } from '../../lib/version'
 import { cn, Spinner } from '../ui'
 
 export function SyncBanner() {
@@ -144,6 +146,7 @@ export function MobileLayout({
             </nav>
             <div className="border-t border-slate-100 p-3">
               <p className="px-3 pb-2 text-sm font-semibold text-slate-800">{profile?.nombre || 'Usuario'}</p>
+              <VersionEnMenu />
               <button
                 onClick={() => void signOut()}
                 className="flex w-full items-center gap-3 rounded-full px-3 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50"
@@ -154,6 +157,32 @@ export function MobileLayout({
             </div>
           </aside>
         </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Versión de la app en el menú lateral. El evaluador no va a Perfil a buscarla:
+ * si hay una versión nueva aparece acá mismo, con el botón para tomarla (o se
+ * actualiza sola cuando no tiene nada pendiente de subir).
+ */
+export function VersionEnMenu() {
+  const { hayActualizacion, versionRemota, actualizando, actualizarAhora } = useVersion()
+  return (
+    <div className="mb-1 px-3">
+      <p className="font-mono text-[11px] leading-tight text-slate-400" title="Con qué versión de la app estás trabajando">
+        {versionCorta()}
+      </p>
+      {hayActualizacion ? (
+        <button
+          type="button"
+          onClick={() => void actualizarAhora()}
+          disabled={actualizando}
+          className="mt-1.5 w-full rounded-full bg-blue-50 px-2 py-1.5 text-[11px] font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-60"
+        >
+          {actualizando ? 'Actualizando…' : `Actualizar a ${versionRemota?.version ?? 'la nueva versión'}`}
+        </button>
       ) : null}
     </div>
   )
