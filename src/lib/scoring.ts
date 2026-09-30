@@ -93,6 +93,8 @@ export interface ColaboradorItem {
   active: boolean
   aplica: boolean
   selected: string[]
+  /** Checks que no corresponden a este trabajador y se excluyen de evaluación/puntaje. */
+  noAplica?: string[]
   /** Responsables elegidos por el evaluador por cada check INCUMPLIDO DE ESTE TRABAJADOR: check → responsables que absorben la falla. */
   responsablesPorOpcion?: Record<string, string[]>
 }
@@ -176,10 +178,16 @@ export function proporcionPlano(valor: ValorPlano | null | undefined): number | 
   return marcados.filter((p) => p.cumple === true).length / marcados.length
 }
 
+export function opcionesAplicablesColaborador<T extends { id: string }>(colab: ColaboradorItem, opciones: T[] | null | undefined): T[] {
+  const opts = opciones ?? []
+  return opts.filter((o) => !(colab.noAplica ?? []).includes(o.id))
+}
+
 export function colaboradorCumple(colab: ColaboradorItem, opciones: { id: string }[] | null | undefined): boolean {
   const opts = (opciones ?? []) as { id: string }[]
   if (!opts.length) return false
-  return opts.every((o) => (colab.selected ?? []).includes(o.id))
+  const aplican = opcionesAplicablesColaborador(colab, opts)
+  return aplican.every((o) => (colab.selected ?? []).includes(o.id))
 }
 
 export function unidadCumple(unidad: UnidadChecklist, opciones: { id: string }[] | null | undefined): boolean {
@@ -278,7 +286,11 @@ if (item.tipo === 'CHECKLIST') {
     if (!aplican.length) return null
     const opts = (item.opciones ?? []) as { id: string }[]
     if (!opts.length) return null
-    return aplican.every((c) => colaboradorCumple(c, opts))
+    const checksAplicables = aplican.flatMap((c) =>
+      opts.filter((o) => !(c.noAplica ?? []).includes(o.id)).map((o) => (c.selected ?? []).includes(o.id))
+    )
+    if (!checksAplicables.length) return null
+    return checksAplicables.every(Boolean)
   }
   if (item.tipo === 'UNIDAD_CHECKLIST') {
     const v = valor as ValorUnidadChecklist | null
@@ -465,7 +477,7 @@ function puntoCumplido(tipo: string | undefined, o: OpcionScoring, valor: unknow
   if (tipo === 'CHECKLIST') return opcionCumplida(o, valor as ValorChecklist, o.id ?? '')
   if (tipo === 'LISTA_COLABORADORES') {
     const v = valor as ValorListaColaboradores | null
-    const aplican = (v?.colaboradores ?? []).filter((c) => c.aplica)
+    const aplican = (v?.colaboradores ?? []).filter((c) => c.aplica && !(c.noAplica ?? []).includes(o.id ?? ''))
     if (!aplican.length) return null
     return aplican.every((c) => (c.selected ?? []).includes(o.id ?? ''))
   }
@@ -809,7 +821,7 @@ export function incumplimientosPorResponsable(
           const sel = c.selected ?? []
           const cmap = c.responsablesPorOpcion ?? {}
           for (const o of (item.opciones ?? []) as { id?: string; responsable?: string; responsables?: string[] }[]) {
-            if (!o.id || sel.includes(o.id)) continue
+            if (!o.id || sel.includes(o.id) || (c.noAplica ?? []).includes(o.id)) continue
             const rs =
               cmap[o.id]?.length ? cmap[o.id]
               : porOpcion?.[o.id]?.length ? porOpcion[o.id]
@@ -822,7 +834,7 @@ export function incumplimientosPorResponsable(
         for (const c of aplican) {
           const sel = c.selected ?? []
           for (const { o, rs } of puntos) {
-            if (!sel.includes(o.id as string)) sumar(rs)
+            if (!sel.includes(o.id as string) && !(c.noAplica ?? []).includes(o.id as string)) sumar(rs)
           }
         }
       }

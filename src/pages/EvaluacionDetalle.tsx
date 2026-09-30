@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
 import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
-import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, formatearLastSync, formatearPrecioBase, tieneRespuesta, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, opcionesAplicablesColaborador, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, formatearLastSync, formatearPrecioBase, tieneRespuesta, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Card, Puntaje, Skeleton, SkeletonTarjetas, Spinner, cn } from '../components/ui'
@@ -116,17 +116,23 @@ function ValorRespuesta({ item, valor }: { item: Item; valor: unknown }) {
       if (!cols.length) return <p className="text-sm text-slate-400">Sin colaboradores</p>
       const opts = (item.opciones ?? []) as Opcion[]
       const aplican = cols.filter((c) => c.aplica)
-      const cumplen = aplican.filter((c) => colaboradorCumple(c, opts)).length
+      const conChecksAplicables = aplican.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
+      const cumplen = conChecksAplicables.filter((c) => colaboradorCumple(c, opts)).length
       return (
         <div className="space-y-2">
           {v?.informativo ? (
             <p className="text-xs font-bold text-amber-700">Informativo · no descuenta puntos</p>
           ) : null}
-          <p className="text-sm font-semibold text-slate-700">{aplican.length} colaboradores en cuenta · {cumplen}/{aplican.length} completos</p>
+          <p className="text-sm font-semibold text-slate-700">
+            {aplican.length} colaboradores en cuenta · {cumplen}/{conChecksAplicables.length} completos
+            {conChecksAplicables.length < aplican.length ? ` · ${aplican.length - conChecksAplicables.length} sin puntos aplicables` : ''}
+          </p>
           <ul className="space-y-1">
             {cols.map((c) => {
-              const cumple = colaboradorCumple(c, opts)
+              const checksAplicables = opcionesAplicablesColaborador(c, opts)
+              const cumple = checksAplicables.length > 0 && colaboradorCumple(c, opts)
               const marcadas = (c.selected ?? []).map((id) => opts.find((o) => o.id === id)?.etiqueta ?? id)
+              const noAplican = (c.noAplica ?? []).map((id) => opts.find((o) => o.id === id)?.etiqueta ?? id)
               return (
                 <li key={c.dni} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
                   <div className="flex items-center justify-between gap-2">
@@ -135,13 +141,20 @@ function ValorRespuesta({ item, valor }: { item: Item; valor: unknown }) {
                       <span className="ml-1.5 text-xs font-normal text-slate-500">C.I. {c.nationality ?? ''}{c.dni} · {c.role_name || 'Sin rol'}</span>
                     </span>
                     <span className="shrink-0">
-                      <EstadoColaborador aplica={c.aplica} cumple={cumple} />
+                      <EstadoColaborador aplica={c.aplica} cumple={cumple} sinPuntosAplicables={c.aplica && checksAplicables.length === 0} />
                     </span>
                   </div>
                   {c.aplica && marcadas.length ? (
                     <div className="mt-1 flex flex-wrap gap-1.5">
                       {marcadas.map((l) => (
                         <span key={l} className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-semibold text-primary-700">{l}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {c.aplica && noAplican.length ? (
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {noAplican.map((etiqueta) => (
+                        <span key={etiqueta} className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-600">No aplica: {etiqueta}</span>
                       ))}
                     </div>
                   ) : null}
@@ -653,7 +666,8 @@ export function EvaluacionDetalle() {
   )
 }
 
-function EstadoColaborador({ aplica, cumple }: { aplica: boolean; cumple: boolean }) {
+function EstadoColaborador({ aplica, cumple, sinPuntosAplicables }: { aplica: boolean; cumple: boolean; sinPuntosAplicables?: boolean }) {
   if (!aplica) return <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-500">No aplica</span>
+  if (sinPuntosAplicables) return <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-600">Sin puntos aplicables</span>
   return <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700')}>{cumple ? 'Cumple' : 'Incompleto'}</span>
 }

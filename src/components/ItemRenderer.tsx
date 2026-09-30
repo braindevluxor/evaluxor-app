@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
-import { Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
+import { Ban, Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, unidadCumple, formatearLastSync, formatearPrecioBase, opcionCumplida, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, opcionesAplicablesColaborador, unidadCumple, formatearLastSync, formatearPrecioBase, opcionCumplida, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores } from '../lib/data/colaboradores'
 import { formatearValorConsulta } from '../lib/data/apis'
@@ -824,12 +824,29 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
     }))
   }
 
+  const marcarNoAplica = (dni: number, opcionId: string) => {
+    actualizar(colaboradores.map((c) => {
+      if (c.dni !== dni) return c
+      const noAplica = c.noAplica ?? []
+      const marcar = !noAplica.includes(opcionId)
+      const responsablesPorOpcion = { ...(c.responsablesPorOpcion ?? {}) }
+      if (marcar) delete responsablesPorOpcion[opcionId]
+      return {
+        ...c,
+        noAplica: marcar ? [...noAplica, opcionId] : noAplica.filter((id) => id !== opcionId),
+        selected: marcar ? c.selected.filter((id) => id !== opcionId) : c.selected,
+        responsablesPorOpcion
+      }
+    }))
+  }
+
   const marcarResponsables = (dni: number, opcionId: string, rs: string[]) => {
     actualizar(colaboradores.map((c) => (c.dni === dni ? { ...c, responsablesPorOpcion: { ...(c.responsablesPorOpcion ?? {}), [opcionId]: rs } } : c)))
   }
 
   const aplicando = colaboradores.filter((c) => c.aplica)
-  const cumplidos = aplicando.filter((c) => colaboradorCumple(c, opts)).length
+  const conChecksAplicables = aplicando.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
+  const cumplidos = conChecksAplicables.filter((c) => colaboradorCumple(c, opts)).length
 
   if (!opts.length) {
     return <p className="text-sm text-slate-400">Sin checklist definido para cada colaborador. El Líder debe configurarlo al crear el ítem.</p>
@@ -842,7 +859,8 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
         {colaboradores.length ? (
           <>
             <p className="mt-1 text-sm text-slate-600">
-              {aplicando.length} colaboradores en cuenta ({etiquetaFiltro}) · {cumplidos}/{aplicando.length} con checklist completo
+              {aplicando.length} colaboradores en cuenta ({etiquetaFiltro}) · {cumplidos}/{conChecksAplicables.length} completos
+              {conChecksAplicables.length < aplicando.length ? ` · ${aplicando.length - conChecksAplicables.length} sin puntos aplicables` : ''}
             </p>
           </>
         ) : (
@@ -893,10 +911,12 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
             <div className="space-y-2">
               {colaboradoresFiltrados.map((c) => {
                 const abierto = abiertoDni === c.dni
-                const cumple = colaboradorCumple(c, opts)
-                const marcado = c.selected.length > 0
-                const estado = cumple ? 'Cumple' : marcado ? 'En curso' : 'Sin marcar'
-                const estadoClass = cumple ? 'bg-green-100 text-green-700' : marcado ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
+                const checksAplicables = opcionesAplicablesColaborador(c, opts)
+                const todosNoAplican = checksAplicables.length === 0
+                const cumple = !todosNoAplican && colaboradorCumple(c, opts)
+                const marcado = c.selected.length > 0 || (c.noAplica?.length ?? 0) > 0
+                const estado = todosNoAplican ? 'No aplica' : cumple ? 'Cumple' : marcado ? 'En curso' : 'Sin marcar'
+                const estadoClass = todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : marcado ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
                 return (
                   <div key={c.dni} className={cn('rounded-xl border transition-colors', c.aplica ? (cumple ? 'border-green-200 bg-white' : 'border-slate-200 bg-white') : 'border-slate-100 bg-slate-50')}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
@@ -919,8 +939,8 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
                       <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', estadoClass)}>
                         {estado}
                       </span>
-                      <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
-                        {cumple ? 'Cumple' : `${c.selected.length}/${opts.length}`}
+                      <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
+                        {todosNoAplican ? 'No aplica' : cumple ? 'Cumple' : `${c.selected.filter((id) => checksAplicables.some((o) => o.id === id)).length}/${checksAplicables.length}`}
                       </span>
                       <button
                         type="button"
@@ -935,13 +955,14 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
                       <div className="space-y-1 border-t border-slate-100 px-3 pb-3 pt-2">
                         {opts.map((o) => {
                           const esta = c.selected.includes(o.id)
+                          const noAplica = (c.noAplica ?? []).includes(o.id)
                           const respFallidos = responsablesDeCheck(item, o).length > 0
                           return (
                             <div
                               key={o.id}
                               className={cn(
                                 'min-w-0 overflow-hidden rounded-xl border transition-colors',
-                                esta ? 'border-slate-200 bg-white' : 'border-red-300 bg-red-50'
+                                noAplica ? 'border-slate-200 bg-slate-50' : esta ? 'border-slate-200 bg-white' : 'border-red-300 bg-red-50'
                               )}
                             >
                               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
@@ -949,16 +970,32 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente 
                                   <input
                                     type="checkbox"
                                     className={cn('h-4 w-4 shrink-0', esta ? 'accent-green-600' : 'accent-primary')}
-                                    checked={esta}
+                                    checked={esta && !noAplica}
+                                    disabled={noAplica}
                                     onChange={() => toggleCheck(c.dni, o.id)}
                                   />
-                                  <span className={cn('min-w-0 flex-1 break-words text-sm', c.aplica ? 'text-slate-700' : 'text-slate-400')}>{o.etiqueta}</span>
+                                  <span className={cn('min-w-0 flex-1 break-words text-sm', noAplica ? 'text-slate-400' : 'text-slate-700')}>{o.etiqueta}</span>
                                 </label>
                                 {o.puntos != null && o.puntos > 0 ? (
                                   <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
                                 ) : null}
+                                <button
+                                  type="button"
+                                  aria-pressed={noAplica}
+                                  onClick={() => marcarNoAplica(c.dni, o.id)}
+                                  className={cn(
+                                    'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors',
+                                    noAplica ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
+                                  )}
+                                  title={noAplica ? 'Quitar marca de no aplica' : 'Este punto no aplica a este trabajador'}
+                                >
+                                  <Ban className="h-3.5 w-3.5" />
+                                  No aplica
+                                </button>
                               </div>
-                              {!esta ? (
+                              {noAplica ? (
+                                <p className="border-t border-slate-200 px-3 py-2 text-xs font-medium text-slate-500">Este punto no se evalúa para este trabajador.</p>
+                              ) : !esta ? (
                                 // Punto sin marcar de ESTE trabajador: responsables de la falla junto al punto, como en CHECKLIST/UNIDAD.
                                 <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
                                   <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">

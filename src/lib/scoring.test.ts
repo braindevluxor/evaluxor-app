@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, ETIQUETAS_CONTRA_DATO } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, ETIQUETAS_CONTRA_DATO } from './scoring'
 
 describe('tieneRespuesta · una respuesta vacía no cuenta como respondida', () => {
   it('detecta vacío por tipo de ítem', () => {
@@ -122,6 +122,24 @@ describe('valorBinario', () => {
     expect(valorBinario(item, { colaboradores: [] })).toBe(null)
     expect(valorBinario(item, null)).toBe(null)
     expect(valorBinario(item, { colaboradores: [col(['a', 'b'])], informativo: true })).toBe(null)
+  })
+  it('listado de colaboradores excluye los puntos no aplicables a cada trabajador', () => {
+    const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a' }, { id: 'b' }] }
+    const v = {
+      colaboradores: [
+        { dni: 1, name: 'Ana', lastname: 'A', active: true, aplica: true, selected: ['a'], noAplica: ['b'] },
+        { dni: 2, name: 'Luis', lastname: 'B', active: true, aplica: true, selected: ['b'], noAplica: ['a'] }
+      ]
+    }
+    expect(valorBinario(item, v)).toBe(true)
+    expect(colaboradorCumple(v.colaboradores[0], item.opciones)).toBe(true)
+    expect(incumplimientosPorResponsable({ ...item, opciones: item.opciones.map((o, i) => ({ ...o, responsable: i ? 'B' : 'A' })) }, v)).toEqual([])
+  })
+  it('si todos los puntos no aplican, el listado queda fuera del puntaje', () => {
+    const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a' }, { id: 'b' }] }
+    const valor = { colaboradores: [{ dni: 1, name: 'Ana', lastname: 'A', active: true, aplica: true, selected: [], noAplica: ['a', 'b'] }] }
+    expect(valorBinario(item, valor)).toBe(null)
+    expect(calcularPuntaje([{ item, valor }])).toBe(null)
   })
   it('unidad checklist cumple cuando todas las unidades tienen su checklist completo', () => {
     const item = { tipo: 'UNIDAD_CHECKLIST', opciones: [{ id: 'a' }, { id: 'b' }] }

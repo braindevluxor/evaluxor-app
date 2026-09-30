@@ -7,6 +7,7 @@ import {
   incumplimientosPorResponsable,
   opcionCumplida,
   colaboradorCumple,
+  opcionesAplicablesColaborador,
   unidadCumple,
   pesoItem,
   puntosMarcadosPlano,
@@ -587,7 +588,7 @@ export function resumenItemsModulo(
       if (!opts.length || !aplican.length || p === null) continue
       a.muestras++
       a.ok += p
-      for (const c of aplican) {
+      for (const c of aplican.filter((colaborador) => opcionesAplicablesColaborador(colaborador, opts).length > 0)) {
         a.colabTotal++
         if (colaboradorCumple(c, opts)) a.colabOk++
       }
@@ -1133,8 +1134,10 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
       if (!cols.length) return { proporcion: p, resumen: 'Sin colaboradores' }
       const opts = (item.opciones ?? []) as Opcion[]
       const aplican = cols.filter((c) => c.aplica)
-      const cumplen = aplican.filter((c) => colaboradorCumple(c, opts)).length
-      return { proporcion: p, resumen: `${cumplen}/${aplican.length} colaboradores cumplen${cols.some((c) => !c.aplica) ? ` (${cols.length - aplican.length} no aplican)` : ''}` }
+      const conChecksAplicables = aplican.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
+      const cumplen = conChecksAplicables.filter((c) => colaboradorCumple(c, opts)).length
+      const sinPuntos = aplican.length - conChecksAplicables.length
+      return { proporcion: p, resumen: `${cumplen}/${conChecksAplicables.length} colaboradores cumplen${sinPuntos ? ` · ${sinPuntos} sin puntos aplicables` : ''}${cols.some((c) => !c.aplica) ? ` · ${cols.length - aplican.length} excluido(s)` : ''}` }
     }
     case 'UNIDAD_CHECKLIST': {
       const v = valor as ValorUnidadChecklist | null

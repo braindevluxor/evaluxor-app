@@ -20,6 +20,7 @@ import {
 import type { Item, Opcion } from '../types'
 import {
   colaboradorCumple,
+  opcionesAplicablesColaborador,
   conciliacionPorcentaje,
   etiquetaTipo,
   formatearLastSync,
@@ -446,19 +447,23 @@ export function renderColaboradores(li: Lienzo, item: Item, valor: unknown): num
 
   const filas = cols.map((c) => {
     const aplica = c.aplica
-    const cumple = aplica ? colaboradorCumple(c, opts) : false
+    const checksAplicables = opcionesAplicablesColaborador(c, opts)
+    const cumple = aplica && checksAplicables.length > 0 ? colaboradorCumple(c, opts) : false
     const estado: ChipTxt = !aplica
       ? { texto: 'NO APLICA', fondo: GRIS_CLARO, color: GRIS }
+      : checksAplicables.length === 0
+        ? { texto: 'SIN PUNTOS APLICABLES', fondo: GRIS_CLARO, color: GRIS }
       : cumple
         ? { texto: 'CUMPLE', fondo: VERDE_CLARO, color: VERDE }
         : { texto: 'INCOMPLETO', fondo: ROJO_CLARO, color: ROJO }
+    const noAplican = opts.filter((o) => (c.noAplica ?? []).includes(o.id)).map((o) => o.etiqueta ?? o.id)
     const faltan = aplica
-      ? opts.filter((o) => !(c.selected ?? []).includes(o.id)).map((o) => o.etiqueta ?? o.id)
+      ? checksAplicables.filter((o) => !(c.selected ?? []).includes(o.id)).map((o) => o.etiqueta ?? o.id)
       : []
     const detalle = aplica
-      ? faltan.length
+      ? [noAplican.length ? `No aplica: ${noAplican.join(', ')}` : '', checksAplicables.length ? faltan.length
         ? `Falta: ${faltan.join(', ')}`
-        : `${c.selected?.length ?? 0}/${opts.length} requerimientos cumplidos`
+        : `${checksAplicables.length}/${checksAplicables.length} requerimientos cumplidos` : ''].filter(Boolean).join(' · ')
       : ''
     return {
       titulo: `${c.name} ${c.lastname}${c.role_name ? ` · ${c.role_name}` : ''}`,
