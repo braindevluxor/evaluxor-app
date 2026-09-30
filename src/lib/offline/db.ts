@@ -71,6 +71,23 @@ export interface PhotoRecord {
   created_at: number
 }
 
+/**
+ * Incidencia reportada durante la evaluación: algo que no está en el formulario
+ * (p. ej. una bandeja de pechuga en la heladera de helados). Vive local hasta
+ * que la subida llega al servidor (`sync: 'pendiente'`).
+ */
+export interface IncidenteRecord {
+  id: string
+  evaluador_id: string
+  sucursal_id: string
+  fecha: string
+  modulo_id: string | null
+  descripcion: string
+  photoIds: string[]
+  created_at: number
+  sync: 'pendiente' | 'enviado'
+}
+
 export interface SyncJob {
   id: string
   sucursal_id: string
@@ -100,10 +117,11 @@ interface EvaluxorDB extends DBSchema {
   drafts: { key: string; value: DraftEval }
   photos: { key: string; value: PhotoRecord }
   queue: { key: string; value: SyncJob }
+  incidentes: { key: string; value: IncidenteRecord }
 }
 
 const DB_NAME = 'evaluxor-db'
-const DB_VERSION = 4
+const DB_VERSION = 5
 
 let dbPromise: Promise<IDBPDatabase<EvaluxorDB>> | null = null
 
@@ -115,6 +133,7 @@ export function getDB(): Promise<IDBPDatabase<EvaluxorDB>> {
         if (!db.objectStoreNames.contains('drafts')) db.createObjectStore('drafts')
         if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos')
         if (!db.objectStoreNames.contains('queue')) db.createObjectStore('queue')
+        if (!db.objectStoreNames.contains('incidentes')) db.createObjectStore('incidentes')
         if (oldVersion > 0 && oldVersion < 4) {
           // Solo se renueva el catálogo cacheado, que es lo único que puede quedar
           // incompatible con el código nuevo. La cola y los borradores son trabajo
@@ -148,13 +167,13 @@ export async function limpiarCacheCatalogo(): Promise<void> {
 }
 
 /** Qué hay guardado en el dispositivo, para poder avisar antes de borrar. */
-export async function resumenAlmacenamiento(): Promise<{ borradores: number; cola: number; fotos: number }> {
+export async function resumenAlmacenamiento(): Promise<{ borradores: number; cola: number; fotos: number; incidentes: number }> {
   try {
     const db = await getDB()
-    const [borradores, cola, fotos] = await Promise.all([db.count('drafts'), db.count('queue'), db.count('photos')])
-    return { borradores, cola, fotos }
+    const [borradores, cola, fotos, incidentes] = await Promise.all([db.count('drafts'), db.count('queue'), db.count('photos'), db.count('incidentes')])
+    return { borradores, cola, fotos, incidentes }
   } catch {
-    return { borradores: 0, cola: 0, fotos: 0 }
+    return { borradores: 0, cola: 0, fotos: 0, incidentes: 0 }
   }
 }
 
@@ -221,4 +240,29 @@ export async function putJob(job: SyncJob): Promise<void> {
 export async function deleteJob(uuid: string): Promise<void> {
   const db = await getDB()
   await db.delete('queue', uuid)
+}
+
+export async function addIncidente(r: Omit<IncidenteRecord, 'id' | 'created_at' | 'sync'>): Promise<IncidenteRecord> {
+  const db = await getDB()
+  const record: IncidenteRecord = { ...r, id: crypto.randomUUID(), created_at: Date.now(), sync: 'pendiente' }
+  await db.put('incidentes', record, record.id)
+  return record
+}
+
+export async function listIncidentes(): Promise<IncidenteRecord[]> {
+  const db = await getDB()
+  const all = await db.getAll('incidentes')
+  return all.sort((a, b) => a.created_at - b.created_at)
+}
+
+/** Las que todavía no llegaron al servidor (para la subida y los avisos). */
+export async function incidentesPendientes(): Promise<IncidenteRecord[]> {
+  const all = await listIncidentes()
+  return all.filter((i) => i.sync === 'pendiente')
+}
+
+/** La incidencia se subió bien: sale de la base local (y sus fotos con ella). */
+export async function eliminarIncidente(id: string): Promise<void> {
+  const db = await getDB()
+  await db.delete('incidentes', id)
 }

@@ -17,6 +17,8 @@ export interface ResumenAlmacenamiento {
   borradores: number
   cola: number
   fotos: number
+  /** Incidencias reportadas que todavía no llegaron al servidor. */
+  incidentes: number
 }
 
 /** Lo que hay en el dispositivo ahora mismo (para la pantalla de confirmación). */
@@ -24,10 +26,10 @@ export function resumenLocal(): Promise<ResumenAlmacenamiento> {
   return resumenAlmacenamiento()
 }
 
-/** ¿Quedó algo sin subir a la nube? (borradores con respuestas o cola) */
+/** ¿Quedó algo sin subir a la nube? (borradores, cola o incidencias) */
 export async function hayTrabajoSinSubir(): Promise<boolean> {
   const r = await resumenAlmacenamiento()
-  return r.cola > 0 || r.borradores > 0
+  return r.cola > 0 || r.borradores > 0 || r.incidentes > 0
 }
 
 export interface ResultadoRestore {

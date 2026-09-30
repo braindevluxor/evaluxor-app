@@ -107,6 +107,7 @@ export function TarjetaVersionApp() {
             <ul className="list-disc space-y-1 pl-5">
               <li>{resumen.borradores} borrador(es) de evaluación</li>
               <li>{resumen.cola} evaluación(es) en la cola de subida</li>
+              <li>{resumen.incidentes} incidencia(s) sin subir</li>
               <li>{resumen.fotos} foto(s)</li>
             </ul>
           )}

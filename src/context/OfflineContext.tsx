@@ -1,10 +1,13 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
-import { listQueue } from '../lib/offline/db'
-import { procesarCola } from '../lib/offline/sync'
+import { incidentesPendientes, listQueue } from '../lib/offline/db'
+import { procesarCola, sincronizarIncidentes } from '../lib/offline/sync'
 
 interface OfflineContextValue {
   online: boolean
+  /** Evaluaciones (cola) esperando subir al servidor. */
   pendientes: number
+  /** Incidencias reportadas que todavía no llegaron al servidor. */
+  incidentesPendientes: number
   sincronizando: boolean
   ultimoResultado: { ok: number; fail: number } | null
   sync: () => Promise<{ ok: number; fail: number }>
@@ -15,12 +18,14 @@ const OfflineContext = createContext<OfflineContextValue | null>(null)
 export function OfflineProvider({ children }: { children: ReactNode }) {
   const [online, setOnline] = useState(navigator.onLine)
   const [pendientes, setPendientes] = useState(0)
+  const [incidentes, setIncidentes] = useState(0)
   const [sincronizando, setSincronizando] = useState(false)
   const [ultimoResultado, setUltimoResultado] = useState<{ ok: number; fail: number } | null>(null)
 
   const contar = useCallback(async () => {
-    const jobs = await listQueue()
+    const [jobs, incs] = await Promise.all([listQueue(), incidentesPendientes()])
     setPendientes(jobs.length)
+    setIncidentes(incs.length)
   }, [])
 
   useEffect(() => {
@@ -41,7 +46,10 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     if (!navigator.onLine) return { ok: 0, fail: 0 }
     setSincronizando(true)
     try {
-      const res = await procesarCola()
+      // Cola de evaluaciones e incidencias por separado, en paralelo: cada una
+      // reporta sus fallos y las incidencias se reintentan igual que las respuestas.
+      const [eva, inc] = await Promise.all([procesarCola(), sincronizarIncidentes()])
+      const res = { ok: eva.ok + inc.ok, fail: eva.fail + inc.fail }
       setUltimoResultado(res)
       await contar()
       return res
@@ -51,15 +59,16 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   }, [contar])
 
   useEffect(() => {
-    if (online && pendientes > 0) {
+    if (online && pendientes + incidentes > 0) {
       const t = window.setTimeout(() => void sync(), 1200)
       return () => window.clearTimeout(t)
     }
-  }, [online, pendientes, sync])
+  }, [online, pendientes, incidentes, sync])
 
   const value: OfflineContextValue = {
     online,
     pendientes,
+    incidentesPendientes: incidentes,
     sincronizando,
     ultimoResultado,
     sync

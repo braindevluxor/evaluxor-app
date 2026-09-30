@@ -13,6 +13,7 @@ import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Card, Puntaje, Skeleton, SkeletonTarjetas, Spinner, cn } from '../components/ui'
 import { UltimaSync } from '../components/UltimaSync'
+import { IncidenciasEvaluacion } from '../components/IncidenciasEvaluacion'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
 import { PlanoLectura } from '../components/PlanoEditor'
 
@@ -496,6 +497,8 @@ export function EvaluacionDetalle() {
             </div>
           ) : null}
         </section>
+
+        <IncidenciasEvaluacion evaluacionId={evaluacion.id} />
 
         {porEvaluador.size ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

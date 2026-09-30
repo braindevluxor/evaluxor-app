@@ -14,6 +14,7 @@ import { listarEvaluacionesActivas, listarRespuestasEvaluacion, listarInstancias
 import { apiDisponible, esColorHex, etiquetaDeCampo, formatearValorConsulta, seleccionarValores } from '../../lib/data/apis'
 import { supabase } from '../../lib/supabase'
 import { ItemRenderer } from '../../components/ItemRenderer'
+import { ReportarIncidencia } from '../../components/ReportarIncidencia'
 import { Button, EmptyState, Modal, Spinner, cn } from '../../components/ui'
 import { BarcodeScanner } from '../../components/BarcodeScanner'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
@@ -1207,6 +1208,16 @@ export function EvaluarSucursal() {
           Se eliminará este registro y todas sus respuestas. Esta acción no se puede deshacer.
         </p>
       </Modal>
+
+      {actual && profile ? (
+        <ReportarIncidencia
+          sucursalId={sucursalId}
+          fecha={actual.fecha}
+          moduloId={moduloActual?.id ?? null}
+          moduloNombre={moduloActual?.nombre ?? null}
+          evaluadorId={profile.id}
+        />
+      ) : null}
     </MobileLayout>
   )
 }

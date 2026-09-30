@@ -1,6 +1,6 @@
 import { supabase } from '../supabase'
 import { errorSubida } from '../subida'
-import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, respuestasConInstancia, type SyncJob, type DraftEval } from './db'
+import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, respuestasConInstancia, incidentesPendientes, eliminarIncidente, type SyncJob, type DraftEval } from './db'
 import { photoPath, convertirValor, extraerPhotoIds, valorSinFotos } from './transform'
 
 export { respuestasConInstancia }
@@ -178,6 +178,81 @@ export async function procesarCola(): Promise<{ ok: number; fail: number }> {
     }
   }
   // La cola se vació al menos una vez: el dispositivo volvió a tener señal.
+  if (ok) void marcarSyncNube()
+  return { ok, fail }
+}
+
+/** Dónde vive la foto de una incidencia en el bucket `evidencias`. */
+export function pathFotoIncidencia(incidenteId: string, photoId: string): string {
+  return `incidencias/${incidenteId}/${photoId}`
+}
+
+/**
+ * Sube las incidencias reportadas desde la evaluación que todavía están locales.
+ * Igual que la cola de respuestas: resuelve la evaluación por sucursal + fecha
+ * (debe estar ACTIVA), sube las fotos al bucket `evidencias` y guarda la fila en
+ * `incidentes` (ver supabase/incidencias.sql). Si algo falla, la incidencia se
+ * queda pendiente en el teléfono y se reintenta en la próxima sincronización.
+ *
+ * La fila se inserta ANTES de subir las fotos a propósito: la política de storage
+ * comprueba que el reporte ya exista y sea del evaluador que lo está subiendo. Por
+ * eso el id lo genera el cliente y se manda en el insert; después se actualiza la
+ * fila con los paths de las fotos. Un 23505 en el insert significa que una subida
+ * anterior dejó la fila a medias: se sigue adelante para terminar las fotos.
+ */
+export async function sincronizarIncidentes(): Promise<{ ok: number; fail: number }> {
+  const pendientes = await incidentesPendientes()
+  let ok = 0
+  let fail = 0
+  for (const inc of pendientes) {
+    try {
+      const { data: ev, error: evErr } = await supabase
+        .from('evaluaciones')
+        .select('id')
+        .eq('sucursal_id', inc.sucursal_id)
+        .eq('fecha', inc.fecha)
+        .eq('estado', 'ACTIVA')
+        .maybeSingle()
+      if (evErr) throw evErr
+      if (!ev) throw new Error('La evaluación no está activa. El Líder debe abrirla antes de sincronizar incidencias.')
+      const evaluacionId = ev.id as string
+
+      const { error: insErr } = await supabase.from('incidencias').insert({
+        id: inc.id,
+        evaluacion_id: evaluacionId,
+        evaluador_id: inc.evaluador_id,
+        sucursal_id: inc.sucursal_id,
+        fecha: inc.fecha,
+        modulo_id: inc.modulo_id,
+        descripcion: inc.descripcion
+      })
+      if (insErr && insErr.code !== '23505') throw insErr
+
+      const paths: string[] = []
+      for (const id of inc.photoIds) {
+        const rec = await getPhotos([id]).then((r) => r[0])
+        if (!rec) continue
+        const path = pathFotoIncidencia(inc.id, id)
+        const { error: upErr } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
+          contentType: rec.mime,
+          upsert: true
+        })
+        if (upErr && !upErr.message.toLowerCase().includes('already exists')) throw upErr
+        paths.push(path)
+      }
+
+      if (paths.length) {
+        const { error: upRowErr } = await supabase.from('incidencias').update({ fotos: paths }).eq('id', inc.id)
+        if (upRowErr) throw upRowErr
+      }
+
+      for (const id of inc.photoIds) await deletePhoto(id)
+      await eliminarIncidente(inc.id)
+      ok++
+    } catch {
+      fail++
+    }
+  }
   if (ok) void marcarSyncNube()
   return { ok, fail }
 }
