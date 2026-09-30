@@ -59,10 +59,26 @@ describe('incidencias · el botón flotante está en toda la evaluación', () =>
     expect(pagina).toContain('evaluadorId={profile.id}')
   })
 
-  it('el botón va fijo en la esquina, siempre visible', () => {
+  it('el botón va dentro de la barra de controles, no suelto en la esquina', () => {
+    // Regresión delvisibility: como botón flotante con `fixed bottom-5` quedaba
+    // detrás de la barra fija de navegación. Tiene que montarse dentro de ella.
+    const pagina = fuente('../../pages/evaluar/EvaluarSucursal.tsx')
+    const barra = pagina.indexOf('fixed inset-x-0 bottom-0 z-40')
+    const boton = pagina.indexOf('<ReportarIncidencia')
+    expect(barra).toBeGreaterThan(-1)
+    expect(boton).toBeGreaterThan(barra)
+
     const fab = fuente('../../components/ReportarIncidencia.tsx')
-    expect(fab).toMatch(/className="fixed bottom-5 right-5/)
     expect(fab).toContain('aria-label="Reportar incidencia"')
+    expect(fab).not.toMatch(/className="fixed bottom-/)
+  })
+
+  it('la barra tiene una fila propia para el botón y espacio para no tapar el último ítem', () => {
+    const pagina = fuente('../../pages/evaluar/EvaluarSucursal.tsx')
+    // La fila nueva suma altura: el espacio al final del contenido tiene que crecer
+    // con ella o el último ítem de la lista queda debajo de la barra.
+    expect(pagina).toMatch(/<div className="h-40" \/>/)
+    expect(pagina).not.toMatch(/<div className="h-28" \/>/)
   })
 
   it('el formulario acepta descripción y fotos, y avisa que queda guardado sin señal', () => {

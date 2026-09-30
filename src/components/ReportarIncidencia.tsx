@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Check, CloudOff, Send } from 'lucide-react'
 import { useOffline } from '../context/OfflineContext'
 import { addIncidente } from '../lib/offline/db'
-import { Button, Modal, Spinner, Textarea } from './ui'
+import { Button, Modal, Spinner, Textarea, cn } from './ui'
 import { PhotoCapture } from './PhotoCapture'
 
 interface Props {
-  /** Sucursal y fecha de la evaluación en curso: needed para associar el reporte. */
+  /** Sucursal y fecha de la evaluación en curso: sin esto el reporte no tiene a qué asociarse. */
   sucursalId: string
   fecha: string
   moduloId: string | null
@@ -15,13 +15,18 @@ interface Props {
 }
 
 /**
- * Botón flotante para reportar incidencias fuera de lo programado.
+ * Reportar una incidencia fuera de lo programado.
  *
- * Está en toda la evaluación (todos los módulos, ítems y secciones) porque lo
- * interesante aparece en cualquier momento de la visita: una bandeja de pechuga
- * en la heladera de helados, un FIGE vencido, una puerta sin rotular. El reporte
- * NO es un ítem del cuestionario, así que va aparte: se guarda en el teléfono y
- * sube con el resto del avance (ver supabase/incidencias.sql).
+ * El disparador es una fila de la barra inferior de controles, no un botón
+ * flotante: la barra es fija y tapa el borde inferior, así que un botón suelto
+ * abajo a la derecha quedaba escondido detrás de ella. En la barra ocupa su
+ * propia línea (arriba de Anterior/Siguiente) y queda al alcance del pulgar en
+ * cualquier ítem, módulo o sección repetible, porque lo interesante aparece en
+ * cualquier momento de la visita: una bandeja de pechuga en la heladera de
+ * helados, un FIGE vencido, una puerta sin rotular.
+ *
+ * El reporte NO es un ítem del cuestionario, así que va aparte: se guarda en el
+ * teléfono y sube con el resto del avance (ver supabase/incidencias.sql).
  */
 export function ReportarIncidencia({ sucursalId, fecha, moduloId, moduloNombre, evaluadorId }: Props) {
   const { online, incidentesPendientes, sync } = useOffline()
@@ -29,21 +34,23 @@ export function ReportarIncidencia({ sucursalId, fecha, moduloId, moduloNombre, 
   const [descripcion, setDescripcion] = useState('')
   const [photoIds, setPhotoIds] = useState<string[]>([])
   const [guardando, setGuardando] = useState(false)
-  const [guardado, setGuardado] = useState(false)
+  const [recienGuardada, setRecienGuardada] = useState(false)
 
-  const cerrar = useCallback(() => {
-    setAbierto(false)
+  const abrir = useCallback(() => {
     setDescripcion('')
     setPhotoIds([])
-    setGuardado(false)
+    setAbierto(true)
   }, [])
 
-  // El aviso de guardado se va solo: no tiene que quedar un cartel flotando.
+  const cerrar = useCallback(() => setAbierto(false), [])
+
+  // La confirmación se ve en el propio botón y se va sola: si no, queda un
+  // cartel flotando durante toda la visita.
   useEffect(() => {
-    if (!guardado) return
-    const t = window.setTimeout(() => setGuardado(false), 3000)
+    if (!recienGuardada) return
+    const t = window.setTimeout(() => setRecienGuardada(false), 4000)
     return () => window.clearTimeout(t)
-  }, [guardado])
+  }, [recienGuardada])
 
   async function guardar() {
     const texto = descripcion.trim()
@@ -58,9 +65,11 @@ export function ReportarIncidencia({ sucursalId, fecha, moduloId, moduloNombre, 
         descripcion: texto,
         photoIds
       })
-      setGuardado(true)
-      cerrar()
-      // Si hay señal, se sube ya; si no, queda encolado y sube con el próximo sync.
+      setAbierto(false)
+      setDescripcion('')
+      setPhotoIds([])
+      setRecienGuardada(true)
+      // Si hay señal, se sube ya; si no, queda en el teléfono y sube con el próximo sync.
       if (online) void sync()
     } finally {
       setGuardando(false)
@@ -71,15 +80,26 @@ export function ReportarIncidencia({ sucursalId, fecha, moduloId, moduloNombre, 
     <>
       <button
         type="button"
-        onClick={() => setAbierto(true)}
+        onClick={abrir}
         aria-label="Reportar incidencia"
-        title="Reportar algo fuera de lo programado (foto o comentario)"
-        className="fixed bottom-5 right-5 z-30 grid h-14 w-14 place-items-center rounded-full bg-amber-500 text-white shadow-lg shadow-amber-500/30 transition-colors hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
+        className={cn(
+          'flex w-full items-center gap-2.5 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors',
+          recienGuardada
+            ? 'border-green-200 bg-green-50 text-green-800'
+            : 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+        )}
       >
-        <AlertTriangle className="h-6 w-6" />
+        {recienGuardada ? (
+          <Check className="h-5 w-5 shrink-0 text-green-600" />
+        ) : (
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
+        )}
+        <span className="min-w-0 flex-1 truncate text-left">
+          {recienGuardada ? 'Incidencia guardada' : 'Reportar incidencia'}
+        </span>
         {incidentesPendientes > 0 ? (
           <span
-            className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1 text-[11px] font-black text-white"
+            className="shrink-0 rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-black text-white"
             title={`${incidentesPendientes} incidencia(s) esperando subir`}
           >
             {incidentesPendientes}

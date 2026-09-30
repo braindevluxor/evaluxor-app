@@ -28,11 +28,19 @@ function boton(): string {
 }
 
 describe('boton de reportar incidencia', () => {
-  it('siempre esta a la vista en la evaluacion', () => {
+  it('ocupa una fila entera de la barra de controles', () => {
     mocks.offline.incidentesPendientes = 0
     const html = boton()
     expect(html).toContain('aria-label="Reportar incidencia"')
-    expect(html).toMatch(/fixed bottom-5 right-5/)
+    expect(html).toMatch(/flex w-full items-center/)
+  })
+
+  it('no queda flotando suelto: la barra de abajo lo tapaba', () => {
+    // Regresión: como botón suelto con `fixed bottom-5` quedaba detrás de la barra
+    // fija de navegación, tiene que ser una fila más de esa misma barra.
+    const html = boton()
+    expect(html).not.toContain('fixed')
+    expect(html).not.toContain('bottom-5 right-5')
   })
 
   it('avisa cuantas incidencias quedan sin subir', () => {
