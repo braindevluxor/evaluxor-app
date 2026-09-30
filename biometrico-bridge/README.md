@@ -42,8 +42,27 @@ Anviz F2): ese programa sí habla con el equipo y deja bajar el reporte.
 
 ### 1. Instalar el software de Anviz
 
-Va en el CD-ROM virtual que monta el propio D100 al conectarlo por USB
-(también se descarga del sitio de Anviz). Es el que se comunica con el equipo.
+El que se comunica con el equipo es **CrossChex Standard**. Links directos del
+sitio oficial de Anviz (verificados, responden 200):
+
+| Versión | Link | Tamaño |
+| ------- | ---- | ------ |
+| **V5.0** (07/2025, la actual) | `https://www.anviz.com/file/download/10604/Setup.zip` | 59,3 MB (`.zip`) |
+| V4.3.18 (08/2023, la anterior) | `https://www.anviz.com/file/download/10356/Setup.exe` | 72,8 MB (`.exe`) |
+
+Listado completo (también en español):
+https://www.anviz.com/download/TimeAttendanceAccessControl.html?download_tag=software
+
+**Empezá por V5.0.** Si no conecta con tu D100 —es un equipo de 2013 según el
+catálogo de Anviz— probá V4.3.18: las versiones viejas suelen hablar con los
+equipos viejos.
+
+También viene en el CD-ROM virtual que monta el propio D100 al enchufarlo por
+USB, pero en muchas máquinas ese medio no aparece montado.
+
+> Los instaladores no están revisados por este proyecto. Son links del sitio
+> oficial (`anviz.com`), pero si alguno te pide desactivar el antivirus o
+> concede permisos fuera de lo normal, cortá.
 
 ### 2. Exportar el reporte
 
@@ -68,6 +87,19 @@ Un archivo con `DNI;fecha;tipo` alcanza:
 
 Si el software exporta un `.xlsx`, guardalo como CSV (o exportá a CSV directo):
 el puente no lee hojas de cálculo.
+
+### Alternativa: consultar el equipo por red (sin exportar a mano)
+
+Si el D100 tiene WiFi y se lo conecta a la red, el flujo del CSV se puede
+saltear por completo. Anviz publica un **Local Web API** que habla con el
+equipo por HTTP:
+
+`https://www.anviz.com/file/download/10627/webapi.zip`
+
+Con el terminal con IP propia, `lib/usb.js` lo reporta como transporte `red`
+(`sirve: true`) y ahí el puente puede leer los marcajes directo, sin instalar
+CrossChex ni exportar nada. Es el camino a automatizar de verdad; el CSV queda
+como plan B para cuando el equipo no tiene red.
 
 ### 3. Levantar el puente y sincronizar
 
