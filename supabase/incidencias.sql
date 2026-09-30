@@ -47,19 +47,25 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
--- LIDER ve todas; el EVALUADOR ve las suyas (mismo criterio que las respuestas).
+-- Ver una incidencia: LIDER todas; el EVALUADOR las suyas, mientras la evaluación
+-- siga ACTIVA y pueda reportar en ella. La regla va en una función (como
+-- `puede_ver_evaluacion` y `puede_responder` en schema.sql) porque dentro del USING
+-- de una política no se puede volver a nombrar a la tabla propia: la columna se le
+-- pasa como argumento y es la política quien la resuelve.
+create or replace function public.puede_ver_incidencia(ev_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.es_lider() or exists (
+    select 1
+    from public.evaluaciones ev
+    where ev.id = ev_id
+      and ev.estado = 'ACTIVA'
+      and public.puede_reportar_incidencia(ev.id, null)
+  );
+$$;
+
 drop policy if exists incidencias_select on public.incidencias;
 create policy incidencias_select on public.incidencias
-  for select using (
-    public.es_lider()
-    or exists (
-      select 1
-      from public.evaluaciones ev
-      where ev.id = incidentes.evaluacion_id
-        and ev.estado = 'ACTIVA'
-        and public.puede_reportar_incidencia(ev.id, null)
-    )
-  );
+  for select using (public.puede_ver_incidencia(evaluacion_id));
 
 -- Crear: el que reporta es el evaluador, y tiene que estar asignado a esa evaluación.
 drop policy if exists incidencias_insert on public.incidencias;
