@@ -1019,16 +1019,17 @@ export function EvaluarSucursal() {
           </div>
         )}
 
-        {/* Espacio para que la barra fija (navegación + fila de incidencias) no
-            tape el último ítem de la lista. */}
-        <div className="h-40" />
+        {/* Espacio para que la barra fija de controles no tape el último ítem. */}
+        <div className="h-28" />
       </div>
 
+      {/* Barra de controles: todo en UNA línea. Va con `gap-1 px-2` y textos
+          cortos a propósito, porque en la sección repetible (que suma "Terminar"
+          y "Agregar otro") son cinco botones y con los nombres largos no entran
+          en un teléfono de 360 px. El `truncate` es la red de seguridad: los
+          íconos nunca se encogen y la fila nunca pasa a dos alturas. */}
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white shadow-[0_-4px_16px_-8px_rgb(15_23_42/0.15)]">
-        <div className="mx-auto w-full max-w-lg px-4 py-3">
-          {/* Fila propia arriba de la navegación: reportar lo que se vio y no está en
-              el formulario. Va dentro de la barra y no flotando porque esta barra es
-              fija y le tapaba el botón suelto de la esquina. */}
+        <div className="mx-auto flex w-full max-w-lg items-center gap-1 px-2 py-3">
           {profile ? (
             <ReportarIncidencia
               sucursalId={sucursalId}
@@ -1038,54 +1039,55 @@ export function EvaluarSucursal() {
               evaluadorId={profile.id}
             />
           ) : null}
-
-          <div className="mt-2 flex items-center gap-3">
-            <Button
-              variant="secondary"
-              onClick={irAnterior}
-              disabled={!registro && idxModulo === 0 && idxItem === 0}
-              className="flex-1"
-            >
-              <ArrowLeft className="h-4 w-4" /> Anterior
-            </Button>
-            <Button
-              variant="secondary"
-              className="shrink-0 px-3"
-              onClick={() => setNavAbierta(true)}
-              aria-label="Navegación rápida"
-              title="Navegación rápida"
-            >
-              <List className="h-5 w-5" />
-            </Button>
-            {registro ? (
-              ultimoHijo ? (
-                <>
-                  <Button variant="secondary" className="flex-1" onClick={volverSeccion}>
-                    Terminar
-                  </Button>
-                  <Button variant="primary" className="flex-1" onClick={irSiguiente}>
-                    Agregar otro registro <Plus className="h-4 w-4" />
-                  </Button>
-                </>
-              ) : (
-                <Button variant="primary" className="flex-1" onClick={irSiguiente}>
-                  Siguiente <ArrowRight className="h-4 w-4" />
+          <Button
+            variant="secondary"
+            onClick={irAnterior}
+            disabled={!registro && idxModulo === 0 && idxItem === 0}
+            className="min-w-0 flex-1 px-2.5 text-[13px]"
+          >
+            <ArrowLeft className="h-4 w-4 shrink-0" /> <span className="truncate">Anterior</span>
+          </Button>
+          <Button
+            variant="secondary"
+            className="h-11 w-11 shrink-0 px-2"
+            onClick={() => setNavAbierta(true)}
+            aria-label="Navegación rápida"
+            title="Navegación rápida"
+          >
+            <List className="h-5 w-5" />
+          </Button>
+          {registro ? (
+            ultimoHijo ? (
+              <>
+                <Button variant="secondary" className="min-w-0 flex-1 px-2.5 text-[13px]" onClick={volverSeccion}>
+                  <span className="truncate">Terminar</span>
                 </Button>
-              )
-            ) : !ultimoPasoModulo ? (
-              <Button variant="primary" className="flex-1" onClick={irSiguiente}>
-                Siguiente <ArrowRight className="h-4 w-4" />
-              </Button>
-            ) : !ultimoModulo ? (
-              <Button variant="primary" className="flex-1" onClick={irSiguiente}>
-                Siguiente módulo <ArrowRight className="h-4 w-4" />
-              </Button>
+                <Button variant="primary" className="min-w-0 flex-1 px-2.5 text-[13px]" onClick={irSiguiente}>
+                  <span className="truncate">Otro</span> <Plus className="h-4 w-4 shrink-0" />
+                </Button>
+              </>
             ) : (
-              <Button variant="success" className="flex-1" onClick={() => navigate(`/evaluar/${sucursalId}/resumen`)}>
-                Ver resumen <Check className="h-4 w-4" />
+              <Button variant="primary" className="min-w-0 flex-1 px-2.5 text-[13px]" onClick={irSiguiente}>
+                <span className="truncate">Siguiente</span> <ArrowRight className="h-4 w-4 shrink-0" />
               </Button>
-            )}
-          </div>
+            )
+          ) : !ultimoPasoModulo ? (
+            <Button variant="primary" className="min-w-0 flex-1 px-2.5 text-[13px]" onClick={irSiguiente}>
+              <span className="truncate">Siguiente</span> <ArrowRight className="h-4 w-4 shrink-0" />
+            </Button>
+          ) : !ultimoModulo ? (
+            <Button variant="primary" className="min-w-0 flex-1 px-2.5 text-[13px]" onClick={irSiguiente}>
+              <span className="truncate">Siguiente módulo</span> <ArrowRight className="h-4 w-4 shrink-0" />
+            </Button>
+          ) : (
+            <Button
+              variant="success"
+              className="min-w-0 flex-1 px-2.5 text-[13px]"
+              onClick={() => navigate(`/evaluar/${sucursalId}/resumen`)}
+            >
+              <span className="truncate">Ver resumen</span> <Check className="h-4 w-4 shrink-0" />
+            </Button>
+          )}
         </div>
       </div>
 

@@ -17,13 +17,15 @@ interface Props {
 /**
  * Reportar una incidencia fuera de lo programado.
  *
- * El disparador es una fila de la barra inferior de controles, no un botón
- * flotante: la barra es fija y tapa el borde inferior, así que un botón suelto
- * abajo a la derecha quedaba escondido detrás de ella. En la barra ocupa su
- * propia línea (arriba de Anterior/Siguiente) y queda al alcance del pulgar en
- * cualquier ítem, módulo o sección repetible, porque lo interesante aparece en
- * cualquier momento de la visita: una bandeja de pechuga en la heladera de
- * helados, un FIGE vencido, una puerta sin rotular.
+ * El disparador es un botón compacto dentro de la barra inferior de controles,
+ * no un botón flotante: la barra es fija y tapa el borde inferior, así que un
+ * botón suelto abajo a la derecha quedaba escondido detrás de ella. Va en la
+ * misma línea que Anterior / Navegación / Siguiente, que es donde el pulgar ya
+ * está: el aviso aparece en cualquier momento de la visita (una bandeja de
+ * pechuga en la heladera de helados, un FIGE vencido, una puerta sin rotular).
+ *
+ * Sin texto para que entre la fila: se reconoce por el triángulo ámbar, el
+ * título, y el contador rojo de las que faltan subir.
  *
  * El reporte NO es un ítem del cuestionario, así que va aparte: se guarda en el
  * teléfono y sube con el resto del avance (ver supabase/incidencias.sql).
@@ -82,24 +84,16 @@ export function ReportarIncidencia({ sucursalId, fecha, moduloId, moduloNombre, 
         type="button"
         onClick={abrir}
         aria-label="Reportar incidencia"
+        title={recienGuardada ? 'Incidencia guardada' : 'Reportar algo fuera de lo programado'}
         className={cn(
-          'flex w-full items-center gap-2.5 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors',
-          recienGuardada
-            ? 'border-green-200 bg-green-50 text-green-800'
-            : 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+          'relative grid h-11 w-11 shrink-0 place-items-center rounded-full text-white transition-colors',
+          recienGuardada ? 'bg-green-600' : 'bg-amber-500 hover:bg-amber-600'
         )}
       >
-        {recienGuardada ? (
-          <Check className="h-5 w-5 shrink-0 text-green-600" />
-        ) : (
-          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" />
-        )}
-        <span className="min-w-0 flex-1 truncate text-left">
-          {recienGuardada ? 'Incidencia guardada' : 'Reportar incidencia'}
-        </span>
+        {recienGuardada ? <Check className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
         {incidentesPendientes > 0 ? (
           <span
-            className="shrink-0 rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-black text-white"
+            className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1 text-[11px] font-black text-white"
             title={`${incidentesPendientes} incidencia(s) esperando subir`}
           >
             {incidentesPendientes}

@@ -73,12 +73,17 @@ describe('incidencias · el botón flotante está en toda la evaluación', () =>
     expect(fab).not.toMatch(/className="fixed bottom-/)
   })
 
-  it('la barra tiene una fila propia para el botón y espacio para no tapar el último ítem', () => {
+  it('la barra queda en una sola línea: el botón comparte fila con la navegación', () => {
     const pagina = fuente('../../pages/evaluar/EvaluarSucursal.tsx')
-    // La fila nueva suma altura: el espacio al final del contenido tiene que crecer
-    // con ella o el último ítem de la lista queda debajo de la barra.
-    expect(pagina).toMatch(/<div className="h-40" \/>/)
-    expect(pagina).not.toMatch(/<div className="h-28" \/>/)
+    // Un solo contenedor flex con `items-center`: nada se apila en dos alturas.
+    expect(pagina).toContain('mx-auto flex w-full max-w-lg items-center gap-1 px-2 py-3')
+    // Y sin la fila extra que se había hecho en el intento anterior.
+    expect(pagina).not.toContain('mt-2 flex items-center gap-3')
+    expect(pagina).not.toMatch(/<div className="h-40" \/>/)
+    // Con cinco botones en 360 px, los textos largos se cortan en vez de partir
+    // la fila en dos alturas.
+    expect(pagina).toMatch(/<span className="truncate">Siguiente módulo<\/span>/)
+    expect(pagina).not.toContain('Agregar otro registro')
   })
 
   it('el formulario acepta descripción y fotos, y avisa que queda guardado sin señal', () => {

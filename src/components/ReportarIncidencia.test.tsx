@@ -28,11 +28,14 @@ function boton(): string {
 }
 
 describe('boton de reportar incidencia', () => {
-  it('ocupa una fila entera de la barra de controles', () => {
+  it('es un boton compacto para compartir la linea con la navegacion', () => {
     mocks.offline.incidentesPendientes = 0
     const html = boton()
     expect(html).toContain('aria-label="Reportar incidencia"')
-    expect(html).toMatch(/flex w-full items-center/)
+    // Cuadrado y fijo: sin texto, asi entra en la misma fila que los botones de
+    // Anterior / Navegacion / Siguiente sin ensanchar la barra.
+    expect(html).toMatch(/h-11 w-11 shrink-0/)
+    expect(html).not.toContain('w-full')
   })
 
   it('no queda flotando suelto: la barra de abajo lo tapaba', () => {
