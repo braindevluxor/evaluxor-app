@@ -43,6 +43,17 @@ export interface DispositivoInfo {
   modelo: string | null
   serial: string | null
   mensaje: string | null
+  /**
+   * Por el transporte detectado (USB serie, red, CD-ROM virtual...) ¿se pueden
+   * leer marcajes? Viene `false` en el caso habitual del D100 por USB: el equipo
+   * está enchufado pero los marcajes salen del software de Anviz. La UI lo dice
+   * en vez de prometer una sincronización que no va a traer datos.
+   */
+  sirve?: boolean
+  transporte?: string | null
+  transporteEtiqueta?: string | null
+  /** El puente estaba en modo demo (marcajes de ejemplo). */
+  demo?: boolean
 }
 
 export interface FiltrosMarcajes {
@@ -113,12 +124,23 @@ async function fetchPuente<T>(urlBase: string, ruta: string, timeoutMs = 6000): 
 
 export async function verificarDispositivo(urlBase = urlPuenteGuardada()): Promise<DispositivoInfo> {
   try {
-    const info = await fetchPuente<{ conectado?: boolean; modelo?: string; serial?: string; mensaje?: string }>(urlBase, '/dispositivo')
+    const info = await fetchPuente<{
+      conectado?: boolean
+      modelo?: string
+      serial?: string
+      mensaje?: string
+      sirve?: boolean
+      transporte?: string
+      transporteEtiqueta?: string
+    }>(urlBase, '/dispositivo')
     return {
       conectado: info.conectado === true,
       modelo: info.modelo ?? null,
       serial: info.serial ?? null,
-      mensaje: info.mensaje ?? null
+      mensaje: info.mensaje ?? null,
+      sirve: info.sirve !== false,
+      transporte: info.transporte ?? null,
+      transporteEtiqueta: info.transporteEtiqueta ?? null
     }
   } catch (e) {
     return {

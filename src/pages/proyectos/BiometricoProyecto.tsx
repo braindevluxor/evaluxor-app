@@ -140,7 +140,13 @@ export function BiometricoProyecto() {
         return
       }
       if (!marcajesPuente.length) {
-        setSyncMensaje('El puente no devolvió marcajes en los últimos 90 días. Verificá que el D100 esté conectado.')
+        // El caso normal del D100 por USB: está enchufado, pero los marcajes
+        // están en el reporte que exporta el software de Anviz.
+        setSyncMensaje(
+          info.conectado
+            ? 'No hay marcajes para leer. Si el D100 está enchufado por USB, exportá el reporte desde el software de Anviz a la carpeta data/ del puente y volvé a intentar.'
+            : 'El puente no devolvió marcajes en los últimos 90 días. Verificá que esté corriendo (npm start en biometrico-bridge) y que el D100 esté encendido.'
+        )
         return
       }
 
@@ -205,6 +211,9 @@ export function BiometricoProyecto() {
 
   const sucursal = sucursales.find((s) => s.id === proyecto.sucursal_id)
   const conectado = dispositivo?.conectado === true
+  // Enchufado no es lo mismo que "por acá salen los marcajes": el D100 por USB
+  // se ve como CD-ROM virtual, así que el puente los lee del reporte exportado.
+  const sirveDirecto = conectado && dispositivo?.sirve === true
 
   return (
     <div className="space-y-6">
@@ -233,10 +242,13 @@ export function BiometricoProyecto() {
               <Server className="h-4 w-4 text-primary" /> Dispositivo biométrico
             </h3>
 
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <Badge color={conectado ? 2 : 4}>{conectado ? 'Conectado' : 'Desconectado'}</Badge>
+              {conectado && !sirveDirecto ? <Badge color={3}>Por USB no se leen</Badge> : null}
               {dispositivo?.modelo ? <span className="text-sm font-semibold text-slate-700">{dispositivo.modelo}</span> : null}
-              {dispositivo?.serial ? <span className="text-xs text-slate-400">{dispositivo.serial}</span> : null}
+              {dispositivo?.transporteEtiqueta ? (
+                <span className="text-xs text-slate-400">vía {dispositivo.transporteEtiqueta}</span>
+              ) : null}
             </div>
 
             {dispositivo?.mensaje ? (

@@ -1,138 +1,95 @@
 // =============================================================================
-// Driver del lector biométrico Anviz D100 (conexión USB).
+// Driver del lector biométrico Anviz D100.
 // =============================================================================
-// IMPORTANTE (punto de integración con el dispositivo real):
+// Qué se puede hacer hoy, en este equipo, con el D100 conectado por USB:
 //
-//   El D100 se comunica por USB con el PROTOCOLO PROPIETARIO de Anviz (BioSDK /
-//   AnvizNet, DLL nativa de Windows). Esta app NO puede abrir el dispositivo
-//   usando Node puro: hace falta el SDK de Anviz. Opciones reales:
+//   El Windows lo reconoce (ver lib/usb.js) como "Finger Module USB Device",
+//   un CD-ROM virtual: el instalador del software de Anviz. No es un canal de
+//   datos, así que por USB NO se pueden leer los marcajes. Tampoco aparece como
+//   puerto serie ni con IP propia.
 //
-//     a) Anviz BioSDK / GSDK (Windows, DLL): consumir las funciones del SDK
-//        desde Node con bindings nativos (p. ej. `koffi` o `ffi-napi`).
-//        El SDK expone eventos de fichaje (IN/OUT) con DNI/ID del trabajador
-//        y timestamp, además del estado y serial del lector.
-//     b) Sin SDK: exportar el reporte de marcajes con el software de PC de
-//        Anviz (Anviz F2 / Anviz Time) a un CSV con el formato
-//        `dni;fecha;tipo` y guardarlo en `data/marcajes.csv`. La app lo lee.
+//   Los marcajes se bajan con el software de PC de Anviz (AnvizTime /
+//   BioAccess / Anviz F2), que habla con el equipo. Desde ahí se exporta el
+//   reporte y se deja en `data/`. `lib/archivos.js` lo lee tolerando los
+//   formatos que usan esas versiones.
 //
-//   Esta versión viene en MODO DEMO (mock): sirve marcajes de ejemplo para
-//   probar de punta a punta la web (puente -> Supabase -> listado en EvaLuxor).
-//   Cuando integres el SDK real, completá `leerDispositivoReal` y
-//   `leerMarcajesReal` y desactivá el mock en server.js.
+//   Si en algún momento el equipo se enchuga de otra forma y Windows lo expone
+//   como puerto serie o con IP propia, `leerMarcajesPorRed` queda listo para
+//   talking con él; se documenta en el README cómo activarlo.
+//
+// Cuando haya un canal directo, se completa `leerMarcajesDelDispositivo`.
 // =============================================================================
 
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const CSV_POR_DEFECTO = join(__dirname, '..', 'data', 'marcajes.csv')
+import { detectarLector } from './usb.js'
+import { leerMarcajesDeArchivos, leerArchivo } from './archivos.js'
 
 export const MODELO = 'D100'
 export const MARCA = 'Anviz'
 
 // --- Utilidades ---------------------------------------------------------------
 
-function normalizarFecha(fecha) {
-  const f = new Date(fecha)
-  if (Number.isNaN(f.getTime())) return null
-  return f
-}
-
 function enRango(fecha, desde, hasta) {
-  const f = normalizarFecha(fecha)
-  if (!f) return false
-  const d = normalizarFecha(desde)
-  const h = normalizarFecha(hasta)
-  if (d && f < d) return false
-  if (h && f > h) return false
+  const f = new Date(fecha)
+  if (Number.isNaN(f.getTime())) return false
+  const d = desde ? new Date(desde) : null
+  const h = hasta ? new Date(hasta) : null
+  if (d && !Number.isNaN(d.getTime()) && f < d) return false
+  if (h && !Number.isNaN(h.getTime()) && f > h) return false
   return true
 }
 
-// --- Lectura por CSV (plan B sin SDK) -----------------------------------------
+// --- Estado del lector (real, no inventado) -----------------------------------
 
-function leerCsvMarcajes(ruta = CSV_POR_DEFECTO) {
-  if (!existsSync(ruta)) return []
-  const texto = readFileSync(ruta, 'utf8')
-  return texto
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .slice(1) // salta el encabezado
-    .map((linea) => linea.split(';').map((c) => c.trim()))
-    .filter((cols) => cols.length >= 2 && cols[0] && cols[1])
-    .map(([dni, fecha, tipo]) => ({ dni, fecha, tipo: (tipo || 'OTRO').toUpperCase() }))
-}
+/** Estado real del lector por USB. No usa mock: informa lo que Windows ve. */
+export async function leerDispositivo() {
+  const deteccion = await detectarLector()
 
-// --- Modo demo: genera fichajes de los últimos 4 días -------------------------
-
-function generarDemo() {
-  const hoy = new Date()
-  const personas = [
-    { dni: '1712345678' },
-    { dni: '1712345679' },
-    { dni: '1712345680' }
-  ]
-  const jornada = [
-    [8, 5, 'ENTRADA'],
-    [12, 30, 'SALIDA'],
-    [13, 0, 'ENTRADA'],
-    [17, 45, 'SALIDA']
-  ]
-  const resultado = []
-  for (let i = 1; i <= 4; i++) {
-    for (const p of personas) {
-      const dia = new Date(hoy)
-      dia.setDate(dia.getDate() - i)
-      for (const [hh, mm, tipo] of jornada) {
-        const f = new Date(dia)
-        f.setHours(hh, mm, 0, 0)
-        resultado.push({ dni: p.dni, fecha: f.toISOString(), tipo })
-      }
-    }
-  }
-  return resultado
-}
-
-// --- Lectura real del dispositivo (por implementar con el SDK de Anviz) -------
-
-async function leerDispositivoReal() {
-  // TODO: integrar el BioSDK de Anviz. Devolver algo como:
-  //   { conectado: true, modelo: 'D100', serial: '...', mensaje: null }
-  // Si el lector no está enchufado, tirar un error con un mensaje claro.
-  throw new Error(
-    'SDK de Anviz no configurado. Completá leerDispositivoReal() en biometrico-bridge/lib/anviz-d100.js ' +
-      'o usá el modo demo con data/marcajes.csv.'
-  )
-}
-
-async function leerMarcajesReal(desde, hasta) {
-  // TODO: leer los registros (marcajes) del D100 dentro del rango de fechas.
-  // El BioSDK expone eventos IN/OUT con DNI/ID del trabajador y timestamp.
-  // Devolver un arreglo de { dni, fecha (ISO), tipo: 'ENTRADA'|'SALIDA'|'OTRO' }.
-  void desde
-  void hasta
-  throw new Error(
-    'SDK de Anviz no configurado. Completá leerMarcajesReal() en biometrico-bridge/lib/anviz-d100.js ' +
-      'o usá el modo demo con data/marcajes.csv.'
-  )
-}
-
-// --- API pública del driver ----------------------------------------------------
-
-export async function leerDispositivo(opts) {
-  if (opts.mock) {
+  if (!deteccion.conectado) {
     return {
-      conectado: true,
-      modelo: MODELO,
+      conectado: false,
+      modelo: null,
       marca: MARCA,
-      serial: 'D100-MOCK-0001',
-      mensaje: 'Modo demo (mock). Integrá el SDK de Anviz (leerDispositivoReal) para leer el dispositivo físico.'
+      serial: null,
+      mensaje: deteccion.mensaje
     }
   }
-  return leerDispositivoReal()
+
+  return {
+    conectado: true,
+    modelo: deteccion.modelo,
+    marca: MARCA,
+    serial: deteccion.serial,
+    transporte: deteccion.transporte,
+    transporteEtiqueta: deteccion.transporteEtiqueta,
+    // `sirve` = por este transporte se pueden leer marcajes. Con el CD-ROM
+    // virtual es false, y la web lo dice en vez de prometer una sincronización
+    // que no va a traer datos.
+    sirve: deteccion.sirve,
+    mensaje: deteccion.mensaje
+  }
 }
 
-export async function leerMarcajes(desde, hasta, opts) {
-  const brutos = opts.mock ? [...leerCsvMarcajes(), ...generarDemo()] : await leerMarcajesReal(desde, hasta)
-  return brutos.filter((m) => enRango(m.fecha, desde, hasta))
+// --- Marcajes -----------------------------------------------------------------
+
+/**
+ * Marcajes del equipo, leyendo los reportes exportados a `data/`.
+ * `opts.modo` fuerza el origen: 'real' (default) o 'demo' para la demo.
+ */
+export async function leerMarcajes(desde, hasta, opts = {}) {
+  if (opts.modo === 'demo') {
+    const { generarDemo } = await import('./demo.js')
+    return generarDemo().filter((m) => enRango(m.fecha, desde, hasta))
+  }
+  const { marcajes } = leerMarcajesDeArchivos()
+  return marcajes.filter((m) => enRango(m.fecha, desde, hasta))
+}
+
+/** De dónde salieron los marcajes: útil para que la web lo muestre. */
+export async function origenDeMarcajes() {
+  return leerMarcajesDeArchivos().detalle
+}
+
+/** Lee un archivo puntual (para probar una exportación recién hecha). */
+export async function leerArchivoPuntual(ruta) {
+  return leerArchivo(ruta).marcajes
 }

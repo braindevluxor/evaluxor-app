@@ -1,99 +1,128 @@
-# EvaLuxor · Puente biométrico (Anviz D100 por USB)
+# EvaLuxor · Puente biométrico (Anviz D100)
 
-App de escritorio que lee los **marcajes (fichajes)** del lector biométrico
-**Anviz D100** conectado por **USB** y los expone por HTTP local para que la
-web de EvaLuxor (sección **Proyectos → Biométrico D100**) los sincronice hacia
-**Supabase**.
+App de escritorio que pone los **marcajes (fichajes)** del lector biométrico
+**Anviz D100** donde la web de EvaLuxor (sección **Proyectos → Biométrico D100**)
+los puede leer y subir a **Supabase**.
 
 ```
-┌──────────────┐   USB   ┌────────────────────┐   HTTP (loopback)   ┌──────────────┐
-│ Anviz D100   │ ──────► │  Puente (esta app) │ ──────────────────► │  EvaLuxor    │
-│ (huella/ID)  │         │  http://127.0.0.1  │                     │  (web/PWA)   │
-└──────────────┘         │  :8787             │                     └──────┬───────┘
-                         └────────────────────┘                            │
-                                                                      Supabase
+┌──────────────┐  USB   ┌────────────────────┐  HTTP loopback  ┌──────────────┐
+│  Anviz D100  │ ─────► │  Puente (esta app) │ ──────────────► │  EvaLuxor    │
+│              │        │  http://127.0.0.1:8787                │  (web/PWA)   │
+│  + software  │        │  lee data/*.csv     │                  └──────┬───────┘
+│    de PC ────┼───────►│                    │                         Supabase
+└──────────────┘        └────────────────────┘
 ```
 
-## ¿Por qué una app de escritorio?
+---
 
-La PWA corre en el navegador, que **no puede acceder al protocolo USB
-propietario** del D100 (el SDK de Anviz es una DLL nativa de Windows). El
-puente es la pieza local que habla con el dispositivo; la web solo consulta su
-API HTTP y guarda los marcajes en la nube.
+## Lo que se comprobó en la PC con el D100 enchufado
 
-## Requisitos
+Esto no es teoría: se consultó el administrador de dispositivos de la máquina
+donde está conectado el equipo. Lo que Windows ve es:
 
-- Node.js **18 o superior**.
-- (Opcional) Software de PC de Anviz o el SDK de Anviz para la lectura real.
+| Lo que se buscó | Resultado |
+| ---------------- | --------- |
+| Puerto serie del equipo | No aparece (el `COM3` es la Intel AMT, de la placa, no del lector) |
+| Placa de red del equipo (RNDIS) | No aparece: el D100 no se enchufa como adaptador de red |
+| Interfaz de datos USB | `USBSTOR\CDROM&VEN_FINGER&PROD_MODULE` — un **CD-ROM virtual** |
+| Interfaz USB compuesta | `USB\VID_C0F4&PID_10F5` con dos teclados (HID) |
+| Software de Anviz instalado | No hay ninguno en la máquina |
 
-## Cómo usar
+**Conclusión:** el D100 conectado por USB **no es un canal de datos**. Se presenta
+como un CD-ROM virtual, que es exactamente para donde se monta el instalador del
+software de Anviz. Por ese USB no se pueden leer marcajes, y no es una
+limitación del puente sino del modo en que el equipo se conecta.
 
-1. Instalar dependencias (no tiene dependencias externas, pero inicializa):
+Los marcajes salen del **software de PC de Anviz** (AnvizTime / BioAccess /
+Anviz F2): ese programa sí habla con el equipo y deja bajar el reporte.
 
-   ```bash
-   cd biometrico-bridge
-   npm install
-   ```
+---
 
-2. Iniciar el puente:
+## Cómo obtener los marcajes
 
-   ```bash
-   npm start
-   ```
+### 1. Instalar el software de Anviz
 
-   Sale escuchando en `http://127.0.0.1:8787`. Por defecto arranca en
-   **modo demo (mock)** con marcajes de ejemplo para poder probar todo el flujo
-   sin el dispositivo.
+Va en el CD-ROM virtual que monta el propio D100 al conectarlo por USB
+(también se descarga del sitio de Anviz). Es el que se comunica con el equipo.
 
-3. En EvaLuxor: **Proyectos → Biométrico D100 → Sincronizar marcajes**.
-   La URL del puente ya viene configurada (`http://127.0.0.1:8787`), editable
-   en la misma pantalla (solo LIDER).
+### 2. Exportar el reporte
 
-> La web corre en HTTPS y el puente en HTTP de loopback: los navegadores
-> modernos permiten llamadas a `127.0.0.1` desde contextos seguros, así que no
-> hay problema de contenido mixto. El puente solo escucha en `127.0.0.1`.
+Desde el software de Anviz, exportá el reporte de marcajes como CSV/texto y
+guardalo en:
+
+```
+biometrico-bridge/data/
+```
+
+El lector es tolerante: entiende separador `;` `,` tab o `|`, con o sin
+encabezado, en español o inglés, y fechas en ISO, `DD/MM/AAAA HH:mm` o epoch.
+Lo que no reconoce como tipo (entrada/salida) queda como `OTRO` y la web lo
+clasifica por jornada (impar = entrada, par = salida).
+
+Un archivo con `DNI;fecha;tipo` alcanza:
+
+```csv
+1712345678;30/09/2026 08:05;ENTRADA
+1712345678;30/09/2026 12:30;SALIDA
+```
+
+Si el software exporta un `.xlsx`, guardalo como CSV (o exportá a CSV directo):
+el puente no lee hojas de cálculo.
+
+### 3. Levantar el puente y sincronizar
+
+```bash
+cd biometrico-bridge
+npm start
+```
+
+Y en EvaLuxor: **Proyectos → Biométrico D100 → Comprobar** y después
+**Sincronizar marcajes**.
+
+---
+
+## Comandos
+
+```bash
+npm start                  # modo real (default): lee data/ y consulta el USB
+MODO=demo npm start        # datos de ejemplo, sin el equipo
+
+# Windows PowerShell:
+$env:MODO='demo'; npm start
+```
 
 ## API del puente
 
 | Ruta              | Respuesta                                                                 |
 | ----------------- | ------------------------------------------------------------------------- |
-| `GET /health`     | `{ ok, nombre, version, mock }`                                           |
-| `GET /dispositivo`| `{ conectado, modelo, serial, mensaje }`                                  |
-| `GET /marcajes`   | `{ marcajes: [{ dni, fecha, tipo }] }` — filtros `?desde=ISO&hasta=ISO`   |
+| `GET /health`     | `{ ok, nombre, version, modo }`                                           |
+| `GET /dispositivo`| `{ conectado, modelo, transporte, transporteEtiqueta, sirve, mensaje }`   |
+| `GET /marcajes`   | `{ marcajes: [{ dni, fecha, tipo }], origen }` — filtros `?desde=&hasta=`  |
+| `GET /origen`     | de qué archivo salió cada lote de marcajes                                |
 
-Los `tipo` soportados son `ENTRADA`, `SALIDA` y `OTRO`. Si el dispositivo (o el
-CSV) no clasifica, la web clasifica automáticamente por jornada (impares =
-entrada, pares = salida).
+`sirve` es la clave: dice si **por ese transporte** se pueden leer marcajes.
+Con el D100 por USB viene `false`, y la pantalla lo muestra como «Por USB no se
+leen» en vez de prometer una sincronización que no va a traer datos.
 
-## Lectura real del D100 (dejar de usar el mock)
+## Modo demo
 
-1. **Obtener el SDK / exportar del software de Anviz**:
+`MODO=demo` genera marcajes de ejemplo de los últimos 4 días. Sirve para probar
+el flujo completo (web → puente → Supabase → listado) sin el equipo. No se
+confunde con el equipo real: `/dispositivo` lo dice (`transporte: "demo"`).
 
-   - **Opción A · SDK de Anviz (BioSDK / GSDK)**: DLL nativa de Windows.
-     Completar en `lib/anviz-d100.js` las funciones `leerDispositivoReal()` y
-     `leerMarcajesReal()` usando bindings de Node (por ejemplo `koffi` o
-     `ffi-napi`) hacia las funciones del SDK que devuelven estado, serial y
-     eventos IN/OUT.
-   - **Opción B · CSV**: en el software de PC de Anviz (Anviz F2 / Anviz Time),
-     exportar el reporte de marcajes con el formato `dni;fecha;tipo`
-     (`dni;fecha;tipo` con hora en ISO) y reemplazar `data/marcajes.csv`
-     (que ya viene con un ejemplo).
+## Reconocer otro lector
 
-2. Desactivar el mock:
+Las firmas de detection están en `lib/usb.js` (`FIRMAS_POR_DEFECTO`) y se pueden
+ampliar sin tocar código creando `data/dispositivo.json`:
 
-   ```bash
-   # Windows (PowerShell)
-   $env:MOCK='0'; node server.js
-   # Linux / macOS
-   MOCK=0 node server.js
-   ```
+```json
+[
+  { "id": "mi-lector", "vid": "1234", "pid": "5678", "modelo": "Lector X", "transporte": "puerto-serie" }
+]
+```
 
-## Base de datos
-
-Antes de usar la sección en producción, ejecutar en el SQL Editor de Supabase:
-
-- `supabase/proyectos-biometrico.sql` (crea las tablas `proyectos` y
-  `marcajes`, políticas RLS y el proyecto inicial del biométrico).
+Transportes: `puerto-serie` y `red` permiten leer marcajes; `cdrom-virtual`,
+`teclado-hid` y `usb-compuesto` no.
 
 ## Estructura
 
@@ -101,8 +130,14 @@ Antes de usar la sección en producción, ejecutar en el SQL Editor de Supabase:
 biometrico-bridge/
 ├── server.js             # Servidor HTTP local (loopback :8787)
 ├── lib/
-│   └── anviz-d100.js     # Driver del D100 (mock + puntos de integración SDK)
+│   ├── usb.js            # Detección real del lector en Windows
+│   ├── archivos.js       # Lector tolerante de las exportaciones
+│   ├── anviz-d100.js     # Driver: estado del equipo + marcajes
+│   └── demo.js           # Marcajes de ejemplo (MODO=demo)
 ├── data/
-│   └── marcajes.csv      # Marcajes de ejemplo (o exportación real del software)
+│   ├── marcajes.csv      # Acá va el reporte exportado del software de Anviz
+│   └── dispositivo.json  # Opcional: firmas de otros lectores
 └── README.md
 ```
+
+> El puente solo escucha en `127.0.0.1`: los marcajes no quedan expuestos a la red.

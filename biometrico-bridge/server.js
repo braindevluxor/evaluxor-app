@@ -4,21 +4,24 @@
 // Servidor HTTP local que expone los marcajes del lector para que la web de
 // EvaLuxor los sincronice hacia Supabase.
 //
-//   GET /dispositivo  -> estado del lector: { conectado, modelo, serial, mensaje }
-//   GET /marcajes     -> { marcajes: [{ dni, fecha, tipo }] }
-//                        (filtros por query: ?desde=ISO&hasta=ISO)
-//   GET /health       -> { ok, nombre, version, mock }
+//   GET /health       -> { ok, nombre, version, modo }
+//   GET /dispositivo  -> estado real del lector USB (lo que ve Windows)
+//   GET /marcajes     -> { marcajes: [{ dni, fecha, tipo }], origen }
+//                        (filtros: ?desde=ISO&hasta=ISO)
+//   GET /origen       -> de qué archivo salió cada lote de marcajes
 //
-// Modo: MOCK está activo por defecto (datos de ejemplo) hasta integrar el SDK
-// de Anviz. Para usar el lector real:    (Windows)  $env:MOCK='0'; node server.js
-//                                         (POSIX)    MOCK=0 node server.js
+// MODO:
+//   real   (default) lee los reportes exportados en data/ y consulta el lector
+//   demo           genera marcajes de ejemplo (para probar sin el equipo)
+//   Ver README.md para el detalle de por qué el USB no entrega los marcajes.
 // =============================================================================
 
 import { createServer } from 'node:http'
-import { leerDispositivo, leerMarcajes } from './lib/anviz-d100.js'
+import { leerDispositivo, leerMarcajes, origenDeMarcajes } from './lib/anviz-d100.js'
 
-const PORT = Number(process.env.PORT ?? 8787)
-const MOCK = process.env.MOCK !== '0'
+const PUERTO = Number(process.env.PORT ?? 8787)
+const MODO = process.env.MODO === 'demo' ? 'demo' : 'real'
+const ES_DEMO = MODO === 'demo'
 
 const CABECERAS = {
   'Access-Control-Allow-Origin': '*',
@@ -42,12 +45,23 @@ const server = createServer(async (req, res) => {
 
   try {
     if (url.pathname === '/health') {
-      responder(res, 200, { ok: true, nombre: 'EvaLuxor biométrico bridge', version: '0.1.0', mock: MOCK })
+      responder(res, 200, { ok: true, nombre: 'EvaLuxor biométrico bridge', version: '0.2.0', modo: MODO })
       return
     }
 
     if (url.pathname === '/dispositivo') {
-      const info = await leerDispositivo({ mock: MOCK })
+      // En demo el "lector" está por definición; en real, se lee el USB.
+      const info = ES_DEMO
+        ? {
+            conectado: true,
+            modelo: 'D100 (demo)',
+            serial: 'D100-DEMO-0001',
+            transporte: 'demo',
+            transporteEtiqueta: 'Demo',
+            sirve: true,
+            mensaje: 'Modo demo: marcajes de ejemplo, sin leer el equipo real.'
+          }
+        : await leerDispositivo()
       responder(res, 200, info)
       return
     }
@@ -55,8 +69,14 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/marcajes') {
       const desde = url.searchParams.get('desde') ?? undefined
       const hasta = url.searchParams.get('hasta') ?? undefined
-      const marcajes = await leerMarcajes(desde, hasta, { mock: MOCK })
-      responder(res, 200, { marcajes })
+      const marcajes = await leerMarcajes(desde, hasta, { modo: MODO })
+      const origen = ES_DEMO ? [{ archivo: '(demo)', leidos: marcajes.length }] : await origenDeMarcajes()
+      responder(res, 200, { marcajes, origen })
+      return
+    }
+
+    if (url.pathname === '/origen') {
+      responder(res, 200, { origen: await origenDeMarcajes() })
       return
     }
 
@@ -68,10 +88,11 @@ const server = createServer(async (req, res) => {
 })
 
 // Solo escucha en loopback: los marcajes no deben quedar expuestos a la red.
-server.listen(PORT, '127.0.0.1', () => {
-  const modo = MOCK ? 'MOCK (datos de ejemplo)' : 'LECTURA REAL del D100 (SDK de Anviz)'
-  console.log(`[EvaLuxor puente biométrico] http://127.0.0.1:${PORT} | modo: ${modo}`)
-  if (MOCK) {
-    console.log('  (Mock activo: configurá MOCK=0 cuando integres el SDK real de Anviz.)')
+server.listen(PUERTO, '127.0.0.1', () => {
+  console.log(`[EvaLuxor puente biométrico] http://127.0.0.1:${PUERTO} | modo: ${MODO}`)
+  if (ES_DEMO) {
+    console.log('  Modo demo: marcajes de ejemplo. Para el equipo real: MODO=real node server.js')
+  } else {
+    console.log('  Leyendo reportes de data/. Conectá el D100 por USB y exportá desde el software de Anviz.')
   }
 })
