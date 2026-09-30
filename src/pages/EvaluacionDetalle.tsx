@@ -7,6 +7,7 @@ import { descargarPdf } from '../lib/pdf'
 import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
+import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
 import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, colaboradorCumple, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, formatearLastSync, formatearPrecioBase, tieneRespuesta, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Item, Opcion, SucursalOpcion } from '../lib/types'
@@ -274,8 +275,10 @@ export function EvaluacionDetalle() {
       }
       await recargar()
       setAviso(mensaje)
-    } catch {
-      setAviso({ texto: 'No se pudo sincronizar. Revisá la conexión.', ok: false })
+    } catch (e) {
+      // Se nombra la causa real: un rechazo del servidor no se arregla con WiFi.
+      const causa = causaSubida(e)
+      setAviso({ texto: `${mensajeSubida(causa, 'sincronizar').titulo}. Detalle: ${detalleTecnico(e)}`, ok: false })
     } finally {
       setSincronizando(false)
     }
