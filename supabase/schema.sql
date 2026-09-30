@@ -287,6 +287,7 @@ alter table public.items add constraint items_contra_dato_check check (contra_da
 -- una sección no suman al módulo: su tope es el puntaje de la sección.
 create or replace function public.validar_suma_puntaje_items() returns trigger
 language plpgsql
+set search_path = public
 as $$
 declare
   v_modulo uuid;
@@ -849,3 +850,32 @@ as $$
   returning ultima_sync;
 $$;
 grant execute on function public.registrar_sync() to authenticated;
+
+-- ============================================================================
+-- PERMISOS DE LAS FUNCIONES
+-- Postgres da `EXECUTE` a PUBLIC por defecto en cada función nueva, así que sin
+-- esto cualquiera las puede invocar por /rest/v1/rpc/<nombre>. El detalle de
+-- cuáles sí y cuáles no (y por qué) está en `permisos-funcion.sql`.
+-- ============================================================================
+
+-- Trigger functions: nunca se llaman por RPC. Son security definer, así que el
+-- trigger corre como dueño y no pierde nada.
+revoke execute on function public.validar_registro() from public;
+revoke execute on function public.handle_new_user() from public;
+revoke execute on function public.validar_modulo_compartido() from public;
+revoke execute on function public.validar_unico_evaluador_modulo() from public;
+
+-- La única de trigger que NO es security definer: el trigger corre como el rol
+-- que escribe (el Líder), así que sí necesita el permiso.
+revoke execute on function public.validar_suma_puntaje_items() from public;
+grant execute on function public.validar_suma_puntaje_items() to authenticated;
+
+-- Solo para usuario con sesión. El cuerpo de ambas ya exige auth.uid() (y para
+-- desbloquear, además, ser LIDER); esto solo evita exponerlas a `anon`.
+revoke execute on function public.desbloquear_usuario(uuid, text) from public;
+revoke execute on function public.registrar_sync() from public;
+
+-- A propósito NO se revoca de es_lider, puede_ver_evaluacion, puede_responder,
+-- puede_manejar_instancia, puede_reportar_incidencia, puede_ver_incidencia: las
+-- invocan las políticas RLS y sin EXECUTE se rompe la app entera. Tampoco de
+-- intento_login y email_por_usuario, que son la pantalla de login sin sesión.
