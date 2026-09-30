@@ -94,6 +94,26 @@ describe('incidencias · el botón flotante está en toda la evaluación', () =>
   })
 })
 
+describe('incidencias · pantalla independiente en el menú', () => {
+  it('ofrece la pantalla desde el menú hamburguesa y protege su ruta', () => {
+    const menu = fuente('../../components/layouts/MobileLayout.tsx')
+    const app = fuente('../../App.tsx')
+    expect(menu).toContain('to="/evaluar/incidencias" label="Incidencias"')
+    expect(app).toContain('path="/evaluar/incidencias"')
+    expect(app).toContain('<IncidenciasPage />')
+  })
+
+  it('mantiene el listado y edición fuera de la pantalla de evaluación', () => {
+    const pagina = fuente('../../pages/evaluar/EvaluarSucursal.tsx')
+    const incidencias = fuente('../../pages/evaluar/IncidenciasPage.tsx')
+    expect(pagina).toContain('<ReportarIncidencia')
+    expect(pagina).not.toContain('Incidencias de la visita')
+    expect(incidencias).toContain('listIncidentes()')
+    expect(incidencias).toContain(".from('incidencias')")
+    expect(incidencias).toContain('updateIncidente(editando.id')
+  })
+})
+
 describe('incidencias · el Líder las ve en el detalle de la evaluación', () => {
   it('la sección va montada en el detalle', () => {
     const detalle = fuente('../../pages/EvaluacionDetalle.tsx')
@@ -102,7 +122,8 @@ describe('incidencias · el Líder las ve en el detalle de la evaluación', () =
 
   it('si la tabla aún no existe en Supabase, la pantalla no se rompe', () => {
     const panel = fuente('../../components/IncidenciasEvaluacion.tsx')
-    expect(panel).toMatch(/setFilas\(error \|\| !data \? \[\]/)
+    expect(panel).toContain('setError(queryError.message)')
+    expect(panel).toContain('setFilas(filasNormalizadas)')
   })
 })
 

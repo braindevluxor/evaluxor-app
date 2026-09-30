@@ -10,3 +10,6 @@ npm-debug.log*
 .vite
 .vercel
 supabase/.temp
+
+.vercel
+.env*

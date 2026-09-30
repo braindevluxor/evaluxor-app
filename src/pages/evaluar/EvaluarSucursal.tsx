@@ -8,7 +8,14 @@ import { hijosOrdenados } from '../../lib/hierarchy'
 import { claveRespuesta, pasosDeModulo, raicesDeModulo } from '../../lib/pasos'
 import { tieneRespuesta } from '../../lib/scoring'
 import { causaSubida, detalleTecnico, mensajeSubida, type CausaSubida } from '../../lib/subida'
-import { getDraft, putDraft, normalizarClave, instanciasPlanasDe, type DraftEval, type DraftInstancia } from '../../lib/offline/db'
+import {
+  getDraft,
+  putDraft,
+  normalizarClave,
+  instanciasPlanasDe,
+  type DraftEval,
+  type DraftInstancia
+} from '../../lib/offline/db'
 import { guardarBorradorNube, instanciasDeDraft, respuestasConInstancia } from '../../lib/offline/sync'
 import { listarEvaluacionesActivas, listarRespuestasEvaluacion, listarInstanciasEvaluacion } from '../../lib/data/indicadores'
 import { apiDisponible, esColorHex, etiquetaDeCampo, formatearValorConsulta, seleccionarValores } from '../../lib/data/apis'
@@ -435,6 +442,8 @@ export function EvaluarSucursal() {
     }
   }
 
+  const actual = draft!
+
   useEffect(() => {
     if (!modulos.length) return
     if (idxModulo >= modulos.length) setIdxModulo(modulos.length - 1)
@@ -460,7 +469,6 @@ export function EvaluarSucursal() {
     )
   }
 
-  const actual = draft!
   if (!actual) return <MobileLayout titulo="Evaluación"><div className="py-20 text-center text-slate-400">Cargando…</div></MobileLayout>
 
   if (!modulos.length) {

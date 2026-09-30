@@ -1,39 +1,45 @@
 -- ============================================================================
 -- PERMISOS DE LAS FUNCIONES (alertas de seguridad de Supabase)
 --
--- Qué son estas alertas y cuáles son reales:
+-- POR QUE HACE FALTA UNA SEGUNDA RONDA
+-- --------------------------------------
+-- La primera vez se revoco `from public` y no cambio nada: las alertas de `anon`
+-- siguieron igual. La razon es que los permisos en Postgres son ADITIVOS y los
+-- proyectos de Supabase traen un `grant all on all functions in schema public`
+-- que deja un permiso EXPLICITO para `anon`. Quitar el de PUBLIC no alcanza si
+-- el rol tiene el suyo:
 --
---   · function_search_path_mutable          -> REAL, y solo UNA función.
---   · anon_security_definer_function_executable
---   · authenticated_security_definer_function_executable
---                                          -> mayormente ruido, con 2 reales.
+--   revoke ... from public  ->  quita el de PUBLIC, anon conserva el suyo
+--   revoke ... from anon    ->  quita el de anon, PUBLIC sigue sirviendo
 --
--- Postgis da `EXECUTE` a `PUBLIC` por defecto en toda función nueva, así que el
--- linter ve que cualquiera las puede llamar por /rest/v1/rpc/<nombre>. Eso no
--- significa que sean accesibles: las que importan se autoprotegen (ver abajo).
+-- Por eso ahora cada revoke quita PUBLIC y el rol, y despues se vuelve a dar
+-- solo lo que corresponde. Ver la nota tecnica al final del archivo.
 --
--- LO QUE NO SE TOCA Y POR QUÉ
--- -----------------------------
+-- LO QUE NO SE TOCA Y POR QUE
+-- ----------------------------
 -- es_lider, puede_ver_evaluacion, puede_responder, puede_manejar_instancia,
 -- puede_reportar_incidencia, puede_ver_incidencia:
---   Son los ayudantes que las políticas RLS invocan (`using (public.es_lider())`).
---   Revocarles EXECUTE a anon/authenticated NO es un endurecimiento: ROMPE la app
---   entera. Cada select, insert y update empezaría a fallar con "permission
---   denied for function". El linter no sabe que se llaman desde políticas.
---   Sin sesión devuelven false (todas preguntan por auth.uid(), que es NULL), así
---   que dejarlas no abre nada.
+--   Los invocan las politicas RLS (`using (public.es_lider())`). Revocarles
+--   EXECUTE no es endurecimiento: ROMPE la app entera, con "permission denied
+--   for function" en cada select, insert y update. El cliente nunca los llama
+--   por RPC (solo existen dentro de las politicas), asi que lo correcto seria
+--   mudarlos a un esquema no expuesto; es un cambio mas grande, con su propio
+--   archivo. Sin sesion devuelven false igual, porque preguntan por auth.uid().
 --
 -- intento_login y email_por_usuario:
---   Son la pantalla de login, que corre SIN sesión. Necesitan `anon` a propósito.
+--   La pantalla de login corre antes de autenticar: necesitan `anon`. De
+--   `authenticated` no lo necesitan (ver abajo).
 --
--- LO QUE SÍ SE CORRIGE
--- ---------------------
--- 1) validar_suma_puntaje_items era la única sin `set search_path`.
--- 2) Las de trigger no deberían poder llamarse por RPC en ningún caso: se les
---    quita el EXECUTE heredado de PUBLIC.
--- 3) desbloquear_usuario y registrar_sync solo las usa un usuario con sesión
---    (el primero además exige ser LIDER). El `grant` a authenticated ya estaba,
---    pero el de PUBLIC dejaba a `anon` también, y eso no hace falta.
+-- LAS DE TRIGGER
+-- --------------
+-- valider_registro, handle_new_user, validar_modulo_compartido y
+-- validar_unico_evaluador_modulo son `returns trigger`: Postgres ya impide
+-- llamarlas por RPC ("trigger functions can only be called as triggers"), asi
+-- que la alerta es puro ruido. Se les quita el acceso a `anon` y se les DEJA el
+-- de `authenticated` a proposito: son security definer, asi que el trigger corre
+-- como dueno y no lo necesita, pero no se juega a que Postgres no vuelva a
+-- verificar el permiso al disparar. Si alguna vez hiciera falta, el grant de
+-- abajo lo restaura en una linea.
 --
 -- Es idempotente: se puede correr las veces que haga falta.
 -- ============================================================================
@@ -43,68 +49,62 @@ begin;
 -- ----------------------------------------------------------------------------
 -- 1) search_path inmutable
 -- ----------------------------------------------------------------------------
--- Con el search_path modificable, un esquema anterior en el camino de búsqueda
--- podría resolver una tabla homónima y hacer que la función lea otra. Se fija
--- a `public` como en el resto del schema.
+-- Con el search_path modificable, un esquema anterior en el camino de busqueda
+-- podria resolver una tabla homonima y hacer que la funcion lea otra.
 alter function public.validar_suma_puntaje_items() set search_path = public;
 
 -- ----------------------------------------------------------------------------
--- 2) Trigger functions: sin RPC
+-- 2) Trigger functions: `anon` no tiene por que llamarlas
 -- ----------------------------------------------------------------------------
--- Son `security definer`, así que el trigger corre como dueño y no necesita el
--- permiso del rol que dispara el INSERT. `returns trigger` además impide
--- llamarlas por RPC igual, pero dejarlas ejecutables es superficie de attack
--- innecesaria.
-revoke execute on function public.validar_registro() from public;
-revoke execute on function public.validar_modulo_compartido() from public;
-revoke execute on function public.validar_unico_evaluador_modulo() from public;
-revoke execute on function public.handle_new_user() from public;
+revoke execute on function public.validar_registro() from public, anon;
+revoke execute on function public.handle_new_user() from public, anon;
+revoke execute on function public.validar_modulo_compartido() from public, anon;
+revoke execute on function public.validar_unico_evaluador_modulo() from public, anon;
 
--- Excepción a propósito: validar_suma_puntaje_items NO es security definer, así
--- que el trigger corre como el rol que escribe (el Líder, `authenticated`) y
--- necesita el permiso. Sin este grant, cualquier edición de un ítem fallaría con
--- "permission denied for function".
-revoke execute on function public.validar_suma_puntaje_items() from public;
-grant execute on function public.validar_suma_puntaje_items() to authenticated;
+-- Excepcion a proposito: esta NO es security definer, asi que el trigger corre
+-- como el rol que escribe (el Lider) y si necesita el permiso. Sin el grant,
+-- cualquier edicion de un item falla con "permission denied for function".
+revoke execute on function public.validar_suma_puntaje_items() from public, anon;
+grant  execute on function public.validar_suma_puntaje_items() to authenticated;
 
 -- ----------------------------------------------------------------------------
--- 3) Solo para quien tiene sesión
+-- 3) Solo para quien tiene sesion
 -- ----------------------------------------------------------------------------
--- El cuerpo ya se protege: `desbloquear_usuario` exige que auth.uid() sea un
--- LIDER activo y sin sesión aborta con excepción. `registrar_sync` escribe en
--- `where id = auth.uid()`, que para anon es NULL y no actualiza nada. Ninguna de
--- las dos hace falta que la pueda llamar un anónimo.
-revoke execute on function public.desbloquear_usuario(uuid, text) from public;
+-- Los cuerpos ya se autoprotegen: `desbloquear_usuario` exige que auth.uid() sea
+-- un Lider activo (sin sesion aborta con excepcion) y `registrar_sync` escribe
+-- en `where id = auth.uid()`, que para anon es NULL y no actualiza nada. Esto
+-- solo evita que un anon sin sesion pueda siquiera invocarlas.
+revoke execute on function public.desbloquear_usuario(uuid, text) from public, anon;
 grant  execute on function public.desbloquear_usuario(uuid, text) to authenticated;
 
-revoke execute on function public.registrar_sync() from public;
+revoke execute on function public.registrar_sync() from public, anon;
 grant  execute on function public.registrar_sync() to authenticated;
 
 -- ----------------------------------------------------------------------------
--- Verificación
+-- 4) Login: `anon` si, `authenticated` no
 -- ----------------------------------------------------------------------------
--- Debe salir una sola fila. Las de policy helpers con 'policy-ok' son las que
--- hay que dejar ejecutables.
---
--- select p.proname,
---        p.prosecdef as security_definer,
---        p.proconfig as search_path,
---        has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede,
---        has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_puede,
---        case
---          when p.proname in ('es_lider','puede_ver_evaluacion','puede_responder',
---                             'puede_manejar_instancia','puede_reportar_incidencia',
---                             'puede_ver_incidencia') then 'policy-ok (NO revocar)'
---          when p.proname in ('intento_login','email_por_usuario') then 'login (NO revocar)'
---          else 'revisar'
---        end as nota
--- from pg_proc p
--- join pg_namespace n on n.oid = p.pronamespace
--- where n.nspname = 'public'
---   and p.proname in ('validar_suma_puntaje_items','validar_registro',
---                     'handle_new_user','validar_modulo_compartido',
---                     'validar_unico_evaluador_modulo','desbloquear_usuario',
---                     'registrar_sync','es_lider','intento_login')
--- order by p.proname;
+-- En src/context/AuthContext.tsx, `intentoLogin` y `emailPorUsuario` se llaman
+-- dentro de signIn() ANTES de supabase.auth.signInWithPassword: en ese momento
+-- todavia no hay sesion, asi que la peticion va con el rol `anon`. Nunca se
+-- llaman con un usuario ya autenticado, asi que el permiso para `authenticated`
+-- sobra.
+revoke execute on function public.intento_login(text, text) from public, authenticated;
+grant  execute on function public.intento_login(text, text) to anon;
 
+revoke execute on function public.email_por_usuario(text) from public, authenticated;
+grant  execute on function public.email_por_usuario(text) to anon;
+
+-- ----------------------------------------------------------------------------
+-- Verificacion
+-- ----------------------------------------------------------------------------
+-- Correr `diagnostico-permisos.sql` despues de esto: la columna `estado` deberia
+-- salir en `ok` para todas. Si alguna sigue en otro valor, el permiso viene de
+-- otro lado (mirar p.proacl en ese archivo).
+--
+-- Lo que queda marcado a proposito, y no se va a corregir:
+--   · las 6 ayudantes de politica: quitarles EXECUTE rompe la app.
+--   · `intento_login`/`email_por_usuario` con `anon`: es la pantalla de login.
+--   · `authenticated` en las de trigger: `returns trigger` ya las hace
+--     inalcanzables por RPC y se deja como margen de seguridad.
+-- ============================================================================
 commit;

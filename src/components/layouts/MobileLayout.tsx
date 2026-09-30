@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { CheckCheck, History, LogOut, Menu, Settings, Check, LayoutDashboard, X } from 'lucide-react'
+import { AlertTriangle, CheckCheck, History, LogOut, Menu, Settings, Check, LayoutDashboard, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useOffline } from '../../context/OfflineContext'
 import { useVersion } from '../../context/VersionContext'
@@ -142,6 +142,9 @@ export function MobileLayout({
             <nav className="flex-1 space-y-1 overflow-y-auto p-3">
               <ItemLateral to="/evaluar" label="Evaluar" icon={<Check className="h-5 w-5" />} onClick={cerrar} />
               <ItemLateral to="/evaluar/historial" label="Historial" icon={<History className="h-5 w-5" />} onClick={cerrar} />
+              {profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER' ? (
+                <ItemLateral to="/evaluar/incidencias" label="Incidencias" icon={<AlertTriangle className="h-5 w-5" />} onClick={cerrar} />
+              ) : null}
               <ItemLateral to="/perfil" label="Perfil" icon={<Settings className="h-5 w-5" />} onClick={cerrar} />
             </nav>
             <div className="border-t border-slate-100 p-3">

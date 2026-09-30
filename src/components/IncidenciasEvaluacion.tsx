@@ -21,21 +21,66 @@ export interface IncidenciaFila {
  */
 export function IncidenciasEvaluacion({ evaluacionId }: { evaluacionId: string }) {
   const [filas, setFilas] = useState<IncidenciaFila[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
 
   useEffect(() => {
     let vivo = true
     void (async () => {
       try {
-        const { data, error } = await supabase
+        const { data, error: queryError } = await supabase
           .from('incidencias')
-          .select('id, descripcion, fotos, modulo_id, created_at, evaluador:profiles(nombre), modulo:modulos(nombre)')
+          .select('id, descripcion, fotos, modulo_id, evaluador_id, created_at, modulo:modulos!incidencias_modulo_id_fkey(nombre)')
           .eq('evaluacion_id', evaluacionId)
           .order('created_at', { ascending: false })
         if (!vivo) return
-        // Si la tabla todavía no existe en Supabase, la sección queda vacía en vez
-        // de romper la pantalla del detalle.
-        setFilas(error || !data ? [] : (data as IncidenciaFila[]))
+        if (queryError) {
+          setError(queryError.message)
+          setFilas([])
+          return
+        }
+
+        const incidencias = (data ?? []) as Array<{
+          id: string
+          descripcion: string
+          fotos: string[]
+          modulo_id: string | null
+          evaluador_id: string
+          created_at: string
+          modulo?: { nombre: string }[] | null
+        }>
+
+        const evaluadorIds = [...new Set(incidencias.map((i) => i.evaluador_id).filter(Boolean))]
+        let nombresPorEvaluador = new Map<string, string>()
+        if (evaluadorIds.length) {
+          const { data: perfiles, error: perfilError } = await supabase
+            .from('profiles')
+            .select('id, nombre')
+            .in('id', evaluadorIds)
+          if (perfilError) {
+            throw perfilError
+          }
+          for (const perfil of perfiles ?? []) {
+            if (perfil.id && perfil.nombre) nombresPorEvaluador.set(perfil.id, perfil.nombre)
+          }
+        }
+
+        const filasNormalizadas: IncidenciaFila[] = incidencias.map((item) => ({
+          id: item.id,
+          descripcion: item.descripcion,
+          fotos: item.fotos ?? [],
+          modulo_id: item.modulo_id,
+          created_at: item.created_at,
+          evaluador: nombresPorEvaluador.has(item.evaluador_id) ? [{ nombre: nombresPorEvaluador.get(item.evaluador_id)! }] : null,
+          modulo: item.modulo ? item.modulo : null
+        }))
+
+        setFilas(filasNormalizadas)
+        setError(null)
+      } catch (e) {
+        if (!vivo) return
+        setError(e instanceof Error ? e.message : 'No se pudieron cargar las incidencias.')
+        setFilas([])
       } finally {
         if (vivo) setCargando(false)
       }
@@ -53,7 +98,7 @@ export function IncidenciasEvaluacion({ evaluacionId }: { evaluacionId: string }
     )
   }
 
-  if (!filas?.length) return null
+  if (!filas) return null
 
   return (
     <section className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 shadow-sm">
@@ -64,20 +109,31 @@ export function IncidenciasEvaluacion({ evaluacionId }: { evaluacionId: string }
       <p className="mb-3 text-xs text-amber-800/80">
         Lo que los evaluadores vieron en la tienda y no está en el cuestionario.
       </p>
-      <ul className="space-y-3">
-        {filas.map((f) => (
-          <li key={f.id} className="rounded-xl border border-amber-200 bg-white px-3 py-2.5">
-            <p className="text-sm text-slate-800">{f.descripcion}</p>
-            <p className="mt-1 text-[11px] text-slate-500">
-              {f.evaluador?.[0]?.nombre ?? 'Evaluador'} · {f.modulo?.[0]?.nombre ?? 'Sin módulo'}
-              {f.created_at
-                ? ` · ${new Date(f.created_at).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
-                : ''}
-            </p>
-            {f.fotos?.length ? <FotosIncidencia paths={f.fotos} /> : null}
-          </li>
-        ))}
-      </ul>
+
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700">
+          No se pudieron cargar las incidencias: {error}
+        </div>
+      ) : !filas.length ? (
+        <div className="rounded-xl border border-dashed border-amber-200 bg-white/70 px-3 py-3 text-sm text-amber-800/80">
+          No hay incidencias reportadas para esta evaluación.
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {filas.map((f) => (
+            <li key={f.id} className="rounded-xl border border-amber-200 bg-white px-3 py-2.5">
+              <p className="text-sm text-slate-800">{f.descripcion}</p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                {f.evaluador?.[0]?.nombre ?? 'Evaluador'} · {f.modulo?.[0]?.nombre ?? 'Sin módulo'}
+                {f.created_at
+                  ? ` · ${new Date(f.created_at).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+                  : ''}
+              </p>
+              {f.fotos?.length ? <FotosIncidencia paths={f.fotos} /> : null}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }

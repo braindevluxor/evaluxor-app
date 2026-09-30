@@ -20,6 +20,7 @@ import { SkeletonPantalla } from './components/ui'
 
 const EvaluarResumen = lazy(() => import('./pages/evaluar/EvaluarResumen').then((m) => ({ default: m.EvaluarResumen })))
 const MisEvaluaciones = lazy(() => import('./pages/evaluar/MisEvaluaciones').then((m) => ({ default: m.MisEvaluaciones })))
+const IncidenciasPage = lazy(() => import('./pages/evaluar/IncidenciasPage').then((m) => ({ default: m.IncidenciasPage })))
 const DashboardHome = lazy(() => import('./pages/dashboard/DashboardHome').then((m) => ({ default: m.DashboardHome })))
 const Historial = lazy(() => import('./pages/dashboard/Historial').then((m) => ({ default: m.Historial })))
 const Comparativas = lazy(() => import('./pages/dashboard/Comparativas').then((m) => ({ default: m.Comparativas })))
@@ -96,6 +97,16 @@ export default function App() {
                         <RequireAuth>
                           <RequireRol roles={['EVALUADOR', 'LIDER']}>
                             <MisEvaluaciones />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/evaluar/incidencias"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <IncidenciasPage />
                           </RequireRol>
                         </RequireAuth>
                       }

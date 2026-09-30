@@ -249,10 +249,23 @@ export async function addIncidente(r: Omit<IncidenteRecord, 'id' | 'created_at' 
   return record
 }
 
+export async function updateIncidente(id: string, cambios: Partial<Pick<IncidenteRecord, 'descripcion' | 'photoIds' | 'modulo_id' | 'sync'>>): Promise<void> {
+  const db = await getDB()
+  const actual = await db.get('incidentes', id)
+  if (!actual) return
+  await db.put('incidentes', { ...actual, ...cambios, sync: cambios.sync ?? 'pendiente' }, id)
+}
+
 export async function listIncidentes(): Promise<IncidenteRecord[]> {
   const db = await getDB()
   const all = await db.getAll('incidentes')
   return all.sort((a, b) => a.created_at - b.created_at)
+}
+
+export async function listIncidentesEvaluacion(sucursalId: string, fecha: string, evaluadorId: string): Promise<IncidenteRecord[]> {
+  return (await listIncidentes()).filter(
+    (incidente) => incidente.sucursal_id === sucursalId && incidente.fecha === fecha && incidente.evaluador_id === evaluadorId
+  )
 }
 
 /** Las que todavía no llegaron al servidor (para la subida y los avisos). */
