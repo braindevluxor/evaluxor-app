@@ -144,9 +144,24 @@ describe('incidencias · SQL de Supabase', () => {
     expect(sql).toMatch(/ev\.estado = 'ACTIVA'/)
   })
 
-  it('las fotos quedan privadas y solo el Líder las lee', () => {
+  it('el evaluador dueño puede ver y borrar sus fotos; el Líder puede verlas', () => {
     expect(sql).toContain('storage_incidencias_select')
     expect(sql).toMatch(/bucket_id = 'evidencias'/)
+    expect(sql).toContain('storage_incidencias_delete')
+    expect(sql).toContain('storage_incidencias_update')
+    expect(sql).toMatch(/public\.es_lider\(\)\s+or exists/)
+    expect(sql).toContain('i.evaluador_id = auth.uid()')
+    expect(sql).toContain("name like 'incidencias/' || i.id::text || '/%'")
+  })
+})
+
+describe('incidencias · edición de fotos', () => {
+  it('permite reemplazar fotos en la pantalla y persiste las rutas actualizadas', () => {
+    const pagina = fuente('../../pages/evaluar/IncidenciasPage.tsx')
+    expect(pagina).toContain('<PhotoCapture')
+    expect(pagina).toContain(".from('evidencias').upload(path")
+    expect(pagina).toContain('.update({ descripcion: texto, fotos: fotosFinales })')
+    expect(pagina).toContain(".from('evidencias').remove(quitarFotos)")
   })
 })
 

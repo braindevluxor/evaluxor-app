@@ -83,11 +83,33 @@ create policy incidencias_update on public.incidencias
 
 -- ----------------------------------------------------------------------------
 -- Fotos: bucket `evidencias`, ruta `incidencias/<reporte_id>/<foto_id>`.
--- Las del evaluador que reporta, para que el LÍDER las pueda ver.
+-- El evaluador dueño puede ver y quitar sus fotos; el LÍDER las puede ver.
 -- ----------------------------------------------------------------------------
 drop policy if exists storage_incidencias_insert on storage.objects;
 create policy storage_incidencias_insert on storage.objects
   for insert to authenticated
+  with check (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1
+      from public.incidencias i
+      where i.evaluador_id = auth.uid()
+        and name like 'incidencias/' || i.id::text || '/%'
+    )
+  );
+
+drop policy if exists storage_incidencias_update on storage.objects;
+create policy storage_incidencias_update on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1
+      from public.incidencias i
+      where i.evaluador_id = auth.uid()
+        and name like 'incidencias/' || i.id::text || '/%'
+    )
+  )
   with check (
     bucket_id = 'evidencias'
     and exists (
@@ -103,7 +125,28 @@ create policy storage_incidencias_select on storage.objects
   for select to authenticated
   using (
     bucket_id = 'evidencias'
-    and public.es_lider()
+    and (
+      public.es_lider()
+      or exists (
+        select 1
+        from public.incidencias i
+        where i.evaluador_id = auth.uid()
+          and name like 'incidencias/' || i.id::text || '/%'
+      )
+    )
+  );
+
+drop policy if exists storage_incidencias_delete on storage.objects;
+create policy storage_incidencias_delete on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1
+      from public.incidencias i
+      where i.evaluador_id = auth.uid()
+        and name like 'incidencias/' || i.id::text || '/%'
+    )
   );
 
 comment on table public.incidencias is 'Incidencias fuera de lo programado, reportadas desde la evaluación (funciona sin conexión).';

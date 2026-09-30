@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Camera, CloudOff, Pencil, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Camera, CloudOff, Pencil, RefreshCw, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
-import { listIncidentes, updateIncidente, type IncidenteRecord } from '../../lib/offline/db'
+import { deletePhoto, getPhotos, listIncidentes, updateIncidente, type IncidenteRecord } from '../../lib/offline/db'
+import { PhotoCapture } from '../../components/PhotoCapture'
+import { pathFotoIncidencia } from '../../lib/offline/sync'
 import { supabase } from '../../lib/supabase'
 import { Button, Modal, Spinner, Textarea } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
@@ -14,7 +16,8 @@ type IncidenciaVista = {
   fecha: string
   modulo_id: string | null
   descripcion: string
-  fotos: number
+  fotos: string[]
+  photoIds: string[]
   created_at: number
   pendiente: boolean
   local: boolean
@@ -30,6 +33,8 @@ export function IncidenciasPage() {
   const [error, setError] = useState<string | null>(null)
   const [editando, setEditando] = useState<IncidenciaVista | null>(null)
   const [descripcion, setDescripcion] = useState('')
+  const [photoIdsEditando, setPhotoIdsEditando] = useState<string[]>([])
+  const [fotosNubeEditando, setFotosNubeEditando] = useState<string[]>([])
   const [guardando, setGuardando] = useState(false)
   const [errorGuardado, setErrorGuardado] = useState<string | null>(null)
 
@@ -57,7 +62,8 @@ export function IncidenciasPage() {
             fecha: fila.fecha as string,
             modulo_id: fila.modulo_id as string | null,
             descripcion: fila.descripcion as string,
-            fotos: Array.isArray(fila.fotos) ? fila.fotos.length : 0,
+            fotos: Array.isArray(fila.fotos) ? fila.fotos as string[] : [],
+            photoIds: [],
             created_at: new Date(fila.created_at as string).getTime(),
             pendiente: false,
             local: false
@@ -86,6 +92,8 @@ export function IncidenciasPage() {
   function abrirEdicion(incidente: IncidenciaVista) {
     setEditando(incidente)
     setDescripcion(incidente.descripcion)
+    setPhotoIdsEditando(incidente.photoIds)
+    setFotosNubeEditando(incidente.fotos)
     setErrorGuardado(null)
   }
 
@@ -97,7 +105,7 @@ export function IncidenciasPage() {
     setErrorGuardado(null)
     try {
       if (editando.local) {
-        await updateIncidente(editando.id, { descripcion: texto })
+        await updateIncidente(editando.id, { descripcion: texto, photoIds: photoIdsEditando })
         if (online) {
           const { error: updateError } = await supabase
             .from('incidencias')
@@ -108,14 +116,24 @@ export function IncidenciasPage() {
           await sync()
         }
       } else {
+        const nuevasFotos = await subirFotos(editando.id, photoIdsEditando)
+        const fotosFinales = [...fotosNubeEditando, ...nuevasFotos]
         const { error: updateError } = await supabase
           .from('incidencias')
-          .update({ descripcion: texto })
+          .update({ descripcion: texto, fotos: fotosFinales })
           .eq('id', editando.id)
           .eq('evaluador_id', profile.id)
         if (updateError) throw updateError
+        const quitarFotos = editando.fotos.filter((path) => !fotosNubeEditando.includes(path))
+        if (quitarFotos.length) {
+          const { error: deleteError } = await supabase.storage.from('evidencias').remove(quitarFotos)
+          if (deleteError) throw deleteError
+        }
+        for (const id of photoIdsEditando) await deletePhoto(id)
       }
       setEditando(null)
+      setPhotoIdsEditando([])
+      setFotosNubeEditando([])
       await cargar()
     } catch (e) {
       setErrorGuardado(e instanceof Error ? e.message : 'No se pudo guardar la incidencia.')
@@ -182,13 +200,14 @@ export function IncidenciasPage() {
                       </p>
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
                         <span>{new Date(incidente.created_at).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-                        {incidente.fotos > 0 ? <span className="inline-flex items-center gap-1"><Camera className="h-3.5 w-3.5" /> {incidente.fotos} foto(s)</span> : null}
+                        {incidente.fotos.length + incidente.photoIds.length > 0 ? <span className="inline-flex items-center gap-1"><Camera className="h-3.5 w-3.5" /> {incidente.fotos.length + incidente.photoIds.length} foto(s)</span> : null}
                         {incidente.pendiente ? <span className="font-semibold text-amber-700">Pendiente de sincronizar</span> : null}
                       </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => abrirEdicion(incidente)}
+                      disabled={!online && !incidente.local}
                       className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-600 hover:bg-amber-100 hover:text-amber-900"
                       title="Editar incidencia"
                       aria-label={`Editar incidencia de ${sucursal?.nombre ?? 'la sucursal'}`}
@@ -220,7 +239,9 @@ export function IncidenciasPage() {
         <div className="space-y-3">
           <Textarea rows={5} value={descripcion} onChange={(event) => setDescripcion(event.target.value)} autoFocus />
           {errorGuardado ? <p role="alert" className="text-xs font-medium text-red-700">{errorGuardado}</p> : null}
-          {editando?.pendiente ? <p className="text-xs text-slate-500">El cambio se guardará en el dispositivo y se sincronizará al recuperar conexión.</p> : null}
+          <FotosNubeEditables paths={fotosNubeEditando} onQuitar={(path) => setFotosNubeEditando((actuales) => actuales.filter((x) => x !== path))} />
+          <PhotoCapture photoIds={photoIdsEditando} onChange={setPhotoIdsEditando} />
+          {editando?.pendiente ? <p className="text-xs text-slate-500">Los cambios se guardarán en el dispositivo y se sincronizarán al recuperar conexión.</p> : null}
         </div>
       </Modal>
     </MobileLayout>
@@ -234,9 +255,77 @@ function convertirLocal(incidente: IncidenteRecord): IncidenciaVista {
     fecha: incidente.fecha,
     modulo_id: incidente.modulo_id,
     descripcion: incidente.descripcion,
-    fotos: incidente.photoIds.length,
+    fotos: [],
+    photoIds: incidente.photoIds,
     created_at: incidente.created_at,
     pendiente: incidente.sync === 'pendiente',
     local: true
   }
+}
+
+async function subirFotos(incidenteId: string, photoIds: string[]): Promise<string[]> {
+  const fotos = await getPhotos(photoIds)
+  if (fotos.length !== photoIds.length) throw new Error('No se encontraron todas las fotos nuevas en este dispositivo.')
+  const paths: string[] = []
+  for (const foto of fotos) {
+    const path = pathFotoIncidencia(incidenteId, foto.id)
+    const { error } = await supabase.storage.from('evidencias').upload(path, foto.blob, {
+      contentType: foto.mime,
+      upsert: true
+    })
+    if (error) throw error
+    paths.push(path)
+  }
+  return paths
+}
+
+function FotosNubeEditables({ paths, onQuitar }: { paths: string[]; onQuitar: (path: string) => void }) {
+  const [urls, setUrls] = useState<Record<string, string>>({})
+  const [sinAcceso, setSinAcceso] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    let vivo = true
+    setSinAcceso(new Set())
+    if (!paths.length) {
+      setUrls({})
+      return
+    }
+    void supabase.storage.from('evidencias').createSignedUrls(paths, 3600).then(({ data, error }) => {
+      if (!vivo) return
+      if (error) throw error
+      const nuevas: Record<string, string> = {}
+      for (const foto of data ?? []) if (foto.path && foto.signedUrl) nuevas[foto.path] = foto.signedUrl
+      setUrls(nuevas)
+      setSinAcceso(new Set(paths.filter((path) => !nuevas[path])))
+    }).catch(() => {
+      if (vivo) setSinAcceso(new Set(paths))
+    })
+    return () => { vivo = false }
+  }, [paths])
+
+  if (!paths.length) return null
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {paths.map((path) => (
+        <div key={path} className="relative aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+          {urls[path] ? (
+            <img src={urls[path]} alt="Foto de la incidencia" className="h-full w-full object-cover" />
+          ) : sinAcceso.has(path) ? (
+            <div className="grid h-full place-items-center px-2 text-center text-[10px] font-medium text-slate-500">Foto no disponible. Revisa las políticas de Storage.</div>
+          ) : (
+            <div className="grid h-full place-items-center"><Spinner size={16} /></div>
+          )}
+          <button
+            type="button"
+            onClick={() => onQuitar(path)}
+            aria-label="Quitar foto existente"
+            title="Quitar foto"
+            className="absolute right-1 top-1 grid h-7 w-7 place-items-center rounded-full bg-slate-900/70 text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ))}
+    </div>
+  )
 }
