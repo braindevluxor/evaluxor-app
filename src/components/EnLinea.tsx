@@ -22,10 +22,13 @@ export function EnLinea({ conectado, className }: { conectado?: Conectado | null
   }
   const extra = conectado.dispositivos > 1 ? ` · ${conectado.dispositivos} dispositivos` : ''
   const atrasada = !!conectado.build_id && conectado.build_id !== BUILD_ID
+  // El build va siempre en el tooltip: el líder puede pasar el mouse por cualquiera
+  // y saber con qué build está ese teléfono, no solo por los que quedaron viejos.
+  const build = conectado.build_id ? ` · build ${conectado.version} ${conectado.build_id}` : ''
   return (
     <span
       className={cn('inline-flex min-w-0 items-center gap-1.5', className)}
-      title={`${conectado.nombre} · ${conectado.dispositivo}${extra}${atrasada ? ` · build ${conectado.build_id}` : ''}`}
+      title={`${conectado.nombre} · ${conectado.dispositivo}${extra}${build}`}
     >
       <span className="relative flex h-2 w-2 shrink-0">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
