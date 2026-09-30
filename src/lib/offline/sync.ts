@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import { errorSubida } from '../subida'
+import { causaSubida, errorSubida } from '../subida'
 import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, respuestasConInstancia, incidentesPendientes, eliminarIncidente, type SyncJob, type DraftEval } from './db'
 import { photoPath, convertirValor, extraerPhotoIds, valorSinFotos } from './transform'
 
@@ -31,14 +31,101 @@ export async function encolarRespuestas(draft: DraftEval): Promise<void> {
   await deleteDraft(draft.sucursal_id)
 }
 
-async function upsertRespuestas(rows: { evaluacion_id: string; item_id: string; instancia_id: string | null; valor: unknown; respondido_por: string }[]): Promise<void> {
-  if (!rows.length) return
-  // El upsert se hace vía la RPC `upsert_respuestas` (schema.sql): declara el
-  // predicado exacto de cada índice parcial (directas y por registro), algo que
-  // PostgREST no puede expresar con `on_conflict`. Aplica las políticas RLS de
-  // respuestas igual que un upsert directo.
-  const { error } = await supabase.rpc('upsert_respuestas', { rows })
-  if (error) throw error
+type FilaInstancia = {
+  id: string
+  evaluacion_id: string
+  item_id: string
+  etiqueta: string
+  orden: number
+  api_id: string | null
+  datos: unknown
+}
+
+type FilaRespuesta = {
+  evaluacion_id: string
+  item_id: string
+  instancia_id: string | null
+  valor: unknown
+  respondido_por: string
+}
+
+/** Respuestas que no se pudieron subir porque su ítem ya no existe en el catálogo. */
+export interface Descarte {
+  /** Ítems del lote que el servidor ya no tiene. */
+  item_ids: string[]
+}
+
+/**
+ * De los `ids` dados, cuáles siguen existiendo en `items`. Devuelve `null` si la
+ * consulta falló: sin eso no se puede atribuir el descarte y conviene propagar el
+ * error original antes que descartar respuestas de más.
+ *
+ * Es confiable porque `items_select` es `using (true)`: el catálogo entero es
+ * legible, así que un id que no aparece de verdad fue borrado.
+ */
+async function itemsQueSobreviven(ids: string[]): Promise<Set<string> | null> {
+  if (!ids.length) return new Set()
+  const { data, error } = await supabase.from('items').select('id').in('id', ids)
+  if (error) return null
+  return new Set((data ?? []).map((r) => r.id as string))
+}
+
+/**
+ * Sube registros (instancias) y respuestas, y se recupera solo del 23503.
+ *
+ * El caso real: alguien editó la plantilla y borró un ítem que el evaluador ya
+ * había respondido en el teléfono. Esa fila apunta a un id que ya no está en
+ * `items`, así que Postgres la rechaza y nunca entra. Antes esto bloqueaba el
+ * lote entero —el resto del avance se quedaba en el teléfono para siempre— y el
+ * mensaje además culpaba a la conexión.
+ *
+ * La RPC no dice qué fila falló, así que se le pregunta al catálogo cuáles de
+ * los nuestros siguen existiendo y se sube solo esa parte. Si el filtro no saca
+ * nada, el 23503 venía de otra FK (evaluación o registro): se propaga el error
+ * original en vez de insistir en loop.
+ *
+ * El upsert de respuestas va por la RPC `upsert_respuestas` (schema.sql): declara
+ * el predicado exacto de cada índice parcial (directas y por registro), algo que
+ * PostgREST no puede expresar con `on_conflict`. Aplica las políticas RLS de
+ * respuestas igual que un upsert directo.
+ */
+async function subirLote(inst: FilaInstancia[], resp: FilaRespuesta[]): Promise<Descarte> {
+  let instLote = inst
+  let respLote = resp
+
+  const intentar = async (): Promise<void> => {
+    // Las instancias van antes que sus respuestas (FK).
+    if (instLote.length) {
+      const { error } = await supabase.from('instancias_grupo').upsert(instLote, { onConflict: 'id' })
+      if (error) throw error
+    }
+    if (respLote.length) {
+      const { error } = await supabase.rpc('upsert_respuestas', { rows: respLote })
+      if (error) throw error
+    }
+  }
+
+  try {
+    await intentar()
+    return { item_ids: [] }
+  } catch (e) {
+    if (causaSubida(e) !== 'item_borrado') throw e
+
+    const ids = [...new Set([...inst, ...resp].map((f) => f.item_id))]
+    const existen = await itemsQueSobreviven(ids)
+    if (!existen) throw e
+
+    const descartados = ids.filter((id) => !existen.has(id))
+    const instVivas = inst.filter((f) => existen.has(f.item_id))
+    const respVivas = resp.filter((f) => existen.has(f.item_id))
+    // Nada cambió: la FK que falló no es la de `items`.
+    if (!descartados.length || (!instVivas.length && !respVivas.length)) throw e
+
+    instLote = instVivas
+    respLote = respVivas
+    await intentar()
+    return { item_ids: descartados }
+  }
 }
 
 // Marca de la última subida a la nube del usuario actual (`profiles.ultima_sync`,
@@ -65,30 +152,27 @@ export async function guardarBorradorNube(
   evaluadorId: string,
   respuestas: { item_id: string; instancia_id: string | null; valor: unknown }[],
   instancias: { id: string; item_id: string; etiqueta: string; orden: number; api_id?: string; datos?: Record<string, unknown> }[] = []
-): Promise<void> {
-  if (!respuestas.length && !instancias.length) return
+): Promise<Descarte> {
+  if (!respuestas.length && !instancias.length) return { item_ids: [] }
+  const instRows: FilaInstancia[] = instancias.map((ins) => ({
+    id: ins.id,
+    evaluacion_id: evaluacionId,
+    item_id: ins.item_id,
+    etiqueta: ins.etiqueta,
+    orden: ins.orden,
+    api_id: ins.api_id ?? null,
+    datos: ins.datos ?? null
+  }))
+  const respRows: FilaRespuesta[] = respuestas.map((r) => ({
+    evaluacion_id: evaluacionId,
+    item_id: r.item_id,
+    instancia_id: r.instancia_id,
+    valor: valorSinFotos(r.valor),
+    respondido_por: evaluadorId
+  }))
+  let descarte: Descarte
   try {
-    if (instancias.length) {
-      const rows = instancias.map((ins) => ({
-        id: ins.id,
-        evaluacion_id: evaluacionId,
-        item_id: ins.item_id,
-        etiqueta: ins.etiqueta,
-        orden: ins.orden,
-        api_id: ins.api_id ?? null,
-        datos: ins.datos ?? null
-      }))
-      const { error } = await supabase.from('instancias_grupo').upsert(rows, { onConflict: 'id' })
-      if (error) throw error
-    }
-    const rows = respuestas.map((r) => ({
-      evaluacion_id: evaluacionId,
-      item_id: r.item_id,
-      instancia_id: r.instancia_id,
-      valor: valorSinFotos(r.valor),
-      respondido_por: evaluadorId
-    }))
-    await upsertRespuestas(rows)
+    descarte = await subirLote(instRows, respRows)
   } catch (e) {
     // Se propaga tipado (causa + detalle técnico) para que la pantalla diga qué
     // pasó de verdad en vez de culpar siempre a la conexión.
@@ -96,12 +180,16 @@ export async function guardarBorradorNube(
   }
   // La subida terminó bien: queda registrada como última sincronización del usuario.
   void marcarSyncNube()
+  return descarte
 }
 
-export async function procesarCola(): Promise<{ ok: number; fail: number }> {
+export async function procesarCola(): Promise<{ ok: number; fail: number; descartes: Descarte[] }> {
   const jobs = await listQueue()
   let ok = 0
   let fail = 0
+  // Ítems que el catálogo ya no tiene, por trabajo. La cola no se traba por
+  // ellos: se suben las respuestas que siguen vigentes y el resto se avisa.
+  const descartes: Descarte[] = []
   for (const job of jobs) {
     if (job.status === 'processing') continue
     await putJob({ ...job, status: 'processing' })
@@ -133,31 +221,30 @@ export async function procesarCola(): Promise<{ ok: number; fail: number }> {
         map.set(id, path)
       }
 
-      // Registros (instancias) de secciones repetibles, antes que sus respuestas (FK).
-      if (job.instancias?.length) {
-        const instRows = job.instancias.map((ins) => ({
-          id: ins.id,
-          evaluacion_id: evaluacionId,
-          item_id: ins.item_id,
-          etiqueta: ins.etiqueta,
-          orden: ins.orden,
-          api_id: ins.api_id ?? null,
-          datos: ins.datos ?? null
-        }))
-        const { error: iErr } = await supabase.from('instancias_grupo').upsert(instRows, { onConflict: 'id' })
-        if (iErr) throw iErr
-      }
+      const instRows: FilaInstancia[] = (job.instancias ?? []).map((ins) => ({
+        id: ins.id,
+        evaluacion_id: evaluacionId,
+        item_id: ins.item_id,
+        etiqueta: ins.etiqueta,
+        orden: ins.orden,
+        api_id: ins.api_id ?? null,
+        datos: ins.datos ?? null
+      }))
 
-      const rows = job.respuestas.map((r) => ({
+      const rows: FilaRespuesta[] = job.respuestas.map((r) => ({
         evaluacion_id: evaluacionId,
         item_id: r.item_id,
         instancia_id: r.instancia_id,
         valor: convertirValor(r.valor, map),
         respondido_por: job.evaluador_id
       }))
-      await upsertRespuestas(rows)
+      const descarte = await subirLote(instRows, rows)
+      if (descarte.item_ids.length) descartes.push(descarte)
 
-      for (const r of job.respuestas) {
+      // Solo van fotos de respuestas que el servidor aceptó: una fila en `fotos`
+      // también lleva `item_id` y rebotaría con la misma FK.
+      const sinDescartar = job.respuestas.filter((r) => !descarte.item_ids.includes(r.item_id))
+      for (const r of sinDescartar) {
         const ids = extraerPhotoIds(r.valor)
         for (const id of ids) {
           const path = map.get(id)
@@ -179,7 +266,7 @@ export async function procesarCola(): Promise<{ ok: number; fail: number }> {
   }
   // La cola se vació al menos una vez: el dispositivo volvió a tener señal.
   if (ok) void marcarSyncNube()
-  return { ok, fail }
+  return { ok, fail, descartes }
 }
 
 /** Dónde vive la foto de una incidencia en el bucket `evidencias`. */

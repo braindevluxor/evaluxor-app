@@ -10,6 +10,8 @@ interface OfflineContextValue {
   incidentesPendientes: number
   sincronizando: boolean
   ultimoResultado: { ok: number; fail: number } | null
+  /** Ítems borrados del catálogo que impiden subir parte de un avance. */
+  descartes: string[]
   sync: () => Promise<{ ok: number; fail: number }>
 }
 
@@ -21,6 +23,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   const [incidentes, setIncidentes] = useState(0)
   const [sincronizando, setSincronizando] = useState(false)
   const [ultimoResultado, setUltimoResultado] = useState<{ ok: number; fail: number } | null>(null)
+  const [descartes, setDescartes] = useState<string[]>([])
 
   const contar = useCallback(async () => {
     const [jobs, incs] = await Promise.all([listQueue(), incidentesPendientes()])
@@ -51,6 +54,9 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       const [eva, inc] = await Promise.all([procesarCola(), sincronizarIncidentes()])
       const res = { ok: eva.ok + inc.ok, fail: eva.fail + inc.fail }
       setUltimoResultado(res)
+      // Lo que no se pudo subir por ítems que ya no existen, para poder avisar
+      // en vez de dejar que parezca que todo entró.
+      setDescartes((prev) => [...new Set([...prev, ...eva.descartes.flatMap((d) => d.item_ids)])])
       await contar()
       return res
     } finally {
@@ -71,6 +77,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     incidentesPendientes: incidentes,
     sincronizando,
     ultimoResultado,
+    descartes,
     sync
   }
 

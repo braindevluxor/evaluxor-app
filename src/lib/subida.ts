@@ -11,7 +11,7 @@
  * reintentar y qué tiene que hacer la persona.
  */
 
-export type CausaSubida = 'sin_conexion' | 'rechazada' | 'servidor' | 'desconocida'
+export type CausaSubida = 'sin_conexion' | 'rechazada' | 'item_borrado' | 'servidor' | 'desconocida'
 
 export interface ErrorSubida extends Error {
   causa: CausaSubida
@@ -49,11 +49,20 @@ export function detalleTecnico(e: unknown): string {
 export function causaSubida(e: unknown): CausaSubida {
   if (e && typeof e === 'object' && 'causa' in e) {
     const c = (e as { causa: unknown }).causa
-    if (c === 'sin_conexion' || c === 'rechazada' || c === 'servidor') return c
+    if (c === 'sin_conexion' || c === 'rechazada' || c === 'item_borrado' || c === 'servidor') return c
   }
   const { code, message, details } = partes(e)
   const texto = `${message} ${details}`.toLowerCase()
 
+  // Se comprueba antes que el rechazo por política: el texto de Postgres para
+  // una clave foránea insatisfecha dice "violates foreign key constraint", que
+  // entraba en el patrón de RLS. No es lo mismo. Un 23503 significa que la fila
+  // que mandamos apunta a un ítem que no está en el catálogo (lo borraron al
+  // editar la plantilla), así que ninguna cantidad de reintentos la va a
+  // insertar: es dato obsoleto, no un permiso denegado.
+  if (code === '23503' || /violates foreign key constraint|foreign key violation/.test(texto)) {
+    return 'item_borrado'
+  }
   // Rechazo de política: no se arregla con internet.
   if (code === '42501' || /row-level security|row level security|violates|not authorized|permission denied|forbidden|pgrst301/.test(texto)) {
     return 'rechazada'
@@ -103,6 +112,14 @@ export function mensajeSubida(causa: CausaSubida, contexto = 'guardar el avance'
           'No es un problema de internet: la evaluación puede haberse cerrado, el ítem puede estar desactivado o el módulo ya no te está asignado. Tu avance sigue en este teléfono. Avisale al Líder.',
         reintentar: true,
         cadaMs: 120_000
+      }
+    case 'item_borrado':
+      return {
+        titulo: 'Una parte del avance ya no existe en el servidor',
+        ayuda:
+          'Lo que mandaste apunta a algo que fue borrado del cuestionario (típicamente un ítem que se eliminó al editar la plantilla). No se arregla reconectando, así que no se reintenta solo. Lo que sí sigue vigente ya se subió; avisale al Líder qué ítem faltó.',
+        reintentar: false,
+        cadaMs: 0
       }
     case 'servidor':
       return {

@@ -29,6 +29,23 @@ describe('causaSubida', () => {
     expect(causaSubida({ code: '42501', message: 'fetch failed' })).toBe('rechazada')
   })
 
+  it('detecta el ítem borrado como "item_borrado", no como rechazo de RLS', () => {
+    // El texto de Postgres dice "violates", así que el patrón de RLS lo agarraba
+    // primero y terminaba culpando a la conexión y al Líder.
+    expect(
+      causaSubida({
+        code: '23503',
+        message: 'insert or update on table "respuestas" violates foreign key constraint "respuestas_item_id_fkey"',
+        details: ''
+      })
+    ).toBe('item_borrado')
+    expect(causaSubida(new Error('foreign key violation: respuestas_instancia_id_fkey'))).toBe('item_borrado')
+  })
+
+  it('no manda un 23503 a "rechazada" aunque el texto diga violates', () => {
+    expect(causaSubida({ code: '23503', message: 'violates foreign key constraint' })).not.toBe('rechazada')
+  })
+
   it('cae en desconocida para lo que no reconoce', () => {
     expect(causaSubida({ code: 'PGRST116', message: 'JSON object requested, multiple rows returned' })).toBe('desconocida')
     expect(causaSubida(null)).toBe('desconocida')
@@ -72,6 +89,19 @@ describe('mensajeSubida', () => {
 
   it('el corte de internet sí habla de conexión', () => {
     expect(mensajeSubida('sin_conexion').titulo).toMatch(/conexión/i)
+  })
+
+  it('el ítem borrado no promete reintentos ni culpa a internet', () => {
+    const m = mensajeSubida('item_borrado')
+    expect(m.reintentar).toBe(false)
+    expect(m.cadaMs).toBe(0)
+    expect(m.ayuda).not.toMatch(/internet|conexión/i)
+    expect(m.ayuda).toMatch(/borrad/i)
+  })
+
+  it('respeta la causa item_borrado que ya viene en un ErrorSubida', () => {
+    const err = errorSubida({ code: '23503', message: 'violates foreign key constraint "respuestas_item_id_fkey"' }, 'guardar el avance')
+    expect(err.causa).toBe('item_borrado')
   })
 })
 

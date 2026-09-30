@@ -47,6 +47,14 @@ export function EvaluarSucursal() {
     return ids
   }, [modulosActivos, itemsDe])
 
+  // Etiqueta de cada ítem, para nombrar en el aviso los que ya no existen en el
+  // catálogo: un UUID no le dice nada a quien tiene que avisarle al Líder.
+  const etiquetaDeItem = useMemo(() => {
+    const mapa = new Map<string, string>()
+    for (const mod of modulosActivos) for (const it of itemsDe(mod)) mapa.set(it.id, it.texto)
+    return mapa
+  }, [modulosActivos, itemsDe])
+
   const [draft, setDraft] = useState<DraftEval | null>(null)
   const [sinActiva, setSinActiva] = useState(false)
   const [cargando, setCargando] = useState(true)
@@ -87,6 +95,9 @@ export function EvaluarSucursal() {
   // RLS, `servidor`...). Antes era un booleano que siempre terminaba diciendo
   // "revisá tu conexión", con reintento cada 12 s pase lo que pase.
   const [fallaSubida, setFallaSubida] = useState<{ causa: CausaSubida; detalle: string } | null>(null)
+  // Respuestas que el servidor aceptó salvo las de ítems que ya no existen: el
+  // resto del avance sí subió, pero esto no lo digan como un todo o menos.
+  const [descarte, setDescarte] = useState<string[]>([])
   // Marca que la página sigue montada: las fusiones con la nube no tocan el estado si ya no lo están.
   const vivoRef = useRef(false)
 
@@ -110,7 +121,10 @@ export function EvaluarSucursal() {
       const instancias = instanciasDeDraft(d)
       if (!respuestas.length && !instancias.length) return
       void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
-        .then(() => setFallaSubida(null))
+        .then((r) => {
+          setFallaSubida(null)
+          setDescarte(r.item_ids)
+        })
         .catch((e: unknown) => setFallaSubida({ causa: causaSubida(e), detalle: detalleTecnico(e) }))
     }, 800)
   }
@@ -158,7 +172,10 @@ export function EvaluarSucursal() {
       return
     }
     void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
-      .then(() => setFallaSubida(null))
+      .then((r) => {
+        setFallaSubida(null)
+        setDescarte(r.item_ids)
+      })
       .catch((e: unknown) => setFallaSubida({ causa: causaSubida(e), detalle: detalleTecnico(e) }))
   }, [online])
 
@@ -168,6 +185,9 @@ export function EvaluarSucursal() {
   // servía de nada y solo saturaba el servidor.
   useEffect(() => {
     if (!fallaSubida || !online) return
+    // Sin reintento no hay intervalo: con `cadaMs: 0` el `setInterval` disparaba
+    // sin pausa y machacaba el servidor con un rechazo que nunca va a pasar.
+    if (!mensajeSubida(fallaSubida.causa).reintentar) return
     const cada = mensajeSubida(fallaSubida.causa).cadaMs
     const t = window.setInterval(() => {
       const d = draftRef.current
@@ -394,8 +414,9 @@ export function EvaluarSucursal() {
         const respuestas = respuestasConInstancia(d)
         const instancias = instanciasDeDraft(d)
         if (respuestas.length || instancias.length) {
-          await guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
+          const r = await guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
           setFallaSubida(null)
+          setDescarte(r.item_ids)
           guardado = true
         }
       }
@@ -741,6 +762,25 @@ export function EvaluarSucursal() {
             <span className="min-w-0 flex-1">{avisoSync.texto}</span>
           </div>
         ) : null}
+        {descarte.length ? (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+            <CloudOff className="mt-px h-4 w-4 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="font-black">
+                {descarte.length === 1 ? 'Una respuesta no se pudo subir' : `${descarte.length} respuestas no se pudieron subir`}: su
+                ítem ya no existe
+              </p>
+              <p className="mt-0.5 font-medium leading-snug">
+                El resto del avance sí llegó al servidor. Se borró{' '}
+                {descarte.length === 1 ? 'el ítem' : 'algún ítem'} del cuestionario después de que lo respondieras, así que esa respuesta ya
+                no tiene dónde ir. Avisale al Líder.
+              </p>
+              <p className="mt-1 break-words text-[11px] font-normal text-slate-600">
+                {descarte.map((id) => etiquetaDeItem.get(id) ?? `ítem ${id.slice(0, 8)}`).join(' · ')}
+              </p>
+            </div>
+          </div>
+        ) : null}
         {online && fallaSubida ? (
           <div
             className={cn(
@@ -758,21 +798,29 @@ export function EvaluarSucursal() {
                   <span className="font-medium"> pero aún no llegó a la nube.</span>
                 </p>
                 <p className="mt-0.5 font-medium leading-snug">{mensajeSubida(fallaSubida.causa).ayuda}</p>
-                <p className="mt-0.5 font-medium">
-                  Se reintenta solo cada {Math.round(mensajeSubida(fallaSubida.causa).cadaMs / 1000)} s.
-                </p>
+                {/* Con `reintentar: false` (dato obsoleto) no hay intervalo que
+                    prometer: el mensaje de ayuda ya dice que no reintenta. */}
+                {mensajeSubida(fallaSubida.causa).reintentar ? (
+                  <p className="mt-0.5 font-medium">
+                    Se reintenta solo cada {Math.round(mensajeSubida(fallaSubida.causa).cadaMs / 1000)} s.
+                  </p>
+                ) : null}
                 {/* Detalle crudo: con una foto de esto se puede diagnosticar sin adivinar. */}
                 <p className="mt-1 break-all font-mono text-[10px] font-normal text-slate-500" title={fallaSubida.detalle}>
                   {fallaSubida.detalle}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => void sincronizarAhora()}
-                className="shrink-0 self-start font-black underline underline-offset-2"
-              >
-                Reintentar
-              </button>
+              {/* Reintentar no arregla un ítem que ya no existe: ofrecer el botón
+                  sería prometer algo que el servidor va a volver a rechazar. */}
+              {mensajeSubida(fallaSubida.causa).reintentar ? (
+                <button
+                  type="button"
+                  onClick={() => void sincronizarAhora()}
+                  className="shrink-0 self-start font-black underline underline-offset-2"
+                >
+                  Reintentar
+                </button>
+              ) : null}
             </div>
           </div>
         ) : null}
