@@ -86,7 +86,27 @@ describe('permisos-funcion.sql · no rompe las políticas RLS', () => {
 
   it('deja acceso a las dos de la pantalla de login, que corren sin sesión', () => {
     for (const fn of ['intento_login', 'email_por_usuario']) {
-      expect(remediation).not.toMatch(new RegExp(`revoke[^;]*${fn}`, 'i'))
+      // Nunca se les quita `anon`: en el login todavía no hay sesión. Lo que sí
+      // sobra es `authenticated`, y quitárselo es seguro (ver AuthContext.signIn).
+      expect(remediation).toMatch(new RegExp(`revoke[^;]*${fn}\\([^)]*\\) from public, authenticated;`, 'i'))
+      expect(remediation).toMatch(new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.${fn}\\([^)]*\\) to anon;`, 'i'))
+      expect(remediation).not.toMatch(new RegExp(`revoke[^;]*${fn}[^;]* from [^;]*\\banon\\b`, 'i'))
+    }
+  })
+
+  it('quita PUBLIC y el rol de la API, porque los permisos en Postgres son aditivos', () => {
+    // El error del primer intento: revocar solo de PUBLIC no cambiaba nada, porque
+    // el proyecto trae un `grant all on all functions` que deja permiso propio de
+    // `anon`. Todo revoke tiene que llevar PUBLIC y el rol que se le quita.
+    const revocadas = [...remediation.matchAll(/revoke\s+execute\s+on\s+function\s+public\.(\w+)[^;]*?from\s+([^;]+);/gi)]
+    expect(revocadas.length).toBeGreaterThan(0)
+    for (const [, fn, roles] of revocadas) {
+      const lista = roles.split(',').map((r) => r.trim().toLowerCase())
+      expect(lista, `${fn} sin PUBLIC`).toContain('public')
+      expect(
+        lista.some((r) => r === 'anon' || r === 'authenticated'),
+        `${fn} no quita ningún rol de la API: PUBLIC solo no alcanza`
+      ).toBe(true)
     }
   })
 })

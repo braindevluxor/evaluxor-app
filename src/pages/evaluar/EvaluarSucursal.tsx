@@ -16,7 +16,7 @@ import {
   type DraftEval,
   type DraftInstancia
 } from '../../lib/offline/db'
-import { guardarBorradorNube, instanciasDeDraft, respuestasConInstancia } from '../../lib/offline/sync'
+import { guardarBorradorNube, instanciasDeDraft, respuestasConInstancia, type Descarte } from '../../lib/offline/sync'
 import { listarEvaluacionesActivas, listarRespuestasEvaluacion, listarInstanciasEvaluacion } from '../../lib/data/indicadores'
 import { apiDisponible, esColorHex, etiquetaDeCampo, formatearValorConsulta, seleccionarValores } from '../../lib/data/apis'
 import { supabase } from '../../lib/supabase'
@@ -102,9 +102,13 @@ export function EvaluarSucursal() {
   // RLS, `servidor`...). Antes era un booleano que siempre terminaba diciendo
   // "revisá tu conexión", con reintento cada 12 s pase lo que pase.
   const [fallaSubida, setFallaSubida] = useState<{ causa: CausaSubida; detalle: string } | null>(null)
-  // Respuestas que el servidor aceptó salvo las de ítems que ya no existen: el
-  // resto del avance sí subió, pero esto no lo digan como un todo o menos.
-  const [descarte, setDescarte] = useState<string[]>([])
+  // Respuestas que el servidor aceptó salvo las de ítems que ya no existen o que
+// el evaluador ya no puede escribir: el resto del avance sí subió, pero esto no
+// lo digan como un todo o menos. Los motivos cambian lo que hay que hacer.
+const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] })
+  // El descarte por permiso se explica distinto al descarte por ítem borrado: en
+  // el primero el Líder tiene que revisar una asignación, no un ítem del cuestionario.
+  const sinPermisoDescarte = descarte.motivos.includes('sin_permiso')
   // Marca que la página sigue montada: las fusiones con la nube no tocan el estado si ya no lo están.
   const vivoRef = useRef(false)
 
@@ -130,7 +134,7 @@ export function EvaluarSucursal() {
       void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
         .then((r) => {
           setFallaSubida(null)
-          setDescarte(r.item_ids)
+          setDescarte(r)
         })
         .catch((e: unknown) => setFallaSubida({ causa: causaSubida(e), detalle: detalleTecnico(e) }))
     }, 800)
@@ -181,7 +185,7 @@ export function EvaluarSucursal() {
     void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
       .then((r) => {
         setFallaSubida(null)
-        setDescarte(r.item_ids)
+        setDescarte(r)
       })
       .catch((e: unknown) => setFallaSubida({ causa: causaSubida(e), detalle: detalleTecnico(e) }))
   }, [online])
@@ -423,7 +427,7 @@ export function EvaluarSucursal() {
         if (respuestas.length || instancias.length) {
           const r = await guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
           setFallaSubida(null)
-          setDescarte(r.item_ids)
+          setDescarte(r)
           guardado = true
         }
       }
@@ -770,21 +774,20 @@ export function EvaluarSucursal() {
             <span className="min-w-0 flex-1">{avisoSync.texto}</span>
           </div>
         ) : null}
-        {descarte.length ? (
+        {descarte.item_ids.length ? (
           <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
             <CloudOff className="mt-px h-4 w-4 shrink-0" />
             <div className="min-w-0 flex-1">
               <p className="font-black">
-                {descarte.length === 1 ? 'Una respuesta no se pudo subir' : `${descarte.length} respuestas no se pudieron subir`}: su
-                ítem ya no existe
+                {sinPermisoDescarte ? 'Una parte del avance no te la guarda el servidor' : `${descarte.item_ids.length === 1 ? 'Una respuesta no se pudo subir' : `${descarte.item_ids.length} respuestas no se pudieron subir`}: su ítem ya no existe`}
               </p>
               <p className="mt-0.5 font-medium leading-snug">
-                El resto del avance sí llegó al servidor. Se borró{' '}
-                {descarte.length === 1 ? 'el ítem' : 'algún ítem'} del cuestionario después de que lo respondieras, así que esa respuesta ya
-                no tiene dónde ir. Avisale al Líder.
+                {sinPermisoDescarte
+                  ? 'El resto del avance sí llegó al servidor. Esta parte no entra porque el servidor no te da permiso sobre ella: el ítem pudo desactivarse o el módulo pudo darte de baja el Líder.'
+                  : `El resto del avance sí llegó al servidor. Se borró ${descarte.item_ids.length === 1 ? 'el ítem' : 'algún ítem'} del cuestionario después de que lo respondieras, así que esa respuesta ya no tiene dónde ir. Avisale al Líder.`}
               </p>
               <p className="mt-1 break-words text-[11px] font-normal text-slate-600">
-                {descarte.map((id) => etiquetaDeItem.get(id) ?? `ítem ${id.slice(0, 8)}`).join(' · ')}
+                {descarte.item_ids.map((id) => etiquetaDeItem.get(id) ?? `ítem ${id.slice(0, 8)}`).join(' · ')}
               </p>
             </div>
           </div>

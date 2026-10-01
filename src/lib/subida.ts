@@ -11,7 +11,13 @@
  * reintentar y qué tiene que hacer la persona.
  */
 
-export type CausaSubida = 'sin_conexion' | 'rechazada' | 'item_borrado' | 'servidor' | 'desconocida'
+export type CausaSubida =
+  | 'sin_conexion'
+  | 'rechazada'
+  | 'evaluacion_cerrada'
+  | 'item_borrado'
+  | 'servidor'
+  | 'desconocida'
 
 export interface ErrorSubida extends Error {
   causa: CausaSubida
@@ -49,7 +55,15 @@ export function detalleTecnico(e: unknown): string {
 export function causaSubida(e: unknown): CausaSubida {
   if (e && typeof e === 'object' && 'causa' in e) {
     const c = (e as { causa: unknown }).causa
-    if (c === 'sin_conexion' || c === 'rechazada' || c === 'item_borrado' || c === 'servidor') return c
+    if (
+      c === 'sin_conexion' ||
+      c === 'rechazada' ||
+      c === 'evaluacion_cerrada' ||
+      c === 'item_borrado' ||
+      c === 'servidor'
+    ) {
+      return c
+    }
   }
   const { code, message, details } = partes(e)
   const texto = `${message} ${details}`.toLowerCase()
@@ -105,11 +119,19 @@ export interface MensajeSubida {
 /** Qué mostrar según la causa. La conexión pierde el privilegio del título. */
 export function mensajeSubida(causa: CausaSubida, contexto = 'guardar el avance'): MensajeSubida {
   switch (causa) {
+    case 'evaluacion_cerrada':
+      return {
+        titulo: 'La evaluación ya no acepta respuestas',
+        ayuda:
+          'El Líder la cerró o la reprogramó, y el servidor rechaza el guardado por esa razón: no es un problema de internet. Lo que ya se había subido sigue ahí; lo que tengas ahora en este teléfono no entra hasta que la vuelvan a abrir. Se reintenta por si la reabren. Avisale al Líder.',
+        reintentar: true,
+        cadaMs: 300_000
+      }
     case 'rechazada':
       return {
         titulo: 'El servidor no aceptó guardar el avance',
         ayuda:
-          'No es un problema de internet: la evaluación puede haberse cerrado, el ítem puede estar desactivado o el módulo ya no te está asignado. Tu avance sigue en este teléfono. Avisale al Líder.',
+          'La evaluación sigue abierta, así que no es un problema de internet: el servidor te rechaza por permisos. Lo más común es que el ítem se haya desactivado o que te hayan dado de baja el módulo. Tu avance sigue en este teléfono. Avisale al Líder.',
         reintentar: true,
         cadaMs: 120_000
       }

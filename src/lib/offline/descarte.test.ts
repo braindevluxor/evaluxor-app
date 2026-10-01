@@ -135,6 +135,139 @@ describe('subida con ítems borrados del catálogo', () => {
   })
 })
 
+describe('subida con un ítem que el servidor ya no deja escribir', () => {
+  // 42501: el lote entero se rechaza por RLS. Es el caso de la sección repetible
+  // que quedó desactivada o de un módulo que le dieron de baja al evaluador: una
+  // sola fila sin permiso bloqueaba TODO el avance, para siempre.
+  const RLS = {
+    code: '42501',
+    message: 'new row violates row-level security policy for table "instancias_grupo"',
+    details: ''
+  }
+
+  /** `instancias_grupo` acepta todo salvo lo de `sinPermiso` (y salvo `todo`). */
+  function instancias(sinPermiso: string[], todo = false) {
+    return {
+      upsert: (filas: { item_id: string }[]) => {
+        const mala = todo || filas.some((f) => sinPermiso.includes(f.item_id))
+        return res(null, mala ? RLS : null)
+      }
+    }
+  }
+
+  function con(tablas: Record<string, unknown>) {
+    fromMock.mockImplementation((tabla: string) => {
+      if (tabla === 'items') return { select: () => ({ in: () => res(null, { message: 'no se usa' }) }) }
+      if (tabla === 'evaluaciones') return { select: () => ({ eq: () => ({ maybeSingle: () => res({ estado: 'ACTIVA' }) }) }) }
+      const t = tablas[tabla]
+      if (!t) throw new Error(`tabla inesperada: ${tabla}`)
+      return t
+    })
+    rpcMock.mockResolvedValue({ data: null, error: null })
+  }
+
+  it('sube los registros que sí tienen permiso y descarta solo el que no', async () => {
+    const subida: string[][] = []
+    con({
+      instancias_grupo: {
+        upsert: (filas: { item_id: string }[]) => {
+          if (filas.some((f) => f.item_id === 'i2')) return res(null, RLS)
+          subida.push(filas.map((f) => f.item_id))
+          return res(null, null)
+        }
+      }
+    })
+
+    const r = await guardarBorradorNube(
+      EV,
+      USUARIO,
+      [respuesta('i1'), respuesta('i2')],
+      [instancia('a', 'i1'), instancia('b', 'i2')]
+    )
+
+    expect(r.item_ids).toEqual(['i2'])
+    expect(r.motivos).toEqual(['sin_permiso'])
+    expect(subida).toEqual([['i1']])
+  })
+
+  it('el camino rápido sigue siendo una sola llamada cuando todo tiene permiso', async () => {
+    let llamadas = 0
+    con({ instancias_grupo: { upsert: () => { llamadas++; return res(null, null) } } })
+
+    const r = await guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')])
+
+    expect(r.item_ids).toEqual([])
+    expect(llamadas).toBe(1)
+  })
+
+  it('si no pasa ningún ítem, el problema no es de una fila y se propaga el error', async () => {
+    // Evaluación cerrada o módulo dado de baja para todo: aislar no sirve de nada
+    // y se pierde el error del lote, que explica más.
+    con({ instancias_grupo: instancias(['i1', 'i2'], true) })
+
+    await expect(
+      guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')])
+    ).rejects.toThrow(/row-level security/i)
+  })
+
+  it('el aislamiento no toca los otros errores: sin conexión se propaga', async () => {
+    con({ instancias_grupo: { upsert: () => res(null, { message: 'Failed to fetch' }) } })
+
+    await expect(
+      guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')])
+    ).rejects.toMatchObject({ causa: 'sin_conexion' })
+  })
+})
+
+describe('el rechazo por permiso se nombra, no se adivina', () => {
+  const RLS = {
+    code: '42501',
+    message: 'new row violates row-level security policy for table "instancias_grupo"',
+    details: ''
+  }
+
+  /** RLS en todo, y la evaluación en el estado que se le pase. */
+  function conEvaluacion(estado: string) {
+    fromMock.mockImplementation((tabla: string) => {
+      if (tabla === 'instancias_grupo') return { upsert: () => res(null, RLS) }
+      if (tabla === 'evaluaciones') {
+        return { select: () => ({ eq: () => ({ maybeSingle: () => res({ estado }) }) }) }
+      }
+      if (tabla === 'items') return { select: () => ({ in: () => res(null, { message: 'no se usa' }) }) }
+      throw new Error(`tabla inesperada: ${tabla}`)
+    })
+    rpcMock.mockResolvedValue({ data: null, error: null })
+  }
+
+  it('si la evaluación ya no está activa, lo dice en vez de seguir probando', async () => {
+    conEvaluacion('CERRADA')
+
+    await expect(
+      guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')])
+    ).rejects.toMatchObject({ causa: 'evaluacion_cerrada' })
+  })
+
+  it('si sigue abierta, sigue siendo un rechazo genérico', async () => {
+    conEvaluacion('ACTIVA')
+
+    await expect(
+      guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')])
+    ).rejects.toMatchObject({ causa: 'rechazada' })
+  })
+
+  it('si no se puede leer el estado, no se inventa la causa', async () => {
+    fromMock.mockImplementation((tabla: string) => {
+      if (tabla === 'instancias_grupo') return { upsert: () => res(null, RLS) }
+      if (tabla === 'evaluaciones') return { select: () => ({ eq: () => ({ maybeSingle: () => res(null, null) }) }) }
+      throw new Error(`tabla inesperada: ${tabla}`)
+    })
+
+    await expect(
+      guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')])
+    ).rejects.toMatchObject({ causa: 'rechazada' })
+  })
+})
+
 describe('la pantalla no promete lo que un ítem borrado no puede dar', () => {
   const pagina = () => fuente('../../pages/evaluar/EvaluarSucursal.tsx')
 
@@ -154,5 +287,13 @@ describe('la pantalla no promete lo que un ítem borrado no puede dar', () => {
     const p = pagina()
     expect(p).toContain('no se pudo subir')
     expect(p).toContain('etiquetaDeItem.get(id)')
+  })
+
+  it('distingue el descarte por permiso del descarte por ítem borrado', () => {
+    // Mismo banner, dos problemas distintos: contra el ítem borrado avisarle al
+    // Líder que editó la plantilla; contra el permiso, que revise la asignación.
+    const p = pagina()
+    expect(p).toContain("descarte.motivos.includes('sin_permiso')")
+    expect(p).toContain('no te da permiso')
   })
 })

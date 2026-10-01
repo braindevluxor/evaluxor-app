@@ -51,7 +51,7 @@ export function IncidenciasEvaluacion({ evaluacionId }: { evaluacionId: string }
         }>
 
         const evaluadorIds = [...new Set(incidencias.map((i) => i.evaluador_id).filter(Boolean))]
-        let nombresPorEvaluador = new Map<string, string>()
+        const nombresPorEvaluador = new Map<string, string>()
         if (evaluadorIds.length) {
           const { data: perfiles, error: perfilError } = await supabase
             .from('profiles')

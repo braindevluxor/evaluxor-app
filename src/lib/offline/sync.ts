@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import { causaSubida, errorSubida } from '../subida'
+import { causaSubida, errorSubida, type ErrorSubida } from '../subida'
 import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, respuestasConInstancia, incidentesPendientes, eliminarIncidente, type SyncJob, type DraftEval } from './db'
 import { photoPath, convertirValor, extraerPhotoIds, valorSinFotos } from './transform'
 
@@ -49,10 +49,31 @@ type FilaRespuesta = {
   respondido_por: string
 }
 
-/** Respuestas que no se pudieron subir porque su ítem ya no existe en el catálogo. */
+/** Por qué un ítem del lote no se pudo subir. */
+export type MotivoDescarte = 'item_borrado' | 'sin_permiso'
+
+/** Ítems del lote que no se pudieron subir, y por qué. */
 export interface Descarte {
-  /** Ítems del lote que el servidor ya no tiene. */
   item_ids: string[]
+  motivos: MotivoDescarte[]
+}
+
+/** Agrupa filas por ítem, conservando el orden en que llegaron. */
+function agruparPorItem<T extends { item_id: string }>(filas: T[]): [string, T[]][] {
+  const grupos = new Map<string, T[]>()
+  for (const f of filas) {
+    const g = grupos.get(f.item_id)
+    if (g) g.push(f)
+    else grupos.set(f.item_id, [f])
+  }
+  return [...grupos]
+}
+
+function unirDescartes(a: Descarte, b: Descarte): Descarte {
+  return {
+    item_ids: [...new Set([...a.item_ids, ...b.item_ids])],
+    motivos: [...new Set([...a.motivos, ...b.motivos])]
+  }
 }
 
 /**
@@ -71,43 +92,81 @@ async function itemsQueSobreviven(ids: string[]): Promise<Set<string> | null> {
 }
 
 /**
- * Sube registros (instancias) y respuestas, y se recupera solo del 23503.
+ * Un upsert que se manda entero y, si RLS lo rechaza, se reintenta ítem por ítem.
  *
- * El caso real: alguien editó la plantilla y borró un ítem que el evaluador ya
- * había respondido en el teléfono. Esa fila apunta a un id que ya no está en
- * `items`, así que Postgres la rechaza y nunca entra. Antes esto bloqueaba el
- * lote entero —el resto del avance se quedaba en el teléfono para siempre— y el
- * mensaje además culpaba a la conexión.
+ * El caso real (42501 en `instancias_grupo`): al evaluador le quedó un registro de
+ * una sección que después quedó desactivada, o de un módulo que le dieron de
+ * baja. `puede_manejar_instancia` devuelve false para ese ítem, el upsert del
+ * lote entero se rechaza, y el resto del avance se queda trabado en el teléfono
+ * para siempre. El servidor no dice qué fila fue, así que en el camino de error
+ * se aísla y se descarta solo lo que no pasa.
  *
- * La RPC no dice qué fila falló, así que se le pregunta al catálogo cuáles de
- * los nuestros siguen existiendo y se sube solo esa parte. Si el filtro no saca
- * nada, el 23503 venía de otra FK (evaluación o registro): se propaga el error
- * original en vez de insistir en loop.
- *
- * El upsert de respuestas va por la RPC `upsert_respuestas` (schema.sql): declara
+ * El camino rápido es el de siempre (una sola llamada): esto solo corre cuando el
+ * lote entero fue rechazado. Y si tampoco pasa ningún grupo, el problema no es de
+ * un ítem (evaluación cerrada, módulo dado de baja para todo) y se propaga el
+ * error del lote, que es más informativo.
+ */
+async function upsertAislado<T extends { item_id: string }>(
+  filas: T[],
+  enviar: (grupo: T[]) => PromiseLike<{ error: unknown }>
+): Promise<Descarte> {
+  if (!filas.length) return { item_ids: [], motivos: [] }
+
+  const todo = await enviar(filas)
+  if (!todo.error) return { item_ids: [], motivos: [] }
+  if (causaSubida(todo.error) !== 'rechazada') throw todo.error
+
+  const grupos = agruparPorItem(filas)
+  const sinPermiso: string[] = []
+  for (const [item_id, grupo] of grupos) {
+    const r = await enviar(grupo)
+    if (!r.error) continue
+    if (causaSubida(r.error) !== 'rechazada') throw r.error
+    sinPermiso.push(item_id)
+  }
+  if (sinPermiso.length === grupos.length) throw todo.error
+  return { item_ids: sinPermiso, motivos: ['sin_permiso'] }
+}
+
+/** Registros de secciones repetibles. Las políticas los governing `puede_manejar_instancia`. */
+async function subirInstancias(inst: FilaInstancia[]): Promise<Descarte> {
+  return upsertAislado(inst, (grupo) => supabase.from('instancias_grupo').upsert(grupo, { onConflict: 'id' }))
+}
+
+/**
+ * Respuestas. El upsert va por la RPC `upsert_respuestas` (schema.sql): declara
  * el predicado exacto de cada índice parcial (directas y por registro), algo que
  * PostgREST no puede expresar con `on_conflict`. Aplica las políticas RLS de
  * respuestas igual que un upsert directo.
+ *
+ * Agrupar por ítem no rompe los índices: las dos claves únicas llevan `item_id`.
+ */
+async function subirRespuestas(resp: FilaRespuesta[]): Promise<Descarte> {
+  return upsertAislado(resp, (grupo) => supabase.rpc('upsert_respuestas', { rows: grupo }))
+}
+
+/**
+ * Sube registros (instancias) y respuestas, y se recupera de dos rechazos.
+ *
+ * 23503 (ítem borrado): alguien editó la plantilla y borró un ítem que el
+ * evaluador ya había respondido. La fila apunta a un id que ya no está en
+ * `items`. Se le pregunta al catálogo cuáles de los nuestros siguen existiendo y
+ * se sube solo esa parte. Si el filtro no saca nada, la FK que falló era otra y
+ * se propaga el error original en vez de insistir en loop.
+ *
+ * 42501 (sin permiso): lo resuelve `upsertAislado`, sin sacar nada del lote.
  */
 async function subirLote(inst: FilaInstancia[], resp: FilaRespuesta[]): Promise<Descarte> {
   let instLote = inst
   let respLote = resp
 
-  const intentar = async (): Promise<void> => {
+  const intentar = async (): Promise<Descarte> => {
     // Las instancias van antes que sus respuestas (FK).
-    if (instLote.length) {
-      const { error } = await supabase.from('instancias_grupo').upsert(instLote, { onConflict: 'id' })
-      if (error) throw error
-    }
-    if (respLote.length) {
-      const { error } = await supabase.rpc('upsert_respuestas', { rows: respLote })
-      if (error) throw error
-    }
+    return unirDescartes(await subirInstancias(instLote), await subirRespuestas(respLote))
   }
 
   try {
-    await intentar()
-    return { item_ids: [] }
+    return await intentar()
   } catch (e) {
     if (causaSubida(e) !== 'item_borrado') throw e
 
@@ -123,9 +182,25 @@ async function subirLote(inst: FilaInstancia[], resp: FilaRespuesta[]): Promise<
 
     instLote = instVivas
     respLote = respVivas
-    await intentar()
-    return { item_ids: descartados }
+    return unirDescartes({ item_ids: descartados, motivos: ['item_borrado'] }, await intentar())
   }
+}
+
+/**
+ * Un 42501 tiene cuatro causas posibles (evaluación no activa, ítem desactivado,
+ * asignación dada de baja, módulo no habilitado en la sucursal) y el mensaje las
+ * adivinaba todas. El cliente solo puede distinguir la primera con certeza, y es
+ * la más común: se consulta y se dice la verdad en vez de seguir probando.
+ */
+async function precisarCausaDePermiso(e: ErrorSubida, evaluacionId: string): Promise<ErrorSubida> {
+  if (e.causa !== 'rechazada') return e
+  const { data } = await supabase.from('evaluaciones').select('estado').eq('id', evaluacionId).maybeSingle()
+  const estado = (data as { estado?: string } | null)?.estado
+  if (!estado || estado === 'ACTIVA') return e
+  const err = new Error(e.message) as ErrorSubida
+  err.causa = 'evaluacion_cerrada'
+  err.detalle = e.detalle
+  return err
 }
 
 // Marca de la última subida a la nube del usuario actual (`profiles.ultima_sync`,
@@ -153,7 +228,7 @@ export async function guardarBorradorNube(
   respuestas: { item_id: string; instancia_id: string | null; valor: unknown }[],
   instancias: { id: string; item_id: string; etiqueta: string; orden: number; api_id?: string; datos?: Record<string, unknown> }[] = []
 ): Promise<Descarte> {
-  if (!respuestas.length && !instancias.length) return { item_ids: [] }
+  if (!respuestas.length && !instancias.length) return { item_ids: [], motivos: [] }
   const instRows: FilaInstancia[] = instancias.map((ins) => ({
     id: ins.id,
     evaluacion_id: evaluacionId,
@@ -176,7 +251,7 @@ export async function guardarBorradorNube(
   } catch (e) {
     // Se propaga tipado (causa + detalle técnico) para que la pantalla diga qué
     // pasó de verdad en vez de culpar siempre a la conexión.
-    throw errorSubida(e, 'guardar el avance')
+    throw await precisarCausaDePermiso(errorSubida(e, 'guardar el avance'), evaluacionId)
   }
   // La subida terminó bien: queda registrada como última sincronización del usuario.
   void marcarSyncNube()

@@ -89,9 +89,13 @@ describe('biometrico · detección USB real (no mock)', () => {
     expect(typeof info.conectado).toBe('boolean')
     expect(typeof info.disponible).toBe('boolean')
     if (info.conectado) {
-      expect(info.sirve).toBe(false) // el D100 por USB es CD-ROM virtual
-      expect(info.transporte).toBe('cdrom-virtual')
-      expect(info.mensaje).toMatch(/no se leen marcajes|no es un canal/i)
+      // Lo que no puede cambiar: por USB el D100 no entrega marcajes, diga el
+      // transporte que Windows decida exponer en cada conexión (CD-ROM virtual,
+      // compuesto, HID). El transporte exacto es del entorno, no del contrato.
+      expect(info.sirve).toBe(false)
+      expect(info.transporte).toBeTruthy()
+      // Y que el mensaje mande al camino que sí funciona, en vez de dead-endear.
+      expect(info.mensaje).toMatch(/marcajes\.csv|software de PC de Anviz/i)
     } else {
       expect(info.mensaje).toBeTruthy()
     }
