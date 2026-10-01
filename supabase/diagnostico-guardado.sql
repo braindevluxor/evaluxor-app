@@ -19,6 +19,12 @@
 --   3. que el módulo esté asignado al evaluador con asignaciones_modulos.activa;
 --   4. que el módulo esté habilitado para esa sucursal (sucursal_modulos.activa).
 --
+-- Los registros de sección repetible (`instancias_grupo`) los governs
+-- puede_manejar_instancia, que pide lo mismo SALVO el punto 2: un ítem
+-- desactivado no impide guardar sus registros, solo sus respuestas. Por eso la
+-- columna `bloquea` dice a qué tabla aplica cada problema, para no ir a buscar
+-- al lugar equivocado.
+--
 -- Las cuatro aparecen abajo. `sucursal_items` NO aparece porque no bloquea el
 -- guardado: RLS no lo consulta (sí afecta qué ítems se muestran en la app).
 -- ============================================================================
@@ -48,7 +54,7 @@ evaluaciones_bloqueadas as (
 
 -- 1.
 select 'EVALUACION NO ACTIVA' as problema,
-       'estado = ' || ev.estado as detalle,
+       'bloquea respuestas e instancias_grupo · estado = ' || ev.estado as detalle,
        ev.sucursal || ' · ' || to_char(ev.fecha, 'DD/MM/YYYY') as donde
 from evaluaciones_bloqueadas ev
 
@@ -56,7 +62,7 @@ union all
 
 -- 2.
 select 'ASIGNACION DADA DE BAJA',
-       'el módulo "' || m.nombre || '" ya no le está asignado (activa = false)',
+       'bloquea respuestas e instancias_grupo · el módulo "' || m.nombre || '" ya no le está asignado (activa = false)',
        coalesce(o.nombre, o.usuario)
 from public.asignaciones_modulos am
 join public.modulos m on m.id = am.modulo_id
@@ -67,7 +73,7 @@ union all
 
 -- 3. El ítem se llama `texto` en la tabla items (no tiene columna `nombre`).
 select 'ITEM DESACTIVADO',
-       m.nombre || ' → ' || left(i.texto, 60) || ' (items.activo = false)',
+       'bloquea SOLO respuestas (las instancias sí se guardan) · ' || m.nombre || ' → ' || left(i.texto, 60) || ' (items.activo = false)',
        coalesce(o.nombre, o.usuario)
 from public.items i
 join public.modulos m on m.id = i.modulo_id
@@ -80,7 +86,7 @@ union all
 -- 4. El módulo no está habilitado en una sucursal que SÍ tiene otros módulos
 --    activos: el `exists` de puede_responder no lo encuentra y bloquea.
 select 'MODULO NO APLICA A LA SUCURSAL',
-       m.nombre || ' → ' || b.sucursal || ' (tiene ' || b.bloqueadas || ' módulo/s activo/s, no este)',
+       'bloquea respuestas e instancias_grupo · ' || m.nombre || ' → ' || b.sucursal || ' (tiene ' || b.bloqueadas || ' módulo/s activo/s, no este)',
        coalesce(o.nombre, o.usuario)
 from public.asignaciones_modulos am
 join public.modulos m on m.id = am.modulo_id
