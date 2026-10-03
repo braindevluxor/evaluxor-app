@@ -7,7 +7,7 @@ import { listarColaboradores } from '../lib/data/colaboradores'
 import { aplicarHistorial, combinarPorDni } from '../lib/data/colaboradoresEstado'
 import { estadosCompletosDeEvaluacionesAnteriores } from '../lib/data/colaboradoresHistorico'
 import { formatearValorConsulta } from '../lib/data/apis'
-import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar } from './ui'
+import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar, ProgressBar } from './ui'
 import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
 import { BarcodeScanner } from './BarcodeScanner'
@@ -762,6 +762,12 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
   const [pendienteCombinacion, setPendienteCombinacion] = useState<{ colaboradores: ColaboradorItem[]; perdidos: ColaboradorItem[]; historial: Map<number, ColaboradorItem> } | null>(null)
   /** Evita volver a pedir el historial en cada remount del ítem. */
   const historicoPedido = useRef(false)
+  /**
+   * Ya se sabe qué trabajadores estaban completos antes. `false` hasta que se
+   * consulta (o hasta que se decide que no hay nada que consultar). Es lo único
+   * que separa "lista depurada" de "lista entera".
+   */
+  const [historialResuelto, setHistorialResuelto] = useState(false)
 
   const v = (valor as ValorListaColaboradores | null) ?? { colaboradores: [] }
   const colaboradores = v.colaboradores ?? []
@@ -801,6 +807,10 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
   // La API de trabajadores usa un ID de sucursal propio (branch_id) que puede
   // diferir del shop_id (productos). Si no está configurado, cae al shop_id.
   const idTrabajadores = branchId ?? shopId
+  // Si no hay sucursal, fecha o checks, no hay historial que traer: la lista se
+  // muestra entera desde el primer render y no hay barra.
+  const puedeConsultarHistorial = !!sucursalId && !!fechaEvaluacion && idsChecks.length > 0
+  const historialPendiente = !historialResuelto && puedeConsultarHistorial && colaboradores.length > 0
 
   const actualizar = (cols: ColaboradorItem[]) => onChange({ ...v, colaboradores: cols })
   const limpiar = () => {
@@ -817,6 +827,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
     // Y se libera la consulta: la lista quedó vacía, así que al recargarla hay
     // que volver a preguntarle al servidor cuáles eran los resueltos.
     historicoPedido.current = false
+    setHistorialResuelto(false)
     actualizar([])
   }
   const ocultarResueltos = (historial: Map<number, ColaboradorItem>, lista: ColaboradorItem[]) => {
@@ -832,12 +843,33 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
     // preguntar "hay alguno ya resuelto" ahí siempre da falso y nunca se consulta.
     // Lo único que se sabe sin consultar es si hay lista cargada; si no hay
     // colaboradores, no hay nada que ocultar.
-    if (historicoPedido.current || !sucursalId || !fechaEvaluacion || !idsChecks.length) return
-    if (!colaboradores.length) return
+    if (historicoPedido.current || !puedeConsultarHistorial || !colaboradores.length) return
     historicoPedido.current = true
-    const historial = await estadosCompletosDeEvaluacionesAnteriores(sucursalId, item.id, fechaEvaluacion, idsChecks)
+    const historial = await estadosCompletosDeEvaluacionesAnteriores(sucursalId!, item.id, fechaEvaluacion!, idsChecks)
     setResueltosAntes(historial)
+    setHistorialResuelto(true)
   }
+
+  /**
+   * Si la lista todavía no se sabe depurada, no se muestra.
+   *
+   * No es un estado con `useState` a propósito. Sale de lo que se sabe, no de
+   * lo que alguien se acordara de apagar. Así no hay forma de que la barra quede
+   * girando para siempre porque un `return` temprano se olvidó de apagarla: si
+   * no hay nada que consultar, `puedeConsultarHistorial` da falso y no hay barra
+   * desde el primer render.
+   *
+   * Esto tapa los dos casos en que la lista se veía entera y después se
+   * acortaba sola: apretar "Actualizar listado" y volver al ítem desde otro
+   * paso. En los dos, hasta saber quién ya estaba completo, no se muestra nada.
+   */
+  const hayAlgoQueEsperar = cargando || historialPendiente
+
+  const textoCarga = cargando
+    ? historialPendiente
+      ? 'Consultando la tienda y revisando los que ya estaban completos…'
+      : 'Consultando la lista de la tienda…'
+    : 'Revisando los que ya estaban completos en la evaluación anterior…'
 
   // Al volver al ítem el componente se vuelve a montar y el estado local se
   // pierde. Los que estaban ocultos siguen guardados en el valor (con su estado
@@ -877,8 +909,12 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
     ])
     setCargando(false)
     // El historial ya está en la mano: se marca como pedido para que el efecto de
-    // remount no vuelva a preguntar lo mismo.
+    // remount no vuelva a preguntar lo mismo. Y como ya se sabe qué estaba
+    // completo, la lista se puede pintar depurada. Va antes de los `return` de
+    // error a propósito: si la consulta falló y se devuelve el mapa vacío, la
+    // lista se ve entera, pero no debe quedar la barra girando.
     historicoPedido.current = true
+    setHistorialResuelto(true)
     if (r.mensaje) {
       setInfo(r.mensaje)
       return
@@ -909,6 +945,9 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
 
     if (perdidos.length) {
       // Hay trabajo humano que la API ya no trae. No se descarta solo: se pregunta.
+      // El historial se aplica igual, para que la lista que se ve detrás del
+      // diálogo no sea la entera cuando el filtro ya se sabe.
+      setResueltosAntes(historial)
       setPendienteCombinacion({ colaboradores: combinados, perdidos, historial })
       return
     }
@@ -991,20 +1030,37 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
             </Button>
           ) : null}
         </div>
-        {cargando ? (
-          <p className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Spinner /> Consultando colaboradores…</p>
-        ) : info ? (
+        {cargando ? null : info ? (
           <p className="mt-2 text-xs font-medium text-amber-600">{info}</p>
         ) : null}
       </div>
+
+      {/*
+        La barra va arriba de la lista y no adentro, porque mientras está no hay
+        lista: hasta saber quién ya estaba completo, mostrar los diez y después
+        sacar cinco se lee como que la app se arrepintió. También reemplaza al
+        spinner del header, que decía lo mismo en otra parte y dejaba dos
+        indicadores para una sola espera.
+      */}
+      {hayAlgoQueEsperar ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <ProgressBar indeterminate />
+          <p className="mt-2 text-xs text-slate-500">{textoCarga}</p>
+        </div>
+      ) : null}
 
       {/*
         Los que ya estaban completos. El aviso va fuera de la lista y antes del
         buscador porque es lo primero que hay que entender al abrir el ítem: si
         no, un evaluador ve "9 de 10 completos" y una sola persona en pantalla y
         piensa que faltan nueve.
+
+        Todo lo de abajo —aviso, buscador y lista— se esconde mientras hay algo
+        que esperar. Si no, al volver al ítem se veían los diez un instante y
+        al terminar la consulta quedaban cinco: el flash es justo lo que esta
+        barra viene a tapar.
       */}
-      {resueltosAntes.size ? (
+      {!hayAlgoQueEsperar && resueltosAntes.size ? (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2">
           <Check className="h-4 w-4 shrink-0 text-green-600" />
           <p className="min-w-0 flex-1 text-xs text-green-800">
@@ -1022,7 +1078,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         </div>
       ) : null}
 
-      {colaboradores.length ? (
+      {!hayAlgoQueEsperar && colaboradores.length ? (
         <div className="space-y-3">
           {/* Buscador fijo: no se pierde al hacer scroll en listas largas. Se pega
               debajo de la cabecera sticky del layout (top-16 = 64px) y -mx-4/px-4
@@ -1163,9 +1219,9 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
             </p>
           )}
         </div>
-      ) : (
+      ) : !hayAlgoQueEsperar ? (
         <p className="text-sm text-slate-400">Aún no hay colaboradores cargados. Pulsa “Cargar colaboradores” para traerlos de la tienda.</p>
-      )}
+      ) : null}
       <Confirmar
         open={confirmarLimpiar}
         texto="¿Querés vaciar la lista de colaboradores? Se quitarán todos y se descartan los avances del checklist. Después podés volver a cargarla desde la tienda con «Cargar colaboradores»."

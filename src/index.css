@@ -219,6 +219,34 @@ input[type='date'] {
   }
 }
 
+/* --- Barra de carga indeterminada -------------------------------------------
+   El ancho de una consulta no se sabe de antemano: puede tardar un frame o
+   tres segundos. En vez de fingir un porcentaje que no se tiene, lo que avanza
+   es un segmento de largo fijo que recorre la pista en loop.
+   El `translateX` va de -100% (el segmento enteramente a la izquierda del
+   inicio) a 250% (su ancho es 2/5 del carril, así que 250% de su propio ancho
+   lo deja apenas saliendo por la derecha). Sin ese último margen el segmento
+   desaparece un instante antes de que el loop reinicie y se nota el corte. */
+.barra-indeterminada > span {
+  animation: barra-indeterminada-mover 1.15s ease-in-out infinite;
+}
+@keyframes barra-indeterminada-mover {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+/* Respetar "reducir movimiento": sin esto el segmento queda quieto a la
+   izquierda y parece una barra rota en vez de una barra cargando. */
+@media (prefers-reduced-motion: reduce) {
+  .barra-indeterminada > span {
+    animation: none;
+    transform: translateX(60%);
+  }
+}
+
 /* --- Quitar el borde de foco negro al hacer clic en los gráficos (recharts 3 habilita accesibilidad por defecto) --- */
 .recharts-wrapper:focus,
 .recharts-wrapper:focus-visible,

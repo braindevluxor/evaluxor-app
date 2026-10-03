@@ -305,13 +305,43 @@ export function Confirmar({
   )
 }
 
-export function ProgressBar({ value, className }: { value: number; className?: string }) {
+/**
+ * Barra de progreso.
+ *
+ * Con `value` conocido el ancho es ese porcentaje. Con `indeterminate` el ancho no
+ * se sabe —una consulta puede tardar un frame o tres segundos— y lo que avanza
+ * es un segmento, que es lo honesto: un porcentaje inventado que queda clavado
+ * en 90% durante medio segundo se lee como que la app se cuelgó.
+ *
+ * `indeterminate` no lleva `aria-valuenow` a propósito: assistive tech
+ * anunciaría un número que no existe.
+ */
+export function ProgressBar({
+  value,
+  indeterminate = false,
+  className
+}: {
+  value?: number
+  indeterminate?: boolean
+  className?: string
+}) {
   return (
-    <div className={cn('h-2 w-full overflow-hidden rounded-full bg-slate-200', className)}>
-      <div
-        className="h-full rounded-full bg-primary transition-all duration-300"
-        style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
-      />
+    <div
+      className={cn('h-2 w-full overflow-hidden rounded-full bg-slate-200', className)}
+      role="progressbar"
+      aria-label={indeterminate ? 'Cargando' : 'Progreso'}
+      aria-valuemin={indeterminate ? undefined : 0}
+      aria-valuemax={indeterminate ? undefined : 100}
+      aria-valuenow={indeterminate ? undefined : Math.max(0, Math.min(100, value ?? 0))}
+    >
+      {indeterminate ? (
+        <span className="barra-indeterminada block h-full w-2/5 rounded-full bg-primary" />
+      ) : (
+        <div
+          className="h-full rounded-full bg-primary transition-all duration-300"
+          style={{ width: `${Math.max(0, Math.min(100, value ?? 0))}%` }}
+        />
+      )}
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { ItemRenderer } from './ItemRenderer'
+import { ProgressBar } from './ui'
 import type { Item } from '../lib/types'
 
 function itemDe(texto: string, repetible?: boolean | null): Item {
@@ -222,6 +223,117 @@ describe('ItemRenderer · limpiar lista de colaboradores', () => {
 })
 
 /**
+ * La barra de carga hasta que la lista esté depurada.
+ *
+ * Estos tests son de markup, no de source, y esa es la gracia: el flash era un
+ * problema de lo que se pinta en el primer render, y un test que lee el código no
+ * lo vería. Con el valor guardado (el caso de volver al ítem desde otro paso) el
+ * primer render tiene que ser la barra y nada de la lista.
+ */
+describe('ItemRenderer · la lista no aparece sin depurar', () => {
+  const listaGuardada = {
+    colaboradores: [
+      { dni: 1, nationality: 'V-', name: 'Ana', lastname: 'Gómez', role_id: 1, role_name: 'Cajera', branch_id: 1, branch_name: '', admission_date: null, active: true, aplica: true, selected: ['o1'] },
+      { dni: 2, nationality: 'V-', name: 'Luis', lastname: 'Pérez', role_id: 2, role_name: 'Cajero', branch_id: 1, branch_name: '', admission_date: null, active: true, aplica: true, selected: ['o1'] }
+    ]
+  }
+
+  it('con lista guardada, el primer render es la barra y no se ve ningún nombre', () => {
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemColaboradores()} valor={listaGuardada} index={0} total={1} onChange={() => {}} sucursalId="s-1" fechaEvaluacion="2026-03-01" />
+    )
+    expect(html).toContain('Revisando los que ya estaban completos')
+    expect(html).toContain('barra-indeterminada')
+    // Lo esencial: todavía no se sabe quién estaba completo, así que no se
+    // muestra a nadie. Este es el flash que la barra viene a tapar.
+    expect(html).not.toContain('Gómez')
+    expect(html).not.toContain('Pérez')
+    expect(html).not.toContain('Buscar por documento')
+  })
+
+  it('sin sucursal no hay nada que esperar y la lista se ve de una', () => {
+    // Sin historial que traer, una barra sería una espera falsa.
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemColaboradores()} valor={listaGuardada} index={0} total={1} onChange={() => {}} />
+    )
+    expect(html).toContain('Gómez')
+    expect(html).not.toContain('Revisando los que ya estaban completos')
+  })
+
+  it('sin fecha tampoco hay nada que esperar', () => {
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemColaboradores()} valor={listaGuardada} index={0} total={1} onChange={() => {}} sucursalId="s-1" />
+    )
+    expect(html).toContain('Gómez')
+    expect(html).not.toContain('Revisando los que ya estaban completos')
+  })
+
+  it('sin lista cargada no hay barra: se ve el botón de cargar', () => {
+    // Recién-mounted y vacío: todavía no hay nada que depurar, así que la barra
+    // solo taparía el botón que hay que apretar.
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemColaboradores()} valor={undefined} index={0} total={1} onChange={() => {}} sucursalId="s-1" fechaEvaluacion="2026-03-01" />
+    )
+    expect(html).toContain('Cargar colaboradores')
+    expect(html).not.toContain('Revisando los que ya estaban completos')
+  })
+
+  it('la barra se apaga aunque la consulta de la tienda falle', () => {
+    // `setHistorialResuelto(true)` va antes de los `return` de error a
+    // propósito. Si quedara después, con la API caída la lista quedaría
+    // reemplazada por una barra girando para siempre y el evaluador no podría
+    // trabajar ni ver por qué.
+    const src = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
+    const cargar = src.slice(src.indexOf('const cargar = async () => {'), src.indexOf('const marcarAplica'))
+    const marca = cargar.indexOf('setHistorialResuelto(true)')
+    const error = cargar.indexOf('if (r.mensaje)')
+    expect(marca).toBeGreaterThan(-1)
+    expect(error).toBeGreaterThan(-1)
+    expect(marca).toBeLessThan(error)
+  })
+
+  it('el pendiente es derivado, no un estado: no se puede quedar girando', () => {
+    const src = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
+    // Si `historialPendiente` fuera `useState`, un camino olvidado lo dejaría en
+    // true para siempre. Al derivarlo de "hay lista y hay qué consultar y no
+    // resolví", no hay estado que olvidar.
+    expect(src).toContain('const historialPendiente = !historialResuelto && puedeConsultarHistorial && colaboradores.length > 0')
+    expect(src).not.toMatch(/const \[historialPendiente, setHistorialPendiente\] = useState/)
+    // Y la lista se esconde con el mismo flag.
+    expect(src).toContain('const hayAlgoQueEsperar = cargando || historialPendiente')
+    expect(src).toMatch(/\{!hayAlgoQueEsperar && colaboradores\.length \? \(/)
+  })
+
+  it('mientras carga, el aviso de los resueltos tampoco se muestra', () => {
+    const src = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
+    expect(src).toMatch(/\{!hayAlgoQueEsperar && resueltosAntes\.size \? \(/)
+  })
+})
+
+describe('ProgressBar · modo indeterminado', () => {
+  it('el indeterminado no finge un porcentaje', () => {
+    const html = renderToStaticMarkup(<ProgressBar indeterminate />)
+    expect(html).toContain('barra-indeterminada')
+    expect(html).toContain('role="progressbar"')
+    // Un aria-valuenow en un barra sin porcentaje conocido hace que el lector de
+    // pantalla anuncie un número que no existe.
+    expect(html).not.toContain('aria-valuenow')
+  })
+
+  it('el determinado mantiene el ancho por porcentaje', () => {
+    const html = renderToStaticMarkup(<ProgressBar value={40} />)
+    expect(html).toContain('width:40%')
+    expect(html).toContain('aria-valuenow="40"')
+    expect(html).not.toContain('barra-indeterminada')
+  })
+
+  it('apila los valores fuera de rango en vez de romper el ancho', () => {
+    expect(renderToStaticMarkup(<ProgressBar value={140} />)).toContain('width:100%')
+    expect(renderToStaticMarkup(<ProgressBar value={-20} />)).toContain('width:0%')
+  })
+})
+
+/**
  * El cableado de "Actualizar listado". El render es de servidor, así que los
  * efectos no corren y la consulta al historial no se dispara: lo que se verifica
  * acá es que las piezas estén conectadas en el orden correcto, que es donde se
@@ -278,7 +390,7 @@ describe('ItemRenderer · actualizar el listado sin perder lo revisado', () => {
 
   it('pregunta antes de descartar a quien ya no está en la tienda', () => {
     const src = fuente('./ItemRenderer.tsx')
-    expect(src).toMatch(/if \(perdidos\.length\) \{[\s\S]{0,200}?setPendienteCombinacion/)
+    expect(src).toMatch(/if \(perdidos\.length\) \{[\s\S]{0,400}?setPendienteCombinacion/)
     expect(src).toContain('textoConfirmar="Actualizar igual"')
     // Y el botón no es rojo: no se está por borrar, se está aplicando la lista nueva.
     expect(src).toMatch(/textoConfirmar="Actualizar igual"\s*\n\s*variant="secondary"/)
@@ -310,7 +422,9 @@ describe('ItemRenderer · actualizar el listado sin perder lo revisado', () => {
     // reaparecían al volver al ítem.
     const src = fuente('./ItemRenderer.tsx')
     const guard = src.slice(src.indexOf('const ocultarAunSinCargar'), src.indexOf('// Al volver al ítem'))
-    expect(guard).toContain('if (!colaboradores.length) return')
+    // Los tres cortes van en una sola línea: si falta cualquiera de los tres se
+    // consulta al server por nada (o se espera un dato que no existe).
+    expect(guard).toContain('if (historicoPedido.current || !puedeConsultarHistorial || !colaboradores.length) return')
     expect(guard).not.toMatch(/resueltosAntes\.has/)
   })
 
