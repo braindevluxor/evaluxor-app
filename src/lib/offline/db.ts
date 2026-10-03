@@ -104,6 +104,8 @@ export interface SyncJob {
   respuestas: { item_id: string; instancia_id: string | null; valor: unknown }[]
   photoIds: string[]
   status: 'pending' | 'processing'
+  /** Momento en que empezó el intento actual; permite recuperar trabajos tras cerrar la app. */
+  processing_at?: number
   created_at: number
 }
 

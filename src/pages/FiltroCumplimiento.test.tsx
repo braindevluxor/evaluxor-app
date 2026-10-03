@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { FiltroCumplimiento, pathsEvidenciaCumple, ValorRespuesta } from './EvaluacionDetalle'
+import { pathsEvidenciaChecklist, pathsEvidenciaCumple } from '../lib/evidencias'
+import { FiltroCumplimiento, ValorRespuesta } from './EvaluacionDetalle'
 import type { VeredictoItem } from '../lib/scoring'
 import type { Item } from '../lib/types'
 
@@ -170,6 +171,16 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
           { paths: ['evaluacion/item/foto-1.jpg', 'evaluacion/item/foto-2.jpg'] }
         ]
       })).toEqual(['evaluacion/item/foto-1.jpg', 'evaluacion/item/foto-2.jpg'])
+    })
+
+    it('recupera rutas checklist desde la respuesta aunque falte la fila de fotos', () => {
+      expect(pathsEvidenciaChecklist({
+        selected: ['limpieza'],
+        evidencias: {
+          limpieza: { paths: ['ev/job/evidencia/foto.jpg'] },
+          otra: { paths: ['ev/job/evidencia/foto.jpg'] }
+        }
+      })).toEqual(['ev/job/evidencia/foto.jpg'])
     })
 
     it('tolera valores históricos sin evidencias o con una forma inválida', () => {

@@ -16,19 +16,7 @@ import { UltimaSync } from '../components/UltimaSync'
 import { IncidenciasEvaluacion } from '../components/IncidenciasEvaluacion'
 import { Fotogaleria } from '../components/dashboard/Fotogaleria'
 import { PlanoLectura } from '../components/PlanoEditor'
-
-function extraerPaths(v: unknown): string[] {
-  const p = (v as { paths?: unknown } | null)?.paths
-  const ids = (v as { photoIds?: unknown } | null)?.photoIds
-  const arr = Array.isArray(p) ? p : Array.isArray(ids) ? ids : []
-  return arr.filter((x): x is string => typeof x === 'string')
-}
-
-export function pathsEvidenciaCumple(valor: unknown): string[] {
-  const evidencias = (valor as { evidencias?: unknown } | null)?.evidencias
-  if (!Array.isArray(evidencias)) return []
-  return Array.from(new Set(evidencias.flatMap(extraerPaths)))
-}
+import { pathsEvidenciaChecklist, pathsEvidenciaCumple, pathsEvidenciaOpcion } from '../lib/evidencias'
 
 function estadoBadge(puntaje: number | null): { texto: string; color: number } {
   if (puntaje == null) return { texto: 'Sin puntaje', color: 4 }
@@ -146,11 +134,11 @@ export function ValorRespuesta({
       })
       const pendientes = opcionesSinTildar(opciones, v)
       const conEvidencia = opciones.filter((o) =>
-        !opcionesNoAplican.includes(o.id) && extraerPaths(v?.evidencias?.[o.id]).length > 0
+        !opcionesNoAplican.includes(o.id) && pathsEvidenciaOpcion(v?.evidencias?.[o.id]).length > 0
       ).length
       if (soloIncumplimientos) {
         const fallas = pendientes.map((o) => etiquetaOpcion(o, v))
-        const evidenciasFalla = pendientes.filter((o) => extraerPaths(v?.evidencias?.[o.id]).length > 0).length
+        const evidenciasFalla = pendientes.filter((o) => pathsEvidenciaOpcion(v?.evidencias?.[o.id]).length > 0).length
         return (
           <div className="space-y-3">
             <Pendientes titulo="No cumplidas" etiquetas={fallas} />
@@ -764,8 +752,13 @@ export function EvaluacionDetalle() {
               const fotosItem = fotos.filter(
                 (f) => f.item_id === item.id && (f.instancia_id ?? null) === (res.instancia_id ?? null)
               )
-              const fotosDeValor: Foto[] = item.tipo === 'CUMPLE_NO_CUMPLE'
-                ? pathsEvidenciaCumple(res.valor).map((path) => ({
+              const pathsGuardados = item.tipo === 'CUMPLE_NO_CUMPLE'
+                ? pathsEvidenciaCumple(res.valor)
+                : item.tipo === 'CHECKLIST'
+                  ? pathsEvidenciaChecklist(res.valor)
+                  : []
+              const fotosDeValor: Foto[] = pathsGuardados
+                .map((path) => ({
                     id: path,
                     evaluacion_id: evaluacion.id,
                     item_id: item.id,
@@ -773,7 +766,6 @@ export function EvaluacionDetalle() {
                     path,
                     created_at: res.created_at
                   }))
-                : []
               const pathsRegistrados = new Set(fotosItem.map((foto) => foto.path))
               const fotosRespuesta = [
                 ...fotosItem,

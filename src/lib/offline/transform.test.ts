@@ -62,6 +62,35 @@ describe('idsFotosRespuesta', () => {
       }
     ], ['foto-guardada'])).toEqual(['foto-guardada', 'foto-local-1', 'foto-local-2'])
   })
+  it('recoge fotos de respuestas Checklist y Cumple/No cumple dentro de registros de grupo', () => {
+    const respuestasDeGrupo = [
+      {
+        item_id: 'checklist-hijo',
+        instancia_id: 'registro-1',
+        valor: {
+          selected: [],
+          evidencias: { limpieza: { photoIds: ['foto-checklist'] } }
+        }
+      },
+      {
+        item_id: 'cumple-hijo',
+        instancia_id: 'registro-1',
+        valor: {
+          value: false,
+          evidencias: [{ comentario: 'Falla', photoIds: ['foto-cumple'] }]
+        }
+      },
+      {
+        item_id: 'otro-registro',
+        instancia_id: 'registro-2',
+        valor: {
+          selected: ['x'],
+          evidencias: { x: { photoIds: ['foto-otro-registro'] } }
+        }
+      }
+    ]
+    expect(idsFotosRespuesta(respuestasDeGrupo)).toEqual(['foto-checklist', 'foto-cumple', 'foto-otro-registro'])
+  })
 })
 
 describe('valorSinFotos', () => {

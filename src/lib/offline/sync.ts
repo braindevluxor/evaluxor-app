@@ -6,6 +6,18 @@ import { normalizarResponsables, responsablesAColumna } from '../data/responsabl
 
 export { respuestasConInstancia }
 
+const TIEMPO_MAXIMO_PROCESANDO_MS = 15 * 60 * 1000
+
+export function trabajoProcesandoVencido(
+  job: Pick<SyncJob, 'status' | 'processing_at'>,
+  ahora = Date.now()
+): boolean {
+  return job.status === 'processing' && (
+    typeof job.processing_at !== 'number' ||
+    ahora - job.processing_at >= TIEMPO_MAXIMO_PROCESANDO_MS
+  )
+}
+
 export function instanciasDeDraft(draft: DraftEval): { id: string; item_id: string; etiqueta: string; orden: number; api_id?: string; datos?: Record<string, unknown> }[] {
   return Object.entries(draft.instancias ?? {}).flatMap(([item_id, arr]) =>
     arr.map((ins, i) => ({ id: ins.id, item_id, etiqueta: ins.etiqueta, orden: typeof ins.orden === 'number' ? ins.orden : i, api_id: ins.api_id, datos: ins.datos }))
@@ -267,9 +279,17 @@ export async function procesarCola(): Promise<{ ok: number; fail: number; descar
   // Ítems que el catálogo ya no tiene, por trabajo. La cola no se traba por
   // ellos: se suben las respuestas que siguen vigentes y el resto se avisa.
   const descartes: Descarte[] = []
-  for (const job of jobs) {
-    if (job.status === 'processing') continue
-    await putJob({ ...job, status: 'processing' })
+  for (const queuedJob of jobs) {
+    let job = queuedJob
+    if (job.status === 'processing') {
+      if (!trabajoProcesandoVencido(job)) continue
+      // Versiones anteriores no guardaban cuándo empezó el trabajo; esos estados
+      // son abandonados y deben volver a intentar la carga de sus fotos.
+      job = { ...job, status: 'pending' }
+      await putJob(job)
+    }
+    job = { ...job, status: 'processing', processing_at: Date.now() }
+    await putJob(job)
     const photoIds = idsFotosRespuesta(job.respuestas, job.photoIds)
 
     try {

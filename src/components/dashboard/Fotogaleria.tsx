@@ -7,25 +7,33 @@ export function Fotogaleria({ fotos }: { fotos: Foto[] }) {
   const paths = useMemo(() => Array.from(new Set(fotos.slice(0, 30).map((f) => f.path))), [fotos])
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [cargando, setCargando] = useState(true)
+  const [errorCarga, setErrorCarga] = useState<string | null>(null)
 
   useEffect(() => {
     let activo = true
     setCargando(true)
     setUrls({})
+    setErrorCarga(null)
     if (!paths.length) {
       setCargando(false)
       return
     }
     void (async () => {
       try {
-        const { data } = await supabase.storage.from('evidencias').createSignedUrls(paths, 3600)
+        const { data, error } = await supabase.storage.from('evidencias').createSignedUrls(paths, 3600)
+        if (error) throw error
         if (activo) {
           const map: Record<string, string> = {}
           for (const d of data ?? []) if (d.signedUrl && d.path) map[d.path] = d.signedUrl
           setUrls(map)
+          const faltantes = paths.filter((path) => !map[path]).length
+          if (faltantes) setErrorCarga(`No se encontraron ${faltantes} archivo(s) en el almacenamiento.`)
         }
-      } catch {
-        if (activo) setUrls({})
+      } catch (error) {
+        if (activo) {
+          setUrls({})
+          setErrorCarga(error instanceof Error ? error.message : String(error))
+        }
       } finally {
         if (activo) setCargando(false)
       }
@@ -59,6 +67,11 @@ export function Fotogaleria({ fotos }: { fotos: Foto[] }) {
             />
           </a>
         ))}
+      {errorCarga ? (
+        <p role="alert" className="col-span-full text-xs text-red-700">
+          No se pudieron cargar las fotos: {errorCarga}
+        </p>
+      ) : null}
     </div>
   )
 }
