@@ -1004,6 +1004,13 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
   const aplicando = colaboradores.filter((c) => c.aplica)
   const conChecksAplicables = aplicando.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
   const cumplidos = conChecksAplicables.filter((c) => colaboradorCumple(c, opts)).length
+  const marcados = conChecksAplicables.filter((c) => {
+    const tieneAlgo = c.selected.length > 0 || (c.noAplica?.length ?? 0) > 0
+    return tieneAlgo
+  })
+  const incompletos = marcados.filter((c) => !colaboradorCumple(c, opts)).length
+  const sinMarcar = Math.max(0, conChecksAplicables.length - cumplidos - incompletos)
+  const totalAplicables = conChecksAplicables.length
 
   if (!opts.length) {
     return <p className="text-sm text-slate-400">Sin checklist definido para cada colaborador. El Líder debe configurarlo al crear el ítem.</p>
@@ -1016,8 +1023,15 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         {colaboradores.length ? (
           <>
             <p className="mt-1 text-sm text-slate-600">
-              {aplicando.length} colaboradores en cuenta ({etiquetaFiltro}) · {cumplidos}/{conChecksAplicables.length} completos
-              {conChecksAplicables.length < aplicando.length ? ` · ${aplicando.length - conChecksAplicables.length} sin puntos aplicables` : ''}
+              {aplicando.length} colaboradores en cuenta ({etiquetaFiltro})
+              {totalAplicables > 0 ? (
+                <>
+                  {' · '}
+                  {sinMarcar} sin marcar · {incompletos} incompletos · {cumplidos} completos · {totalAplicables} total
+                </>
+              ) : conChecksAplicables.length < aplicando.length ? (
+                ` · ${aplicando.length - conChecksAplicables.length} sin puntos aplicables`
+              ) : null}
             </p>
           </>
         ) : (
@@ -1120,7 +1134,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                 const todosNoAplican = checksAplicables.length === 0
                 const cumple = !todosNoAplican && colaboradorCumple(c, opts)
                 const marcado = c.selected.length > 0 || (c.noAplica?.length ?? 0) > 0
-                const estado = todosNoAplican ? 'No aplica' : cumple ? 'Cumple' : marcado ? 'En curso' : 'Sin marcar'
+                const estado = todosNoAplican ? 'No aplica' : cumple ? 'Cumple' : marcado ? 'Incompleto' : 'Sin marcar'
                 const estadoClass = todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : marcado ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
                 return (
                   <div key={c.dni} className={cn('rounded-xl border transition-colors', c.aplica ? (cumple ? 'border-green-200 bg-white' : 'border-slate-200 bg-white') : 'border-slate-100 bg-slate-50')}>
