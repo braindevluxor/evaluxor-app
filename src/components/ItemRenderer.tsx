@@ -778,8 +778,26 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
    * anterior) para que el tablero y el puntaje sigan contando a toda la
    * plantilla. Si se ocultaran guardándolos fuera, el porcentaje del ítem se
    * deformaría y la tienda mejorada parecería peor.
+   *
+   * Además, si un trabajador queda completo AHORA (acabás de tildar todo), se
+   * oculta para limpiar la lista. Si lo buscás por cédula o nombre, sigue
+   * apareciendo igual: eso permite volver a revisarlo si querés.
    */
-  const ocultos = mostrarResueltos ? new Set<number>() : new Set(resueltosAntes.keys())
+  const hayBusqueda = busqueda.trim().length > 0
+  const ocultosHistorial = mostrarResueltos ? new Set<number>() : new Set(resueltosAntes.keys())
+  const ocultosAhora = mostrarResueltos ? new Set<number>() : new Set<number>()
+  const optsCalculo = (item.opciones ?? []) as Opcion[]
+  if (!mostrarResueltos && !hayBusqueda && historialResuelto) {
+    for (const c of colaboradores) {
+      if (!c.aplica) continue
+      const checksAplicables = opcionesAplicablesColaborador(c, optsCalculo)
+      if (checksAplicables.length === 0) continue
+      if (colaboradorCumple(c, optsCalculo)) {
+        ocultosAhora.add(c.dni)
+      }
+    }
+  }
+  const ocultos = new Set<number>([...ocultosHistorial, ...ocultosAhora])
   const colaboradoresFiltrados = [...colaboradores]
     .sort((a, b) => {
       const apeA = (a.lastname ?? '').trim().toLocaleLowerCase()
@@ -795,7 +813,10 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
       const nombre = `${c.name ?? ''} ${c.lastname ?? ''}`.toLowerCase()
       return documento.includes(q) || (c.name ?? '').toLowerCase().includes(q) || (c.lastname ?? '').toLowerCase().includes(q) || nombre.includes(q)
     })
-  const colaboradoresVisibles = colaboradoresFiltrados.filter((c) => !ocultos.has(c.dni))
+  const colaboradoresVisibles = colaboradoresFiltrados.filter((c) => {
+    if (!ocultos.has(c.dni)) return true
+    return hayBusqueda
+  })
   const ocultosVisibles = colaboradoresFiltrados.length - colaboradoresVisibles.length
   const opts = useMemo(() => (item.opciones ?? []) as Opcion[], [item.opciones])
   // Solo los ids, y en un useMemo, porque es lo único que la consulta del
@@ -1134,7 +1155,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                 const todosNoAplican = checksAplicables.length === 0
                 const cumple = !todosNoAplican && colaboradorCumple(c, opts)
                 const marcado = c.selected.length > 0 || (c.noAplica?.length ?? 0) > 0
-                const estado = todosNoAplican ? 'No aplica' : cumple ? 'Cumple' : marcado ? 'Incompleto' : 'Sin marcar'
+                const estado = todosNoAplican ? 'No aplica' : cumple ? 'Completo' : marcado ? 'Incompleto' : 'Sin marcar'
                 const estadoClass = todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : marcado ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
                 return (
                   <div key={c.dni} className={cn('rounded-xl border transition-colors', c.aplica ? (cumple ? 'border-green-200 bg-white' : 'border-slate-200 bg-white') : 'border-slate-100 bg-slate-50')}>
@@ -1159,7 +1180,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                         {estado}
                       </span>
                       <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
-                        {todosNoAplican ? 'No aplica' : cumple ? 'Cumple' : `${c.selected.filter((id) => checksAplicables.some((o) => o.id === id)).length}/${checksAplicables.length}`}
+                        {todosNoAplican ? 'No aplica' : cumple ? `${checksAplicables.length}/${checksAplicables.length}` : `${c.selected.filter((id) => checksAplicables.some((o) => o.id === id)).length}/${checksAplicables.length}`}
                       </span>
                       <button
                         type="button"
@@ -1395,7 +1416,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
         {marcadas.length ? (
           <p className="text-sm text-slate-600">
             {codigoVisible ? <span className="font-semibold text-slate-700">{codigoVisible} · </span> : null}
-            {marcadas.length}/{opts.length} requerimientos · {completas ? 'Cumple' : 'Incompleto'}
+            {marcadas.length}/{opts.length} requerimientos · {completas ? 'Completo' : 'Incompleto'}
           </p>
         ) : null}
       </div>
@@ -1469,7 +1490,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                   <div className="flex items-center gap-2 px-3 py-2.5">
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">{u.codigo}</span>
                     <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
-                      {cumple ? 'Cumple' : `${u.selected.length}/${opts.length}`}
+                      {cumple ? 'Completo' : `${u.selected.length}/${opts.length}`}
                     </span>
                     <button
                       type="button"

@@ -54,7 +54,7 @@ describe('ItemRenderer · UNIDAD_CHECKLIST repetible', () => {
     const valor = { unidades: [{ codigo: 'Única', selected: ['o1', 'o2'] }] }
     const html = renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis', false)} valor={valor} index={0} total={1} onChange={() => {}} />)
     expect(html).toContain('2/2 requerimientos')
-    expect(html).toContain('Cumple')
+    expect(html).toContain('Completo')
   })
 })
 
@@ -414,8 +414,10 @@ describe('ItemRenderer · actualizar el listado sin perder lo revisado', () => {
     // Si se sacaran del valor guardado, el tablero los contaría como
     // incumplidos y el porcentaje de la tienda se caería.
     const src = fuente('./ItemRenderer.tsx')
-    expect(src).toContain('const colaboradoresVisibles = colaboradoresFiltrados.filter((c) => !ocultos.has(c.dni))')
-    expect(src).toContain('const ocultos = mostrarResueltos ? new Set<number>() : new Set(resueltosAntes.keys())')
+    expect(src).toContain('const colaboradoresVisibles = colaboradoresFiltrados.filter((c) => {')
+    expect(src).toContain('    if (!ocultos.has(c.dni)) return true')
+    expect(src).toContain('    return hayBusqueda')
+    expect(src).toContain('  })')
     // Todo lo que guarda la lista pasa por `combinarPorDni`, que no toca a los ocultos.
     expect(src).toContain('actualizar(combinados)')
   })
