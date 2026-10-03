@@ -271,7 +271,9 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       ])
       const nubeMias: DraftEval['respuestas'] = {}
       for (const r of enNube) {
-        if (r.respondido_por === profile.id) nubeMias[claveRespuesta(r.item_id, r.instancia_id)] = { valor: r.valor, por: 'yo' }
+        if (r.respondido_por === profile.id) {
+          nubeMias[claveRespuesta(r.item_id, r.instancia_id)] = { valor: r.valor, por: 'yo' }
+        }
       }
       // Borradores locales antiguos: claves sin '::' se normalizan; instancias ausentes → {}.
       // Las entradas sin `por` son de este evaluador (escritas localmente antes de la colaboración en vivo).
@@ -292,13 +294,23 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
           })
         }
       }
+      // Colaboración en vivo al abrir: también hay que ver lo que el otro
+      // evaluador ya respondió mientras este teléfono estaba cerrado o cargando.
+      const respOtros: DraftEval['respuestas'] = {}
+      for (const r of enNube) {
+        if (r.respondido_por === profile.id) continue
+        if (!itemsCompartidos.has(r.item_id)) continue
+        const key = claveRespuesta(r.item_id, r.instancia_id)
+        if (respLocal[key] || nubeMias[key]) continue // prima lo local
+        respOtros[key] = { valor: r.valor, por: 'otros' }
+      }
       const d: DraftEval = {
         sucursal_id: sucursalId,
         evaluador_id: profile.id,
         fecha: activa.fecha,
         comentario_general: mismoDía ? existente?.comentario_general ?? '' : '',
         puntuacion: mismoDía ? existente?.puntuacion ?? null : null,
-        respuestas: { ...nubeMias, ...respLocal },
+        respuestas: { ...nubeMias, ...respOtros, ...respLocal },
         instancias: instanciasLocales,
         updated_at: Date.now()
       }
