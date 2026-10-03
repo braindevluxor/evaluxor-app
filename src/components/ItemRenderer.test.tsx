@@ -313,14 +313,26 @@ describe('ItemRenderer · la lista no aparece sin depurar', () => {
     // resolví", no hay estado que olvidar.
     expect(src).toContain('const historialPendiente = !historialResuelto && puedeConsultarHistorial && colaboradores.length > 0')
     expect(src).not.toMatch(/const \[historialPendiente, setHistorialPendiente\] = useState/)
-    // Y la lista se esconde con el mismo flag.
+    // Y la lista se esconde con la visibilidad de la barra.
     expect(src).toContain('const hayAlgoQueEsperar = cargando || historialPendiente')
-    expect(src).toMatch(/\{!hayAlgoQueEsperar && colaboradores\.length \? \(/)
+    expect(src).toMatch(/\{!barraVisible && colaboradores\.length \? \(/)
+  })
+
+  it('la lista espera a que la barra termine, no solo a que deje de cargar', () => {
+    const src = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
+    // El gate del render tiene que ser `barraVisible` y no `hayAlgoQueEsperar`:
+    // cuando la consulta responde, `hayAlgoQueEsperar` ya es falso, pero la
+    // barra queda llena un instante. Con el otro gate la lista entraría tapando
+    // el final de la barra y el 100% nunca se vería.
+    expect(src).toContain('useProgresoCarga(hayAlgoQueEsperar)')
+    expect(src).toContain('visible: barraVisible')
+    expect(src).toMatch(/\{barraVisible \? \(\s*\n\s*<div[^>]*>\s*\n\s*<ProgressBar valorAprox=\{avance\}/)
+    expect(src).not.toMatch(/\{hayAlgoQueEsperar \? \(\s*\n\s*<div[^>]*>\s*\n\s*<ProgressBar/)
   })
 
   it('mientras carga, el aviso de los resueltos tampoco se muestra', () => {
     const src = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
-    expect(src).toMatch(/\{!hayAlgoQueEsperar && resueltosAntes\.size \? \(/)
+    expect(src).toMatch(/\{!barraVisible && resueltosAntes\.size \? \(/)
   })
 })
 

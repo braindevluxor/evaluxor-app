@@ -872,10 +872,16 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
    *
    * Un texto fijo no decía nada, y arrancar la barra en 40% se leía como que ya
    * algo había pasado. Arranca en 14% y se frena al acercarse: el techo es 88, no
-   * 100, así que el automático nunca puede decir "listo" — ese número solo lo
-   * pone la consulta que terminó, y para entonces la barra ya se fue.
+   * 100, así que mientras hay trabajo en vuelo el automático no puede declarar
+   * "listo". Cuando la consulta responde, la barra salta a 100 y se queda llena
+   * un instante antes de que entre la lista.
+   *
+   * El gate del render es `visible`, no `hayAlgoQueEsperar`: cuando el trabajo
+   * terminó, `hayAlgoQueEsperar` ya es falso pero la barra sigue visible un
+   * instante, y si el gate fuera el otro la lista entraría tapando el final de
+   * la barra.
    */
-  const { avance, mensaje } = useProgresoCarga(hayAlgoQueEsperar)
+  const { avance, visible: barraVisible, mensaje } = useProgresoCarga(hayAlgoQueEsperar)
 
   // Al volver al ítem el componente se vuelve a montar y el estado local se
   // pierde. Los que estaban ocultos siguen guardados en el valor (con su estado
@@ -1050,11 +1056,15 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
 
         El número del relleno es de adorno (`valorAprox`, no `value`): por eso no
         se anuncia. Lo que anuncia el avance es el mensaje, que sí va cambiando.
+
+        La barra se queda llena un instante después de que la consulta respondió
+        (`mensaje` pasa a `null`), y recién ahí entra la lista. Sin esa pausa el
+        salto al 100% no se ve: la lista taparía el final de la barra.
       */}
-      {hayAlgoQueEsperar ? (
+      {barraVisible ? (
         <div className="rounded-xl border border-slate-200 bg-white p-3">
           <ProgressBar valorAprox={avance} />
-          <p className="mt-2 text-xs text-slate-500">{mensaje}</p>
+          {mensaje ? <p className="mt-2 text-xs text-slate-500">{mensaje}</p> : null}
         </div>
       ) : null}
 
@@ -1064,12 +1074,12 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         no, un evaluador ve "9 de 10 completos" y una sola persona en pantalla y
         piensa que faltan nueve.
 
-        Todo lo de abajo —aviso, buscador y lista— se esconde mientras hay algo
-        que esperar. Si no, al volver al ítem se veían los diez un instante y
-        al terminar la consulta quedaban cinco: el flash es justo lo que esta
-        barra viene a tapar.
+        Todo lo de abajo —aviso, buscador y lista— se esconde mientras la barra está a
+        la vista. Si no, al volver al ítem se veían los diez un instante y al
+        terminar la consulta quedaban cinco: el flash es justo lo que esta barra
+        viene a tapar.
       */}
-      {!hayAlgoQueEsperar && resueltosAntes.size ? (
+      {!barraVisible && resueltosAntes.size ? (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2">
           <Check className="h-4 w-4 shrink-0 text-green-600" />
           <p className="min-w-0 flex-1 text-xs text-green-800">
@@ -1087,7 +1097,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         </div>
       ) : null}
 
-      {!hayAlgoQueEsperar && colaboradores.length ? (
+      {!barraVisible && colaboradores.length ? (
         <div className="space-y-3">
           {/* Buscador fijo: no se pierde al hacer scroll en listas largas. Se pega
               debajo de la cabecera sticky del layout (top-16 = 64px) y -mx-4/px-4
@@ -1228,7 +1238,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
             </p>
           )}
         </div>
-      ) : !hayAlgoQueEsperar ? (
+      ) : !barraVisible ? (
         <p className="text-sm text-slate-400">Aún no hay colaboradores cargados. Pulsa “Cargar colaboradores” para traerlos de la tienda.</p>
       ) : null}
       <Confirmar
