@@ -164,8 +164,12 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
   const todosItems = (itemsResp ?? []) as Item[]
   const todosModulos = (mods.data ?? []) as Modulo[]
   const respuestas = (resp.data ?? []) as Respuesta[]
-  // Ítems respondidos del rango (para el caso sin filtro de módulo; con módulo se usa itemsDelModulo).
-  const items = todosItems.filter((i) => respuestas.some((r) => r.item_id === i.id))
+  // Ítems del rango: los respondidos MÁS sus contenedores padre, como en
+  // `obtenerEvaluacion`. Dejarlos afuera rompe el puntaje: una sección pesa como
+  // grupo con su propio puntaje, así que si no está en la lista cada hijo pesa
+  // por su cuenta y el número que se ve en el historial no es el que queda al
+  // cerrar (ni el que imprime el PDF).
+  const items = todosItems
 
   if (f.modulo_id) {
     // El módulo se compone de ítems respondidos + sus contenedores (grupos sin respuestas).

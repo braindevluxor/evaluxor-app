@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import type { Item, Modulo, Opcion, Respuesta, Sucursal, SucursalModulo, VistaEvaluacion } from '../types'
 import { medidoresPorModulo, puntajePorSucursalModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, type ConjuntoDatos } from './indicadores'
 
@@ -739,5 +741,60 @@ describe('puntajeEnCurso', () => {
   it('con todos los ítems respondidos coincide con el puntaje final (cerrado)', () => {
     const resps = [respuesta('ev1', 'i1', true), respuesta('ev1', 'i2', false), respuesta('ev1', 'i3', true)]
     expect(puntajeEnCurso(activa, resps, items).puntaje).toBe(66.67)
+  })
+
+  // Una sección (CONTENEDOR) pesa como grupo: su puntaje pesa, no el de sus
+  // hijos. Si el puntaje en curso no recibe la sección, cada hijo pesa por su
+  // cuenta y el número cambia de golpe al cerrar.
+  const seccion: Item = {
+    id: 'sec1',
+    modulo_id: 'm1',
+    tipo: 'CONTENEDOR',
+    texto: 'Sección',
+    opciones: [],
+    orden: 0,
+    requerido: false,
+    activo: true,
+    puntaje: 100,
+    padre_id: null,
+    created_at: ''
+  }
+  const hijo = (id: string, orden: number, puntaje: number): Item => ({
+    id,
+    modulo_id: 'm1',
+    tipo: 'CUMPLE_NO_CUMPLE',
+    texto: id,
+    opciones: [],
+    orden,
+    requerido: false,
+    activo: true,
+    puntaje,
+    padre_id: 'sec1',
+    created_at: ''
+  })
+  const conSeccion = [seccion, hijo('h1', 1, 10), hijo('h2', 2, 10), { ...items[0], padre_id: null, id: 'suelto', puntaje: 100 }]
+  const soloHijos = conSeccion.filter((i) => i.tipo !== 'CONTENEDOR')
+
+  it('el puntaje en curso y el de cierre coinciden aunque la sección no tenga respuestas', () => {
+    const resps = [respuesta('ev1', 'h1', true), respuesta('ev1', 'h2', false), respuesta('ev1', 'suelto', true)]
+
+    // Con la sección: pesa 100 como grupo con 50% de cumplimiento, más el suelto.
+    expect(puntajeEnCurso(activa, resps, conSeccion).puntaje).toBe(75)
+    // Sin la sección (lo que llegaba desde el historial): los hijos pesan 10 cada uno.
+    expect(puntajeEnCurso(activa, resps, soloHijos).puntaje).toBe(91.67)
+  })
+
+  it('el historial trae los contenedores padre, como el detalle y el PDF', () => {
+    // Regresión: `consultarEvaluaciones` filtraba `items` a solo los respondidos,
+    // dejando afuera las secciones, y el puntaje en curso salía distinto al de
+    // cierre. Las dos rutas de datos deben traer la misma estructura.
+    const codigo = readFileSync(fileURLToPath(new URL('./indicadores.ts', import.meta.url)), 'utf8')
+    const cuerpo = codigo.slice(codigo.indexOf('export async function consultarEvaluaciones'))
+    // Sin filtros que dejen los contenedores padre afuera.
+    expect(cuerpo).not.toMatch(/const items = todosItems\.filter/)
+    expect(cuerpo).toContain('const items = todosItems')
+    // Y el detalle los sigue trayendo: es la referencia de la regla.
+    const detalle = codigo.slice(codigo.indexOf('export async function obtenerEvaluacion'), codigo.indexOf('export function itemsDelModulo'))
+    expect(detalle).toContain('[...it, ...padres]')
   })
 })
