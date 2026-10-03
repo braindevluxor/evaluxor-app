@@ -53,7 +53,8 @@ Vite + React 19 + TypeScript, Tailwind CSS (color primario azul oscuro `#0B2545`
    | 2 | `incidencias.sql` | Crea la tabla de incidencias y sus políticas de Storage. |
    | 3 | `permisos-funcion.sql` | Ajusta los `EXECUTE` de las funciones. No toca los 6 helpers de RLS, y el archivo explica por qué. |
    | 4 | `reactivar-politicas.sql` | Vuelve a prender RLS y repone todas las políticas (trae el mismo fix de lectura anónima). Depende del 2. Va en transacción. |
-   | 5 | `validar-politicas.sql` | 4 consultas de solo lectura. La columna `estado` tiene que decir `ok` en las cuatro. |
+   | 5 | `cerrar-permisos-anon.sql` | Saquetea a `anon`: le saca el permiso sobre todas las tablas y el `EXECUTE` de los 6 ayudantes de RLS. **Va después del 1**, porque una parte depende de la otra. |
+   | 6 | `validar-politicas.sql` | 4 consultas de solo lectura. La columna `estado` tiene que decir `ok` en las cuatro. |
 
    Para entender por qué una tabla o una función quedan con un permiso y no con otro, está el motivo en prosa arriba de cada archivo. Vale la pena tener presente una cosa: **la primera llave es la política de RLS y la segunda es el `revoke`**, y hacen falta las dos porque los permisos de Postgres son aditivos (quitarle el permiso a un rol no alcanza si el de `PUBLIC` sigue sirviendo).
 

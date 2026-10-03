@@ -23,6 +23,7 @@ const biometrico = fuente('./proyectos-biometrico.sql')
 const reactivar = fuente('./reactivar-politicas.sql')
 const validar = fuente('./validar-politicas.sql')
 const cerrar = fuente('./cerrar-lectura-anon.sql')
+const cerrarPermisos = fuente('./cerrar-permisos-anon.sql')
 const permisos = fuente('./permisos-funcion.sql')
 
 interface Politica {
@@ -142,12 +143,20 @@ describe('reactivar-politicas.sql · deja las reglas como están', () => {
     expect(reactivar).toMatch(/^\s*drop\s+policy\s+if\s+exists/im)
   })
 
-  it('repone los permisos de las funciones, y no a los helpers de RLS', () => {
-    // Si aparece un revoke contra un helper, revuelve el error caro: la base
-    // queda entera ilegible con 'permission denied for function'.
-    const revocadas = [...reactivar.matchAll(/revoke\s+execute\s+on\s+function\s+public\.(\w+)/gi)].map((m) => m[1])
-    const rotas = HELPERS_RLS.filter((h) => revocadas.includes(h))
-    expect(rotas, `no se puede revocar: ${rotas.join(', ')}`).toEqual([])
+  it('a los helpers de RLS solo les saca EXECUTE a `anon`, nunca a `authenticated`', () => {
+    // Un revoke contra un helper devuelve el error caro: la base queda entera
+    // ilegible con 'permission denied for function'. Sacárselo a `anon` sí tiene
+    // sentido (ver 'ayudantes de RLS · el orden importa'), pero `authenticated`
+    // los necesita porque todas las consultas de la app van con sesión.
+    const codigo = sinComentarios(reactivar)
+    for (const h of HELPERS_RLS) {
+      expect(
+        codigo,
+        `${h}: el reactivador no le puede sacar EXECUTE a authenticated`
+      ).not.toMatch(
+        new RegExp(`revoke\\s+execute\\s+on\\s+function\\s+public\\.${h}\\s*\\([^)]*\\)\\s+from\\s+[^;]*\\bauthenticated\\b`, 'i')
+      )
+    }
   })
 
   it('todo revoke quita PUBLIC y el rol, porque los permisos son aditivos', () => {
@@ -437,16 +446,158 @@ describe('lectura anónima · las 7 tablas del catálogo', () => {
     expect(codigo).not.toMatch(/\b(grant|revoke)\s+execute\b/i)
   })
 
-  it('ningún archivo revoca EXECUTE a un helper de RLS', () => {
-    for (const [nombre, sql] of [
-      ['schema.sql', schema],
-      ['reactivar-politicas.sql', reactivar],
-      ['cerrar-lectura-anon.sql', cerrar],
-      ['permisos-funcion.sql', permisos],
-    ] as const) {
-      const revocadas = [...sql.matchAll(/revoke\s+execute\s+on\s+function\s+public\.(\w+)/gi)].map((m) => m[1])
-      const rotas = HELPERS_RLS.filter((h) => revocadas.includes(h))
-      expect(rotas, `${nombre}: no se puede revocar ${rotas.join(', ')}`).toEqual([])
+  })
+
+/**
+ * Los 6 ayudantes de RLS se invocan desde los `using (...)` de las políticas, y
+ * las políticas se evalúan con los privilegios de quien consulta. Así que:
+ *
+ *   · `authenticated` los NECESITA. Todas las consultas de la app van con sesión.
+ *     Sacarle el EXECUTE revienta la app con "permission denied for function".
+ *   · `anon` no los necesita, pero solo se los puede quitar DESPUÉS de quitarle
+ *     el permiso de tabla. Con permiso de tabla, `anon` llega a evaluar
+ *     políticas y ahí los helpers le son indispensables.
+ *
+ * Estos tests fijan las dos mitades de esa regla, y sobre todo la condición de
+ * orden: revocar el EXECUTE sin el permiso de tabla primero rompe la app.
+ */
+describe('ayudantes de RLS · el orden importa', () => {
+  const conPermisos = [
+    ['schema.sql', schema],
+    ['reactivar-politicas.sql', reactivar],
+    ['cerrar-permisos-anon.sql', cerrarPermisos],
+    ['permisos-funcion.sql', permisos],
+  ] as const
+
+  it('ningún archivo les saca EXECUTE a `authenticated`', () => {
+    // Esta es la mitad intocable de la regla. Si alguna vez aparece un
+    // `revoke execute on function public.<helper> from ... authenticated`, la app
+    // se cae en el primer select.
+    for (const [nombre, sql] of conPermisos) {
+      for (const h of HELPERS_RLS) {
+        const codigo = sinComentarios(sql)
+        expect(
+          codigo,
+          `${nombre}: le saca EXECUTE de ${h} al rol autenticado y eso rompe la app`
+        ).not.toMatch(
+          new RegExp(`revoke\\s+execute\\s+on\\s+function\\s+public\\.${h}\\s*\\([^)]*\\)\\s+from\\s+[^;]*\\bauthenticated\\b`, 'i')
+        )
+      }
+    }
+  })
+
+  it('todo archivo que les quita EXECUTE a `anon` se los vuelve a dar a `authenticated`', () => {
+    // Quitar `anon` es correcto; lo que no puede ser es dejarlos sin nadie.
+    // `authenticated` depende de ellos para TODAS sus consultas.
+    for (const [nombre, sql] of conPermisos) {
+      const codigo = sinComentarios(sql)
+      for (const h of HELPERS_RLS) {
+        const sacaAnon = new RegExp(
+          `revoke\\s+execute\\s+on\\s+function\\s+public\\.${h}\\s*\\([^)]*\\)\\s+from\\s+[^;]*\\banon\\b`,
+          'i'
+        ).test(codigo)
+        if (!sacaAnon) continue
+        const regraba = new RegExp(
+          `grant\\s+execute\\s+on\\s+function\\s+public\\.${h}\\s*\\([^)]*\\)\\s+to\\s+authenticated`,
+          'i'
+        ).test(codigo)
+        expect(regraba, `${nombre}: saca ${h} a anon pero no se lo devuelve a authenticated`).toBe(true)
+      }
+    }
+  })
+
+  it('si les quita EXECUTE a `anon`, quita antes el permiso de tabla de `anon`', () => {
+    // El orden de las dos cosas. Con `anon` todavía con permiso de tabla, llega
+    // a evaluar políticas y los helpers le hacen falta: el revoke solo produce
+    // "permission denied for function" en lugar de cerrar nada.
+    for (const [nombre, sql] of conPermisos) {
+      const codigo = sinComentarios(sql)
+      const sacaHelper = HELPERS_RLS.some((h) =>
+        new RegExp(`revoke\\s+execute\\s+on\\s+function\\s+public\\.${h}\\s*\\([^)]*\\)\\s+from\\s+[^;]*\\banon\\b`, 'i').test(
+          codigo
+        )
+      )
+      if (!sacaHelper) continue
+      const quitaTablas =
+        /revoke\s+all\s+on\s+all\s+tables\s+in\s+schema\s+public\s+from\s+anon/i.test(codigo) ||
+        /alter\s+default\s+privileges[\s\S]*revoke\s+all\s+on\s+tables\s+from\s+anon/i.test(codigo)
+      expect(
+        quitaTablas,
+        `${nombre}: saca EXECUTE de los ayudantes a anon sin quitarle el permiso de tabla; eso rompe las consultas de anon con error en vez de cerrarlas`
+      ).toBe(true)
+    }
+  })
+
+  it('las dos cosas van en una transacción, para que no queden a medias', () => {
+    // Si el revoke de tablas entrara y el de funciones no (o al revés), la base
+    // queda en un estado que no se pidió. Un solo begin/commit lo evita.
+    for (const [nombre, sql] of conPermisos) {
+      const codigo = sinComentarios(sql)
+      const sacaHelper = HELPERS_RLS.some((h) =>
+        new RegExp(`revoke\\s+execute\\s+on\\s+function\\s+public\\.${h}\\s*\\([^)]*\\)\\s+from\\s+[^;]*\\banon\\b`, 'i').test(
+          codigo
+        )
+      )
+      if (!sacaHelper) continue
+      expect(codigo, `${nombre}: sin transacción`).toMatch(/^\s*begin\s*;/im)
+      expect(codigo, `${nombre}: sin transacción`).toMatch(/^\s*commit\s*;/im)
+      // Y el permiso de tabla tiene que ir ANTES del primer revoke de helper,
+      // que es el orden en que se ejecutan. Ojo: el primer `revoke execute` del
+      // archivo puede ser el del login, que no es un helper y no depende del
+      // permiso de tabla, así que hay que buscar specifically uno de los 6.
+      const tabla = codigo.search(/revoke\s+all\s+on\s+all\s+tables/i)
+      const helper = codigo.search(
+        new RegExp(`revoke\\s+execute\\s+on\\s+function\\s+public\\.(?:${HELPERS_RLS.join('|')})\\b`, 'i')
+      )
+      expect(tabla, `${nombre}: no se encuentra el revoke de tablas`).toBeGreaterThan(-1)
+      expect(helper, `${nombre}: no se encuentra el revoke de helpers`).toBeGreaterThan(-1)
+      expect(tabla, `${nombre}: el permiso de tabla tiene que ir antes que el EXECUTE`).toBeLessThan(helper)
+    }
+  })
+
+  it('las 2 funciones del login no entran en la barrida', () => {
+    // Son SECURITY DEFINER: no dependen de ningún permiso de tabla, así que la
+    // parte 1 no les afecta. Lo que no puede pasar es que un archivo que las
+    // menciona les saque `anon`: sin él no hay pantalla de login.
+    //
+    // Que el archivo NO las mencione está bien y es lo correcto: no tiene por
+    // qué tocar lo que no necesita tocar.
+    for (const [nombre, sql] of conPermisos) {
+      const codigo = sinComentarios(sql)
+      for (const fn of ['intento_login', 'email_por_usuario']) {
+        const revoke = new RegExp(`revoke\\s+execute\\s+on\\s+function\\s+public\\.${fn}\\s*\\([^)]*\\)`, 'i')
+        const grant = new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.${fn}\\s*\\([^)]*\\)\\s+to\\s+([^;]+);`, 'gi')
+
+        if (!revoke.test(codigo) && !grant.test(codigo)) continue
+
+        const revocaAnon = new RegExp(`revoke\\s+execute\\s+on\\s+function\\s+public\\.${fn}\\s*\\([^)]*\\)\\s+from\\s+[^;]*\\banon\\b`, 'i').test(codigo)
+        expect(revocaAnon, `${nombre}: ${fn} pierde anon y sin él no hay pantalla de login`).toBe(false)
+
+        const grants = [...codigo.matchAll(grant)]
+        expect(grants.length, `${nombre}: ${fn} se toca pero nunca se le devuelve el permiso`).toBeGreaterThan(0)
+        const ultimo = grants[grants.length - 1][1].toLowerCase()
+        expect(
+          ultimo.split(',').map((r) => r.trim()),
+          `${nombre}: ${fn} perdió el acceso de anon`
+        ).toContain('anon')
+      }
+    }
+  })
+
+  it('no toca el bucket: storage vive en otro esquema', () => {
+    // `revoke all on all tables in schema public` no alcanza `storage.objects`,
+    // que es lo que gobierna las fotos. Un `storage` en el revoke sería un
+    // descuido que rompe la carga de evidencia.
+    for (const [nombre, sql] of conPermisos) {
+      const codigo = sinComentarios(sql)
+      expect(
+        codigo,
+        `${nombre}: el revoke de tablas nombra el esquema storage y puede tocar el bucket`
+      ).not.toMatch(/revoke[^;]*\bon\s+all\s+tables\s+in\s+schema\s+storage\b/i)
+      expect(
+        codigo,
+        `${nombre}: el revoke de tablas menciona storage.objects`
+      ).not.toMatch(/revoke[^;]*\s+on\s+storage\.objects/i)
     }
   })
 })

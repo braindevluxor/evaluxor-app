@@ -360,11 +360,46 @@ begin
   end loop;
 end $$;
 
--- A proposito NO se toca (revocarles EXECUTE ROMPE la app entera, con 'permission
--- denied for function' en cada select/insert/update):
---   es_lider, puede_ver_evaluacion, puede_responder, puede_manejar_instancia,
---   puede_reportar_incidencia, puede_ver_incidencia
--- Son las que invocan las politicas RLS. El cliente nunca las llama por RPC.
--- Sin sesion devuelven false igual, porque preguntan por auth.uid().
+-- ----------------------------------------------------------------------------
+-- 3c) Ni tablas ni ayudantes para `anon`
+-- ----------------------------------------------------------------------------
+-- Estas dos cosas van juntas. La segunda depende de la primera: las politicas RLS
+-- se evaluan con los privilegios de quien consulta, asi que una funcion llamada
+-- desde un `using (...)` necesita EXECUTE de ese rol. Con `anon` teniendo
+-- permiso de tabla, llegaba a evaluar politicas y `es_lider()` le era
+-- indispensable; quitarle el EXECUTE ahi rompia la app con "permission denied
+-- for function".
+--
+-- Sin permiso de tabla, Postgres revisa el permiso ANTES que las politicas, asi
+-- que `anon` ya no llega a evaluarlas y nunca las llama. Por eso los ayudantes
+-- le sobran a `anon` y no a `authenticated`: TODAS las consultas de la app van
+-- con sesion, y ahi las politicas los necesitan.
+--
+-- El revoke de tablas va mas alla de las 7 de la seccion 3b: `anon` tambien
+-- tenia INSERT, UPDATE y DELETE sobre todo el schema, y eso solo lo frenaba
+-- RLS. Con las dos capas, un `disable row level security` accidental no abre.
+revoke all on all tables in schema public from anon;
+alter default privileges in schema public revoke all on tables from anon;
+
+revoke execute on function public.es_lider() from public, anon;
+grant  execute on function public.es_lider() to authenticated;
+
+revoke execute on function public.puede_ver_evaluacion(public.evaluaciones) from public, anon;
+grant  execute on function public.puede_ver_evaluacion(public.evaluaciones) to authenticated;
+
+revoke execute on function public.puede_responder(uuid, uuid) from public, anon;
+grant  execute on function public.puede_responder(uuid, uuid) to authenticated;
+
+revoke execute on function public.puede_manejar_instancia(uuid, uuid) from public, anon;
+grant  execute on function public.puede_manejar_instancia(uuid, uuid) to authenticated;
+
+revoke execute on function public.puede_reportar_incidencia(uuid, uuid) from public, anon;
+grant  execute on function public.puede_reportar_incidencia(uuid, uuid) to authenticated;
+
+revoke execute on function public.puede_ver_incidencia(uuid) from public, anon;
+grant  execute on function public.puede_ver_incidencia(uuid) to authenticated;
+
+-- `intento_login` y `email_por_usuario` NO entran aqui: son security definer, no
+-- dependen de ningun permiso de tabla, y la pantalla de login corre sin sesion.
 -- ============================================================================
 commit;

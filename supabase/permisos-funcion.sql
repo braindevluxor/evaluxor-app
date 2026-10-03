@@ -19,12 +19,19 @@
 -- ----------------------------
 -- es_lider, puede_ver_evaluacion, puede_responder, puede_manejar_instancia,
 -- puede_reportar_incidencia, puede_ver_incidencia:
---   Los invocan las politicas RLS (`using (public.es_lider())`). Revocarles
---   EXECUTE no es endurecimiento: ROMPE la app entera, con "permission denied
---   for function" en cada select, insert y update. El cliente nunca los llama
---   por RPC (solo existen dentro de las politicas), asi que lo correcto seria
---   mudarlos a un esquema no expuesto; es un cambio mas grande, con su propio
---   archivo. Sin sesion devuelven false igual, porque preguntan por auth.uid().
+--   Los invocan las politicas RLS (`using (public.es_lider())`), y las politicas
+--   se evaluan con los privilegios de quien consulta, asi que necesitan que
+--   `authenticated` tenga EXECUTE: TODAS las consultas de la app van con sesion.
+--   Eso no se puede tocar.
+--   Para `anon` SI se pueden quitar, pero solo despues de quitarle a `anon` el
+--   permiso de tabla: con permiso de tabla llega a evaluar politicas y ahi los
+--   helpers le son indispensables, y revocar el EXECUTE sin el permiso primero
+--   rompia la app con "permission denied for function". Ese orden esta en
+--   `cerrar-permisos-anon.sql`, que hace las dos cosas en una transaccion.
+--   El cliente nunca los llama por RPC (solo existen dentro de las politicas),
+--   asi que el paso que de verdad las cerraria del todo es mudarlas a un esquema
+--   no expuesto; es un cambio mas grande, con su propio archivo. Sin sesion
+--   devuelven false igual, porque preguntan por auth.uid().
 --
 -- intento_login y email_por_usuario:
 --   La pantalla de login corre antes de autenticar: necesitan `anon`. De
@@ -102,7 +109,8 @@ grant  execute on function public.email_por_usuario(text) to anon;
 -- otro lado (mirar p.proacl en ese archivo).
 --
 -- Lo que queda marcado a proposito, y no se va a corregir:
---   · las 6 ayudantes de politica: quitarles EXECUTE rompe la app.
+--   · los 6 ayudantes de politica para `authenticated`: las politicas RLS los
+--     necesitan. Para `anon` ya no, y eso lo cierra `cerrar-permisos-anon.sql`.
 --   · `intento_login`/`email_por_usuario` con `anon`: es la pantalla de login.
 --   · `authenticated` en las de trigger: `returns trigger` ya las hace
 --     inalcanzables por RPC y se deja como margen de seguridad.
