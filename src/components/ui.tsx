@@ -308,40 +308,43 @@ export function Confirmar({
 /**
  * Barra de progreso.
  *
- * Con `value` conocido el ancho es ese porcentaje. Con `indeterminate` el ancho no
- * se sabe —una consulta puede tardar un frame o tres segundos— y lo que avanza
- * es un segmento, que es lo honesto: un porcentaje inventado que queda clavado
- * en 90% durante medio segundo se lee como que la app se cuelgó.
+ * La diferencia entre los dos modos es si el número existe o no, y eso también
+ * cambia lo que se anuncia:
  *
- * `indeterminate` no lleva `aria-valuenow` a propósito: assistive tech
- * anunciaría un número que no existe.
+ * - `value`: el porcentaje es real (subida de un archivo). Se pinta y se
+ *   anuncia con `aria-valuenow`.
+ * - `valorAprox`: el porcentaje es de adorno —el avance automático de una
+ *   consulta que no sabe cuánto va a tardar—. Se ve, pero sin `aria-valuenow`,
+ *   porque un lector de pantalla repetiría un número inventado en cada cambio
+ *   y eso es peor que no anunciar nada.
  */
 export function ProgressBar({
   value,
-  indeterminate = false,
+  valorAprox,
   className
 }: {
   value?: number
-  indeterminate?: boolean
+  valorAprox?: number
   className?: string
 }) {
+  const ancho = Math.max(0, Math.min(100, value ?? valorAprox ?? 0))
   return (
     <div
       className={cn('h-2 w-full overflow-hidden rounded-full bg-slate-200', className)}
       role="progressbar"
-      aria-label={indeterminate ? 'Cargando' : 'Progreso'}
-      aria-valuemin={indeterminate ? undefined : 0}
-      aria-valuemax={indeterminate ? undefined : 100}
-      aria-valuenow={indeterminate ? undefined : Math.max(0, Math.min(100, value ?? 0))}
+      aria-label="Cargando"
+      aria-valuemin={value == null ? undefined : 0}
+      aria-valuemax={value == null ? undefined : 100}
+      aria-valuenow={value == null ? undefined : Math.max(0, Math.min(100, value))}
     >
-      {indeterminate ? (
-        <span className="barra-indeterminada block h-full w-2/5 rounded-full bg-primary" />
-      ) : (
-        <div
-          className="h-full rounded-full bg-primary transition-all duration-300"
-          style={{ width: `${Math.max(0, Math.min(100, value ?? 0))}%` }}
-        />
-      )}
+      <div
+        // 200ms y no 300: el reloj del avance pica cada 110ms, y con una
+        // transición más larga que el intervalo el relleno siempre va atrasado
+        // respecto al número. `motion-reduce` lo pasa a saltos, que para una
+        // barra de adorno se lee mejor que un llenado continuo.
+        className="h-full rounded-full bg-primary transition-all duration-200 motion-reduce:transition-none"
+        style={{ width: `${ancho}%` }}
+      />
     </div>
   )
 }

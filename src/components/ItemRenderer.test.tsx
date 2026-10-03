@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { ItemRenderer } from './ItemRenderer'
 import { ProgressBar } from './ui'
+import { INICIO_INDETERMINADO, TECHO_INDETERMINADO } from '../lib/progresoCarga'
 import type { Item } from '../lib/types'
 
 function itemDe(texto: string, repetible?: boolean | null): Item {
@@ -242,13 +243,26 @@ describe('ItemRenderer · la lista no aparece sin depurar', () => {
     const html = renderToStaticMarkup(
       <ItemRenderer item={itemColaboradores()} valor={listaGuardada} index={0} total={1} onChange={() => {}} sucursalId="s-1" fechaEvaluacion="2026-03-01" />
     )
-    expect(html).toContain('Revisando los que ya estaban completos')
-    expect(html).toContain('barra-indeterminada')
+    // Primer render, avance en el arranque: primer mensaje y relleno chico.
+    expect(html).toContain('Creando la consulta')
+    expect(html).toContain(`width:${INICIO_INDETERMINADO}%`)
     // Lo esencial: todavía no se sabe quién estaba completo, así que no se
     // muestra a nadie. Este es el flash que la barra viene a tapar.
     expect(html).not.toContain('Gómez')
     expect(html).not.toContain('Pérez')
     expect(html).not.toContain('Buscar por documento')
+  })
+
+  it('la barra arranca baja, no en un porcentaje que ya parece avance', () => {
+    // El complaint original: al abrir el ítem la barra ya estaba en 40%, que se
+    // lee como que algo se procesó antes de que el usuario pidiera nada.
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemColaboradores()} valor={listaGuardada} index={0} total={1} onChange={() => {}} sucursalId="s-1" fechaEvaluacion="2026-03-01" />
+    )
+    const ancho = Number(html.match(/width:([\d.]+)%/)?.[1])
+    expect(ancho).toBeLessThan(20)
+    // Y el avance automático no puede declararse listo solo.
+    expect(TECHO_INDETERMINADO).toBeLessThan(100)
   })
 
   it('sin sucursal no hay nada que esperar y la lista se ve de una', () => {
@@ -257,7 +271,7 @@ describe('ItemRenderer · la lista no aparece sin depurar', () => {
       <ItemRenderer item={itemColaboradores()} valor={listaGuardada} index={0} total={1} onChange={() => {}} />
     )
     expect(html).toContain('Gómez')
-    expect(html).not.toContain('Revisando los que ya estaban completos')
+    expect(html).not.toContain('Creando la consulta')
   })
 
   it('sin fecha tampoco hay nada que esperar', () => {
@@ -265,7 +279,7 @@ describe('ItemRenderer · la lista no aparece sin depurar', () => {
       <ItemRenderer item={itemColaboradores()} valor={listaGuardada} index={0} total={1} onChange={() => {}} sucursalId="s-1" />
     )
     expect(html).toContain('Gómez')
-    expect(html).not.toContain('Revisando los que ya estaban completos')
+    expect(html).not.toContain('Creando la consulta')
   })
 
   it('sin lista cargada no hay barra: se ve el botón de cargar', () => {
@@ -275,7 +289,7 @@ describe('ItemRenderer · la lista no aparece sin depurar', () => {
       <ItemRenderer item={itemColaboradores()} valor={undefined} index={0} total={1} onChange={() => {}} sucursalId="s-1" fechaEvaluacion="2026-03-01" />
     )
     expect(html).toContain('Cargar colaboradores')
-    expect(html).not.toContain('Revisando los que ya estaban completos')
+    expect(html).not.toContain('Creando la consulta')
   })
 
   it('la barra se apaga aunque la consulta de la tienda falle', () => {
@@ -310,26 +324,32 @@ describe('ItemRenderer · la lista no aparece sin depurar', () => {
   })
 })
 
-describe('ProgressBar · modo indeterminado', () => {
-  it('el indeterminado no finge un porcentaje', () => {
-    const html = renderToStaticMarkup(<ProgressBar indeterminate />)
-    expect(html).toContain('barra-indeterminada')
-    expect(html).toContain('role="progressbar"')
-    // Un aria-valuenow en un barra sin porcentaje conocido hace que el lector de
-    // pantalla anuncie un número que no existe.
+describe('ProgressBar · número de adorno vs. número real', () => {
+  it('el número de adorno se ve pero no se anuncia', () => {
+    const html = renderToStaticMarkup(<ProgressBar valorAprox={37} />)
+    expect(html).toContain('width:37%')
+    // El avance automático no es un dato real. Anunciarlo por aria-valuenow
+    // haría que el lector de pantalla dijera un porcentaje inventado, y encima
+    // lo repetiría en cada tick.
     expect(html).not.toContain('aria-valuenow')
+    expect(html).toContain('role="progressbar"')
   })
 
-  it('el determinado mantiene el ancho por porcentaje', () => {
+  it('el número real se anuncia', () => {
     const html = renderToStaticMarkup(<ProgressBar value={40} />)
     expect(html).toContain('width:40%')
     expect(html).toContain('aria-valuenow="40"')
-    expect(html).not.toContain('barra-indeterminada')
   })
 
   it('apila los valores fuera de rango en vez de romper el ancho', () => {
     expect(renderToStaticMarkup(<ProgressBar value={140} />)).toContain('width:100%')
-    expect(renderToStaticMarkup(<ProgressBar value={-20} />)).toContain('width:0%')
+    expect(renderToStaticMarkup(<ProgressBar valorAprox={-20} />)).toContain('width:0%')
+  })
+
+  it('sin número no hay barra que se mueva, pero tampoco se rompe', () => {
+    const html = renderToStaticMarkup(<ProgressBar />)
+    expect(html).toContain('width:0%')
+    expect(html).not.toContain('aria-valuenow')
   })
 })
 

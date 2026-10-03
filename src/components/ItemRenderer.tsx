@@ -6,6 +6,7 @@ import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores } from '../lib/data/colaboradores'
 import { aplicarHistorial, combinarPorDni } from '../lib/data/colaboradoresEstado'
 import { estadosCompletosDeEvaluacionesAnteriores } from '../lib/data/colaboradoresHistorico'
+import { useProgresoCarga } from '../lib/progresoCarga'
 import { formatearValorConsulta } from '../lib/data/apis'
 import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar, ProgressBar } from './ui'
 import { SwipeAcciones } from './SwipeAcciones'
@@ -865,11 +866,16 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
    */
   const hayAlgoQueEsperar = cargando || historialPendiente
 
-  const textoCarga = cargando
-    ? historialPendiente
-      ? 'Consultando la tienda y revisando los que ya estaban completos…'
-      : 'Consultando la lista de la tienda…'
-    : 'Revisando los que ya estaban completos en la evaluación anterior…'
+  /**
+   * El avance de la barra. Los tres mensajes van marcando por dónde va la
+   * carga, para que la espera se vea como avance y no como app clavada.
+   *
+   * Un texto fijo no decía nada, y arrancar la barra en 40% se leía como que ya
+   * algo había pasado. Arranca en 14% y se frena al acercarse: el techo es 88, no
+   * 100, así que el automático nunca puede decir "listo" — ese número solo lo
+   * pone la consulta que terminó, y para entonces la barra ya se fue.
+   */
+  const { avance, mensaje } = useProgresoCarga(hayAlgoQueEsperar)
 
   // Al volver al ítem el componente se vuelve a montar y el estado local se
   // pierde. Los que estaban ocultos siguen guardados en el valor (con su estado
@@ -1041,11 +1047,14 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         sacar cinco se lee como que la app se arrepintió. También reemplaza al
         spinner del header, que decía lo mismo en otra parte y dejaba dos
         indicadores para una sola espera.
+
+        El número del relleno es de adorno (`valorAprox`, no `value`): por eso no
+        se anuncia. Lo que anuncia el avance es el mensaje, que sí va cambiando.
       */}
       {hayAlgoQueEsperar ? (
         <div className="rounded-xl border border-slate-200 bg-white p-3">
-          <ProgressBar indeterminate />
-          <p className="mt-2 text-xs text-slate-500">{textoCarga}</p>
+          <ProgressBar valorAprox={avance} />
+          <p className="mt-2 text-xs text-slate-500">{mensaje}</p>
         </div>
       ) : null}
 
