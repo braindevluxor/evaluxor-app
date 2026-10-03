@@ -114,6 +114,25 @@ revoke execute on function public.puede_ver_incidencia(uuid) from public, anon;
 grant  execute on function public.puede_ver_incidencia(uuid) to authenticated;
 
 -- ----------------------------------------------------------------------------
+-- 3) `upsert_respuestas`: se le habia olvidado a todo el mundo
+-- ----------------------------------------------------------------------------
+-- Esta NO es security definer, asi que el advisor de Supabase no la marca: los
+-- avisos que arma son solo de funciones security definer. Pero `anon` si la
+-- puede ejecutar, porque el proyecto de Supabase deja un
+-- 'grant all on all functions in schema public' inicial que nadie le revoco:
+-- `permisos-funcion.sql` recorre las security definer y esta se le quedo
+-- afuera. Por eso es la razon por la que la cuenta de arriba da 3 y no 2.
+--
+-- Que sea invoker la hace menos grave que a los ayudantes: corre con los
+-- privilegios de quien llama, asi que sin permiso de tabla (parte 1) no puede
+-- escribir nada. Es defensa en profundidad, no una fuga abierta.
+--
+-- La app la llama por RPC desde `subirRespuestas` en src/lib/offline/sync.ts,
+-- siempre con sesion.
+revoke execute on function public.upsert_respuestas(jsonb) from public, anon;
+grant  execute on function public.upsert_respuestas(jsonb) to authenticated;
+
+-- ----------------------------------------------------------------------------
 -- Verificacion
 -- ----------------------------------------------------------------------------
 -- 1) Las tablas. TODAS tienen que dar anon_select = false.
@@ -143,8 +162,12 @@ join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public'
 order by p.proname;
 
--- 3) El resumen, que es lo unico que hay que mirar para saber si terminaste:
---    las dos columnas de numeros tienen que dar 0.
+-- 3) El resumen. LAS TABLAS TIENEN QUE DAR 0.
+--
+--    En funciones NO da 0, y no es un error: da 2, que son `intento_login` y
+--    `email_por_usuario`, la pantalla de login. Corre sin sesion por definicion,
+--    asi que `anon` las tiene que poder llamar. Lo que no puede aparecer es
+--    ninguna otra.
 select
   (select count(*) from pg_class c
      join pg_namespace n on n.oid = c.relnamespace
@@ -153,6 +176,18 @@ select
   (select count(*) from pg_proc p
      join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public'
-     and has_function_privilege('anon', p.oid, 'execute'))  as funciones_que_anon_abre;
+     and has_function_privilege('anon', p.oid, 'execute')
+     and p.proname not in ('intento_login', 'email_por_usuario'))  as funciones_que_anon_abre_sin_el_login;
+
+-- Si la de funciones da 0, lo unico que queda abierto a anon son las dos del
+-- login. Es el piso correcto.
+select
+  p.proname,
+  has_function_privilege('anon', p.oid, 'execute') as anon_puede
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and has_function_privilege('anon', p.oid, 'execute')
+order by p.proname;
 -- ============================================================================
 commit;

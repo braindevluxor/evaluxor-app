@@ -399,6 +399,13 @@ grant  execute on function public.puede_reportar_incidencia(uuid, uuid) to authe
 revoke execute on function public.puede_ver_incidencia(uuid) from public, anon;
 grant  execute on function public.puede_ver_incidencia(uuid) to authenticated;
 
+-- Invoker, asi que el advisor de Supabase no la marca (sus avisos son solo de
+-- security definer) y a `permisos-funcion.sql` se le quedo afuera. Corre con los
+-- privilegios de quien llama, asi que sin permiso de tabla no escribe nada.
+-- La app la llama por RPC desde src/lib/offline/sync.ts, siempre con sesion.
+revoke execute on function public.upsert_respuestas(jsonb) from public, anon;
+grant  execute on function public.upsert_respuestas(jsonb) to authenticated;
+
 -- `intento_login` y `email_por_usuario` NO entran aqui: son security definer, no
 -- dependen de ningun permiso de tabla, y la pantalla de login corre sin sesion.
 -- ============================================================================

@@ -102,6 +102,22 @@ revoke execute on function public.email_por_usuario(text) from public, authentic
 grant  execute on function public.email_por_usuario(text) to anon;
 
 -- ----------------------------------------------------------------------------
+-- 5) La que este archivo recorre por falta de aviso: `upsert_respuestas`
+-- ----------------------------------------------------------------------------
+-- Todo lo de arriba son security definer, que es lo unico que el advisor de
+-- Supabase marca. `upsert_respuestas` es security INVOKER, asi que no genera
+-- ninguna alerta y a este archivo (que recorre las del advisor) se le escapaba:
+-- `anon` podia ejecutarla con el 'grant all on all functions in schema public'
+-- inicial de Supabase.
+--
+-- Invoker la hace poco grave: corre con los privilegios de quien llama, asi que
+-- sin permiso de tabla sobre `respuestas` no escribe nada. Pero es defensa en
+-- profundidad. La app la llama por RPC desde src/lib/offline/sync.ts:145, siempre
+-- con sesion.
+revoke execute on function public.upsert_respuestas(jsonb) from public, anon;
+grant  execute on function public.upsert_respuestas(jsonb) to authenticated;
+
+-- ----------------------------------------------------------------------------
 -- Verificacion
 -- ----------------------------------------------------------------------------
 -- Correr `diagnostico-permisos.sql` despues de esto: la columna `estado` deberia
@@ -112,6 +128,7 @@ grant  execute on function public.email_por_usuario(text) to anon;
 --   · los 6 ayudantes de politica para `authenticated`: las politicas RLS los
 --     necesitan. Para `anon` ya no, y eso lo cierra `cerrar-permisos-anon.sql`.
 --   · `intento_login`/`email_por_usuario` con `anon`: es la pantalla de login.
+--     Son las dos unicas funciones que deben quedar ejecutables por anon.
 --   · `authenticated` en las de trigger: `returns trigger` ya las hace
 --     inalcanzables por RPC y se deja como margen de seguridad.
 -- ============================================================================
