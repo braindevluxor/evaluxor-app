@@ -856,6 +856,8 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
               shopId={sucursal?.shop_id}
               branchId={sucursal?.branch_id}
               gerente={sucursal?.gerente?.nombre ?? null}
+              sucursalId={sucursalId}
+              fechaEvaluacion={actual.fecha}
               onChange={(v) => cambiarValor(hijoActual.id, registro.instanciaId, v)}
             />
           </div>
@@ -1073,6 +1075,8 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
               shopId={sucursal?.shop_id}
               branchId={sucursal?.branch_id}
               gerente={sucursal?.gerente?.nombre ?? null}
+              sucursalId={sucursalId}
+              fechaEvaluacion={actual.fecha}
               onChange={(v) => cambiarValor(paso.id, null, v)}
             />
           </div>

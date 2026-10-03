@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { ItemRenderer } from './ItemRenderer'
 import type { Item } from '../lib/types'
 
@@ -216,5 +218,144 @@ describe('ItemRenderer · limpiar lista de colaboradores', () => {
     expect(posSticky).toBeGreaterThan(-1)
     expect(html.indexOf('Buscar por documento')).toBeGreaterThan(posSticky)
     expect(html.slice(posSticky, html.indexOf('Buscar por documento'))).toMatch(/bg-white/)
+  })
+})
+
+/**
+ * El cableado de "Actualizar listado". El render es de servidor, así que los
+ * efectos no corren y la consulta al historial no se dispara: lo que se verifica
+ * acá es que las piezas estén conectadas en el orden correcto, que es donde se
+ * cuecen los errores silenciosos (se guarda la lista sin combinar, se oculta sin
+ * sembrar el estado, etc.).
+ */
+describe('ItemRenderer · actualizar el listado sin perder lo revisado', () => {
+  const fuente = (rel: string): string =>
+    readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+  it('el botón ya no reemplaza la lista: combina por DNI', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).toMatch(/combinarPorDni\(colaboradores, conHistorial\)/)
+    // La asignación directa que rompía todo: todos volvían con `selected: []`.
+    expect(src).not.toMatch(/actualizar\(nuevos\)/)
+  })
+
+  it(' siembra el estado de la evaluación anterior ANTES de combinar', () => {
+    // Si se combinara primero, la lista actual pisaría el historial y el que ya
+    // estaba completo quedaría con las casillas vacías.
+    const src = fuente('./ItemRenderer.tsx')
+    const siembra = src.indexOf('aplicarHistorial(nuevos, historial)')
+    const combina = src.indexOf('combinarPorDni(colaboradores, conHistorial)')
+    expect(siembra).toBeGreaterThan(-1)
+    expect(combina).toBeGreaterThan(-1)
+    expect(siembra).toBeLessThan(combina)
+  })
+
+  it('pide el historial con sucursal, ítem, fecha y los ids de los checks', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).toContain('estadosCompletosDeEvaluacionesAnteriores(sucursalId, item.id, fechaEvaluacion, idsChecks)')
+    // Sin sucursal o sin fecha no hay historial: se ve la lista entera. Por eso
+    // los dos props son opcionales y no hay un `!` que rompa el ítem.
+    expect(src).toMatch(/sucursalId && fechaEvaluacion\s*\?/)
+  })
+
+  it('los ids de los checks van en useMemo, para que el efecto no gire en loop', () => {
+    // `(item.opciones ?? [])` crea un `[]` nuevo en cada render cuando el ítem no
+    // tiene checklist. Si el efecto dependiera de eso, se dispararía siempre.
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).toContain('const opts = useMemo(() => (item.opciones ?? []) as Opcion[], [item.opciones])')
+    expect(src).toContain('const idsChecks = useMemo(() => opts.map((o) => o.id), [opts])')
+  })
+
+  it('los que ya estaban completos se ocultan al pintar, no al guardar', () => {
+    // Si se sacaran del valor guardado, el tablero los contaría como
+    // incumplidos y el porcentaje de la tienda se caería.
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).toContain('const colaboradoresVisibles = colaboradoresFiltrados.filter((c) => !ocultos.has(c.dni))')
+    expect(src).toContain('const ocultos = mostrarResueltos ? new Set<number>() : new Set(resueltosAntes.keys())')
+    // Todo lo que guarda la lista pasa por `combinarPorDni`, que no toca a los ocultos.
+    expect(src).toContain('actualizar(combinados)')
+  })
+
+  it('pregunta antes de descartar a quien ya no está en la tienda', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).toMatch(/if \(perdidos\.length\) \{[\s\S]{0,200}?setPendienteCombinacion/)
+    expect(src).toContain('textoConfirmar="Actualizar igual"')
+    // Y el botón no es rojo: no se está por borrar, se está aplicando la lista nueva.
+    expect(src).toMatch(/textoConfirmar="Actualizar igual"\s*\n\s*variant="secondary"/)
+  })
+
+  it('limpiar la lista olvida el historial, para no volver a ocultar a nadie', () => {
+    // Si no, al recargar la lista desaparecerían los que el evaluador acababa de
+    // marcar, y no podría ver a quién le puso "no aplica".
+    const src = fuente('./ItemRenderer.tsx')
+    const limpiar = src.slice(src.indexOf('const limpiar = () => {'), src.indexOf('const ocultarResueltos'))
+    expect(limpiar).toContain('setResueltosAntes(new Map())')
+    expect(limpiar).toContain('setMostrarResueltos(false)')
+  })
+
+  it('al volver al ítem se vuelve a ocultar lo que ya estaba completo', () => {
+    // El componente se remonta al cambiar de paso y el estado local se pierde.
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).toMatch(/useEffect\(\(\) => \{\s*\n\s*void ocultarAunSinCargar\(\)/)
+    expect(src).toContain('const ocultarAunSinCargar = async () => {')
+    expect(src).toContain('estadosCompletosDeEvaluacionesAnteriores(sucursalId, item.id, fechaEvaluacion, idsChecks)')
+    // Y no se vuelve a pedir en cada render.
+    expect(src).toContain('historicoPedido.current = true')
+  })
+
+  it('el guard del remount no puede depender de resueltosAntes (viene vacío al remontar)', () => {
+    // Este fue un bug real: el guard era `colaboradores.some(c =>
+    // resueltosAntes.has(c.dni))`, que al remontar es siempre falso porque el mapa
+    // arranca vacío. La consulta no se llegaba a hacer nunca y los ocultos
+    // reaparecían al volver al ítem.
+    const src = fuente('./ItemRenderer.tsx')
+    const guard = src.slice(src.indexOf('const ocultarAunSinCargar'), src.indexOf('// Al volver al ítem'))
+    expect(guard).toContain('if (!colaboradores.length) return')
+    expect(guard).not.toMatch(/resueltosAntes\.has/)
+  })
+
+  it('la carga marca el historial como pedido, y limpiarlo lo libera', () => {
+    // Si `cargar` no marcara el ref, el efecto de remount haría la misma consulta
+    // otra vez apenas se aplicara la lista.
+    const src = fuente('./ItemRenderer.tsx')
+    const cargar = src.slice(src.indexOf('const cargar = async () => {'), src.indexOf('const marcarAplica'))
+    expect(cargar).toContain('historicoPedido.current = true')
+    const limpiar = src.slice(src.indexOf('const limpiar = () => {'), src.indexOf('const ocultarResueltos'))
+    expect(limpiar).toContain('historicoPedido.current = false')
+  })
+
+  it('EvaluarSucursal pasa la sucursal y la fecha en los dos lugares', () => {
+    // Si se pasan en un call site y no en el otro, el ítem repetible dentro de
+    // una sección se mostraría entero mientras el resto oculta.
+    const src = fuente('../pages/evaluar/EvaluarSucursal.tsx')
+    const apariciones = src.match(/sucursalId=\{sucursalId\}\s*\n\s*fechaEvaluacion=\{actual\.fecha\}/g)
+    expect(apariciones).toHaveLength(2)
+  })
+})
+
+describe('ItemRenderer · la consulta del historial', () => {
+  const fuente = (rel: string): string =>
+    readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+  it('mira solo evaluaciones anteriores de la misma sucursal', () => {
+    const src = fuente('../lib/data/colaboradoresHistorico.ts')
+    expect(src).toContain(".eq('sucursal_id', sucursalId)")
+    // `lt` y no `ne`: la evaluación de hoy no cuenta.
+    expect(src).toContain(".lt('fecha', fechaActual)")
+    expect(src).toContain(".order('fecha', { ascending: false })")
+  })
+
+  it('trae las respuestas de ese ítem en esas evaluaciones', () => {
+    const src = fuente('../lib/data/colaboradoresHistorico.ts')
+    expect(src).toContain(".eq('item_id', itemId)")
+    expect(src).toContain(".in('evaluacion_id', ids)")
+  })
+
+  it('nunca tira: si falla devuelve el mapa vacío', () => {
+    // Perder el historial es una molestia; romper la carga del listado deja al
+    // evaluador sin poder trabajar.
+    const src = fuente('../lib/data/colaboradoresHistorico.ts')
+    expect(src).toMatch(/catch \{\s*\n\s*return vacio/)
+    expect(src.match(/return vacio/g)?.length).toBeGreaterThan(2)
   })
 })
