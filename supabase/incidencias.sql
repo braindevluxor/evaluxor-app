@@ -22,6 +22,17 @@ create table if not exists public.incidencias (
   created_at timestamptz not null default now()
 );
 
+-- Cargos responsables de la incidencia. Es un jsonb y no un text[] porque cada
+-- cargo lleva su propia marca: `por_validar` va en true cuando se escribió a
+-- mano, que es lo que pasa siempre que no hay señal para consultar el catálogo.
+-- Ese cargo puede estar mal escrito, así que no se da por bueno hasta que en la
+-- próxima oportunidad se lo contrasta contra el catálogo. El Líder lo ve así
+-- desde la nube: un cargo sin verificar es información, no un detalle de la UI.
+--
+-- jsonb (y no una tabla aparte) porque el catálogo de cargos vive en una Edge
+-- Function, no en la base: no hay un `cargo_id` al que apuntar, solo el texto.
+alter table public.incidencias add column if not exists responsables jsonb not null default '[]'::jsonb;
+
 create index if not exists idx_incidencias_evaluacion on public.incidencias (evaluacion_id, created_at desc);
 
 alter table public.incidencias enable row level security;
@@ -152,3 +163,21 @@ create policy storage_incidencias_delete on storage.objects
 comment on table public.incidencias is 'Incidencias fuera de lo programado, reportadas desde la evaluación (funciona sin conexión).';
 comment on column public.incidencias.descripcion is 'Lo que vio el evaluador, con sus palabras.';
 comment on column public.incidencias.fotos is 'Rutas en el bucket evidencias: incidencias/<reporte_id>/<foto_id>.';
+comment on column public.incidencias.responsables is 'Cargos responsables: [{cargo, por_validar}]. por_validar=true cuando se agregó a mano sin catálogo y todavía no se confirmó.';
+
+-- ----------------------------------------------------------------------------
+-- Verificacion
+-- ----------------------------------------------------------------------------
+-- La columna tiene que existir y traer el default. Si `existe` sale false, el
+-- `alter table` de arriba no llegó a aplicarse y los responsables no se guardan
+-- (la app sigue funcionando, pero los cargos se pierden al sincronizar).
+select
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'incidencias' and column_name = 'responsables'
+  ) as existe,
+  (select column_default from information_schema.columns
+   where table_schema = 'public' and table_name = 'incidencias' and column_name = 'responsables')
+    as default_col,
+  (select count(*) from public.incidencias
+   where responsables is null or jsonb_typeof(responsables) <> 'array')  as filas_rotoas;

@@ -4,11 +4,17 @@ import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
 import { deletePhoto, getPhotos, listIncidentes, updateIncidente, type IncidenteRecord } from '../../lib/offline/db'
+import { ChipsResponsables, EditorResponsablesIncidencia } from '../../components/EditorResponsablesIncidencia'
 import { PhotoCapture } from '../../components/PhotoCapture'
 import { pathFotoIncidencia } from '../../lib/offline/sync'
 import { supabase } from '../../lib/supabase'
 import { Button, Modal, Spinner, Textarea } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
+import {
+  normalizarResponsables,
+  responsablesAColumna,
+  type ResponsableIncidencia
+} from '../../lib/data/responsablesIncidencia'
 
 type IncidenciaVista = {
   id: string
@@ -18,6 +24,8 @@ type IncidenciaVista = {
   descripcion: string
   fotos: string[]
   photoIds: string[]
+  /** Cargos responsables. Vacío si la incidencia se creó sin ellos. */
+  responsables: ResponsableIncidencia[]
   created_at: number
   pendiente: boolean
   local: boolean
@@ -35,6 +43,7 @@ export function IncidenciasPage() {
   const [descripcion, setDescripcion] = useState('')
   const [photoIdsEditando, setPhotoIdsEditando] = useState<string[]>([])
   const [fotosNubeEditando, setFotosNubeEditando] = useState<string[]>([])
+  const [responsablesEditando, setResponsablesEditando] = useState<ResponsableIncidencia[]>([])
   const [guardando, setGuardando] = useState(false)
   const [errorGuardado, setErrorGuardado] = useState<string | null>(null)
 
@@ -49,7 +58,7 @@ export function IncidenciasPage() {
       if (online) {
         const { data, error: queryError } = await supabase
           .from('incidencias')
-          .select('id, sucursal_id, fecha, modulo_id, descripcion, fotos, created_at')
+          .select('id, sucursal_id, fecha, modulo_id, descripcion, fotos, created_at, responsables')
           .eq('evaluador_id', profile.id)
           .order('created_at', { ascending: false })
 
@@ -64,6 +73,10 @@ export function IncidenciasPage() {
             descripcion: fila.descripcion as string,
             fotos: Array.isArray(fila.fotos) ? fila.fotos as string[] : [],
             photoIds: [],
+            // Las incidencias guardadas antes de esta columna no la tienen: por
+            // eso `normalizarResponsables` y no un `?? []`, que dejaría pasar
+            // cualquier otra forma.
+            responsables: normalizarResponsables(fila.responsables),
             created_at: new Date(fila.created_at as string).getTime(),
             pendiente: false,
             local: false
@@ -94,6 +107,7 @@ export function IncidenciasPage() {
     setDescripcion(incidente.descripcion)
     setPhotoIdsEditando(incidente.photoIds)
     setFotosNubeEditando(incidente.fotos)
+    setResponsablesEditando(normalizarResponsables(incidente.responsables))
     setErrorGuardado(null)
   }
 
@@ -104,12 +118,19 @@ export function IncidenciasPage() {
     setGuardando(true)
     setErrorGuardado(null)
     try {
+      // Se normaliza una sola vez y se usa en los dos caminos, para que lo que
+      // queda guardado sea idéntico si la incidencia es local o ya está subida.
+      const responsables = responsablesAColumna(normalizarResponsables(responsablesEditando))
       if (editando.local) {
-        await updateIncidente(editando.id, { descripcion: texto, photoIds: photoIdsEditando })
+        await updateIncidente(editando.id, {
+          descripcion: texto,
+          photoIds: photoIdsEditando,
+          responsables: normalizarResponsables(responsablesEditando)
+        })
         if (online) {
           const { error: updateError } = await supabase
             .from('incidencias')
-            .update({ descripcion: texto })
+            .update({ descripcion: texto, responsables })
             .eq('id', editando.id)
             .eq('evaluador_id', profile.id)
           if (updateError) throw updateError
@@ -120,7 +141,7 @@ export function IncidenciasPage() {
         const fotosFinales = [...fotosNubeEditando, ...nuevasFotos]
         const { error: updateError } = await supabase
           .from('incidencias')
-          .update({ descripcion: texto, fotos: fotosFinales })
+          .update({ descripcion: texto, fotos: fotosFinales, responsables })
           .eq('id', editando.id)
           .eq('evaluador_id', profile.id)
         if (updateError) throw updateError
@@ -198,6 +219,7 @@ export function IncidenciasPage() {
                         {sucursal?.nombre ?? 'Sucursal'} · {new Date(`${incidente.fecha}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })}
                         {modulo ? ` · ${modulo.nombre}` : ''}
                       </p>
+                      <ChipsResponsables valor={incidente.responsables} className="mt-1.5" />
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
                         <span>{new Date(incidente.created_at).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
                         {incidente.fotos.length + incidente.photoIds.length > 0 ? <span className="inline-flex items-center gap-1"><Camera className="h-3.5 w-3.5" /> {incidente.fotos.length + incidente.photoIds.length} foto(s)</span> : null}
@@ -238,6 +260,13 @@ export function IncidenciasPage() {
       >
         <div className="space-y-3">
           <Textarea rows={5} value={descripcion} onChange={(event) => setDescripcion(event.target.value)} autoFocus />
+          {editando ? (
+            <EditorResponsablesIncidencia
+              valor={responsablesEditando}
+              onChange={setResponsablesEditando}
+              sucursalId={editando.sucursal_id}
+            />
+          ) : null}
           {errorGuardado ? <p role="alert" className="text-xs font-medium text-red-700">{errorGuardado}</p> : null}
           <FotosNubeEditables paths={fotosNubeEditando} onQuitar={(path) => setFotosNubeEditando((actuales) => actuales.filter((x) => x !== path))} />
           <PhotoCapture photoIds={photoIdsEditando} onChange={setPhotoIdsEditando} />
@@ -257,6 +286,7 @@ function convertirLocal(incidente: IncidenteRecord): IncidenciaVista {
     descripcion: incidente.descripcion,
     fotos: [],
     photoIds: incidente.photoIds,
+    responsables: normalizarResponsables(incidente.responsables),
     created_at: incidente.created_at,
     pendiente: incidente.sync === 'pendiente',
     local: true

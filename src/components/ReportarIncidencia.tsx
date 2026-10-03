@@ -4,6 +4,8 @@ import { useOffline } from '../context/OfflineContext'
 import { addIncidente } from '../lib/offline/db'
 import { Button, Modal, Spinner, Textarea, cn } from './ui'
 import { PhotoCapture } from './PhotoCapture'
+import { EditorResponsablesIncidencia } from './EditorResponsablesIncidencia'
+import { normalizarResponsables, type ResponsableIncidencia } from '../lib/data/responsablesIncidencia'
 
 interface Props {
   /** Sucursal y fecha de la evaluación en curso: sin esto el reporte no tiene a qué asociarse. */
@@ -35,12 +37,14 @@ export function ReportarIncidencia({ sucursalId, fecha, moduloId, moduloNombre, 
   const [abierto, setAbierto] = useState(false)
   const [descripcion, setDescripcion] = useState('')
   const [photoIds, setPhotoIds] = useState<string[]>([])
+  const [responsables, setResponsables] = useState<ResponsableIncidencia[]>([])
   const [guardando, setGuardando] = useState(false)
   const [recienGuardada, setRecienGuardada] = useState(false)
 
   const abrir = useCallback(() => {
     setDescripcion('')
     setPhotoIds([])
+    setResponsables([])
     setAbierto(true)
   }, [])
 
@@ -65,11 +69,13 @@ export function ReportarIncidencia({ sucursalId, fecha, moduloId, moduloNombre, 
         fecha,
         modulo_id: moduloId,
         descripcion: texto,
-        photoIds
+        photoIds,
+        responsables: normalizarResponsables(responsables)
       })
       setAbierto(false)
       setDescripcion('')
       setPhotoIds([])
+      setResponsables([])
       setRecienGuardada(true)
       // Si hay señal, se sube ya; si no, queda en el teléfono y sube con el próximo sync.
       if (online) void sync()
@@ -130,6 +136,14 @@ export function ReportarIncidencia({ sucursalId, fecha, moduloId, moduloNombre, 
             value={descripcion}
             onChange={(e) => setDescripcion(e.target.value)}
             placeholder="Ej: hay una bandeja de pechuga de pollo dentro de la nevera de helado."
+          />
+          {/* Va después del texto y antes de las fotos: primero qué pasó, después
+              a quién le corresponde, y las fotos al final porque son las que más
+              pesan en el modal. */}
+          <EditorResponsablesIncidencia
+            valor={responsables}
+            onChange={setResponsables}
+            sucursalId={sucursalId}
           />
           <PhotoCapture photoIds={photoIds} onChange={setPhotoIds} />
           <p className="flex items-center gap-1.5 text-xs text-slate-500">

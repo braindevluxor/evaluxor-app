@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Camera } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { ChipsResponsables } from './EditorResponsablesIncidencia'
+import { normalizarResponsables, type ResponsableIncidencia } from '../lib/data/responsablesIncidencia'
 import { Skeleton, Spinner } from './ui'
 
 export interface IncidenciaFila {
@@ -8,6 +10,8 @@ export interface IncidenciaFila {
   descripcion: string
   fotos: string[]
   modulo_id: string | null
+  /** Cargos responsables, tal como los cargo el evaluador. */
+  responsables: ResponsableIncidencia[]
   created_at: string
   /** PostgREST devuelve las relaciones embebidas como arreglo. */
   evaluador?: { nombre: string }[] | null
@@ -30,7 +34,7 @@ export function IncidenciasEvaluacion({ evaluacionId }: { evaluacionId: string }
       try {
         const { data, error: queryError } = await supabase
           .from('incidencias')
-          .select('id, descripcion, fotos, modulo_id, evaluador_id, created_at, modulo:modulos!incidencias_modulo_id_fkey(nombre)')
+          .select('id, descripcion, fotos, modulo_id, evaluador_id, created_at, responsables, modulo:modulos!incidencias_modulo_id_fkey(nombre)')
           .eq('evaluacion_id', evaluacionId)
           .order('created_at', { ascending: false })
         if (!vivo) return
@@ -47,6 +51,7 @@ export function IncidenciasEvaluacion({ evaluacionId }: { evaluacionId: string }
           modulo_id: string | null
           evaluador_id: string
           created_at: string
+          responsables?: unknown
           modulo?: { nombre: string }[] | null
         }>
 
@@ -70,6 +75,9 @@ export function IncidenciasEvaluacion({ evaluacionId }: { evaluacionId: string }
           descripcion: item.descripcion,
           fotos: item.fotos ?? [],
           modulo_id: item.modulo_id,
+          // Sin normalizar, el jsonb crudo llega directo a la vista y una incidencia
+          // vieja (sin la columna) rompería el render.
+          responsables: normalizarResponsables(item.responsables),
           created_at: item.created_at,
           evaluador: nombresPorEvaluador.has(item.evaluador_id) ? [{ nombre: nombresPorEvaluador.get(item.evaluador_id)! }] : null,
           modulo: item.modulo ? item.modulo : null
@@ -129,6 +137,15 @@ export function IncidenciasEvaluacion({ evaluacionId }: { evaluacionId: string }
                   ? ` · ${new Date(f.created_at).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
                   : ''}
               </p>
+              {/* Los cargos van debajo del nombre, y los pendientes de validar
+                  aparte: el Líder necesita ver qué está verificado y qué se
+                  escribió a mano en la tienda. */}
+              <ChipsResponsables valor={f.responsables} className="mt-1.5" />
+              {f.responsables.some((r) => r.porValidar) ? (
+                <p className="mt-1 text-[11px] text-amber-700">
+                  Hay cargos escritos sin catálogo: no se pudieron verificar.
+                </p>
+              ) : null}
               {f.fotos?.length ? <FotosIncidencia paths={f.fotos} /> : null}
             </li>
           ))}

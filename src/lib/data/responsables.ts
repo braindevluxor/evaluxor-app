@@ -15,7 +15,16 @@ interface RespuestaFuncion {
 const CLAVES_DEPARTAMENTO = ['departamento', 'department', 'department_name', 'departmentname', 'area', 'area_name']
 const CLAVES_CARGO = ['cargo', 'position', 'position_name', 'positionname', 'role', 'role_name', 'job_title', 'jobtitle']
 
-function claveNormalizada(valor: string): string {
+/**
+ * Compara cargos y claves que vienen de fuentes distintas: sin acentos, en
+ * minúsculas y solo letras y números. «Encargado de turno» y «encargado de
+ * Turno» son el mismo cargo.
+ *
+ * Se exporta porque tiene que ser la MISMA comparación en todas partes: si el
+ * catálogo y la lista de responsables de la incidencia normalizan distinto, un
+ * cargo confirmado no se reconoce y queda marcado para siempre.
+ */
+export function claveNormalizada(valor: string): string {
   return valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 

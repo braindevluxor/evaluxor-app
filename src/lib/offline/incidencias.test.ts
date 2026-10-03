@@ -160,8 +160,78 @@ describe('incidencias · edición de fotos', () => {
     const pagina = fuente('../../pages/evaluar/IncidenciasPage.tsx')
     expect(pagina).toContain('<PhotoCapture')
     expect(pagina).toContain(".from('evidencias').upload(path")
-    expect(pagina).toContain('.update({ descripcion: texto, fotos: fotosFinales })')
+    expect(pagina).toContain('.update({ descripcion: texto, fotos: fotosFinales, responsables })')
     expect(pagina).toContain(".from('evidencias').remove(quitarFotos)")
+  })
+})
+
+describe('incidencias · responsables', () => {
+  const sql = fuente('../../../supabase/incidencias.sql')
+
+  it('la columna es un jsonb con default de array vacío', () => {
+    // El default importa: sin él, una incidencia insertada por el sync sin la
+    // columna (por ejemplo una fila vieja) queda en null y `jsonb_typeof` da
+    // null. Con `[]` siempre hay un array y el lector no tiene que adivinar.
+    expect(sql).toMatch(
+      /add column if not exists responsables jsonb not null default '\[\]'::jsonb/
+    )
+    expect(sql).toContain('comment on column public.incidencias.responsables')
+  })
+
+  it('la marca `por_validar` viaja al servidor, no se queda en el teléfono', () => {
+    // El Líder ve las incidencias desde la nube, sin pasar por el teléfono del
+    // evaluador. Si la marca no subiera, ahí parecerían todos verificados.
+    const sync = fuente('./sync.ts')
+    expect(sync).toMatch(/responsables: responsablesAColumna\(normalizarResponsables\(inc\.responsables\)\)/)
+  })
+
+  it('el formulario de reportar monta el buscador', () => {
+    const fab = fuente('../../components/ReportarIncidencia.tsx')
+    expect(fab).toContain('<EditorResponsablesIncidencia')
+    expect(fab).toContain('sucursalId={sucursalId}')
+    // Y guarda lo que se eligió: si el editor se monta pero el `addIncidente`
+    // no lo recibe, los cargos se pierden al cerrar el modal.
+    expect(fab).toMatch(/responsables: normalizarResponsables\(responsables\)/)
+  })
+
+  it('el buscador se puede usar también al editar, y se guarda en los dos caminos', () => {
+    const pagina = fuente('../../pages/evaluar/IncidenciasPage.tsx')
+    expect(pagina).toContain('<EditorResponsablesIncidencia')
+    // El camino local (todavía en el teléfono) y el remoto (ya subida) tienen
+    // que guardar lo mismo: si solo lo guardara uno, dependería de si hay señal.
+    expect(pagina).toMatch(/updateIncidente\(editando\.id, \{[\s\S]{0,220}?responsables: normalizarResponsables\(responsablesEditando\)/)
+    expect(pagina).toMatch(/\.update\(\{ descripcion: texto, responsables \}\)/)
+    expect(pagina).toMatch(/\.update\(\{ descripcion: texto, fotos: fotosFinales, responsables \}\)/)
+  })
+
+  it('el listado y la vista del Líder leen la columna', () => {
+    const pagina = fuente('../../pages/evaluar/IncidenciasPage.tsx')
+    expect(pagina).toContain('created_at, responsables')
+    expect(pagina).toContain('<ChipsResponsables valor={incidente.responsables}')
+
+    const lider = fuente('../../components/IncidenciasEvaluacion.tsx')
+    expect(lider).toContain('created_at, responsables,')
+    expect(lider).toContain('<ChipsResponsables valor={f.responsables}')
+    // Y avisa que hay cargos sin verificar, que es el dato que el Líder necesita.
+    expect(lider).toContain('pendientes de validar')
+  })
+
+  it('el registro local acepta y completa los responsables', () => {
+    const db = fuente('./db.ts')
+    expect(db).toMatch(/'modulo_id' \| 'responsables' \| 'sync'/)
+    // Las fichas ya guardadas no tienen la lista: `listIncidentes` la completa en
+    // vez de devolver `undefined` y romper el render.
+    expect(db).toMatch(/responsables: normalizarResponsables\(incidente\.responsables\)/)
+  })
+
+  it('el buscador solo usa el catálogo de la sucursal y la central', () => {
+    const editor = fuente('../../components/EditorResponsablesIncidencia.tsx')
+    expect(editor).toContain('catalogoDeIncidencia(branchId)')
+    expect(editor).toContain("sucursales.find((s) => s.id === sucursalId)?.branch_id")
+    // El texto libre es el camino sin catálogo (sin señal, o sucursal sin
+    // branch configurado), y lo que entra por ahí queda marcado.
+    expect(editor).toMatch(/agregarResponsable\(([\s\S]{0,200}?), porValidar\)/)
+    expect(editor).toMatch(/const agregarLoEscrito = \(\) => agregar\(texto, true\)/)
   })
 })
 

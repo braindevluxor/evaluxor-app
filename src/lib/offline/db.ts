@@ -1,6 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import type { Modulo, Item, Sucursal, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem, SucursalOpcion } from '../types'
 import { claveRespuesta, type InstanciaPlana } from '../pasos'
+import { normalizarResponsables, type ResponsableIncidencia } from '../data/responsablesIncidencia'
 
 export { claveRespuesta }
 
@@ -84,6 +85,12 @@ export interface IncidenteRecord {
   modulo_id: string | null
   descripcion: string
   photoIds: string[]
+  /**
+   * Cargos responsables. Es opcional a propósito: las incidencias que ya estaban
+   * en el dispositivo antes de este cambio no lo tienen, y `listIncidentes` lo
+   * completa con `normalizarResponsables` en vez de romper.
+   */
+  responsables?: ResponsableIncidencia[]
   created_at: number
   sync: 'pendiente' | 'enviado'
 }
@@ -249,7 +256,7 @@ export async function addIncidente(r: Omit<IncidenteRecord, 'id' | 'created_at' 
   return record
 }
 
-export async function updateIncidente(id: string, cambios: Partial<Pick<IncidenteRecord, 'descripcion' | 'photoIds' | 'modulo_id' | 'sync'>>): Promise<void> {
+export async function updateIncidente(id: string, cambios: Partial<Pick<IncidenteRecord, 'descripcion' | 'photoIds' | 'modulo_id' | 'responsables' | 'sync'>>): Promise<void> {
   const db = await getDB()
   const actual = await db.get('incidentes', id)
   if (!actual) return
@@ -259,7 +266,9 @@ export async function updateIncidente(id: string, cambios: Partial<Pick<Incident
 export async function listIncidentes(): Promise<IncidenteRecord[]> {
   const db = await getDB()
   const all = await db.getAll('incidentes')
-  return all.sort((a, b) => a.created_at - b.created_at)
+  return all
+    .map((incidente) => ({ ...incidente, responsables: normalizarResponsables(incidente.responsables) }))
+    .sort((a, b) => a.created_at - b.created_at)
 }
 
 export async function listIncidentesEvaluacion(sucursalId: string, fecha: string, evaluadorId: string): Promise<IncidenteRecord[]> {

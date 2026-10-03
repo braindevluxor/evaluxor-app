@@ -2,6 +2,7 @@ import { supabase } from '../supabase'
 import { causaSubida, errorSubida, type ErrorSubida } from '../subida'
 import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, respuestasConInstancia, incidentesPendientes, eliminarIncidente, type SyncJob, type DraftEval } from './db'
 import { photoPath, convertirValor, extraerPhotoIds, valorSinFotos } from './transform'
+import { normalizarResponsables, responsablesAColumna } from '../data/responsablesIncidencia'
 
 export { respuestasConInstancia }
 
@@ -386,7 +387,11 @@ export async function sincronizarIncidentes(): Promise<{ ok: number; fail: numbe
         sucursal_id: inc.sucursal_id,
         fecha: inc.fecha,
         modulo_id: inc.modulo_id,
-        descripcion: inc.descripcion
+        descripcion: inc.descripcion,
+        // `por_validar` viaja al servidor a propósito: el Líder tiene que poder
+        // ver desde la nube que ese cargo se escribió a mano y todavía no se
+        // confirmó contra el catálogo.
+        responsables: responsablesAColumna(normalizarResponsables(inc.responsables))
       })
       if (insErr && insErr.code !== '23505') throw insErr
 

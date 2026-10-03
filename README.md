@@ -50,7 +50,7 @@ Vite + React 19 + TypeScript, Tailwind CSS (color primario azul oscuro `#0B2545`
    | # | archivo | qué hace |
    |---|---------|----------|
    | 1 | `cerrar-lectura-anon.sql` | Cierra a quien no inició sesión la lectura de 7 tablas (`profiles`, `items`, `modulos`, `sucursales` y las 3 de configuración). **No depende de nada**: corré este primero. |
-   | 2 | `incidencias.sql` | Crea la tabla de incidencias y sus políticas de Storage. |
+   | 2 | `incidencias.sql` | Crea la tabla de incidencias (con la columna `responsables`, que guarda los cargos y si están validados) y sus políticas de Storage. Se puede volver a correr cuando se agreguen columnas. |
    | 3 | `permisos-funcion.sql` | Ajusta los `EXECUTE` de las funciones. No toca los 6 helpers de RLS, y el archivo explica por qué. |
    | 4 | `reactivar-politicas.sql` | Vuelve a prender RLS y repone todas las políticas (trae el mismo fix de lectura anónima). Depende del 2. Va en transacción. |
    | 5 | `cerrar-permisos-anon.sql` | Saquetea a `anon`: le saca el permiso sobre todas las tablas y el `EXECUTE` de los 6 ayudantes de RLS. **Va después del 1**, porque una parte depende de la otra. |
