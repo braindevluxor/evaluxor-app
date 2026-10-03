@@ -1114,7 +1114,7 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
     case 'CUMPLE_NO_CUMPLE': {
       const v = valor as ValorCumple | null
       const estado = v?.value == null ? 'Sin responder' : v.value ? 'Cumple' : 'No cumple'
-      const info = v?.informativo ? ' · informativo' : ''
+      const info = v?.informativo ? ' · No aplica' : ''
       return { proporcion: p, resumen: `${estado}${info}` }
     }
     case 'CHECKLIST': {
@@ -1127,7 +1127,7 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
         return o?.etiqueta ?? id
       })
       if (p === null) {
-        if (v?.informativos?.length) return { proporcion: p, resumen: `${v.informativos.length} opción(es) informativa(s)` }
+        if (v?.informativos?.length) return { proporcion: p, resumen: `No aplica en ${v.informativos.length} opción(es)` }
         return { proporcion: p, resumen: 'Sin opciones marcadas' }
       }
       return { proporcion: p, resumen: `${sel.length} de ${opts.length} opciones${labels.length ? ` · ${labels.join(' · ')}` : ''}` }
@@ -1158,7 +1158,7 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
       const cumplen = marcados.filter((x) => x.cumple === true).length
       if (!pts.length) return { proporcion: p, resumen: 'Sin plano cargado' }
       if (!marcados.length) return { proporcion: p, resumen: `${pts.length} punto(s) sin veredicto` }
-      return { proporcion: p, resumen: `${cumplen}/${marcados.length} puntos cumplen · ${pts.length} marcado(s)${v?.informativo ? ' · informativo' : ''}` }
+      return { proporcion: p, resumen: `${cumplen}/${marcados.length} puntos cumplen · ${pts.length} marcado(s)${v?.informativo ? ' · No aplica' : ''}` }
     }
     case 'CONCILIACION': {
       const v = valor as ValorConciliacion | null

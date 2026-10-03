@@ -13,7 +13,7 @@ import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
 import { BarcodeScanner } from './BarcodeScanner'
 import { deletePhoto } from '../lib/offline/db'
-import { BotonInformativo, SelectorResponsables } from './WidgetsEvaluacion'
+import { BotonNoAplica, SelectorResponsables } from './WidgetsEvaluacion'
 import { PlanoEditor } from './PlanoEditor'
 
 interface Props {
@@ -102,19 +102,19 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
       const v = (valor as ValorCumple | null) ?? { value: null, evidencias: [] }
       const value = v.value ?? null
       const evidencias = v.evidencias ?? []
-      const informativo = v.informativo ?? false
+      const noAplica = v.informativo ?? false
       const setValue = (valor2: boolean) => guardar({ ...v, value: valor2 })
       const setEvidencias = (evs: EvidenciaCumple[]) => guardar({ ...v, evidencias: evs })
-      const setInformativo = (b: boolean) => guardar({ ...v, informativo: b })
+      const setNoAplica = (b: boolean) => guardar({ ...v, informativo: b })
       return (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <BotonCumple activo={value === true} onPick={() => setValue(true)} />
             <BotonNoCumple activo={value === false} onPick={() => setValue(false)} />
           </div>
-          <BotonInformativo activo={informativo} onClick={() => setInformativo(!informativo)}>
-            Informativo · no descuenta puntos
-          </BotonInformativo>
+          <BotonNoAplica activo={noAplica} onClick={() => setNoAplica(!noAplica)}>
+            No aplica · se excluye del puntaje
+          </BotonNoAplica>
           <EvidenciasEditor evidencias={evidencias} onChange={setEvidencias} />
           {value === false ? (
             <div className="rounded-xl border border-red-100 bg-red-50/60 p-2.5">
@@ -133,7 +133,7 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
     case 'CHECKLIST': {
       const value = ((valor as ValorChecklist | null) ?? { selected: [], informativos: [], evidencias: {} })
       const seleccion = value.selected ?? []
-      const informativos = value.informativos ?? []
+      const noAplican = value.informativos ?? []
       const evidencias = value.evidencias ?? {}
       const opts = (item.opciones ?? []) as Opcion[]
       if (!opts.length) return <p className="text-sm text-slate-400">Sin opciones definidas.</p>
@@ -155,9 +155,9 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
           valores: { ...(value.valores ?? {}), [id]: n }
         })
       }
-      const toggleInformativo = (id: string) => {
-        const existe = informativos.includes(id)
-        guardar({ ...value, informativos: existe ? informativos.filter((x) => x !== id) : [...informativos, id] })
+      const toggleNoAplica = (id: string) => {
+        const existe = noAplican.includes(id)
+        guardar({ ...value, informativos: existe ? noAplican.filter((x) => x !== id) : [...noAplican, id] })
       }
       const setEvidencia = (id: string, photoIds: string[]) => {
         guardar({ ...value, evidencias: { ...evidencias, [id]: { photoIds } } })
@@ -171,12 +171,12 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
         <div className="space-y-2">
           <p className="text-xs text-slate-400">
             {conPuntos
-              ? 'El ítem otorga los puntos de las opciones validadas. Marca “Informativo” en la opción cuya falla corresponde a otra área; no descontará puntos.'
-              : 'Marca “Informativo” en la opción cuya falla corresponde a otra área; no descontará puntos.'}
+              ? 'El ítem otorga los puntos de las opciones validadas. Marca “No aplica” en las opciones que no corresponden; se excluyen del puntaje.'
+              : 'Marca “No aplica” en las opciones que no corresponden; se excluyen del puntaje.'}
           </p>
           {opts.map((o) => {
             const activo = seleccion.includes(o.id)
-            const esInformativo = informativos.includes(o.id)
+            const esNoAplica = noAplican.includes(o.id)
             const idsEv = evidencias[o.id]?.photoIds ?? []
             const esRango = o.tipo_respuesta === 'RANGO'
             const valorRango = esRango ? (value.valores?.[o.id] ?? null) : null
@@ -187,7 +187,7 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                 key={o.id}
                 className={cn(
                   'min-w-0 overflow-hidden rounded-xl border transition-colors',
-                  esInformativo
+                  esNoAplica
                     ? 'border-amber-200 bg-amber-50'
                     : cumpleOpcion
                       ? 'border-slate-200 bg-white'
@@ -206,15 +206,15 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                   ) : null}
                   <button
                     type="button"
-                    onClick={() => toggleInformativo(o.id)}
-                    title="Informativo: no descuenta puntos (falla de otra área)"
+                    onClick={() => toggleNoAplica(o.id)}
+                    title="No aplica: se excluye del puntaje"
                     className={cn(
                       'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors',
-                      esInformativo ? 'bg-amber-100 text-amber-800' : 'text-slate-400 hover:bg-amber-50 hover:text-amber-600'
+                      esNoAplica ? 'bg-amber-100 text-amber-800' : 'text-slate-400 hover:bg-amber-50 hover:text-amber-600'
                     )}
                   >
                     <Info className="h-3 w-3" />
-                    {esInformativo ? 'Informativo' : 'Marcar'}
+                    {esNoAplica ? 'No aplica' : 'Marcar no aplica'}
                   </button>
                   {/* La foto se puede adjuntar en cualquier estado: el punto puede estar
                       validado (cumple) o sin cumplir, y en los dos casos sirve de evidencia. */}
@@ -240,7 +240,7 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                     <MinaFotos photoIds={idsEv} onQuitar={(fid) => quitarEvidencia(o.id, fid)} />
                   </div>
                 ) : null}
-                {!esInformativo ? (
+                {!esNoAplica ? (
                   cumpleOpcion ? (
                     // Estado neutro (validado): sin alerta roja y sin responsables.
                     <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2.5">
@@ -348,7 +348,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
 
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
   const productos = v.productos ?? []
-  const informativo = v.informativo ?? false
+  const noAplica = v.informativo ?? false
   // El contra dato (SOH o precio base) se elige al crear el ítem en Config: aquí
   // solo se usa para autocompletar la teórica al escanear o consultar un producto.
   const contraDato = item?.contra_dato ?? 'SOH'
@@ -451,9 +451,9 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <BotonInformativo activo={informativo} onClick={() => onChange({ ...v, informativo: !informativo })}>
-          Informativo · no descuenta puntos
-        </BotonInformativo>
+        <BotonNoAplica activo={noAplica} onClick={() => onChange({ ...v, informativo: !noAplica })}>
+          No aplica · se excluye del puntaje
+        </BotonNoAplica>
       </div>
 
       <div className="space-y-2 rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">

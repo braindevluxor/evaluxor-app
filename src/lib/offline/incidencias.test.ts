@@ -8,6 +8,29 @@ function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 }
 
+function bloqueSql(nombre: string): string {
+  const lines = fuente('../../../supabase/schema.sql').split(/\r?\n/)
+  let capturando = false
+  let yaPasoCabecera = false
+  const partes: string[] = []
+
+  for (const linea of lines) {
+    if (linea.includes(`Archivo consolidado: ${nombre}`)) {
+      capturando = true
+      continue
+    }
+    if (!capturando) continue
+    if (linea.includes('###########################################################################')) {
+      if (yaPasoCabecera) break
+      yaPasoCabecera = true
+      continue
+    }
+    if (yaPasoCabecera) partes.push(linea)
+  }
+
+  return partes.join('\n')
+}
+
 describe('incidencias · ruta de la foto', () => {
   it('agrupa las fotos del reporte en su propia carpeta del bucket', () => {
     expect(pathFotoIncidencia('inc-1', 'foto-2')).toBe('incidencias/inc-1/foto-2')
@@ -128,7 +151,7 @@ describe('incidencias · el Líder las ve en el detalle de la evaluación', () =
 })
 
 describe('incidencias · SQL de Supabase', () => {
-  const sql = fuente('../../../supabase/incidencias.sql')
+  const sql = bloqueSql('incidencias.sql')
 
   it('crea la tabla con RLS y los índices de consulta', () => {
     expect(sql).toContain('create table if not exists public.incidencias')
@@ -166,7 +189,7 @@ describe('incidencias · edición de fotos', () => {
 })
 
 describe('incidencias · responsables', () => {
-  const sql = fuente('../../../supabase/incidencias.sql')
+  const sql = bloqueSql('incidencias.sql')
 
   it('la columna es un jsonb con default de array vacío', () => {
     // El default importa: sin él, una incidencia insertada por el sync sin la

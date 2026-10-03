@@ -43,20 +43,9 @@ Vite + React 19 + TypeScript, Tailwind CSS (color primario azul oscuro `#0B2545`
 3. **Crear el esquema**: pegar `supabase/schema.sql` en *Supabase Dashboard → SQL Editor → Run*. Crea tablas, triggers (bloqueo de registro sin invitación, rol por invitación), políticas RLS y el bucket `evidencias`.
    > Si el proyecto no está activo, reactívalo primero (pausas de más de 7 días lo suspenden).
 
-3bis. **Crear el primer LÍDER**: ejecutar `supabase/crear-lider.sql` en el SQL Editor (antés edita correo, usuario y contraseña). Registro posterior sale del menú `Usuarios` del Líder.
+3bis. **Crear el primer LÍDER**: `supabase/schema.sql` ya incluye el bootstrap del primer usuario LÍDER. Antes de ejecutarlo, edita correo, usuario y contraseña si hace falta. Registro posterior sale del menú `Usuarios` del Líder.
 
-3ter. **Cerrar los permisos** (también en una base recién creada): hay archivos que se corren aparte de `schema.sql`, todos idempotentes y en el SQL Editor. En este orden:
-
-   | # | archivo | qué hace |
-   |---|---------|----------|
-   | 1 | `cerrar-lectura-anon.sql` | Cierra a quien no inició sesión la lectura de 7 tablas (`profiles`, `items`, `modulos`, `sucursales` y las 3 de configuración). **No depende de nada**: corré este primero. |
-   | 2 | `incidencias.sql` | Crea la tabla de incidencias (con la columna `responsables`, que guarda los cargos y si están validados) y sus políticas de Storage. Se puede volver a correr cuando se agreguen columnas. |
-   | 3 | `permisos-funcion.sql` | Ajusta los `EXECUTE` de las funciones. No toca los 6 helpers de RLS, y el archivo explica por qué. |
-   | 4 | `reactivar-politicas.sql` | Vuelve a prender RLS y repone todas las políticas (trae el mismo fix de lectura anónima). Depende del 2. Va en transacción. |
-   | 5 | `cerrar-permisos-anon.sql` | Saquetea a `anon`: le saca el permiso sobre todas las tablas y el `EXECUTE` de los 6 ayudantes de RLS. **Va después del 1**, porque una parte depende de la otra. |
-   | 6 | `validar-politicas.sql` | 4 consultas de solo lectura. La columna `estado` tiene que decir `ok` en las cuatro. |
-
-   Para entender por qué una tabla o una función quedan con un permiso y no con otro, está el motivo en prosa arriba de cada archivo. Vale la pena tener presente una cosa: **la primera llave es la política de RLS y la segunda es el `revoke`**, y hacen falta las dos porque los permisos de Postgres son aditivos (quitarle el permiso a un rol no alcanza si el de `PUBLIC` sigue sirviendo).
+3ter. **Ejecuta la base completa una sola vez**: en Supabase se corre únicamente `supabase/schema.sql`. Ese archivo ya consolida el esquema base, incidencias, permisos, políticas RLS, biométrico, bootstrap del líder y controles de seguridad. Es idempotente: se puede volver a correr sin romper nada.
 
 4. Iniciar sesión con el **usuario de acceso** y configurar: sucursales → asignaciones → módulos/ítems.
 

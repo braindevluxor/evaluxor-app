@@ -1,7 +1,7 @@
 import { supabase } from '../supabase'
-import { causaSubida, errorSubida, type ErrorSubida } from '../subida'
+import { causaSubida, detalleTecnico, errorSubida, type ErrorSubida } from '../subida'
 import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, respuestasConInstancia, incidentesPendientes, eliminarIncidente, type SyncJob, type DraftEval } from './db'
-import { photoPath, convertirValor, extraerPhotoIds, valorSinFotos } from './transform'
+import { photoPath, convertirValor, extraerPhotoIds, idsFotosRespuesta, valorSinFotos } from './transform'
 import { normalizarResponsables, responsablesAColumna } from '../data/responsablesIncidencia'
 
 export { respuestasConInstancia }
@@ -259,16 +259,18 @@ export async function guardarBorradorNube(
   return descarte
 }
 
-export async function procesarCola(): Promise<{ ok: number; fail: number; descartes: Descarte[] }> {
+export async function procesarCola(): Promise<{ ok: number; fail: number; descartes: Descarte[]; errores: string[] }> {
   const jobs = await listQueue()
   let ok = 0
   let fail = 0
+  const errores: string[] = []
   // Ítems que el catálogo ya no tiene, por trabajo. La cola no se traba por
   // ellos: se suben las respuestas que siguen vigentes y el resto se avisa.
   const descartes: Descarte[] = []
   for (const job of jobs) {
     if (job.status === 'processing') continue
     await putJob({ ...job, status: 'processing' })
+    const photoIds = idsFotosRespuesta(job.respuestas, job.photoIds)
 
     try {
       // La evaluación ya existe (la apertura/abre el Líder). Se resuelve por
@@ -285,15 +287,15 @@ export async function procesarCola(): Promise<{ ok: number; fail: number; descar
       const evaluacionId = ev.id as string
 
       const map = new Map<string, string>()
-      for (const id of job.photoIds) {
+      for (const id of photoIds) {
         const rec = await getPhotos([id]).then((r) => r[0])
-        if (!rec) continue
+        if (!rec) throw new Error(`No se encontró la foto local ${id}; la evaluación quedó pendiente y no se descartó.`)
         const path = photoPath(job.id, 'evidencia', id)
         const { error: upErr } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
           contentType: rec.mime,
-          upsert: true
+          upsert: false
         })
-        if (upErr && !upErr.message.toLowerCase().includes('already exists')) throw upErr
+        if (upErr && !/already exists|already-exists|duplicate/i.test(upErr.message)) throw upErr
         map.set(id, path)
       }
 
@@ -332,17 +334,20 @@ export async function procesarCola(): Promise<{ ok: number; fail: number; descar
         }
       }
 
-      for (const id of job.photoIds) await deletePhoto(id)
+      for (const id of photoIds) await deletePhoto(id)
       await deleteJob(job.id)
       ok++
-    } catch {
+    } catch (error) {
+      const detalle = `${job.id}: ${detalleTecnico(error)}`
+      errores.push(detalle)
+      console.error('No se pudo sincronizar la evaluación y sus evidencias:', detalle, error)
       await putJob({ ...job, status: 'pending' })
       fail++
     }
   }
   // La cola se vació al menos una vez: el dispositivo volvió a tener señal.
   if (ok) void marcarSyncNube()
-  return { ok, fail, descartes }
+  return { ok, fail, descartes, errores }
 }
 
 /** Dónde vive la foto de una incidencia en el bucket `evidencias`. */
@@ -354,7 +359,7 @@ export function pathFotoIncidencia(incidenteId: string, photoId: string): string
  * Sube las incidencias reportadas desde la evaluación que todavía están locales.
  * Igual que la cola de respuestas: resuelve la evaluación por sucursal + fecha
  * (debe estar ACTIVA), sube las fotos al bucket `evidencias` y guarda la fila en
- * `incidentes` (ver supabase/incidencias.sql). Si algo falla, la incidencia se
+ * `incidentes` (ver supabase/schema.sql). Si algo falla, la incidencia se
  * queda pendiente en el teléfono y se reintenta en la próxima sincronización.
  *
  * La fila se inserta ANTES de subir las fotos a propósito: la política de storage

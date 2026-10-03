@@ -11,7 +11,7 @@ function isFotoValor(valor: unknown): string[] | null {
 
 function isCumpleValor(valor: unknown): string[][] | null {
   const v = valor as { value?: boolean | null; evidencias?: { photoIds?: unknown; comentario?: unknown }[] } | null
-  if (!v || typeof v.value !== 'boolean' || !Array.isArray(v.evidencias)) return null
+  if (!v || (v.value != null && typeof v.value !== 'boolean') || !Array.isArray(v.evidencias)) return null
   return v.evidencias.map((e) => (Array.isArray(e.photoIds) ? e.photoIds.filter((x) => typeof x === 'string') : []))
 }
 
@@ -76,6 +76,13 @@ export function extraerPhotoIds(valor: unknown): string[] {
   const checklist = isChecklistValor(valor)
   if (checklist) return Object.values(checklist).flat()
   return isCumpleValor(valor)?.flat() ?? []
+}
+
+export function idsFotosRespuesta(
+  respuestas: { valor: unknown }[],
+  idsGuardados: string[] = []
+): string[] {
+  return Array.from(new Set([...idsGuardados, ...respuestas.flatMap((respuesta) => extraerPhotoIds(respuesta.valor))]))
 }
 
 export function convertirValor(valor: unknown, map: Map<string, string>): unknown {

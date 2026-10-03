@@ -1,5 +1,76 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, ETIQUETAS_CONTRA_DATO } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, esNoAplica, veredictoItem, ETIQUETAS_CONTRA_DATO } from './scoring'
+
+describe('esNoAplica · lo que el evaluador excluye del puntaje', () => {
+  it('el interruptor del ítem alcanza para todos los tipos que lo tienen', () => {
+    const v = { value: true, evidencias: [], informativo: true }
+    expect(esNoAplica({ tipo: 'CUMPLE_NO_CUMPLE' }, v)).toBe(true)
+    expect(esNoAplica({ tipo: 'CONCILIACION' }, { productos: [], informativo: true })).toBe(true)
+    expect(esNoAplica({ tipo: 'LISTA_COLABORADORES' }, { colaboradores: [], informativo: true })).toBe(true)
+    expect(esNoAplica({ tipo: 'UNIDAD_CHECKLIST' }, { unidades: [], informativo: true })).toBe(true)
+    expect(esNoAplica({ tipo: 'PLANO_XY' }, { planos: [], informativo: true })).toBe(true)
+  })
+  it('sin el interruptor, ningún ítem queda como No aplica', () => {
+    expect(esNoAplica({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: true })).toBe(false)
+    expect(esNoAplica({ tipo: 'CUMPLE_NO_CUMPLE' }, null)).toBe(false)
+  })
+  it('en un checklist la marca No aplica es por opción: el ítem se excluye si son todas', () => {
+    const item = { tipo: 'CHECKLIST', opciones: [{ id: 'a' }, { id: 'b' }] }
+    expect(esNoAplica(item, { selected: ['a'], informativos: ['b'] })).toBe(false)
+    expect(esNoAplica(item, { selected: ['a'], informativos: ['a', 'b'] })).toBe(true)
+    // Sin opciones cargadas no se puede decir que todas son No aplica.
+    expect(esNoAplica({ tipo: 'CHECKLIST', opciones: [] }, { informativos: [] })).toBe(false)
+  })
+  it('un checklist marcado No aplica sigue contando como respondido', () => {
+    // Si se tratara como "vacío", el avance del evaluador lo penalizaría.
+    const item = { tipo: 'CHECKLIST', opciones: [{ id: 'a' }] }
+    expect(tieneRespuesta(item, { selected: [], informativos: ['a'] })).toBe(false)
+    expect(tieneRespuesta(item, { selected: [], informativo: true } as never)).toBe(true)
+  })
+})
+
+describe('veredictoItem · el filtro del detalle no puede contradecir al puntaje', () => {
+  it('cumple solo cuando la proporción llega a 1', () => {
+    expect(veredictoItem({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: true })).toBe('cumple')
+    expect(veredictoItem({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: false })).toBe('no-cumple')
+  })
+  it('en un checklist, lo no tildado es lo no cumplido', () => {
+    const item = { tipo: 'CHECKLIST', opciones: [{ id: 'a' }, { id: 'b' }] }
+    expect(veredictoItem(item, { selected: ['a', 'b'] })).toBe('cumple')
+    expect(veredictoItem(item, { selected: ['a'] })).toBe('no-cumple')
+  })
+  it('en un checklist con puntos, el parcial no se disfraza de cumplimiento', () => {
+    // 3 de 4 puntos logrados = 0.75: no llegó al 100, así que es no-cumplido.
+    const item = { tipo: 'CHECKLIST', opciones: [{ id: 'a', puntos: 1 }, { id: 'b', puntos: 3 }] }
+    expect(veredictoItem(item, { selected: ['a'] })).toBe('no-cumple')
+  })
+  it('un checklist de una sola opción tildada sí cumple', () => {
+    expect(veredictoItem({ tipo: 'CHECKLIST', opciones: [{ id: 'a' }] }, { selected: ['a'] })).toBe('cumple')
+  })
+  it('lo que no se contestó es sin veredicto, no un incumplimiento', () => {
+    expect(veredictoItem({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: null })).toBe('sin-veredicto')
+    expect(veredictoItem({ tipo: 'CHECKLIST' }, { selected: [] })).toBe('sin-veredicto')
+    expect(veredictoItem({ tipo: 'CONCILIACION' }, { productos: [] })).toBe('sin-veredicto')
+    expect(veredictoItem({ tipo: 'CHECKLIST', opciones: [{ id: 'a' }] }, null)).toBe('sin-veredicto')
+  })
+  it('No aplica se distingue de lo que simplemente no se contestó', () => {
+    // Las marcas No aplica se excluyen del filtro de detalle y del puntaje.
+    expect(veredictoItem({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: false, informativo: true })).toBe('no-aplica')
+    expect(veredictoItem({ tipo: 'CUMPLE_NO_CUMPLE' }, { value: null })).toBe('sin-veredicto')
+    // Un checklist con una opción informativa todavía se puntúa por las otras.
+    expect(veredictoItem({ tipo: 'CHECKLIST', opciones: [{ id: 'a' }, { id: 'b' }] }, { selected: ['a'], informativos: ['b'] })).toBe('cumple')
+    // Y si todas son No aplica, el ítem entero queda afuera.
+    expect(veredictoItem({ tipo: 'CHECKLIST', opciones: [{ id: 'a' }, { id: 'b' }] }, { selected: ['a'], informativos: ['a', 'b'] })).toBe('no-aplica')
+  })
+  it('el contenedor nunca es un veredicto: agrupa, no se contesta', () => {
+    expect(veredictoItem({ tipo: 'CONTENEDOR' }, {})).toBe('sin-veredicto')
+  })
+  it('con una conciliación descuadrada el veredicto es no-cumplido', () => {
+    const item = { tipo: 'CONCILIACION', opciones: [] }
+    expect(veredictoItem(item, { productos: [{ sku: 'A', teorica: 10, fisica: 10 }] })).toBe('cumple')
+    expect(veredictoItem(item, { productos: [{ sku: 'A', teorica: 10, fisica: 5 }] })).toBe('no-cumple')
+  })
+})
 
 describe('tieneRespuesta · una respuesta vacía no cuenta como respondida', () => {
   it('detecta vacío por tipo de ítem', () => {
@@ -113,6 +184,13 @@ describe('valorBinario', () => {
     expect(valorBinario({ tipo: 'CONCILIACION' }, { productos: [] })).toBe(null)
     expect(valorBinario({ tipo: 'CONCILIACION' }, null)).toBe(null)
   })
+  it('el SOH cero es un dato comparable: existencia física positiva es un descuadre', () => {
+    const sobrante = { sku: 'A', teorica: 0, fisica: 3 }
+    expect(conciliacionComparable(sobrante)).toBe(true)
+    expect(valorBinario({ tipo: 'CONCILIACION' }, { productos: [sobrante] })).toBe(false)
+    expect(veredictoItem({ tipo: 'CONCILIACION' }, { productos: [sobrante] })).toBe('no-cumple')
+    expect(valorBinario({ tipo: 'CONCILIACION' }, { productos: [{ sku: 'B', teorica: 0, fisica: 0 }] })).toBe(true)
+  })
   it('listado de colaboradores cumple cuando todos los que aplican tienen su checklist completo', () => {
     const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a' }, { id: 'b' }] }
     const col = (selected: string[], aplica = true) => ({ dni: 1, name: 'A', lastname: 'B', active: true, aplica, selected })
@@ -155,7 +233,9 @@ it('conciliacion porcentaje: si pasa de 100 se resta el excedente, si no queda c
     expect(conciliacionPorcentaje({ teorica: 48, fisica: 39 })).toBe(81.25)
     expect(conciliacionPorcentaje({ teorica: 150, fisica: 160 })).toBe(93.75)
     expect(conciliacionPorcentaje({ teorica: 10, fisica: 5 })).toBe(50)
-    expect(conciliacionPorcentaje({ teorica: 0, fisica: 5 })).toBe(null)
+    expect(conciliacionPorcentaje({ teorica: 0, fisica: 5 })).toBe(0)
+    expect(conciliacionPorcentaje({ teorica: 0, fisica: 0 })).toBe(100)
+    expect(conciliacionPorcentaje({ teorica: Number.NaN, fisica: 5 })).toBe(null)
     expect(conciliacionPorcentaje({ teorica: 10, fisica: null })).toBe(null)
     expect(conciliacionPorcentaje(null)).toBe(null)
   })
@@ -167,6 +247,8 @@ it('conciliacion porcentaje: si pasa de 100 se resta el excedente, si no queda c
     expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 150, fisica: 160 }, { sku: 'B', nombre: null, teorica: 48, fisica: 39 }] })).toBe(100)
     // Todos coinciden (incluido stock 0/0) → 0
     expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: 10 }, { sku: 'B', nombre: null, teorica: 0, fisica: 0 }] })).toBe(0)
+    // Stock teórico en cero y existencia física: el producto cuenta como descuadrado.
+    expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 0, fisica: 3 }] })).toBe(100)
     // Solo cuentan los escaneados con ambas cantidades cargadas
     expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: null }] })).toBe(null)
     expect(conciliacionTotal({ productos: [] })).toBe(null)

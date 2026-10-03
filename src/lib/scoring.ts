@@ -169,7 +169,7 @@ export function puntosMarcadosPlano(valor: ValorPlano | null | undefined): Punto
 
 /**
  * Proporción 0..1 de un PLANO_XY: pines que cumplen sobre pines marcados
- * (11 de 15 → 0.7333). null = sin pines con veredicto (no puntúa) o informativo.
+ * (11 de 15 → 0.7333). null = sin pines con veredicto (no puntúa) o No aplica.
  */
 export function proporcionPlano(valor: ValorPlano | null | undefined): number | null {
   if (valor?.informativo) return null
@@ -196,19 +196,22 @@ export function unidadCumple(unidad: UnidadChecklist, opciones: { id: string }[]
   return opts.every((o) => (unidad.selected ?? []).includes(o.id))
 }
 
-function ratioConciliacion(t: number, f: number): number | null {
-  if (!(t > 0)) return null
-  const mayor = Math.max(t, f)
-  if (!(mayor > 0)) return 0
-  const menor = Math.min(t, f)
+export function conciliacionComparable(
+  p: { teorica?: number | null; fisica?: number | null } | null | undefined
+): p is { teorica: number; fisica: number } {
+  return Number.isFinite(p?.teorica) && Number.isFinite(p?.fisica)
+}
+
+function ratioConciliacion(t: number, f: number): number {
+  const mayor = Math.max(Math.abs(t), Math.abs(f))
+  if (mayor === 0) return 100
+  const menor = Math.min(Math.abs(t), Math.abs(f))
   return Math.round((menor / mayor) * 100 * 100) / 100
 }
 
 export function conciliacionPorcentaje(p: { teorica?: number | null; fisica?: number | null } | null | undefined): number | null {
-  const t = p?.teorica
-  const f = p?.fisica
-  if (typeof t !== 'number' || typeof f !== 'number') return null
-  return ratioConciliacion(t, f)
+  if (!conciliacionComparable(p)) return null
+  return ratioConciliacion(p.teorica, p.fisica)
 }
 
 export function conciliacionTotal(v: ValorConciliacion | null | undefined): number | null {
@@ -216,7 +219,7 @@ export function conciliacionTotal(v: ValorConciliacion | null | undefined): numb
   // escaneados con ambas cantidades) × 100. Por lo tanto 0% = todo concilia y
   // 100% = ningún producto coincide.
   const ps = v?.productos ?? []
-  const escaneados = ps.filter((p) => typeof p?.teorica === 'number' && typeof p?.fisica === 'number')
+  const escaneados = ps.filter(conciliacionComparable)
   if (!escaneados.length) return null
   const sinCoincidir = escaneados.filter((p) => p.fisica !== p.teorica).length
   return Math.round((sinCoincidir / escaneados.length) * 10000) / 100
@@ -267,7 +270,7 @@ export function valorBinario(item: { tipo: string; opciones?: string[] | { id: s
     const ps = v?.productos ?? []
     if (!ps.length) return null
     for (const p of ps) {
-      if (typeof p.teorica !== 'number' || typeof p.fisica !== 'number' || !(p.teorica > 0)) return null
+      if (!conciliacionComparable(p)) return null
       if (p.fisica !== p.teorica) return false
     }
     return true
@@ -350,8 +353,8 @@ export function estaVacioItem(item: { tipo: string; repetible?: boolean | null }
  * ¿El ítem tiene una respuesta real? Es lo que usan los contadores de avance: que
  * exista la clave NO alcanza, una respuesta vacía no cuenta como respondida (si no,
  * abrir y tocar un ítem sin contestar lo dejaba marcado y el módulo arrancaba en
- * 1/N con el checklist en blanco). Un ítem marcado como informativo SÍ cuenta: el
- * evaluador decidió excluirlo del puntaje, es una respuesta concreta.
+ * 1/N con el checklist en blanco). Un ítem marcado como No aplica SÍ cuenta: el
+ * evaluador indicó que no corresponde y se excluye del puntaje.
  */
 export function tieneRespuesta(item: { tipo: string; repetible?: boolean | null }, valor: unknown): boolean {
   if (valor == null) return false
@@ -406,6 +409,48 @@ export function proporcionItem(
 export function itemsProporcion(vals: { item: { tipo: string; opciones?: string[] | { id: string; puntos?: number }[] | null }; valor: unknown }[]): { ok: number; total: number } {
   const props = vals.map((v) => proporcionItem(v.item, v.valor)).filter((x): x is number => x !== null)
   return { ok: props.reduce((a, b) => a + b, 0), total: props.length }
+}
+
+/**
+ * ¿El evaluador marcó que esto no aplica? Las respuestas existentes guardan esta
+ * marca en el campo legado `informativo`; en los CHECKLIST se guarda por opción
+ * (`informativos`), así que el ítem entero queda excluido solo cuando TODAS sus
+ * opciones están marcadas No aplica.
+ *
+ * Va aparte de "sin veredicto": No aplica es una respuesta deliberada, mientras
+ * que lo no puntuable es que todavía no se contestó.
+ */
+export function esNoAplica(
+  item: { tipo: string; opciones?: string[] | { id: string }[] | null },
+  valor: unknown
+): boolean {
+  if ((valor as { informativo?: boolean } | null)?.informativo === true) return true
+  if (item.tipo !== 'CHECKLIST') return false
+  const opts = (item.opciones ?? []) as { id: string }[]
+  const informativos = new Set((valor as ValorChecklist | null)?.informativos ?? [])
+  return opts.length > 0 && opts.every((o) => informativos.has(o.id))
+}
+
+/**
+ * Veredicto de una respuesta, para el filtro del detalle: `cumple` llegó al 100%,
+ * `no-cumple` puntúa pero le falta algo, `no-aplica` el evaluador lo excluyó del
+ * puntaje, `sin-veredicto` no hay veredicto (sin marcar o sin datos puntuables). Es
+ * el mismo `proporcionItem` que calcula el puntaje, así que el filtro nunca puede
+ * contradecir al tablero: un checklist con un check sin tildar es `no-cumple`
+ * porque lo no tildado es justamente lo que falta. Los contenedores no son nunca
+ * puntuables.
+ */
+export type VeredictoItem = 'cumple' | 'no-cumple' | 'no-aplica' | 'sin-veredicto'
+
+export function veredictoItem(
+  item: { tipo: string; opciones?: string[] | { id: string; puntos?: number }[] | null },
+  valor: unknown
+): VeredictoItem {
+  if (item.tipo === 'CONTENEDOR') return 'sin-veredicto'
+  if (esNoAplica(item, valor)) return 'no-aplica'
+  const p = proporcionItem(item, valor)
+  if (p === null) return 'sin-veredicto'
+  return p >= 1 ? 'cumple' : 'no-cumple'
 }
 
 export interface AcumuladoResponsable {

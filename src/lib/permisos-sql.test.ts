@@ -7,6 +7,29 @@ function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 }
 
+function bloqueSql(nombre: string): string {
+  const lines = fuente('../../supabase/schema.sql').split(/\r?\n/)
+  let capturando = false
+  let yaPasoCabecera = false
+  const partes: string[] = []
+
+  for (const linea of lines) {
+    if (linea.includes(`Archivo consolidado: ${nombre}`)) {
+      capturando = true
+      continue
+    }
+    if (!capturando) continue
+    if (linea.includes('###########################################################################')) {
+      if (yaPasoCabecera) break
+      yaPasoCabecera = true
+      continue
+    }
+    if (yaPasoCabecera) partes.push(linea)
+  }
+
+  return partes.join('\n')
+}
+
 /** Quita comentarios de linea y de bloque para no leer SQL como código. */
 function sinComentarios(sql: string): string {
   return sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ')
@@ -43,9 +66,9 @@ function funcionesDelSchema(): Map<string, { definer: boolean; searchPath: boole
  */
 function helpersDePolitica(): string[] {
   const archivos = [
-    sinComentarios(fuente('../../supabase/schema.sql')),
-    sinComentarios(fuente('../../supabase/incidencias.sql')),
-    sinComentarios(fuente('../../supabase/proyectos-biometrico.sql'))
+    sinComentarios(bloqueSql('schema.sql')),
+    sinComentarios(bloqueSql('incidencias.sql')),
+    sinComentarios(bloqueSql('proyectos-biometrico.sql'))
   ]
   const usados = new Set<string>()
   for (const sql of archivos) {
@@ -56,8 +79,8 @@ function helpersDePolitica(): string[] {
   return [...usados].sort()
 }
 
-const remediation = sinComentarios(fuente('../../supabase/permisos-funcion.sql'))
-const schema = sinComentarios(fuente('../../supabase/schema.sql'))
+const remediation = sinComentarios(bloqueSql('permisos-funcion.sql'))
+const schema = sinComentarios(bloqueSql('schema.sql'))
 
 /** Todo el código de la app, para cruzar qué funciones se llaman por RPC. */
 function codigoDeLaApp(): string {
@@ -80,7 +103,7 @@ function codigoDeLaApp(): string {
 const codigoApp = codigoDeLaApp()
 const remitenteDeRespuestas = fuente('./offline/sync.ts')
 
-describe('permisos-funcion.sql · no rompe las políticas RLS', () => {
+describe('schema.sql · no rompe las políticas RLS', () => {
   const helpers = helpersDePolitica()
 
   it('el extractor encuentra los ayudantes de política', () => {
@@ -133,7 +156,7 @@ describe('permisos-funcion.sql · no rompe las políticas RLS', () => {
   })
 })
 
-describe('permisos-funcion.sql · corrige lo que sí está expuesto', () => {
+describe('schema.sql · corrige lo que sí está expuesto', () => {
   const fns = funcionesDelSchema()
 
   it('el extractor lee las funciones del schema', () => {
@@ -234,7 +257,7 @@ describe('permisos-funcion.sql · corrige lo que sí está expuesto', () => {
   })
 })
 
-describe('permisos-funcion.sql · corre limpio', () => {
+describe('schema.sql · corre limpio', () => {
   it('va en una transacción y es idempotente', () => {
     // El SQL Editor corre cada archivo en una transacción; sin `begin`, un fallo a
     // la mitad deja los permisos a medio camino.

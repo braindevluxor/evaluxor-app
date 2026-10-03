@@ -159,7 +159,7 @@ export const KPIS: KpiDoc[] = [
               'Ítem que cumple aporta peso × 1; no cumple aporta peso × 0.',
               'Checklist con puntos por opción aporta peso × proporción de puntos obtenidos.',
               'Secciones con puntaje ponderan como grupo a sus hijos; los hijos no se cuentan por separado.',
-              'Ítems sin respuesta y muestras informativas quedan fuera del cálculo.'
+              'Ítems sin respuesta y respuestas marcadas No aplica quedan fuera del cálculo.'
             ]
           }
         ]
@@ -484,7 +484,7 @@ export const KPIS: KpiDoc[] = [
           {
             titulo: 'Errores comunes',
             items: [
-              'Usar opciones informativas como si fueran incumplimientos (no puntúan).',
+              'Usar una opción marcada No aplica como si fuera un incumplimiento.',
               'Dejar sin responder ítems incumplidos: se excluyen y el indicador pierde información.'
             ]
           }

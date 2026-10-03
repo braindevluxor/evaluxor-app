@@ -30,7 +30,7 @@ interface Props {
  * título, y el contador rojo de las que faltan subir.
  *
  * El reporte NO es un ítem del cuestionario, así que va aparte: se guarda en el
- * teléfono y sube con el resto del avance (ver supabase/incidencias.sql).
+ * teléfono y sube con el resto del avance (ver supabase/schema.sql).
  */
 export function ReportarIncidencia({ sucursalId, fecha, moduloId, moduloNombre, evaluadorId }: Props) {
   const { online, incidentesPendientes, sync } = useOffline()

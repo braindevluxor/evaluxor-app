@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Info } from 'lucide-react'
+import { Ban } from 'lucide-react'
 import { cn } from './ui'
 
 /**
@@ -55,7 +55,7 @@ export function SelectorResponsables({ responsables, seleccion, onChange, gerent
   )
 }
 
-export function BotonInformativo({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: ReactNode }) {
+export function BotonNoAplica({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
@@ -67,7 +67,7 @@ export function BotonInformativo({ activo, onClick, children }: { activo: boolea
           : 'border-slate-200 bg-white text-slate-400 hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700'
       )}
     >
-      <Info className="h-3.5 w-3.5" />
+      <Ban className="h-3.5 w-3.5" />
       {children}
     </button>
   )

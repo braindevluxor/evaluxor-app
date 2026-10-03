@@ -9,10 +9,10 @@ interface OfflineContextValue {
   /** Incidencias reportadas que todavía no llegaron al servidor. */
   incidentesPendientes: number
   sincronizando: boolean
-  ultimoResultado: { ok: number; fail: number } | null
+  ultimoResultado: { ok: number; fail: number; error?: string } | null
   /** Ítems borrados del catálogo que impiden subir parte de un avance. */
   descartes: string[]
-  sync: () => Promise<{ ok: number; fail: number }>
+  sync: () => Promise<{ ok: number; fail: number; error?: string }>
 }
 
 const OfflineContext = createContext<OfflineContextValue | null>(null)
@@ -22,7 +22,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   const [pendientes, setPendientes] = useState(0)
   const [incidentes, setIncidentes] = useState(0)
   const [sincronizando, setSincronizando] = useState(false)
-  const [ultimoResultado, setUltimoResultado] = useState<{ ok: number; fail: number } | null>(null)
+  const [ultimoResultado, setUltimoResultado] = useState<{ ok: number; fail: number; error?: string } | null>(null)
   const [descartes, setDescartes] = useState<string[]>([])
 
   const contar = useCallback(async () => {
@@ -52,7 +52,11 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       // Cola de evaluaciones e incidencias por separado, en paralelo: cada una
       // reporta sus fallos y las incidencias se reintentan igual que las respuestas.
       const [eva, inc] = await Promise.all([procesarCola(), sincronizarIncidentes()])
-      const res = { ok: eva.ok + inc.ok, fail: eva.fail + inc.fail }
+      const res = {
+        ok: eva.ok + inc.ok,
+        fail: eva.fail + inc.fail,
+        ...(eva.errores[0] ? { error: eva.errores[0] } : {})
+      }
       setUltimoResultado(res)
       // Lo que no se pudo subir por ítems que ya no existen, para poder avisar
       // en vez de dejar que parezca que todo entró.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { photoPath, convertirValor, extraerPhotoIds, valorSinFotos } from './transform'
+import { photoPath, convertirValor, extraerPhotoIds, idsFotosRespuesta, valorSinFotos } from './transform'
 
 describe('photoPath', () => {
   it('construye ruta estable', () => {
@@ -21,6 +21,10 @@ describe('extraerPhotoIds', () => {
     ).toEqual(['a', 'b', 'c'])
     expect(extraerPhotoIds({ value: false, evidencias: [] })).toEqual([])
     expect(extraerPhotoIds({ value: true })).toEqual([])
+  })
+  it('extrae evidencia aunque aún no se haya elegido Cumple o No cumple', () => {
+    expect(extraerPhotoIds({ value: null, evidencias: [{ photoIds: ['captura-1'] }] })).toEqual(['captura-1'])
+    expect(extraerPhotoIds({ evidencias: [{ photoIds: ['captura-2'] }] })).toEqual(['captura-2'])
   })
   it('extrae photoIds de evidencias de checklist', () => {
     expect(
@@ -44,6 +48,22 @@ describe('extraerPhotoIds', () => {
   })
 })
 
+describe('idsFotosRespuesta', () => {
+  it('reconstruye la lista de fotos de un checklist además de conservar ids guardados en cola', () => {
+    expect(idsFotosRespuesta([
+      {
+        valor: {
+          selected: [],
+          evidencias: {
+            limpieza: { photoIds: ['foto-local-1', 'foto-local-2'] },
+            otra: { photoIds: ['foto-local-1'] }
+          }
+        }
+      }
+    ], ['foto-guardada'])).toEqual(['foto-guardada', 'foto-local-1', 'foto-local-2'])
+  })
+})
+
 describe('valorSinFotos', () => {
   it('conserva los valores numéricos de opciones RANGO del checklist', () => {
     expect(
@@ -54,6 +74,15 @@ describe('valorSinFotos', () => {
     expect(valorSinFotos({ selected: ['a'], valores: {}, evidencias: {} })).toEqual({ selected: ['a'] })
     expect(valorSinFotos({ value: true, evidencias: [] })).toEqual({ value: true, evidencias: [] })
     expect(valorSinFotos('texto')).toBe('texto')
+  })
+  it('quita fotos locales de evidencias Cumple / No cumple sin perderlas al sincronizar', () => {
+    expect(valorSinFotos({
+      value: null,
+      evidencias: [{ photoIds: ['captura-1'], comentario: 'Evidencia pendiente' }]
+    })).toEqual({
+      value: null,
+      evidencias: [{ comentario: 'Evidencia pendiente' }]
+    })
   })
   it('en un plano conserva planos y pines pero quita las fotos locales', () => {
     // El auto-guardado en nube va sin fotos (se suben al enviar); los pines se conservan.
@@ -94,6 +123,16 @@ describe('convertirValor', () => {
         { comentario: 'ok', paths: ['ev/x/y/a.jpg'] },
         { comentario: 'x', paths: ['.local/b'] }
       ]
+    })
+  })
+  it('convierte las evidencias a paths aunque el veredicto esté pendiente', () => {
+    const map = new Map([['captura-1', 'ev/x/y/captura-1.jpg']])
+    expect(convertirValor({
+      value: null,
+      evidencias: [{ photoIds: ['captura-1'], comentario: 'Pendiente' }]
+    }, map)).toEqual({
+      value: null,
+      evidencias: [{ comentario: 'Pendiente', paths: ['ev/x/y/captura-1.jpg'] }]
     })
   })
   it('convierte evidencias de checklist a paths', () => {

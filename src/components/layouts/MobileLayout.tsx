@@ -47,6 +47,9 @@ export function SyncBanner() {
           {msg || 'Sincronizar'}
         </button>
       ) : null}
+      {online && ultimoResultado?.fail && ultimoResultado.error ? (
+        <span className="basis-full break-words text-[11px] text-amber-200">{ultimoResultado.error}</span>
+      ) : null}
     </div>
   )
 }

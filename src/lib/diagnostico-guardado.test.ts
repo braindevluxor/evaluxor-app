@@ -6,6 +6,29 @@ function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 }
 
+function bloqueSql(nombre: string): string {
+  const lines = fuente('../../supabase/schema.sql').split(/\r?\n/)
+  let capturando = false
+  let yaPasoCabecera = false
+  const partes: string[] = []
+
+  for (const linea of lines) {
+    if (linea.includes(`Archivo consolidado: ${nombre}`)) {
+      capturando = true
+      continue
+    }
+    if (!capturando) continue
+    if (linea.includes('###########################################################################')) {
+      if (yaPasoCabecera) break
+      yaPasoCabecera = true
+      continue
+    }
+    if (yaPasoCabecera) partes.push(linea)
+  }
+
+  return partes.join('\n')
+}
+
 /** Quita comentarios de linea y de bloque para no leer SQL como columnas. */
 function sinComentarios(sql: string): string {
   return sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ')
@@ -82,8 +105,8 @@ function aliasDeColumnas(sql: string, tablas: Map<string, Set<string>>): Map<str
   return res
 }
 
-describe('diagnostico-guardado.sql · las columnas existen', () => {
-  const sql = sinComentarios(fuente('../../supabase/diagnostico-guardado.sql'))
+describe('schema.sql · las columnas existen', () => {
+  const sql = sinComentarios(bloqueSql('diagnostico-guardado.sql'))
   const tablas = columnasDelSchema()
   const alias = aliasDeColumnas(sql, tablas)
 
@@ -112,8 +135,8 @@ describe('diagnostico-guardado.sql · las columnas existen', () => {
   })
 })
 
-describe('diagnostico-guardado.sql · cubre las cuatro causas que aplica RLS', () => {
-  const sql = sinComentarios(fuente('../../supabase/diagnostico-guardado.sql'))
+describe('schema.sql · cubre las cuatro causas que aplica RLS', () => {
+  const sql = sinComentarios(bloqueSql('diagnostico-guardado.sql'))
 
   it('las cuatro reglas de puede_responder', () => {
     expect(sql).toContain("'EVALUACION NO ACTIVA'")

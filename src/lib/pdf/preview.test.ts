@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildPdfDocument } from './index'
+import { buildPdfDocument, filtrarDetallePdf } from './index'
 import type { DetalleEvaluacion } from '../data/indicadores'
 import type { Item, Modulo, Respuesta, VistaEvaluacion } from '../types'
+import { veredictoItem } from '../scoring'
 
 // ---------------------------------------------------------------------------
 // Datos de ejemplo: una evaluación con todos los tipos de ítem.
@@ -233,5 +234,68 @@ describe('preview del PDF de resultados', () => {
     console.log('PDF generado:', file, '· páginas:', doc.getNumberOfPages())
     expect(bytes.length).toBeGreaterThan(2000)
     expect(doc.getNumberOfPages()).toBeGreaterThanOrEqual(3)
+  })
+
+  it.each(['ambos', 'cumple', 'no-cumple'] as const)('filtra las respuestas del PDF según el selector %s', (filtro) => {
+    const resultado = filtrarDetallePdf(detalle, filtro)
+    const veredictos = resultado.respuestas.map((respuesta) => {
+      const item = items.find((candidato) => candidato.id === respuesta.item_id)!
+      return veredictoItem(item, respuesta.valor)
+    })
+
+    expect(veredictos).toHaveLength(resultado.respuestas.length)
+    expect(veredictos.every((veredicto) => filtro === 'ambos'
+      ? veredicto === 'cumple' || veredicto === 'no-cumple'
+      : veredicto === filtro)).toBe(true)
+    expect(resultado.modulos.every((modulo) => resultado.respuestas.some((respuesta) =>
+      items.some((item) => item.id === respuesta.item_id && item.modulo_id === modulo.id)
+    ))).toBe(true)
+    expect(resultado.instancias.every((instancia) => resultado.respuestas.some((respuesta) =>
+      respuesta.instancia_id === instancia.id
+    ))).toBe(true)
+  })
+
+  it.each(['ambos', 'cumple', 'no-cumple'] as const)('genera un PDF filtrado en modo %s', (filtro) => {
+    const doc = buildPdfDocument(detalle, filtro)
+    expect(doc.output('arraybuffer')).toBeInstanceOf(ArrayBuffer)
+    expect(doc.getNumberOfPages()).toBeGreaterThan(0)
+  })
+
+  it('genera PDFs cuando las evidencias sincronizadas usan paths en lugar de photoIds', () => {
+    const detalleConRutas: DetalleEvaluacion = {
+      ...detalle,
+      respuestas: respuestas.map((respuesta) => respuesta.item_id === 'it-cn1'
+        ? {
+            ...respuesta,
+            valor: {
+              value: true,
+              evidencias: [{ paths: ['ev/evaluacion/item/foto.jpg'], comentario: 'Evidencia subida' }]
+            }
+          }
+        : respuesta)
+    }
+
+    const doc = buildPdfDocument(detalleConRutas, 'cumple')
+    expect(doc.output('arraybuffer')).toBeInstanceOf(ArrayBuffer)
+    expect(doc.getNumberOfPages()).toBeGreaterThan(0)
+  })
+
+  it('mantiene comentarios extensos dentro de los márgenes y los continúa en otras páginas', () => {
+    const detalleLargo: DetalleEvaluacion = {
+      ...detalle,
+      respuestas: respuestas.map((respuesta) => respuesta.item_id === 'it-cn1'
+        ? {
+            ...respuesta,
+            valor: {
+              value: true,
+              evidencias: [{ photoIds: [], comentario: 'Observación detallada '.repeat(900) }]
+            }
+          }
+        : respuesta)
+    }
+
+    const doc = buildPdfDocument(detalleLargo, 'cumple')
+    expect(doc.output('arraybuffer')).toBeInstanceOf(ArrayBuffer)
+    expect(doc.getNumberOfPages()).toBeGreaterThan(3)
   })
 })

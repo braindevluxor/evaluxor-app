@@ -1,428 +1,584 @@
 import { jsPDF } from 'jspdf'
 import type { DetalleEvaluacion } from '../data/indicadores'
 import { obtenerEvaluacion, resumirEvaluacion } from '../data/indicadores'
-import type { Item, Respuesta, InstanciaGrupo } from '../types'
-import { itemsEnOrdenJerarquico, hijosOrdenados } from '../hierarchy'
-import { raicesDeModulo } from '../pasos'
-import { itemsProporcion, incumplimientosPorResponsable } from '../scoring'
-import { Lienzo } from './lienzo'
-import { renderItem } from './items'
 import {
-  FONDO,
-  GRIS,
-  GRIS_CLARO,
-  MARINO,
-  MARINO_CLARO,
-  MARINO_MEDIO,
-  ROJO,
-  barra,
-  chip,
+  conciliacionPorcentaje,
+  colaboradorCumple,
+  incumplimientosPorResponsable,
+  itemsProporcion,
+  opcionCumplida,
+  opcionesAplicablesColaborador,
+  unidadCumple,
+  veredictoItem,
+  type ValorChecklist,
+  type ValorConciliacion,
+  type ValorCumple,
+  type ValorListaColaboradores,
+  type ValorPlano,
+  type ValorUnidadChecklist,
+  type VeredictoItem
+} from '../scoring'
+import type { Item, Modulo, Respuesta } from '../types'
+import { hijosOrdenados, itemsEnOrdenJerarquico } from '../hierarchy'
+import { raicesDeModulo } from '../pasos'
+import {
   colorPuntaje,
   fmt,
   formatoFecha,
-  rotuloSeccion,
+  GRIS,
+  GRIS_CLARO,
+  MARINO,
+  ROJO,
+  VERDE,
   estadoPuntaje
 } from './graficos'
 
-function lineasDoc(doc: jsPDF, texto: string, w: number): string[] {
-  return (doc.splitTextToSize(texto, Math.max(10, w)) as string[]) ?? []
+export type FiltroPdfCumplimiento = 'ambos' | 'cumple' | 'no-cumple'
+
+const PAGE_W = 595.28
+const PAGE_H = 841.89
+const MARGIN_X = 48
+const CONTENT_W = PAGE_W - MARGIN_X * 2
+const TOP = 62
+const BOTTOM = PAGE_H - 54
+const LINE = 13
+
+type RGB = [number, number, number]
+
+function opcionesDeSucursal(detalle: DetalleEvaluacion): Map<string, string[]> {
+  const opciones = new Map<string, string[]>()
+  for (const row of detalle.sucursalOpciones.filter((o) =>
+    o.sucursal_id === detalle.evaluacion.sucursal_id && o.activa
+  )) {
+    const ids = opciones.get(row.item_id) ?? []
+    ids.push(row.opcion_id)
+    opciones.set(row.item_id, ids)
+  }
+  return opciones
 }
 
-/** Grilla de 2 columnas con etiqueta/valor para los datos de la evaluación. */
-function datosGrid(li: Lienzo, pares: [string, string][]): void {
-  const doc = li.doc
-  li.asegurar(40)
-  rotuloSeccion(doc, 'Datos de la evaluación', li.M, li.y, li.tw)
-  li.y += 13
+function aplicarOpciones(item: Item, opciones: Map<string, string[]>): Item {
+  if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
+  const ids = opciones.get(item.id)
+  return ids?.length ? { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) } : item
+}
 
-  const cols = 2
-  const filas = Math.max(1, Math.ceil(pares.length / cols))
-  const h = filas * 30 + 16
-  li.asegurar(h + 10)
-  const x0 = li.M
-  const w = li.tw
-  const y0 = li.y
-
-  doc.setFillColor(...FONDO)
-  doc.setDrawColor(...GRIS_CLARO)
-  doc.setLineWidth(0.5)
-  doc.roundedRect(x0, y0, w, h, 4, 4, 'FD')
-
-  const colW = w / cols
-  pares.forEach(([lb, val], i) => {
-    const col = i % cols
-    const fila = Math.floor(i / cols)
-    const cx = x0 + 12 + col * colW
-    const cy = y0 + 19 + fila * 30
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(7.5)
-    doc.setTextColor(...GRIS)
-    doc.text(lb.toUpperCase(), cx, cy - 2)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(10)
-    doc.setTextColor(...MARINO)
-    doc.text(val, cx, cy + 13, { maxWidth: colW - 16 })
+export function filtrarDetallePdf(
+  detalle: DetalleEvaluacion,
+  filtro: FiltroPdfCumplimiento
+): DetalleEvaluacion {
+  const opciones = opcionesDeSucursal(detalle)
+  const itemsPorId = new Map(detalle.items.map((item) => {
+    const aplicado = aplicarOpciones(item, opciones)
+    return [item.id, aplicado] as const
+  }))
+  const respuestas = detalle.respuestas.filter((respuesta) => {
+    const item = itemsPorId.get(respuesta.item_id)
+    if (!item || item.tipo === 'CONTENEDOR') return false
+    const veredicto = veredictoItem(item, respuesta.valor)
+    return filtro === 'ambos'
+      ? veredicto === 'cumple' || veredicto === 'no-cumple'
+      : veredicto === filtro
   })
-  li.y = y0 + h + 15
+  const modulosIncluidos = new Set(
+    respuestas.map((respuesta) => itemsPorId.get(respuesta.item_id)?.modulo_id).filter(Boolean)
+  )
+  const instanciasIncluidas = new Set(
+    respuestas.map((respuesta) => respuesta.instancia_id).filter((id): id is string => !!id)
+  )
+  return {
+    ...detalle,
+    respuestas,
+    items: detalle.items
+      .filter((item) => modulosIncluidos.has(item.modulo_id))
+      .map((item) => itemsPorId.get(item.id) ?? item),
+    modulos: detalle.modulos.filter((modulo) => modulosIncluidos.has(modulo.id)),
+    instancias: detalle.instancias.filter((instancia) => instanciasIncluidas.has(instancia.id))
+  }
 }
 
-/** Resumen e interpretación: nota total, lectura general y por módulo. */
-function resumenInterpretacion(
-  li: Lienzo,
-  puntaje: number | null,
-  ok: number,
-  total: number,
-  modulos: { nombre: string; pct: number | null }[]
-): void {
-  const doc = li.doc
-  li.asegurar(40)
-  const y0 = li.y
-  rotuloSeccion(doc, 'Puntaje general', li.M, y0, li.tw)
-  li.y = y0 + 13
+class InformePdf {
+  readonly doc = new jsPDF({ unit: 'pt', format: 'a4', compress: true })
+  private y = TOP
 
-  const est = estadoPuntaje(puntaje ?? 0)
-  const pctOk = total > 0 ? (ok / total) * 100 : 0
+  constructor(private readonly filtro?: FiltroPdfCumplimiento) {}
 
-  const p1 = !total
-    ? 'No se registran respuestas puntuables, por lo que no es posible calcular el nivel de cumplimiento. Se recomienda completar la evaluación.'
-    : `El informe registra un cumplimiento general de ${fmt(pctOk)}% (${fmt(ok)} de ${fmt(total)} puntos alcanzados). ${
-        est.texto === 'CUMPLE'
-          ? 'La sucursal alcanza el estándar mínimo aceptado (80% o más) y consolida un desempeño satisfactorio.'
-          : est.texto === 'EN RIESGO'
-            ? 'La sucursal se ubica en un nivel de riesgo (60–79%): no alcanza el estándar esperado y requiere acciones de mejora sobre las fallas detectadas.'
-            : 'La sucursal está por debajo del nivel mínimo de cumplimiento (menos del 60%): se requiere un plan de acción correctivo con prioridad en los módulos de menor desempeño.'
-      }`
+  private get anchoTexto(): number {
+    return CONTENT_W
+  }
 
-  const conPct = modulos.filter((m): m is { nombre: string; pct: number } => m.pct != null)
-  let p2: string | null = null
-  if (conPct.length >= 2) {
-    const mejor = conPct.reduce((a, b) => (b.pct > a.pct ? b : a))
-    const peor = conPct.reduce((a, b) => (b.pct < a.pct ? b : a))
-    if (mejor.pct !== peor.pct) {
-      p2 = `El mejor desempeño se registra en “${mejor.nombre}” (${fmt(mejor.pct)}%), mientras que “${peor.nombre}” (${fmt(peor.pct)}%) concentra el mayor número de desviaciones y es prioritario dentro del plan de acción.`
+  private nuevaPagina(): void {
+    this.doc.addPage()
+    this.y = TOP
+  }
+
+  private espacio(alto: number): void {
+    if (this.y + alto > BOTTOM && this.y > TOP) this.nuevaPagina()
+  }
+
+  private text(
+    value: string,
+    options: { size?: number; color?: RGB; bold?: boolean; italic?: boolean; indent?: number; line?: number } = {}
+  ): void {
+    const text = value.trim()
+    if (!text) return
+    const size = options.size ?? 9.5
+    const lineHeight = options.line ?? LINE
+    const indent = options.indent ?? 0
+    this.doc.setFont('helvetica', options.bold ? 'bold' : options.italic ? 'italic' : 'normal')
+    this.doc.setFontSize(size)
+    this.doc.setTextColor(...(options.color ?? MARINO))
+    const lines = this.doc.splitTextToSize(text, this.anchoTexto - indent) as string[]
+    for (const line of lines) {
+      this.espacio(lineHeight)
+      this.doc.text(line, MARGIN_X + indent, this.y, { maxWidth: this.anchoTexto - indent })
+      this.y += lineHeight
     }
   }
 
-  // Se miden los textos para dimensionar la tarjeta.
-  const x0 = li.M
-  const w = li.tw
-  const rx = x0 + 132
-  const rw = w - (rx - x0) - 20
-  const p1L: string[] = doc.splitTextToSize(p1, rw) as string[]
-  const p2L: string[] = p2 ? (doc.splitTextToSize(p2, rw) as string[]) : []
-  const rows = Math.min(modulos.length, 4)
-  const h = 128 + p1L.length * 11 + p2L.length * 11 + rows * 32
-  li.asegurar(h + 8)
-  const yy0 = li.y
-
-  doc.setFillColor(255, 255, 255)
-  doc.setDrawColor(...GRIS_CLARO)
-  doc.setLineWidth(0.5)
-  doc.roundedRect(x0, yy0, w, h, 4, 4, 'FD')
-
-  // Columna izquierda: nota total + estado.
-  const cx = x0 + 70
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(26)
-  doc.setTextColor(...MARINO)
-  doc.text(`${puntaje ?? '—'}%`, cx, yy0 + 32, { align: 'center' })
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(6.5)
-  doc.setTextColor(...GRIS)
-  doc.text('NOTA TOTAL', cx, yy0 + 44, { align: 'center' })
-  chip(doc, est.texto, cx - 30, yy0 + 54, est.fondo, est.color, 60)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8)
-  doc.setTextColor(...GRIS)
-  doc.text(`${fmt(ok)} de ${fmt(total)} puntos`, cx, yy0 + 82, { align: 'center' })
-
-  // Columna derecha: interpretación.
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(8.5)
-  doc.setTextColor(...MARINO_MEDIO)
-  doc.text('RESUMEN E INTERPRETACIÓN', rx, yy0 + 26)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8.5)
-  doc.setTextColor(...GRIS)
-  doc.text(p1L, rx, yy0 + 40)
-  let yTxt = yy0 + 40 + p1L.length * 11
-  if (p2L.length) {
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8.5)
-    doc.setTextColor(...MARINO_MEDIO)
-    doc.text(p2L, rx, yTxt)
-    yTxt += p2L.length * 11
+  private regla(): void {
+    this.espacio(10)
+    this.doc.setDrawColor(...GRIS_CLARO)
+    this.doc.setLineWidth(0.7)
+    this.doc.line(MARGIN_X, this.y, PAGE_W - MARGIN_X, this.y)
+    this.y += 11
   }
 
-  // Filas por módulo con su lectura.
-  const filasY = yTxt + 12
-  modulos.slice(0, 4).forEach((m, i) => {
-    const ly = filasY + i * 32
-    const color = colorPuntaje(m.pct ?? 0)
-    doc.setFillColor(...color)
-    doc.roundedRect(rx, ly - 4, 7, 7, 1.5, 1.5, 'F')
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8.5)
-    doc.setTextColor(...MARINO)
-    doc.text(m.nombre, rx + 12, ly, { maxWidth: rw - 72 })
-    const pctTxt = m.pct != null ? `${fmt(m.pct)}%` : '—'
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(9.5)
-    doc.setTextColor(...color)
-    doc.text(pctTxt, rx + rw, ly, { align: 'right' })
-    const frase = m.pct == null ? 'Sin ítems puntuables' : m.pct >= 80 ? 'Cumple el estándar' : m.pct >= 60 ? 'Requiere seguimiento' : 'No alcanza el estándar'
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-    doc.setTextColor(...GRIS)
-    doc.text(frase, rx + 12, ly + 13)
-  })
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7.2)
-  doc.setTextColor(...GRIS)
-  doc.text('Ref.: 80% o más cumple · 60–79% en riesgo · menos de 60% no cumple', x0 + 12, yy0 + h - 10, { maxWidth: w - 24 })
-
-  li.y = yy0 + h + 14
-}
-
-/** Sección repetible (CONTENEDOR): banda de título + registros con sus ítems. */
-function renderSeccion(
-  li: Lienzo,
-  raiz: Item,
-  itemMod: Item[],
-  respuestas: Respuesta[],
-  instancias: InstanciaGrupo[],
-  aplicarOpciones: (item: Item) => Item
-): void {
-  const doc = li.doc
-  const insts = instancias.filter((x) => x.item_id === raiz.id).sort((a, b) => a.orden - b.orden)
-  const hijos = hijosOrdenados(itemMod, raiz.id)
-
-  // Banda de título
-  li.asegurar(32)
-  const x0 = li.M
-  const w = li.tw
-  const y0 = li.y
-  const nQ = lineasDoc(doc, raiz.texto, w - 50).length
-  const h = Math.max(26, nQ * 11 + 16)
-
-  doc.setFillColor(...FONDO)
-  doc.setDrawColor(...GRIS_CLARO)
-  doc.setLineWidth(0.5)
-  doc.roundedRect(x0, y0, w, h, 4, 4, 'FD')
-  doc.setFillColor(...MARINO)
-  doc.roundedRect(x0, y0 + 2, 2.8, h - 4, 1.4, 1.4, 'F')
-
-  const chipW = chip(doc, 'Sección', x0 + 10, y0 + h / 2 - 6.8, MARINO_CLARO, MARINO, 70)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.setTextColor(...MARINO)
-  doc.text(raiz.texto, x0 + 10 + chipW + 6, y0 + h / 2 + 2, { maxWidth: w - 24 - chipW - 80 })
-  if (typeof raiz.puntaje === 'number' && raiz.puntaje > 0) {
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.setTextColor(...GRIS)
-    doc.text(`PESO ${fmt(raiz.puntaje)}`, x0 + w - 14, y0 + h / 2 + 2, { align: 'right' })
-  }
-  li.y = y0 + h + 8
-
-  if (!insts.length) {
-    doc.setFont('helvetica', 'italic')
-    doc.setFontSize(9.5)
-    doc.setTextColor(...GRIS)
-    doc.text('Sección sin registros capturados', li.M, li.y + 4)
-    li.y += 10
-    return
-  }
-
-  insts.forEach((inst, i) => {
-    li.asegurar(18)
-    const x1 = li.M
-    const y1 = li.y
-    doc.setFillColor(...MARINO_MEDIO)
-    doc.roundedRect(x1, y1 - 4.6, 3, 14, 1.5, 1.5, 'F')
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(10)
-    doc.setTextColor(...MARINO)
-    doc.text(`REGISTRO ${i + 1} · ${inst.etiqueta}`, x1 + 11, y1 + 5)
-    if (inst.datos && Object.keys(inst.datos).length) {
-      const dt = Object.entries(inst.datos)
-        .slice(0, 4)
-        .map(([k, v]) => `${k}: ${String(v)}`)
-        .join('  ·  ')
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(7.5)
-      doc.setTextColor(...GRIS)
-      doc.text(dt, x1 + li.tw - 14, y1 + 5, { align: 'right', maxWidth: li.tw * 0.48 })
+  private titulo(text: string, nivel: 1 | 2 = 2): void {
+    const size = nivel === 1 ? 21 : 13
+    const gap = nivel === 1 ? 8 : 5
+    this.doc.setFont('helvetica', 'bold')
+    this.doc.setFontSize(size)
+    const lines = this.doc.splitTextToSize(text, this.anchoTexto) as string[]
+    this.doc.setTextColor(...MARINO)
+    for (const line of lines) {
+      this.espacio(size + 4)
+      this.doc.text(line, MARGIN_X, this.y, { maxWidth: this.anchoTexto })
+      this.y += size + 4
     }
-    li.y = y1 + 7
-    for (const hijo of hijos) {
-      const r = respuestas.find((x) => x.item_id === hijo.id && (x.instancia_id ?? null) === inst.id)
-      if (r) renderItem(li, aplicarOpciones(hijo), r.valor)
+    this.y += gap
+  }
+
+  private franja(text: string, color: RGB = MARINO): void {
+    this.doc.setFont('helvetica', 'bold')
+    this.doc.setFontSize(10)
+    const lines = this.doc.splitTextToSize(text, this.anchoTexto - 24) as string[]
+    for (const line of lines) {
+      const height = 24
+      this.espacio(height + 5)
+      this.doc.setFillColor(...color)
+      this.doc.roundedRect(MARGIN_X, this.y, CONTENT_W, height, 4, 4, 'F')
+      this.doc.setTextColor(255, 255, 255)
+      this.doc.text(line, MARGIN_X + 12, this.y + 16, { maxWidth: CONTENT_W - 24 })
+      this.y += height + 3
     }
-  })
-}
-
-export function buildPdfDocument(d: DetalleEvaluacion): jsPDF {
-  const { evaluacion: ev, respuestas, items, modulos, sucursalOpciones, instancias } = d
-  const suc = ev.sucursal
-  const { puntaje } = resumirEvaluacion(ev, respuestas, items, sucursalOpciones)
-
-  const aplicaOpciones = new Map<string, string[]>()
-  for (const o of sucursalOpciones.filter((x) => x.sucursal_id === ev.sucursal_id && x.activa)) {
-    const arr = aplicaOpciones.get(o.item_id) ?? []
-    arr.push(o.opcion_id)
-    aplicaOpciones.set(o.item_id, arr)
-  }
-  const aplicarOpciones = (item: Item): Item => {
-    if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
-    const ids = aplicaOpciones.get(item.id)
-    if (!ids?.length) return item
-    return { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) }
+    this.y += 5
   }
 
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' })
-  const li = new Lienzo(doc)
+  private metadatos(pares: [string, string][]): void {
+    this.titulo('Datos de la evaluación')
+    for (const [label, value] of pares) {
+      this.text(label.toLocaleUpperCase('es'), { size: 7.5, color: GRIS, bold: true, line: 10 })
+      this.text(value || '—', { size: 9.5, indent: 5, line: 12 })
+      this.y += 3
+    }
+    this.regla()
+  }
 
-  const pares: [string, string][] = [
-    ['Sucursal', suc?.nombre ?? ev.sucursal_id],
-    ...(suc?.shop_id ? ([['Nº tienda', suc.shop_id]] as [string, string][]) : []),
-    ...(suc?.direccion ? ([['Dirección', suc.direccion]] as [string, string][]) : []),
-    ['Fecha de evaluación', formatoFecha(ev.fecha)],
-    ['Aperturada por', ev.aperturador?.nombre ?? '—'],
-    ['Estado', ev.estado]
-  ]
-  datosGrid(li, pares)
+  private resumen(detalle: DetalleEvaluacion, respuestas: Respuesta[], items: Item[], opciones: Map<string, string[]>): void {
+    const { puntaje, itemsBinarios } = resumirEvaluacion(
+      detalle.evaluacion,
+      respuestas,
+      items,
+      detalle.sucursalOpciones
+    )
+    const valores = respuestas.flatMap((respuesta) => {
+      const item = items.find((candidate) => candidate.id === respuesta.item_id)
+      return item ? [{ item: aplicarOpciones(item, opciones), valor: respuesta.valor }] : []
+    })
+    const { ok, total } = itemsProporcion(valores)
+    const resultado = this.filtro && !itemsBinarios ? null : puntaje
+    this.titulo('Resumen ejecutivo')
+    this.espacio(72)
+    const y0 = this.y
+    const bg: RGB = [246, 248, 251]
+    this.doc.setFillColor(...bg)
+    this.doc.setDrawColor(...GRIS_CLARO)
+    this.doc.roundedRect(MARGIN_X, y0, CONTENT_W, 64, 5, 5, 'FD')
+    this.doc.setFont('helvetica', 'bold')
+    this.doc.setFontSize(22)
+    this.doc.setTextColor(...(resultado == null ? GRIS : colorPuntaje(resultado)))
+    this.doc.text(resultado == null ? '—' : `${fmt(resultado)}%`, MARGIN_X + 16, y0 + 28)
+    this.doc.setFont('helvetica', 'bold')
+    this.doc.setFontSize(7.5)
+    this.doc.setTextColor(...GRIS)
+    this.doc.text('PUNTAJE DE EVALUACIÓN', MARGIN_X + 16, y0 + 43)
+    this.doc.setFont('helvetica', 'normal')
+    this.doc.setFontSize(9)
+    this.doc.setTextColor(...MARINO)
+    const resumenTexto = total
+      ? `${fmt(ok)} de ${fmt(total)} puntos considerados en las respuestas incluidas.`
+      : 'No hay respuestas puntuables en los resultados incluidos.'
+    const resumenLines = this.doc.splitTextToSize(resumenTexto, CONTENT_W - 165) as string[]
+    this.doc.text(resumenLines, MARGIN_X + 155, y0 + 28, { maxWidth: CONTENT_W - 170 })
+    const estado = resultado == null ? 'Sin puntaje' : estadoPuntaje(resultado).texto
+    this.doc.setFont('helvetica', 'bold')
+    this.doc.setFontSize(8)
+    this.doc.setTextColor(...(resultado == null ? GRIS : colorPuntaje(resultado)))
+    this.doc.text(estado, MARGIN_X + 155, y0 + 47)
+    this.y += 77
+    const modulosResumen = this.resumenModulos(detalle.modulos, respuestas, items, opciones)
+    if (modulosResumen.length) {
+      this.titulo('Resultado por módulo')
+      for (const modulo of modulosResumen) {
+        const label = modulo.pct == null ? 'Sin datos puntuables' : `${fmt(modulo.pct)}%`
+        this.text(`${modulo.nombre} — ${label}`, { size: 9.5, bold: true })
+      }
+    }
+  }
 
-  // Totales por módulo (portada + detalle).
-  let okTotal = 0
-  let totalTotal = 0
-  const modulosResumen = modulos.map((m) => {
-    const itemMod = itemsEnOrdenJerarquico(items.filter((i) => i.modulo_id === m.id))
-    const vals = respuestas
-      .map((r) => {
-        const it = itemMod.find((i) => i.id === r.item_id)
-        return it ? { item: aplicarOpciones(it), valor: r.valor } : null
+  private resumenModulos(
+    modulos: Modulo[],
+    respuestas: Respuesta[],
+    items: Item[],
+    opciones: Map<string, string[]>
+  ): { nombre: string; pct: number | null }[] {
+    return modulos.map((modulo) => {
+      const itemsModulo = items.filter((item) => item.modulo_id === modulo.id)
+      const valores = respuestas.flatMap((respuesta) => {
+        const item = itemsModulo.find((candidate) => candidate.id === respuesta.item_id)
+        return item ? [{ item: aplicarOpciones(item, opciones), valor: respuesta.valor }] : []
       })
-      .filter((x): x is { item: Item; valor: unknown } => !!x)
-    const { ok, total } = itemsProporcion(vals)
-    okTotal += ok
-    totalTotal += total
-    const pct = total > 0 ? Math.round((ok / total) * 10000) / 100 : null
-    return { nombre: m.nombre, pct }
-  })
+      const { ok, total } = itemsProporcion(valores)
+      return { nombre: modulo.nombre, pct: total ? Math.round((ok / total) * 10000) / 100 : null }
+    })
+  }
 
-  resumenInterpretacion(li, puntaje, okTotal, totalTotal, modulosResumen)
+  private estadoItem(item: Item, valor: unknown): { label: string; color: RGB } {
+    const veredicto: VeredictoItem = veredictoItem(item, valor)
+    if (veredicto === 'cumple') return { label: 'CUMPLE', color: VERDE }
+    if (veredicto === 'no-cumple') return { label: 'NO CUMPLE', color: ROJO }
+    if (veredicto === 'no-aplica') return { label: 'NO APLICA', color: GRIS }
+    return { label: 'SIN VEREDICTO', color: GRIS }
+  }
 
-  // Detalle por módulo.
-  modulos.forEach((m, idx) => {
-    li.nuevaPagina()
-    const itemMod = itemsEnOrdenJerarquico(items.filter((i) => i.modulo_id === m.id))
+  private item(item: Item, valor: unknown): void {
+    const estado = this.estadoItem(item, valor)
+    this.titulo(item.texto)
+    this.text(estado.label, { size: 8, color: estado.color, bold: true })
+    const soloIncumplimientos = this.filtro === 'no-cumple'
+    switch (item.tipo) {
+      case 'CUMPLE_NO_CUMPLE':
+        this.detalleCumple(valor)
+        break
+      case 'CHECKLIST':
+        this.detalleChecklist(item, valor, soloIncumplimientos)
+        break
+      case 'CONCILIACION':
+        this.detalleConciliacion(item, valor, soloIncumplimientos)
+        break
+      case 'LISTA_COLABORADORES':
+        this.detalleColaboradores(item, valor, soloIncumplimientos)
+        break
+      case 'UNIDAD_CHECKLIST':
+        this.detalleUnidades(item, valor, soloIncumplimientos)
+        break
+      case 'PLANO_XY':
+        this.detallePlano(valor, soloIncumplimientos)
+        break
+    }
+    this.regla()
+  }
 
-    let preguntas = 0
-    for (const raiz of raicesDeModulo(itemMod)) {
+  private detalleCumple(valor: unknown): void {
+    const v = valor as ValorCumple | null
+    const evidencias = (v?.evidencias ?? []) as { comentario?: string; photoIds?: string[]; paths?: string[] }[]
+    for (const evidencia of evidencias) {
+      if (evidencia.comentario?.trim()) this.text(`• ${evidencia.comentario.trim()}`, { indent: 9 })
+    }
+    const fotos = evidencias.reduce((n, evidencia) =>
+      n + (evidencia.photoIds?.length ?? evidencia.paths?.length ?? 0), 0)
+    if (fotos) this.text(`Evidencias fotográficas adjuntas: ${fotos}.`, { color: GRIS, indent: 9 })
+  }
+
+  private detalleChecklist(item: Item, valor: unknown, soloIncumplimientos: boolean): void {
+    const v = valor as ValorChecklist | null
+    const opciones = ((item.opciones ?? []) as NonNullable<Item['opciones']>)
+      .filter((opcion) => !(v?.informativos ?? []).includes(opcion.id))
+    const mostrar = soloIncumplimientos
+      ? opciones.filter((opcion) => !opcionCumplida(opcion, v, opcion.id))
+      : opciones
+    if (!mostrar.length) {
+      this.text('Sin opciones pendientes en este filtro.', { color: GRIS, indent: 9 })
+      return
+    }
+    for (const opcion of mostrar) {
+      const cumple = opcionCumplida(opcion, v, opcion.id)
+      const valorRango = v?.valores?.[opcion.id]
+      const datoRango = opcion.tipo_respuesta === 'RANGO' && typeof valorRango === 'number'
+        ? ` · valor ${fmt(valorRango)}${opcion.unidad ? ` ${opcion.unidad}` : ''} · mínimo ${opcion.minimo ?? '—'}`
+        : ''
+      this.text(`${cumple ? '✓' : '•'} ${opcion.etiqueta ?? opcion.id}${datoRango}`, {
+        size: 9,
+        color: cumple ? MARINO : ROJO,
+        indent: 9
+      })
+    }
+  }
+
+  private detalleConciliacion(item: Item, valor: unknown, soloIncumplimientos: boolean): void {
+    const v = valor as ValorConciliacion | null
+    const precio = item.contra_dato === 'FINAL_BASE'
+    const productos = v?.productos ?? []
+    const mostrar = soloIncumplimientos
+      ? productos.filter((p) => typeof p.teorica === 'number' && typeof p.fisica === 'number' && p.teorica !== p.fisica)
+      : productos
+    if (!mostrar.length) {
+      this.text('Sin productos para mostrar.', { color: GRIS, indent: 9 })
+      return
+    }
+    for (const producto of mostrar) {
+      const pct = conciliacionPorcentaje(producto)
+      const dif = typeof producto.teorica === 'number' && typeof producto.fisica === 'number'
+        ? Math.abs(producto.fisica - producto.teorica)
+        : null
+      const balance = dif == null || producto.fisica === producto.teorica
+        ? 'Concilia'
+        : `${producto.fisica! > producto.teorica! ? (dif === 1 ? 'Sobra' : 'Sobran') : (dif === 1 ? 'Falta' : 'Faltan')} ${fmt(dif)}`
+      const nombre = [producto.sku, producto.nombre].filter(Boolean).join(' · ') || 'Producto sin identificar'
+      this.text(nombre, { bold: true, indent: 9 })
+      this.text(
+        `${precio ? 'Sistema' : 'Teórica'}: ${producto.teorica ?? '—'}  |  ${precio ? 'Hablador' : 'Física'}: ${producto.fisica ?? '—'}  |  ${pct == null ? 'Sin datos' : `${fmt(pct)}% concilia`}  |  ${balance}`,
+        { size: 8.8, indent: 18 }
+      )
+      if (producto.lastSync) this.text(`Sync: ${new Date(producto.lastSync).toLocaleString('es')}`, { size: 8, color: GRIS, indent: 18 })
+    }
+  }
+
+  private detalleColaboradores(item: Item, valor: unknown, soloIncumplimientos: boolean): void {
+    const v = valor as ValorListaColaboradores | null
+    const opciones = item.opciones ?? []
+    const colaboradores = (v?.colaboradores ?? []).filter((c) => c.aplica)
+    const mostrar = colaboradores.filter((c) => {
+      const aplican = opcionesAplicablesColaborador(c, opciones)
+      return !soloIncumplimientos || (aplican.length > 0 && !colaboradorCumple(c, opciones))
+    })
+    if (!mostrar.length) {
+      this.text('Sin colaboradores con incumplimientos para mostrar.', { color: GRIS, indent: 9 })
+      return
+    }
+    for (const colaborador of mostrar) {
+      this.text(`${colaborador.name} ${colaborador.lastname}${colaborador.role_name ? ` · ${colaborador.role_name}` : ''}`, {
+        bold: true,
+        indent: 9
+      })
+      const aplican = opcionesAplicablesColaborador(colaborador, opciones)
+      const pendientes = aplican.filter((o) => !(colaborador.selected ?? []).includes(o.id))
+      this.text(
+        soloIncumplimientos
+          ? `Pendiente: ${pendientes.map((o) => o.etiqueta).join(', ')}`
+          : `${aplican.length - pendientes.length}/${aplican.length} puntos cumplidos${pendientes.length ? ` · Pendiente: ${pendientes.map((o) => o.etiqueta).join(', ')}` : ''}`,
+        { indent: 18 }
+      )
+    }
+  }
+
+  private detalleUnidades(item: Item, valor: unknown, soloIncumplimientos: boolean): void {
+    const v = valor as ValorUnidadChecklist | null
+    const opciones = item.opciones ?? []
+    const unidades = (v?.unidades ?? []).filter((u) => !soloIncumplimientos || !unidadCumple(u, opciones))
+    if (!unidades.length) {
+      this.text('Sin unidades con incumplimientos para mostrar.', { color: GRIS, indent: 9 })
+      return
+    }
+    for (const unidad of unidades) {
+      const faltan = opciones.filter((o) => !(unidad.selected ?? []).includes(o.id))
+      this.text(unidad.codigo, { bold: true, indent: 9 })
+      this.text(
+        soloIncumplimientos
+          ? `Pendiente: ${faltan.map((o) => o.etiqueta).join(', ')}`
+          : `${opciones.length - faltan.length}/${opciones.length} puntos cumplidos${faltan.length ? ` · Pendiente: ${faltan.map((o) => o.etiqueta).join(', ')}` : ''}`,
+        { indent: 18 }
+      )
+    }
+  }
+
+  private detallePlano(valor: unknown, soloIncumplimientos: boolean): void {
+    const v = valor as ValorPlano | null
+    const planos = v?.planos ?? []
+    const puntos = (v?.puntos ?? []).filter((p) => !soloIncumplimientos || p.cumple === false)
+    if (!puntos.length) {
+      this.text('Sin puntos con incumplimientos para mostrar.', { color: GRIS, indent: 9 })
+      return
+    }
+    for (const punto of puntos) {
+      const plano = planos.find((p) => p.id === punto.planoId)?.nombre
+      this.text(`${punto.cumple ? 'Cumple' : 'No cumple'}${plano ? ` · ${plano}` : ''}`, {
+        bold: true,
+        color: punto.cumple ? VERDE : ROJO,
+        indent: 9
+      })
+      if (punto.comentario?.trim()) this.text(punto.comentario.trim(), { indent: 18 })
+    }
+  }
+
+  private modulo(modulo: Modulo, respuestas: Respuesta[], items: Item[], opciones: Map<string, string[]>): void {
+    const itemsModulo = itemsEnOrdenJerarquico(items.filter((item) => item.modulo_id === modulo.id))
+    const valores = respuestas.flatMap((respuesta) => {
+      const item = itemsModulo.find((candidate) => candidate.id === respuesta.item_id)
+      return item ? [{ item: aplicarOpciones(item, opciones), valor: respuesta.valor }] : []
+    })
+    const { ok, total } = itemsProporcion(valores)
+    const pct = total ? Math.round((ok / total) * 10000) / 100 : null
+    this.franja(`MÓDULO · ${modulo.nombre}`, colorPuntaje(pct ?? 0))
+
+    for (const raiz of raicesDeModulo(itemsModulo)) {
       if (raiz.tipo === 'CONTENEDOR') {
-        const insts = instancias.filter((x) => x.item_id === raiz.id)
-        preguntas += hijosOrdenados(itemMod, raiz.id).length * Math.max(1, insts.length)
+        const hijos = hijosOrdenados(itemsModulo, raiz.id)
+        const instancias = this.instanciasModulo(respuestas, raiz.id, modulo.id)
+        if (!instancias.length && !this.filtro) {
+          this.text(`${raiz.texto} · Sin registros capturados`, { size: 10, bold: true })
+          continue
+        }
+        for (const instancia of instancias) {
+          this.text(`${raiz.texto} · ${instancia.etiqueta}`, { size: 10, bold: true })
+          for (const hijo of hijos) {
+            const respuesta = respuestas.find((r) =>
+              r.item_id === hijo.id && (r.instancia_id ?? null) === instancia.id
+            )
+            if (respuesta) this.item(aplicarOpciones(hijo, opciones), respuesta.valor)
+          }
+        }
       } else {
-        preguntas += 1
+        const respuesta = respuestas.find((r) => r.item_id === raiz.id && !r.instancia_id)
+        if (respuesta) this.item(aplicarOpciones(raiz, opciones), respuesta.valor)
       }
     }
+  }
 
-    const vals = respuestas
-      .map((r) => {
-        const it = itemMod.find((i) => i.id === r.item_id)
-        return it ? { item: aplicarOpciones(it), valor: r.valor } : null
+  private instanciasModulo(respuestas: Respuesta[], itemId: string, moduloId: string) {
+    const ids = new Set(respuestas
+      .filter((respuesta) => {
+        const item = this.currentItems.find((candidate) => candidate.id === respuesta.item_id)
+        return item?.modulo_id === moduloId && !!respuesta.instancia_id
       })
-      .filter((x): x is { item: Item; valor: unknown } => !!x)
-    const { ok, total } = itemsProporcion(vals)
-    const pct = total > 0 ? Math.round((ok / total) * 10000) / 100 : null
+      .map((respuesta) => respuesta.instancia_id))
+    return this.currentInstancias.filter((instancia) => instancia.item_id === itemId && ids.has(instancia.id))
+  }
 
-    li.tarjetaModulo(`Módulo ${idx + 1} · ${m.nombre}`, `${preguntas} preguntas puntuables · ${fmt(ok)}/${fmt(total)} puntos`, pct, colorPuntaje(pct ?? 0))
+  private currentItems: Item[] = []
+  private currentInstancias: DetalleEvaluacion['instancias'] = []
 
-    for (const raiz of raicesDeModulo(itemMod)) {
-      if (raiz.tipo === 'CONTENEDOR') {
-        renderSeccion(li, raiz, itemMod, respuestas, instancias, aplicarOpciones)
-        continue
+  build(detalle: DetalleEvaluacion): jsPDF {
+    const evaluacion = detalle.evaluacion
+    const opciones = opcionesDeSucursal(detalle)
+    const data = [
+      ['Sucursal', evaluacion.sucursal?.nombre ?? evaluacion.sucursal_id],
+      ...(evaluacion.sucursal?.shop_id ? [['N.º de tienda', evaluacion.sucursal.shop_id] as [string, string]] : []),
+      ...(evaluacion.sucursal?.direccion ? [['Dirección', evaluacion.sucursal.direccion] as [string, string]] : []),
+      ['Fecha', formatoFecha(evaluacion.fecha)],
+      ['Aperturada por', evaluacion.aperturador?.nombre ?? '—'],
+      ['Estado', evaluacion.estado],
+      ...(this.filtro
+        ? [['Filtro', this.filtro === 'ambos' ? 'Ambos · Cumple y No cumple' : this.filtro === 'cumple' ? 'Cumple' : 'No cumple'] as [string, string]]
+        : [])
+    ] as [string, string][]
+
+    this.doc.setFont('helvetica', 'bold')
+    this.doc.setFontSize(8)
+    this.doc.setTextColor(...MARINO)
+    this.titulo('Evaluación de sucursal', 1)
+    this.text(`${evaluacion.sucursal?.nombre ?? 'Sucursal'} · ${formatoFecha(evaluacion.fecha)}`, {
+      size: 11,
+      color: GRIS
+    })
+    this.y += 12
+    this.metadatos(data)
+    this.resumen(detalle, detalle.respuestas, detalle.items, opciones)
+    this.currentItems = detalle.items
+    this.currentInstancias = detalle.instancias
+
+    this.titulo('Detalle de resultados', 1)
+    for (const modulo of detalle.modulos) {
+      const moduloItems = detalle.items.filter((item) => item.modulo_id === modulo.id)
+      if (!detalle.respuestas.some((respuesta) =>
+        moduloItems.some((item) => item.id === respuesta.item_id)
+      ) && this.filtro) continue
+      this.modulo(modulo, detalle.respuestas, detalle.items, opciones)
+    }
+
+    const porResponsable = new Map<string, number>()
+    for (const respuesta of detalle.respuestas) {
+      const item = detalle.items.find((candidate) => candidate.id === respuesta.item_id)
+      if (!item) continue
+      for (const incumplimiento of incumplimientosPorResponsable(
+        aplicarOpciones(item, opciones),
+        respuesta.valor
+      )) {
+        porResponsable.set(
+          incumplimiento.responsable,
+          (porResponsable.get(incumplimiento.responsable) ?? 0) + incumplimiento.puntos
+        )
       }
-      const r = respuestas.find((x) => x.item_id === raiz.id && !x.instancia_id)
-      if (r) renderItem(li, aplicarOpciones(raiz), r.valor)
     }
-  })
+    if (porResponsable.size) {
+      this.titulo('Incumplimientos por responsable')
+      for (const [nombre, puntos] of Array.from(porResponsable.entries())
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
+        this.text(`${nombre} — ${fmt(puntos)} puntos por atender`, { size: 9.5 })
+      }
+    }
 
-  // Incumplimientos por responsable.
-  const acum = new Map<string, number>()
-  for (const r of respuestas) {
-    const it = items.find((i) => i.id === r.item_id)
-    if (!it) continue
-    for (const a of incumplimientosPorResponsable(aplicarOpciones(it), r.valor)) {
-      acum.set(a.responsable, (acum.get(a.responsable) ?? 0) + a.puntos)
+    if (evaluacion.comentario_general?.trim()) {
+      this.titulo('Comentario general')
+      this.text(evaluacion.comentario_general.trim(), { size: 9.5 })
     }
-  }
-  if (acum.size) {
-    li.nuevaPagina()
-    const filas = Array.from(acum.entries())
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 14)
-    li.asegurar(30)
-    const y0 = li.y
-    rotuloSeccion(doc, 'Incumplimientos por responsable', li.M, y0, li.tw)
-    li.y = y0 + 13
-
-    const maxP = Math.max(1, ...filas.map(([, n]) => n))
-    for (const [nombre, puntos] of filas) {
-      li.asegurar(20)
-      const yy = li.y
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(9.5)
-      doc.setTextColor(...MARINO)
-      doc.text(nombre, li.M, yy + 4.5, { maxWidth: li.tw - 120 })
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(9.8)
-      doc.setTextColor(...ROJO)
-      doc.text(`-${fmt(puntos)}`, li.M + li.tw - 16, yy + 4.5, { align: 'right' })
-      barra(doc, li.M, yy + 9, li.tw, 5, (puntos / maxP) * 100, ROJO)
-      li.y = yy + 21
-    }
+    this.pies(evaluacion.sucursal?.nombre ?? 'Sucursal')
+    return this.doc
   }
 
-  // Comentario general.
-  if (ev.comentario_general?.trim()) {
-    li.asegurar(40)
-    const y0 = li.y
-    rotuloSeccion(doc, 'Comentario general', li.M, y0, li.tw)
-    li.y = y0 + 13
-
-    const x0 = li.M
-    const w = li.tw
-    const lineas = doc.splitTextToSize(ev.comentario_general!, w - 28) as string[]
-    const h = lineas.length * 13.5 + 24
-    li.asegurar(h + 10)
-    const y1 = li.y
-    doc.setFillColor(...FONDO)
-    doc.setDrawColor(...GRIS_CLARO)
-    doc.setLineWidth(0.5)
-    doc.roundedRect(x0, y1, w, h, 4, 4, 'FD')
-    doc.setFont('helvetica', 'italic')
-    doc.setFontSize(10)
-    doc.setTextColor(...MARINO)
-    lineas.forEach((ln, i) => doc.text(ln, x0 + 14, y1 + 20 + i * 13.5))
-    li.y = y1 + h + 14
+  private pies(sucursal: string): void {
+    const total = this.doc.getNumberOfPages()
+    for (let page = 1; page <= total; page++) {
+      this.doc.setPage(page)
+      this.doc.setDrawColor(...GRIS_CLARO)
+      this.doc.setLineWidth(0.6)
+      this.doc.setFont('helvetica', 'bold')
+      this.doc.setFontSize(8)
+      this.doc.setTextColor(...MARINO)
+      this.doc.text('EVALUXOR  /  INFORME DE RESULTADOS', MARGIN_X, 34)
+      this.doc.setDrawColor(...GRIS_CLARO)
+      this.doc.line(MARGIN_X, 43, PAGE_W - MARGIN_X, 43)
+      this.doc.line(MARGIN_X, PAGE_H - 35, PAGE_W - MARGIN_X, PAGE_H - 35)
+      this.doc.setFont('helvetica', 'normal')
+      this.doc.setFontSize(8)
+      this.doc.setTextColor(...GRIS)
+      this.doc.text(`EvaLuxor · ${sucursal} · ${fmt(page)} / ${fmt(total)}`, MARGIN_X, PAGE_H - 21)
+    }
   }
+}
 
-  li.pie(`EvaLuxor · ${suc?.nombre ?? ''} · ${formatoFecha(ev.fecha)}`)
-  return doc
+export function buildPdfDocument(d: DetalleEvaluacion, filtro?: FiltroPdfCumplimiento): jsPDF {
+  const detalle = filtro ? filtrarDetallePdf(d, filtro) : d
+  return new InformePdf(filtro).build(detalle)
 }
 
 export function generarPdfResultado(d: DetalleEvaluacion): void {
   const doc = buildPdfDocument(d)
-  const suc = d.evaluacion.sucursal
-  const nombre = `informe-${(suc?.nombre ?? 'evaluacion').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${d.evaluacion.fecha}.pdf`
+  const sucursal = d.evaluacion.sucursal?.nombre ?? 'evaluacion'
+  const nombre = `informe-${sucursal.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${d.evaluacion.fecha}.pdf`
   doc.save(nombre)
 }
 
-export async function descargarPdf(id: string): Promise<void> {
+export async function descargarPdf(id: string, filtro?: FiltroPdfCumplimiento): Promise<void> {
   const detalle = await obtenerEvaluacion(id)
   if (!detalle) throw new Error('No se encontró la evaluación.')
-  generarPdfResultado(detalle)
+  if (!filtro) {
+    generarPdfResultado(detalle)
+    return
+  }
+  const doc = buildPdfDocument(detalle, filtro)
+  const sucursal = detalle.evaluacion.sucursal?.nombre ?? 'evaluacion'
+  const nombre = `informe-${sucursal.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${detalle.evaluacion.fecha}-${filtro}.pdf`
+  doc.save(nombre)
 }
