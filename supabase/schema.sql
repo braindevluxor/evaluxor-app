@@ -656,7 +656,7 @@ $$;
 
 -- SUCURSALES: lectura autenticados / escritura solo LIDER ---------------------
 drop policy if exists sucursales_select on public.sucursales;
-create policy sucursales_select on public.sucursales for select using (true);
+create policy sucursales_select on public.sucursales for select to authenticated using (true);
 drop policy if exists sucursales_lider on public.sucursales;
 create policy sucursales_lider on public.sucursales for all using (public.es_lider()) with check (public.es_lider());
 
@@ -664,7 +664,7 @@ create policy sucursales_lider on public.sucursales for all using (public.es_lid
 -- `to authenticated` es lo que cierra esta tabla a quien no inició sesión. Con
 -- `using (true)` a secas (más el `grant all` inicial de Supabase) cualquiera desde
 -- internet hacía `select * from profiles` y se llevaba TODOS los correos, roles y
--- sucursales. El detalle está en `cerrar-profiles-anon.sql`.
+-- sucursales. El detalle está en `cerrar-lectura-anon.sql`.
 drop policy if exists profiles_select on public.profiles;
 create policy profiles_select on public.profiles for select to authenticated using (true);
 drop policy if exists profiles_lider on public.profiles;
@@ -687,26 +687,30 @@ drop policy if exists asignaciones_modulos_lider on public.asignaciones_modulos;
 create policy asignaciones_modulos_lider on public.asignaciones_modulos for all using (public.es_lider()) with check (public.es_lider());
 
 -- MODULOS / ITEMS: lectura autenticados / gestion solo LIDER -------------------
+-- `to authenticated` en las de lectura: sin eso la política aplica a PUBLIC (o
+-- sea, también a `anon`) y con el `grant all` inicial de Supabase cualquiera
+-- desde internet se lleva el catálogo entero. En `items` eso incluye la rúbrica
+-- completa: puntajes, pesos y umbrales de cada punto.
 drop policy if exists modulos_select on public.modulos;
-create policy modulos_select on public.modulos for select using (true);
+create policy modulos_select on public.modulos for select to authenticated using (true);
 drop policy if exists modulos_lider on public.modulos;
 create policy modulos_lider on public.modulos for all using (public.es_lider()) with check (public.es_lider());
 drop policy if exists items_select on public.items;
-create policy items_select on public.items for select using (true);
+create policy items_select on public.items for select to authenticated using (true);
 drop policy if exists items_lider on public.items;
 create policy items_lider on public.items for all using (public.es_lider()) with check (public.es_lider());
 
 -- CONFIG POR SUCURSAL: lectura autenticados / gestion solo LIDER ---------------
 drop policy if exists sucursal_modulos_select on public.sucursal_modulos;
-create policy sucursal_modulos_select on public.sucursal_modulos for select using (true);
+create policy sucursal_modulos_select on public.sucursal_modulos for select to authenticated using (true);
 drop policy if exists sucursal_modulos_lider on public.sucursal_modulos;
 create policy sucursal_modulos_lider on public.sucursal_modulos for all using (public.es_lider()) with check (public.es_lider());
 drop policy if exists sucursal_items_select on public.sucursal_items;
-create policy sucursal_items_select on public.sucursal_items for select using (true);
+create policy sucursal_items_select on public.sucursal_items for select to authenticated using (true);
 drop policy if exists sucursal_items_lider on public.sucursal_items;
 create policy sucursal_items_lider on public.sucursal_items for all using (public.es_lider()) with check (public.es_lider());
 drop policy if exists sucursal_opciones_select on public.sucursal_opciones;
-create policy sucursal_opciones_select on public.sucursal_opciones for select using (true);
+create policy sucursal_opciones_select on public.sucursal_opciones for select to authenticated using (true);
 drop policy if exists sucursal_opciones_lider on public.sucursal_opciones;
 create policy sucursal_opciones_lider on public.sucursal_opciones for all using (public.es_lider()) with check (public.es_lider());
 
@@ -895,8 +899,21 @@ revoke execute on function public.registrar_sync() from public;
 revoke execute on function public.intento_login(text, text) from public, authenticated;
 revoke execute on function public.email_por_usuario(text) from public, authenticated;
 
--- Tabla, no función: `profiles` tiene datos que no son públicos (correo, rol) y la
--- política ya los restringe a `authenticated`. El `revoke` es la segunda mitad de
--- la cerradura: los permisos de Postgres son ADITIVOS, así que aunque la política
--- no deje pasar a `anon`, un `grant select` explícito en el rol lo saltaría.
-revoke select on public.profiles from anon;
+-- Tabla, no función. Estas 7 son las que se leían sin sesión: `profiles` (correos,
+-- roles), `items` (la rúbrica completa con puntajes y umbrales), `modulos`,
+-- `sucursales` (nombres, branch_id, gerente_id) y las tres de configuración por
+-- sucursal. La política con `to authenticated` ya las cierra; este revoke es la
+-- segunda mitad de la cerradura, porque los permisos de Postgres son ADITIVOS: si
+-- algún día RLS queda apagado en una de ellas (pasa, y no se ve), el `grant` por
+-- defecto de Supabase pasa a ser la única puerta y quedaría abierta.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'profiles', 'sucursales', 'modulos', 'items',
+    'sucursal_modulos', 'sucursal_items', 'sucursal_opciones'
+  ] loop
+    execute format('revoke select on public.%I from anon', t);
+  end loop;
+end $$;

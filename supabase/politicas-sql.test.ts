@@ -22,7 +22,7 @@ const incidencias = fuente('./incidencias.sql')
 const biometrico = fuente('./proyectos-biometrico.sql')
 const reactivar = fuente('./reactivar-politicas.sql')
 const validar = fuente('./validar-politicas.sql')
-const cerrar = fuente('./cerrar-profiles-anon.sql')
+const cerrar = fuente('./cerrar-lectura-anon.sql')
 const permisos = fuente('./permisos-funcion.sql')
 
 interface Politica {
@@ -203,65 +203,171 @@ describe('validar-politicas.sql · mira lo que hay que mirar', () => {
 })
 
 /**
- * `profiles` es la tabla más sensible del proyecto y la única con un agujero que
- * el advisor NO reportó: la política de lectura era `using (true)` sin
- * `to authenticated`, y Supabase arranca con `grant all` para `anon`. Con las dos
- * cosas, cualquiera sin sesión hacía `select * from profiles` y se llevaba
- * correos, roles y sucursales de todos. Estos tests existen para que no vuelva.
+ * Siete tablas se leían sin sesión. Todas tenían su política de lectura como
+ * `for select using (true)` SIN `to authenticated`, y sin `to` una política RLS
+ * aplica a PUBLIC, que incluye al rol `anon`. Sumado al `grant all` inicial de
+ * Supabase, cualquiera sin cuenta hacía `select *` y se llevaba, entre otras
+ * cosas, la rúbrica completa con puntajes y umbrales.
+ *
+ * El advisor no reportó NINGUNA de las siete: sus 29 avisos eran todos de
+ * funciones. Estos tests existen para que no vuelva a abrirse por descuido.
  */
-describe('profiles · cerrada a quien no inició sesión', () => {
+describe('lectura anónima · las 7 tablas del catálogo', () => {
+  /** Las que tenían `using (true)` sin `to`, en el orden en que se corrigen. */
+  const TABLAS = [
+    'profiles',
+    'sucursales',
+    'modulos',
+    'items',
+    'sucursal_modulos',
+    'sucursal_items',
+    'sucursal_opciones',
+  ]
+
   const conPolitica = [
     ['schema.sql', schema],
     ['reactivar-politicas.sql', reactivar],
-    ['cerrar-profiles-anon.sql', cerrar],
+    ['cerrar-lectura-anon.sql', cerrar],
   ] as const
 
-  it('la política de lectura va explícitamente a `authenticated` en todos lados', () => {
-    // `using (true)` sola NO cierra nada: sin `to`, la política aplica a PUBLIC,
-    // que incluye `anon`. El `to authenticated` es la parte que importa.
+  /** La sentencia `create policy <tabla>_select ... ;` tal cual está escrita. */
+  function politica(sql: string, tabla: string): string | undefined {
+    return [...sql.matchAll(new RegExp(`^\\s*create policy\\s+${tabla}_select\\b[\\s\\S]*?;`, 'gim'))][0]?.[0]
+  }
+
+  it('ninguna política de lectura se queda sin `to authenticated`', () => {
+    // `using (true)` sola NO cierra nada: sin `to` la política sigue aplicando a
+    // PUBLIC. El `to authenticated` es la parte que hace el trabajo.
     for (const [nombre, sql] of conPolitica) {
-      // Hasta el `;`, porque la sentencia puede partirse en varias líneas.
-      const stmt = [...sql.matchAll(/^\s*create policy\s+profiles_select\b[\s\S]*?;/gim)][0]?.[0]
-      expect(stmt, `${nombre}: no se encuentra la política profiles_select`).toBeTruthy()
-      expect(stmt!.toLowerCase(), `${nombre}: profiles_select sin 'to authenticated'`).toMatch(
-        /\bto\s+authenticated\b/
-      )
+      for (const tabla of TABLAS) {
+        const stmt = politica(sql, tabla)
+        expect(stmt, `${nombre}: no se encuentra la política ${tabla}_select`).toBeTruthy()
+        expect(
+          stmt!.toLowerCase(),
+          `${nombre}: ${tabla}_select sin 'to authenticated' (deja leer a anon)`
+        ).toMatch(/\bto\s+authenticated\b/)
+      }
     }
   })
 
-  it('el revoke del permiso a `anon` está en los tres archivos que se aplican', () => {
-    // La política sola no alcanza: los permisos de Postgres son aditivos, así que
-    // un `grant select` explícito al rol la saltearía. Hacen falta las dos.
+  it('el nombre de la política es el de la tabla, sin parecidos', () => {
+    // Escribir `perfiles_select` en vez de `profiles_select` (español por
+    // costumbre) deja la política vieja viva: el `drop` no borra nada, el `create`
+    // agrega una segunda, y como las políticas permisivas se unen con OR la que
+    // abría `anon` sigue abriendo. El archivo da "éxito" y no cierra nada. Por eso
+    // no basta con Testear el `to`: hay que fijar el nombre exacto.
     for (const [nombre, sql] of conPolitica) {
-      expect(sql, `${nombre}: falta revoke select ... from anon`).toMatch(
-        /revoke\s+select\s+on\s+public\.profiles\s+from\s+anon\s*;/i
-      )
+      for (const [, politica_, tabla] of sql.matchAll(
+        /^\s*create policy\s+(\w+_select)\s+on\s+public\.(\w+)\s+for\s+select/gim
+      )) {
+        expect(
+          politica_.toLowerCase(),
+          `${nombre}: la política de lectura de ${tabla} se llama ${politica_}, pero el drop de este mismo archivo no la borra`
+        ).toBe(`${tabla}_select`)
+      }
+    }
+  })
+
+  it('cada `drop` de lectura precede a su `create`, con el mismo nombre', () => {
+    // Un `drop` con otro nombre deja la política vieja viva (ver el test
+    // anterior), y uno faltante hace que la segunda corrida tire 42710 y corte el
+    // resto del bloque en el SQL Editor.
+    const drops = [...sinComentarios(cerrar).matchAll(/drop policy if exists (\w+_select) on public\.(\w+);/gi)].map(
+      (m) => m[1].toLowerCase()
+    )
+    const creates = [...sinComentarios(cerrar).matchAll(/create policy (\w+_select) on public\.(\w+) for select/gi)]
+      .map((m) => m[1].toLowerCase())
+    expect(drops.sort()).toEqual([...creates].sort())
+  })
+
+  it('cada una de las 7 tiene su revoke del permiso a `anon`', () => {
+    // La política sola no alcanza: los permisos de Postgres son aditivos, así que
+    // un `grant select` explícito al rol la saltearía. Hacen falta las dos llaves.
+    // El revoke va en un bucle sobre la lista, así que se chequea que estén todas.
+    for (const [nombre, sql] of conPolitica) {
+      for (const tabla of TABLAS) {
+        const codigo = sinComentarios(sql)
+        const revokeLiteral = new RegExp(
+          `revoke\\s+select\\s+on\\s+public\\.${tabla}\\s+from\\s+anon\\s*;`,
+          'i'
+        ).test(codigo)
+        const revokeEnBucle = /foreach\s+t\s+in\s+array/i.test(codigo) && codigo.includes(`'${tabla}'`)
+        expect(
+          revokeLiteral || revokeEnBucle,
+          `${nombre}: falta el revoke select de ${tabla} para anon`
+        ).toBe(true)
+      }
+    }
+  })
+
+  it('el bucle de revoke cubre exactamente las 7, sin forgetting ni sobrantes', () => {
+    // Un `foreach` con una lista desalineada es el modo típico de que este fix se
+    // applies a 6 de 7 en silencio.
+    for (const [nombre, sql] of conPolitica) {
+      const bloque = sinComentarios(sql).match(/foreach\s+t\s+in\s+array\s+array\[([\s\S]*?)\]/i)
+      if (!bloque) continue
+      const enElBucle = [...bloque[1].matchAll(/'(\w+)'/g)].map((m) => m[1])
+      expect(enElBucle.sort(), `${nombre}: el bucle de revoke no coincide con la lista`).toEqual([...TABLAS].sort())
     }
   })
 
   it('`anon` no queda con select por un grant explícito en ningún archivo', () => {
-    // Un `grant select on public.profiles to anon` deshace el fix sin tocar la
+    // Un `grant select on public.<tabla> to anon` deshace el fix sin tocar la
     // política, y no se vería en el advisor.
     for (const [nombre, sql] of conPolitica) {
-      expect(sql, `${nombre}: hay un grant select a anon`).not.toMatch(
-        /grant\s+select\s+on\s+public\.profiles\s+to\s+anon\s*;/i
-      )
+      for (const tabla of TABLAS) {
+        expect(
+          sql,
+          `${nombre}: hay un grant select a anon sobre ${tabla}`
+        ).not.toMatch(new RegExp(`grant\\s+select\\s+on\\s+public\\.${tabla}\\s+to\\s+anon`, 'i'))
+      }
     }
   })
 
-  it('`authenticated` conserva la lectura, porque los joins por FK la necesitan', () => {
-    // Cerrar la tabla a "solo yo" rompe `aperturador:profiles!...` y los nombres
-    // de los colaboradores. El objetivo es sacarle `anon`, no a todos.
+  it('`authenticated` conserva la lectura en las 7, porque la app la necesita', () => {
+    // El catálogo entero sale de `catalog.ts` (CatalogContext, que recién carga
+    // cuando hay perfil) y los joins por FK como
+    // `sucursal:sucursales!profiles_sucursal_id_fkey` dependen de `sucursales`.
+    // Cerrar a "solo yo" o a "solo Líder" rompe esas pantallas.
     for (const [nombre, sql] of conPolitica) {
-      expect(sql, `${nombre}: le cerró profiles al rol autenticado`).not.toMatch(
-        /revoke\s+select\s+on\s+public\.profiles\s+from\s+([^;]*\bauthenticated\b)[^;]*;/i
-      )
+      for (const tabla of TABLAS) {
+        const codigo = sinComentarios(sql)
+        expect(
+          codigo,
+          `${nombre}: le cerró ${tabla} al rol autenticado`
+        ).not.toMatch(new RegExp(`revoke\\s+select\\s+on\\s+public\\.${tabla}\\s+from\\s+([^;]*\\bauthenticated\\b)`, 'i'))
+      }
+    }
+  })
+
+  it('las tablas que ya devolvían cero filas para anon no se tocan', () => {
+    // `evaluaciones`, `respuestas`, `instancias_grupo`, `fotos`, `asignaciones` e
+    // `incidencias` preguntan por `auth.uid()` o `es_lider()`, que para anon da
+    // falso: el `using` ya las cerraba. Este test es para que nadie las "arregle"
+    // después y rompa algo que funcionaba.
+    const yaCerradas = [
+      'evaluaciones',
+      'respuestas',
+      'instancias_grupo',
+      'fotos',
+      'asignaciones',
+      'asignaciones_modulos',
+    ]
+    for (const [nombre, sql] of conPolitica) {
+      for (const tabla of yaCerradas) {
+        const stmt = politica(sql, tabla)
+        if (!stmt) continue
+        expect(
+          stmt!.toLowerCase(),
+          `${nombre}: ${tabla} ya estaba cerrada por su using; no le cambies el to`
+        ).not.toMatch(/\bto\s+authenticated\b/)
+      }
     }
   })
 
   it('el login sigue funcionando: las dos funciones del login conservan `anon`', () => {
-    // El fix de profiles no puede arrastrar a estas dos. Son security definer, así
-    // que no dependen del permiso sobre la tabla, pero el permiso sobre la
+    // El fix de las tablas no puede arrastrar a estas dos. Son security definer,
+    // así que no dependen del permiso sobre la tabla, pero el permiso sobre la
     // función sí: sin él no hay pantalla de login.
     for (const [nombre, sql] of [
       ['schema.sql', schema],
@@ -269,7 +375,11 @@ describe('profiles · cerrada a quien no inició sesión', () => {
       ['permisos-funcion.sql', permisos],
     ] as const) {
       for (const fn of ['intento_login', 'email_por_usuario']) {
-        const grants = [...sql.matchAll(new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.${fn}\\([^)]*\\)\\s+to\\s+([^;]+);`, 'gi'))]
+        const grants = [
+          ...sql.matchAll(
+            new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.${fn}\\([^)]*\\)\\s+to\\s+([^;]+);`, 'gi')
+          ),
+        ]
         expect(grants.length, `${nombre}: sin grant execute de ${fn}`).toBeGreaterThan(0)
         const ultimo = grants[grants.length - 1][1].toLowerCase()
         const roles = ultimo.split(',').map((r) => r.trim())
@@ -299,34 +409,39 @@ describe('profiles · cerrada a quien no inició sesión', () => {
     }
   })
 
-  it('cerrar-profiles-anon.sql es idempotente', () => {
-    // El `drop` va dentro de un DO porque `create policy` a secas tira 42710 si ya
-    // existe, y en el SQL Editor eso corta el resto del bloque.
-    expect(cerrar).toMatch(/^\s*do\s+\$\$[\s\S]*drop policy profiles_select[\s\S]*\$\$;/im)
+  it('cerrar-lectura-anon.sql es idempotente', () => {
+    // `create policy` a secas tira 42710 si la política ya existe, y en el SQL
+    // Editor eso corta el resto del bloque. Por eso los `drop policy if exists`
+    // van explícitos y literales, uno por tabla.
+    for (const tabla of TABLAS) {
+      expect(cerrar, `falta el drop de ${tabla}_select`).toMatch(
+        new RegExp(`drop policy if exists ${tabla}_select on public\\.${tabla};`, 'i')
+      )
+    }
   })
 
-  it('cerrar-profiles-anon.sql no depende de `incidencias`, que es lo que lo hace utilizable', () => {
+  it('cerrar-lectura-anon.sql no depende de `incidencias`, que es lo que lo hace utilizable', () => {
     // Es el fix que hay que correr ANTES de poder correr el reactivador, y el
     // reactivador sí depende de `incidencias.sql`. Si este también dependiera,
-    // quedaría trabado el orden entero. Sin comentarios: el archivo menciona el
+    // quedaría trabado el orden entero. Sin comentarios: el archivo explica el
     // orden en la prosa, y eso no es una dependencia.
     const codigo = sinComentarios(cerrar)
     expect(codigo).not.toMatch(/incidencias?/i)
     expect(codigo).not.toMatch(/puede_(reportar|ver)_incidencia/i)
   })
 
-  it('cerrar-profiles-anon.sql es de una sola tabla: no toca permisos de funciones', () => {
+  it('cerrar-lectura-anon.sql no toca permisos de funciones', () => {
     // Si apareciera un revoke de execute, podría llevarse por delante un helper de
-    // RLS y romper la app entera desde un archivo que dice cerrar una tabla.
-    expect(cerrar).not.toMatch(/^\s*(grant|revoke)\s+execute/im)
-    expect(cerrar).not.toMatch(/\bfunction\b/i)
+    // RLS y romper la app entera desde un archivo que dice cerrar la lectura.
+    const codigo = sinComentarios(cerrar)
+    expect(codigo).not.toMatch(/\b(grant|revoke)\s+execute\b/i)
   })
 
   it('ningún archivo revoca EXECUTE a un helper de RLS', () => {
     for (const [nombre, sql] of [
       ['schema.sql', schema],
       ['reactivar-politicas.sql', reactivar],
-      ['cerrar-profiles-anon.sql', cerrar],
+      ['cerrar-lectura-anon.sql', cerrar],
       ['permisos-funcion.sql', permisos],
     ] as const) {
       const revocadas = [...sql.matchAll(/revoke\s+execute\s+on\s+function\s+public\.(\w+)/gi)].map((m) => m[1])

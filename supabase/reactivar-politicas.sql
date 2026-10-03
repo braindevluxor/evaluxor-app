@@ -139,7 +139,7 @@ create policy invitaciones_lider on public.invitaciones for all using (public.es
 -- public.items (2 políticas)
 alter table public.items enable row level security;
 drop policy if exists "items_select" on public.items;
-create policy items_select on public.items for select using (true);
+create policy items_select on public.items for select to authenticated using (true);
 drop policy if exists "items_lider" on public.items;
 create policy items_lider on public.items for all using (public.es_lider()) with check (public.es_lider());
 
@@ -155,7 +155,7 @@ create policy marcajes_lider on public.marcajes
 -- public.modulos (2 políticas)
 alter table public.modulos enable row level security;
 drop policy if exists "modulos_select" on public.modulos;
-create policy modulos_select on public.modulos for select using (true);
+create policy modulos_select on public.modulos for select to authenticated using (true);
 drop policy if exists "modulos_lider" on public.modulos;
 create policy modulos_lider on public.modulos for all using (public.es_lider()) with check (public.es_lider());
 
@@ -198,28 +198,28 @@ create policy respuestas_update on public.respuestas for update
 -- public.sucursal_items (2 políticas)
 alter table public.sucursal_items enable row level security;
 drop policy if exists "sucursal_items_select" on public.sucursal_items;
-create policy sucursal_items_select on public.sucursal_items for select using (true);
+create policy sucursal_items_select on public.sucursal_items for select to authenticated using (true);
 drop policy if exists "sucursal_items_lider" on public.sucursal_items;
 create policy sucursal_items_lider on public.sucursal_items for all using (public.es_lider()) with check (public.es_lider());
 
 -- public.sucursal_modulos (2 políticas)
 alter table public.sucursal_modulos enable row level security;
 drop policy if exists "sucursal_modulos_select" on public.sucursal_modulos;
-create policy sucursal_modulos_select on public.sucursal_modulos for select using (true);
+create policy sucursal_modulos_select on public.sucursal_modulos for select to authenticated using (true);
 drop policy if exists "sucursal_modulos_lider" on public.sucursal_modulos;
 create policy sucursal_modulos_lider on public.sucursal_modulos for all using (public.es_lider()) with check (public.es_lider());
 
 -- public.sucursal_opciones (2 políticas)
 alter table public.sucursal_opciones enable row level security;
 drop policy if exists "sucursal_opciones_select" on public.sucursal_opciones;
-create policy sucursal_opciones_select on public.sucursal_opciones for select using (true);
+create policy sucursal_opciones_select on public.sucursal_opciones for select to authenticated using (true);
 drop policy if exists "sucursal_opciones_lider" on public.sucursal_opciones;
 create policy sucursal_opciones_lider on public.sucursal_opciones for all using (public.es_lider()) with check (public.es_lider());
 
 -- public.sucursales (2 políticas)
 alter table public.sucursales enable row level security;
 drop policy if exists "sucursales_select" on public.sucursales;
-create policy sucursales_select on public.sucursales for select using (true);
+create policy sucursales_select on public.sucursales for select to authenticated using (true);
 drop policy if exists "sucursales_lider" on public.sucursales;
 create policy sucursales_lider on public.sucursales for all using (public.es_lider()) with check (public.es_lider());
 
@@ -337,17 +337,28 @@ revoke execute on function public.email_por_usuario(text) from public, authentic
 grant  execute on function public.email_por_usuario(text) to anon;
 
 -- ----------------------------------------------------------------------------
--- 3b) La tabla `profiles`, cerrada a `anon`
+-- 3b) Las 7 tablas que se leian sin sesion, cerradas a `anon`
 -- ----------------------------------------------------------------------------
--- `profiles` tiene correo, rol y sucursal de cada persona. Con la politica de
--- lectura a `authenticated` y este revoke, quien no inicio sesion no la puede
--- leer de ninguna manera: la politica por el lado RLS, el revoke por el lado del
--- permiso (que es aditivo y por si solo habria bastado para saltarse la
--- politica).
+-- `profiles` (correos, roles), `items` (la rubrica completa con puntajes y
+-- umbrales), `modulos`, `sucursales` (nombres, branch_id, gerente_id) y las tres
+-- de configuracion por sucursal. Con la politica de lectura a `authenticated` y
+-- estos revoke, quien no inicio sesion no puede leer ninguna: la politica por el
+-- lado RLS, el revoke por el lado del permiso (que es aditivo y por si solo
+-- habria bastado para saltarse la politica).
 --
 -- Las dos funciones del login siguen funcionando: son security definer, asi que
 -- corren como dueno y no les aplica ni la politica ni el revoke.
-revoke select on public.profiles from anon;
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'profiles', 'sucursales', 'modulos', 'items',
+    'sucursal_modulos', 'sucursal_items', 'sucursal_opciones'
+  ] loop
+    execute format('revoke select on public.%I from anon', t);
+  end loop;
+end $$;
 
 -- A proposito NO se toca (revocarles EXECUTE ROMPE la app entera, con 'permission
 -- denied for function' en cada select/insert/update):

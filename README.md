@@ -45,6 +45,18 @@ Vite + React 19 + TypeScript, Tailwind CSS (color primario azul oscuro `#0B2545`
 
 3bis. **Crear el primer LÍDER**: ejecutar `supabase/crear-lider.sql` en el SQL Editor (antés edita correo, usuario y contraseña). Registro posterior sale del menú `Usuarios` del Líder.
 
+3ter. **Cerrar los permisos** (también en una base recién creada): hay archivos que se corren aparte de `schema.sql`, todos idempotentes y en el SQL Editor. En este orden:
+
+   | # | archivo | qué hace |
+   |---|---------|----------|
+   | 1 | `cerrar-lectura-anon.sql` | Cierra a quien no inició sesión la lectura de 7 tablas (`profiles`, `items`, `modulos`, `sucursales` y las 3 de configuración). **No depende de nada**: corré este primero. |
+   | 2 | `incidencias.sql` | Crea la tabla de incidencias y sus políticas de Storage. |
+   | 3 | `permisos-funcion.sql` | Ajusta los `EXECUTE` de las funciones. No toca los 6 helpers de RLS, y el archivo explica por qué. |
+   | 4 | `reactivar-politicas.sql` | Vuelve a prender RLS y repone todas las políticas (trae el mismo fix de lectura anónima). Depende del 2. Va en transacción. |
+   | 5 | `validar-politicas.sql` | 4 consultas de solo lectura. La columna `estado` tiene que decir `ok` en las cuatro. |
+
+   Para entender por qué una tabla o una función quedan con un permiso y no con otro, está el motivo en prosa arriba de cada archivo. Vale la pena tener presente una cosa: **la primera llave es la política de RLS y la segunda es el `revoke`**, y hacen falta las dos porque los permisos de Postgres son aditivos (quitarle el permiso a un rol no alcanza si el de `PUBLIC` sigue sirviendo).
+
 4. Iniciar sesión con el **usuario de acceso** y configurar: sucursales → asignaciones → módulos/ítems.
 
 ## Build / despliegue
