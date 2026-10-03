@@ -162,7 +162,7 @@ create policy modulos_lider on public.modulos for all using (public.es_lider()) 
 -- public.profiles (2 políticas)
 alter table public.profiles enable row level security;
 drop policy if exists "profiles_select" on public.profiles;
-create policy profiles_select on public.profiles for select using (true);
+create policy profiles_select on public.profiles for select to authenticated using (true);
 drop policy if exists "profiles_lider" on public.profiles;
 create policy profiles_lider on public.profiles for all using (public.es_lider()) with check (public.es_lider());
 
@@ -335,6 +335,19 @@ grant  execute on function public.intento_login(text, text) to anon;
 
 revoke execute on function public.email_por_usuario(text) from public, authenticated;
 grant  execute on function public.email_por_usuario(text) to anon;
+
+-- ----------------------------------------------------------------------------
+-- 3b) La tabla `profiles`, cerrada a `anon`
+-- ----------------------------------------------------------------------------
+-- `profiles` tiene correo, rol y sucursal de cada persona. Con la politica de
+-- lectura a `authenticated` y este revoke, quien no inicio sesion no la puede
+-- leer de ninguna manera: la politica por el lado RLS, el revoke por el lado del
+-- permiso (que es aditivo y por si solo habria bastado para saltarse la
+-- politica).
+--
+-- Las dos funciones del login siguen funcionando: son security definer, asi que
+-- corren como dueno y no les aplica ni la politica ni el revoke.
+revoke select on public.profiles from anon;
 
 -- A proposito NO se toca (revocarles EXECUTE ROMPE la app entera, con 'permission
 -- denied for function' en cada select/insert/update):

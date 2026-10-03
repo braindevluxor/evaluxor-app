@@ -66,7 +66,10 @@ language sql stable security definer set search_path = public as $$
     and not p.bloqueado
   limit 1;
 $$;
-grant execute on function public.email_por_usuario(text) to anon, authenticated;
+-- Solo `anon`: la pantalla de login corre sin sesión. `authenticated` no la
+-- necesita (ya hay sesión si hay usuario) y dejársela es lo que dispara dos de
+-- las alertas del advisor sin motivo. Ver `permisos-funcion.sql`.
+grant execute on function public.email_por_usuario(text) to anon;
 
 -- INTENTO_LOGIN: valida la contraseña (contra auth.users) y lleva el conteo.
 -- Se invoca SIN sesión (pantalla de login). Por eso es security definer y puede
@@ -113,7 +116,9 @@ begin
   update public.profiles set intentos_fallidos = v_prof.intentos_fallidos where id = v_prof.id;
   return jsonb_build_object('ok', false, 'bloqueado', false, 'restantes', 5 - v_prof.intentos_fallidos);
 end $$;
-grant execute on function public.intento_login(text, text) to anon, authenticated;
+-- Solo `anon`, por lo mismo que `email_por_usuario`: la login screen no tiene
+-- sesión todavía.
+grant execute on function public.intento_login(text, text) to anon;
 
 -- DESBLOQUEAR_USUARIO: solo el Líder activo. Limpia el contador/bloqueo y asigna
 -- una contraseña provisional (que el usuario deberá cambiar luego).
@@ -656,8 +661,12 @@ drop policy if exists sucursales_lider on public.sucursales;
 create policy sucursales_lider on public.sucursales for all using (public.es_lider()) with check (public.es_lider());
 
 -- PROFILES: lectura autenticados / gestion completa solo LIDER ------------------
+-- `to authenticated` es lo que cierra esta tabla a quien no inició sesión. Con
+-- `using (true)` a secas (más el `grant all` inicial de Supabase) cualquiera desde
+-- internet hacía `select * from profiles` y se llevaba TODOS los correos, roles y
+-- sucursales. El detalle está en `cerrar-profiles-anon.sql`.
 drop policy if exists profiles_select on public.profiles;
-create policy profiles_select on public.profiles for select using (true);
+create policy profiles_select on public.profiles for select to authenticated using (true);
 drop policy if exists profiles_lider on public.profiles;
 create policy profiles_lider on public.profiles for all using (public.es_lider()) with check (public.es_lider());
 
@@ -877,5 +886,17 @@ revoke execute on function public.registrar_sync() from public;
 
 -- A propósito NO se revoca de es_lider, puede_ver_evaluacion, puede_responder,
 -- puede_manejar_instancia, puede_reportar_incidencia, puede_ver_incidencia: las
--- invocan las políticas RLS y sin EXECUTE se rompe la app entera. Tampoco de
--- intento_login y email_por_usuario, que son la pantalla de login sin sesión.
+-- invocan las políticas RLS y sin EXECUTE se rompe la app entera.
+
+-- Las dos de la pantalla de login: necesitan `anon` (se llaman antes de
+-- signInWithPassword) y no necesitan `authenticated`. El revoke de PUBLIC es lo
+-- que hace el trabajo: los permisos de Postgres son aditivos, así que alcanza con
+-- el `grant ... to anon` de arriba para dejarlas en manos de un solo rol.
+revoke execute on function public.intento_login(text, text) from public, authenticated;
+revoke execute on function public.email_por_usuario(text) from public, authenticated;
+
+-- Tabla, no función: `profiles` tiene datos que no son públicos (correo, rol) y la
+-- política ya los restringe a `authenticated`. El `revoke` es la segunda mitad de
+-- la cerradura: los permisos de Postgres son ADITIVOS, así que aunque la política
+-- no deje pasar a `anon`, un `grant select` explícito en el rol lo saltaría.
+revoke select on public.profiles from anon;
