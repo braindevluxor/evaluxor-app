@@ -1,12 +1,13 @@
 import { supabase } from '../supabase'
 import { causaSubida, detalleTecnico, errorSubida, type ErrorSubida } from '../subida'
 import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, respuestasConInstancia, incidentesPendientes, eliminarIncidente, type SyncJob, type DraftEval } from './db'
-import { photoPath, convertirValor, extraerPhotoIds, idsFotosRespuesta, valorSinFotos } from './transform'
+import { photoPath, convertirValor, extraerPhotoIds, idsFotosRespuesta } from './transform'
 import { normalizarResponsables, responsablesAColumna } from '../data/responsablesIncidencia'
 
 export { respuestasConInstancia }
 
 const TIEMPO_MAXIMO_PROCESANDO_MS = 15 * 60 * 1000
+const fotosSubidasEnEstaSesion = new Set<string>()
 
 export function trabajoProcesandoVencido(
   job: Pick<SyncJob, 'status' | 'processing_at'>,
@@ -22,6 +23,33 @@ export function instanciasDeDraft(draft: DraftEval): { id: string; item_id: stri
   return Object.entries(draft.instancias ?? {}).flatMap(([item_id, arr]) =>
     arr.map((ins, i) => ({ id: ins.id, item_id, etiqueta: ins.etiqueta, orden: typeof ins.orden === 'number' ? ins.orden : i, api_id: ins.api_id, datos: ins.datos }))
   )
+}
+
+async function subirFotosDeRespuestas(
+  evaluacionId: string,
+  respuestas: { item_id: string; valor: unknown }[]
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  for (const respuesta of respuestas) {
+    for (const id of extraerPhotoIds(respuesta.valor)) {
+      if (map.has(id)) continue
+      const path = photoPath(evaluacionId, 'evidencia', id)
+      if (fotosSubidasEnEstaSesion.has(path)) {
+        map.set(id, path)
+        continue
+      }
+      const rec = await getPhotos([id]).then((r) => r[0])
+      if (!rec) throw new Error(`No se encontró la foto local ${id}; no se sincronizó el borrador con sus evidencias.`)
+      const { error } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
+        contentType: rec.mime,
+        upsert: false
+      })
+      if (error && !/already exists|already-exists|duplicate/i.test(error.message)) throw error
+      fotosSubidasEnEstaSesion.add(path)
+      map.set(id, path)
+    }
+  }
+  return map
 }
 
 export async function encolarRespuestas(draft: DraftEval): Promise<void> {
@@ -251,15 +279,16 @@ export async function guardarBorradorNube(
     api_id: ins.api_id ?? null,
     datos: ins.datos ?? null
   }))
-  const respRows: FilaRespuesta[] = respuestas.map((r) => ({
-    evaluacion_id: evaluacionId,
-    item_id: r.item_id,
-    instancia_id: r.instancia_id,
-    valor: valorSinFotos(r.valor),
-    respondido_por: evaluadorId
-  }))
   let descarte: Descarte
   try {
+    const fotos = await subirFotosDeRespuestas(evaluacionId, respuestas)
+    const respRows: FilaRespuesta[] = respuestas.map((r) => ({
+      evaluacion_id: evaluacionId,
+      item_id: r.item_id,
+      instancia_id: r.instancia_id,
+      valor: convertirValor(r.valor, fotos),
+      respondido_por: evaluadorId
+    }))
     descarte = await subirLote(instRows, respRows)
   } catch (e) {
     // Se propaga tipado (causa + detalle técnico) para que la pantalla diga qué
@@ -310,7 +339,7 @@ export async function procesarCola(): Promise<{ ok: number; fail: number; descar
       for (const id of photoIds) {
         const rec = await getPhotos([id]).then((r) => r[0])
         if (!rec) throw new Error(`No se encontró la foto local ${id}; la evaluación quedó pendiente y no se descartó.`)
-        const path = photoPath(job.id, 'evidencia', id)
+        const path = photoPath(evaluacionId, 'evidencia', id)
         const { error: upErr } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
           contentType: rec.mime,
           upsert: false

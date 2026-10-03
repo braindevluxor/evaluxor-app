@@ -1,5 +1,5 @@
-export function photoPath(offlineUuid: string, itemId: string, photoId: string): string {
-  return `ev/${offlineUuid}/${itemId}/${photoId}.jpg`
+export function photoPath(evaluacionId: string, itemId: string, photoId: string): string {
+  return `ev/${evaluacionId}/${itemId}/${photoId}.jpg`
 }
 
 function isFotoValor(valor: unknown): string[] | null {
@@ -34,8 +34,8 @@ function isChecklistValor(valor: unknown): Record<string, string[]> | null {
   return out
 }
 
-// Versión del valor sin fotos, para el auto-guardado en vivo del borrador
-// (las fotos se suben cuando el evaluador envía la evaluación).
+// Proyección sin IDs de fotos locales, para consumidores que explícitamente no
+// deban incluir evidencias. El auto-guardado normal las sube y guarda sus rutas.
 export function valorSinFotos(valor: unknown): unknown {
   const plano = isPlanoValor(valor)
   if (plano) {
