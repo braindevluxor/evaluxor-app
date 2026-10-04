@@ -4,12 +4,18 @@ import { homePorRol } from '../lib/roles'
 import type { Rol } from '../lib/types'
 import { SkeletonPantalla } from './ui'
 
-export function RequireAuth({ children }: { children: React.ReactNode }) {
+export function RequireAuth({
+  children,
+  loadingFallback
+}: {
+  children: React.ReactNode
+  loadingFallback?: React.ReactNode
+}) {
   const { session, profile, loading, totpPendiente } = useAuth()
   const location = useLocation()
 
   if (loading) {
-    return <SkeletonPantalla completa />
+    return <>{loadingFallback ?? <SkeletonPantalla completa />}</>
   }
   if (totpPendiente || !session) return <Navigate to="/login" state={{ from: location }} replace />
   if (profile?.rol === 'SIN_ROL') return <Navigate to="/pendiente" replace />

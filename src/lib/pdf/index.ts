@@ -5,6 +5,9 @@ import { listarPerfilesSync, obtenerEvaluacion, resumirEvaluacion } from '../dat
 import {
   colaboradorCumple,
   conciliacionPorcentaje,
+  formatearPrecioBase,
+  perdidaGuardadaConciliacion,
+  resumenPerdidaConciliacion,
   conSeccionesPonderadas,
   incumplimientosPorResponsable,
   opcionCumplida,
@@ -427,21 +430,43 @@ export function buildPdfDocument(
       case 'CONCILIACION': {
         const v = valor as ValorConciliacion | null
         const precio = item.contra_dato === 'FINAL_BASE'
+        const contraDato = item.contra_dato ?? 'SOH'
         const productos = (v?.productos ?? []).filter((product) => !soloIncumplimientos ||
           (typeof product.teorica === 'number' && typeof product.fisica === 'number' && product.teorica !== product.fisica))
         tabla(
-          [precio ? 'Sistema' : 'Teórica', precio ? 'Hablador' : 'Física', 'SKU', 'Producto', 'Estado'],
+          [
+            precio ? 'Sistema' : 'Teórica',
+            precio ? 'Hablador' : 'Física',
+            'SKU',
+            'Producto',
+            'Estado',
+            ...(!precio ? ['Pérdida estimada'] : [])
+          ],
           productos.map((product) => {
             const porcentaje = conciliacionPorcentaje(product)
+            const perdida = perdidaGuardadaConciliacion(product, contraDato)
             return [
               texto(product.teorica ?? '—'),
               texto(product.fisica ?? '—'),
               product.sku || '—',
               product.nombre || '—',
-              porcentaje == null ? 'Sin datos' : `${fmt(porcentaje)}%`
+              porcentaje == null ? 'Sin datos' : `${fmt(porcentaje)}%`,
+              ...(!precio ? [perdida == null ? '—' : formatearPrecioBase(perdida)] : [])
             ]
           })
         )
+        if (!precio) {
+          const resumenPerdida = resumenPerdidaConciliacion(v?.productos ?? [], contraDato)
+          if (resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0) {
+            textoLinea(
+              `Pérdida estimada por faltantes: ${formatearPrecioBase(resumenPerdida.monto)}` +
+              (resumenPerdida.faltantesSinPrecio > 0
+                ? ` · ${resumenPerdida.faltantesSinPrecio} producto(s) sin precio base`
+                : ''),
+              { bold: true }
+            )
+          }
+        }
         break
       }
       case 'LISTA_COLABORADORES': {

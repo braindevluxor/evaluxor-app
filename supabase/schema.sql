@@ -246,6 +246,7 @@ create table if not exists public.modulos (
   id uuid primary key default gen_random_uuid(),
   nombre text not null,
   descripcion text not null default '',
+  icono text not null default 'clipboard-list',
   orden integer not null default 0,
   activo boolean not null default true,
   -- Compartido: varios evaluadores pueden llenar el mismo mÃ³dulo a la vez y ven
@@ -255,6 +256,7 @@ create table if not exists public.modulos (
 );
 -- Upgrade de instalaciones existentes.
 alter table public.modulos add column if not exists compartido boolean not null default false;
+alter table public.modulos add column if not exists icono text not null default 'clipboard-list';
 
 create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
@@ -2539,4 +2541,3 @@ where n.nspname = 'public'
     'intento_login', 'email_por_usuario'
   )
 order by p.proname;
-

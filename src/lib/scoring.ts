@@ -67,6 +67,66 @@ export interface ProductoConciliacion {
   lastSync?: string | null
   /** Precio base final (pricing.finalBase) reportado por el sistema. */
   finalBase?: number | null
+  /** Pérdida estimada congelada al guardar/corregir el conteo del producto. */
+  perdidaEstimada?: number | null
+}
+
+/** Pérdida estimada por faltante de unidades, valoradas al precio base del sistema. */
+export function montoPerdidaConciliacion(
+  p: Pick<ProductoConciliacion, 'teorica' | 'fisica' | 'finalBase'> | null | undefined,
+  contraDato: ContraDatoConciliacion = 'SOH'
+): number | null {
+  if (
+    contraDato !== 'SOH' ||
+    typeof p?.teorica !== 'number' || !Number.isFinite(p.teorica) ||
+    typeof p.fisica !== 'number' || !Number.isFinite(p.fisica) ||
+    typeof p.finalBase !== 'number' || !Number.isFinite(p.finalBase) || p.finalBase < 0
+  ) return null
+  return Math.max(0, p.teorica - p.fisica) * p.finalBase
+}
+
+export function perdidaGuardadaConciliacion(
+  p: Pick<ProductoConciliacion, 'teorica' | 'fisica' | 'finalBase' | 'perdidaEstimada'> | null | undefined,
+  contraDato: ContraDatoConciliacion = 'SOH'
+): number | null {
+  if (contraDato !== 'SOH' || !p) return null
+  if (p.perdidaEstimada !== undefined) {
+    return typeof p.perdidaEstimada === 'number' && Number.isFinite(p.perdidaEstimada) && p.perdidaEstimada >= 0
+      ? p.perdidaEstimada
+      : null
+  }
+  return montoPerdidaConciliacion(p, contraDato)
+}
+
+export function guardarPerdidaConciliacion<T extends Pick<ProductoConciliacion, 'teorica' | 'fisica' | 'finalBase'>>(
+  p: T,
+  contraDato: ContraDatoConciliacion = 'SOH'
+): T & Pick<ProductoConciliacion, 'perdidaEstimada'> {
+  return { ...p, perdidaEstimada: montoPerdidaConciliacion(p, contraDato) }
+}
+
+export interface ResumenPerdidaConciliacion {
+  monto: number
+  faltantesConPrecio: number
+  faltantesSinPrecio: number
+}
+
+export function resumenPerdidaConciliacion(
+  productos: ProductoConciliacion[],
+  contraDato: ContraDatoConciliacion = 'SOH'
+): ResumenPerdidaConciliacion {
+  return productos.reduce<ResumenPerdidaConciliacion>((resumen, producto) => {
+    if (typeof producto.teorica !== 'number' || typeof producto.fisica !== 'number' ||
+        producto.teorica <= producto.fisica) return resumen
+    const perdida = perdidaGuardadaConciliacion(producto, contraDato)
+    if (perdida == null) {
+      if (contraDato === 'SOH') resumen.faltantesSinPrecio += 1
+      return resumen
+    }
+    resumen.monto += perdida
+    resumen.faltantesConPrecio += 1
+    return resumen
+  }, { monto: 0, faltantesConPrecio: 0, faltantesSinPrecio: 0 })
 }
 
 /** Referencia contra la que se compara la física: el contra dato elegido (soh → stock, finalBase → precio) o, si falta, la teórica ya cargada. */

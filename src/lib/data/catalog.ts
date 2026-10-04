@@ -88,7 +88,7 @@ export async function guardarModulo(m: Partial<Modulo> & { nombre: string }): Pr
     const { error } = await supabase.from('modulos').update(rest).eq('id', id)
     if (error) throw new Error(error.message)
   } else {
-    const { data, error } = await supabase.from('modulos').insert({ nombre: m.nombre, descripcion: m.descripcion ?? '', orden: m.orden ?? 0, compartido: m.compartido ?? false }).select('id').single()
+    const { data, error } = await supabase.from('modulos').insert({ nombre: m.nombre, descripcion: m.descripcion ?? '', icono: m.icono ?? 'clipboard-list', orden: m.orden ?? 0, compartido: m.compartido ?? false }).select('id').single()
     if (error) throw new Error(error.message)
     void data
   }

@@ -14,7 +14,7 @@ import { RegisterPage } from './pages/login/RegisterPage'
 import { PerfilPage } from './pages/PerfilPage'
 import { EvaluarHome } from './pages/evaluar/EvaluarHome'
 import { EvaluarSucursal } from './pages/evaluar/EvaluarSucursal'
-import { EvaluacionDetalle } from './pages/EvaluacionDetalle'
+import { EvaluacionDetalle, SkeletonEvaluacionDetalle } from './pages/EvaluacionDetalle'
 import { EditarConciliacion } from './pages/EditarConciliacion'
 import { SkeletonPantalla } from './components/ui'
 
@@ -62,7 +62,7 @@ export default function App() {
                     <Route
                       path="/evaluaciones/:evaluacionId"
                       element={
-                        <RequireAuth>
+                        <RequireAuth loadingFallback={<SkeletonEvaluacionDetalle />}>
                           <RequireRol roles={[...ROLES_DASHBOARD, 'EVALUADOR']}>
                             <EvaluacionDetalle />
                           </RequireRol>

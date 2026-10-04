@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, esNoAplica, veredictoItem, ETIQUETAS_CONTRA_DATO } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, esNoAplica, veredictoItem, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion } from './scoring'
 
 describe('esNoAplica · lo que el evaluador excluye del puntaje', () => {
   it('el interruptor del ítem alcanza para todos los tipos que lo tienen', () => {
@@ -110,6 +110,46 @@ describe('tieneRespuesta · una respuesta vacía no cuenta como respondida', () 
 })
 
 describe('contra dato de conciliación', () => {
+  it('calcula pérdida solo por unidades faltantes y con precio base disponible', () => {
+    expect(montoPerdidaConciliacion({ teorica: 10, fisica: 7, finalBase: 12.5 })).toBe(37.5)
+    expect(montoPerdidaConciliacion({ teorica: 7, fisica: 10, finalBase: 12.5 })).toBe(0)
+    expect(montoPerdidaConciliacion({ teorica: 10, fisica: 7 })).toBeNull()
+    expect(montoPerdidaConciliacion({ teorica: 10, fisica: 7, finalBase: 12.5 }, 'FINAL_BASE')).toBeNull()
+  })
+
+  it('congela pérdida en la respuesta y usa el snapshot aunque luego cambie el precio', () => {
+    const guardado = guardarPerdidaConciliacion({
+      sku: 'A',
+      nombre: 'Producto A',
+      teorica: 10,
+      fisica: 7,
+      finalBase: 12.5
+    })
+    const actualizado = { ...guardado, finalBase: 25 }
+
+    expect(guardado.perdidaEstimada).toBe(37.5)
+    expect(perdidaGuardadaConciliacion(actualizado)).toBe(37.5)
+    expect(perdidaGuardadaConciliacion({
+      teorica: 10,
+      fisica: 7,
+      finalBase: 12.5
+    })).toBe(37.5)
+  })
+
+  it('resume pérdidas y reporta faltantes sin precio base', () => {
+    expect(resumenPerdidaConciliacion([
+      { sku: 'A', nombre: null, teorica: 10, fisica: 7, finalBase: 12.5 },
+      { sku: 'B', nombre: null, teorica: 4, fisica: 3, finalBase: null },
+      { sku: 'C', nombre: null, teorica: 2, fisica: 4, finalBase: 3 }
+    ])).toEqual({ monto: 37.5, faltantesConPrecio: 1, faltantesSinPrecio: 1 })
+  })
+
+  it('el resumen respeta importes congelados de la respuesta', () => {
+    expect(resumenPerdidaConciliacion([
+      { sku: 'A', nombre: null, teorica: 10, fisica: 7, finalBase: 25, perdidaEstimada: 37.5 }
+    ])).toEqual({ monto: 37.5, faltantesConPrecio: 1, faltantesSinPrecio: 0 })
+  })
+
   it('referenciaConciliacion usa soh por defecto y finalBase en modo precio', () => {
     const p = { teorica: 99, soh: 42, finalBase: 12990.5 }
     expect(referenciaConciliacion(p)).toBe(42)

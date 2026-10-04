@@ -4,6 +4,8 @@ import { listarModulosAdmin, guardarModulo, eliminarModulo } from '../../lib/dat
 import type { Modulo, Item } from '../../lib/types'
 import { Button, Field, Input, Modal, Badge, Textarea, SkeletonTarjetas } from '../../components/ui'
 import { List, Pencil, Trash2 } from 'lucide-react'
+import { IconoModulo } from '../../components/IconoModulo'
+import { ICONOS_MODULO } from '../../lib/iconosModulo'
 
 export function ModulosPage() {
   const [modulos, setModulos] = useState<(Modulo & { _items: Item[] })[]>([])
@@ -37,7 +39,10 @@ export function ModulosPage() {
           {modulos.map((m) => (
             <div key={m.id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4">
               <div className="mb-1 flex items-start justify-between gap-2">
-                <p className="font-bold text-primary-900">{m.nombre}</p>
+                <div className="flex min-w-0 items-center gap-2">
+                  <IconoModulo nombre={m.icono} className="h-5 w-5 shrink-0 text-primary" />
+                  <p className="font-bold text-primary-900">{m.nombre}</p>
+                </div>
                 <div className="flex shrink-0 gap-1">
                   {m.compartido ? <Badge color={1}>Compartido</Badge> : null}
                   <Badge color={m.activo ? 2 : 4}>{m.activo ? 'Activo' : 'Inactivo'}</Badge>
@@ -114,6 +119,7 @@ export function ModulosPage() {
 function FormModulo({ inicial, onGuardar }: { inicial: Modulo | null; onGuardar: (d: Partial<Modulo> & { nombre: string }) => Promise<void> }) {
   const [nombre, setNombre] = useState(inicial?.nombre ?? '')
   const [descripcion, setDescripcion] = useState(inicial?.descripcion ?? '')
+  const [icono, setIcono] = useState(inicial?.icono ?? 'clipboard-list')
   const [orden, setOrden] = useState(inicial?.orden ?? 0)
   const [activo, setActivo] = useState(inicial?.activo ?? true)
   const [compartido, setCompartido] = useState(inicial?.compartido ?? false)
@@ -126,7 +132,7 @@ function FormModulo({ inicial, onGuardar }: { inicial: Modulo | null; onGuardar:
       onSubmit={(e) => {
         e.preventDefault()
         setErr(null)
-        void onGuardar({ id: inicial?.id, nombre, descripcion, orden: Number(orden), activo, compartido })
+        void onGuardar({ id: inicial?.id, nombre, descripcion, icono, orden: Number(orden), activo, compartido })
           .catch((e2: unknown) => {
             setErr(e2 instanceof Error ? e2.message : 'No se pudo guardar el módulo.')
           })
@@ -134,6 +140,28 @@ function FormModulo({ inicial, onGuardar }: { inicial: Modulo | null; onGuardar:
     >
       <Field label="Nombre"><Input value={nombre} onChange={(e) => setNombre(e.target.value)} required /></Field>
       <Field label="Descripción"><Textarea rows={2} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} /></Field>
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-slate-700">Icono del módulo</legend>
+        <div className="grid grid-cols-5 gap-2">
+          {ICONOS_MODULO.map(({ id, etiqueta, Icono }) => (
+            <button
+              key={id}
+              type="button"
+              aria-label={etiqueta}
+              aria-pressed={icono === id}
+              title={etiqueta}
+              onClick={() => setIcono(id)}
+              className={`grid h-11 place-items-center rounded-lg border transition-colors ${
+                icono === id
+                  ? 'border-primary bg-primary-50 text-primary'
+                  : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+              }`}
+            >
+              <Icono className="h-5 w-5" />
+            </button>
+          ))}
+        </div>
+      </fieldset>
       <Field label="Orden" hint="Posición en el flujo de evaluación"><Input type="number" value={orden} onChange={(e) => setOrden(Number(e.target.value))} /></Field>
       <label className="flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />

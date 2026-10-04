@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, Fragment } from 'react'
+import { useCallback, useEffect, useState, Fragment, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, FileDown, FolderOpen, RefreshCw, Tag, X } from 'lucide-react'
 import { useOffline } from '../context/OfflineContext'
@@ -8,15 +8,16 @@ import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
 import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
-import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, conciliacionComparable, colaboradorCumple, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, tieneRespuesta, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem } from '../lib/scoring'
+import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, conciliacionComparable, colaboradorCumple, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, tieneRespuesta, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Foto, Item, Opcion, SucursalOpcion } from '../lib/types'
-import { Badge, Button, Card, Puntaje, Skeleton, SkeletonTarjetas, Spinner, cn } from '../components/ui'
+import { Badge, Button, Card, Puntaje, Skeleton, Spinner, cn } from '../components/ui'
 import { UltimaSync } from '../components/UltimaSync'
 import { IncidenciasEvaluacion } from '../components/IncidenciasEvaluacion'
 import { Fotogaleria, FotogaleriaRutas } from '../components/dashboard/Fotogaleria'
 import { PlanoLectura } from '../components/PlanoEditor'
 import { pathsEvidenciaChecklist, pathsEvidenciaCumple, pathsEvidenciaOpcion } from '../lib/evidencias'
+import { IconoModulo } from '../components/IconoModulo'
 
 function estadoBadge(puntaje: number | null): { texto: string; color: number } {
   if (puntaje == null) return { texto: 'Sin puntaje', color: 4 }
@@ -318,6 +319,7 @@ export function ValorRespuesta({
         const teorica = typeof p.teorica === 'number' ? p.teorica : null
         const fisica = typeof p.fisica === 'number' ? p.fisica : null
         const comparable = conciliacionComparable(p)
+        const perdida = perdidaGuardadaConciliacion(p, item.contra_dato ?? 'SOH')
         const variacion = comparable
           ? {
               cantidad: Math.abs(p.fisica - p.teorica),
@@ -326,10 +328,11 @@ export function ValorRespuesta({
                 : (Math.abs(p.fisica - p.teorica) === 1 ? 'falta' : 'faltan')
             }
           : null
-        return { p, indice: i, teorica, fisica, comparable, variacion, descuadra: comparable && p.fisica !== p.teorica }
+        return { p, indice: i, teorica, fisica, comparable, variacion, perdida, descuadra: comparable && p.fisica !== p.teorica }
       })
       const descuadrados = filas.filter((f) => f.descuadra).length
       const filasVisibles = soloIncumplimientos ? filas.filter((f) => f.descuadra) : filas
+      const resumenPerdida = resumenPerdidaConciliacion(ps, item.contra_dato ?? 'SOH')
       return (
         <div className="space-y-3">
           {v?.informativo ? (
@@ -348,8 +351,13 @@ export function ValorRespuesta({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filasVisibles.map(({ p, indice, teorica, fisica, comparable, variacion, descuadra }) => (
-                  <tr key={`${p.sku}-${indice}`} className={cn(descuadra && 'bg-red-50/50')}>
+                {filasVisibles.map(({ p, indice, teorica, fisica, comparable, variacion, perdida, descuadra }) => (
+                  <tr
+                    key={`${p.sku}-${indice}`}
+                    className={cn(
+                      descuadra && (fisica! > teorica! ? 'bg-amber-50/70' : 'bg-red-50/50')
+                    )}
+                  >
                     <td className="break-all px-1.5 py-2 font-medium text-slate-800 sm:px-2">{p.sku || '—'}</td>
                     <td className="break-words px-1.5 py-2 text-slate-600 sm:px-2">{p.nombre || '—'}</td>
                     <td className="break-all px-1.5 py-2 text-right tabular-nums text-slate-700 sm:px-2">{teorica ?? '—'}</td>
@@ -362,7 +370,10 @@ export function ValorRespuesta({
                       {!comparable ? (
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-500">Sin datos</span>
                       ) : descuadra ? (
-                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-700">
+                        <span className={cn(
+                          'rounded-full px-2 py-0.5 text-[11px] font-bold',
+                          fisica! > teorica! ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'
+                        )}>
                           {conciliacionPorcentaje(p) ?? '—'}% concilia,{' '}
                           {variacion
                             ? `${variacion.verbo} ${fmt(variacion.cantidad)}`
@@ -371,6 +382,11 @@ export function ValorRespuesta({
                       ) : (
                         <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Concilia</span>
                       )}
+                      {!esPrecio && variacion?.verbo.startsWith('falta') ? (
+                        <span className="mt-1 block text-[11px] font-semibold text-red-700">
+                          Pérdida: {perdida == null ? 'sin precio base' : formatearPrecioBase(perdida)}
+                        </span>
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -382,12 +398,106 @@ export function ValorRespuesta({
             {!soloIncumplimientos && (descuadrados ? `${descuadrados} con descuadre` : 'todos concilian')}
             {total != null ? ` · tasa de descuadre ${total}%` : ''}
           </p>
+          {!esPrecio && resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0 ? (
+            <p className="text-sm font-semibold text-red-700">
+              Pérdida estimada por faltantes: {formatearPrecioBase(resumenPerdida.monto)}
+              {resumenPerdida.faltantesSinPrecio > 0
+                ? ` · ${resumenPerdida.faltantesSinPrecio} producto(s) sin precio base`
+                : ''}
+            </p>
+          ) : null}
         </div>
       )
     }
     default:
       return <p className="text-sm text-slate-400">Sin respuesta</p>
   }
+}
+
+export function SkeletonEvaluacionDetalle() {
+  return (
+    <div className="min-h-screen bg-slate-100 pb-10">
+      <header className="sticky top-0 z-30 bg-primary">
+        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3 lg:max-w-7xl lg:px-6">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10">
+              <div className="w-4 space-y-1">
+                <Skeleton className="h-0.5 w-full bg-white/70" />
+                <Skeleton className="h-0.5 w-full bg-white/70" />
+                <Skeleton className="h-0.5 w-full bg-white/70" />
+              </div>
+            </div>
+            <Skeleton className="h-4 w-40 bg-white/40" />
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Skeleton className="h-9 w-9 rounded-full bg-white/20" />
+            <Skeleton className="hidden h-9 w-32 rounded-full bg-white/20 sm:block" />
+          </div>
+        </div>
+      </header>
+      <main className="mx-auto max-w-2xl px-4 py-4 lg:grid lg:max-w-7xl lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:items-start lg:gap-5 lg:px-6 lg:py-6 xl:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+        <div className="space-y-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:space-y-5 lg:overflow-y-auto">
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-56" />
+            <Skeleton className="h-4 w-full max-w-80" />
+          </div>
+          <Card>
+            <div className="space-y-4 py-2">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          </Card>
+          <Card>
+            <div className="space-y-4 py-2">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          </Card>
+        </div>
+        <div className="min-w-0 space-y-4 pt-4 lg:col-start-2 lg:row-start-1 lg:space-y-5 lg:pt-0">
+          <Card>
+            <div className="flex items-start justify-between gap-3 py-2">
+              <div className="min-w-0 flex-1 space-y-3">
+                <Skeleton className="h-5 w-2/3" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-3 w-4/5" />
+              </div>
+              <Skeleton className="h-10 w-12 shrink-0" />
+            </div>
+          </Card>
+          <Card>
+            <div className="relative mb-3 flex items-center gap-3 overflow-hidden py-1 before:absolute before:left-4 before:right-4 before:top-1/2 before:h-px before:-translate-y-1/2 before:bg-slate-300">
+              {[0, 1, 2, 3].map((item) => (
+                <Skeleton key={item} className="relative z-10 h-8 w-8 shrink-0 rounded-full border-2 border-slate-100" />
+              ))}
+            </div>
+            <div className="space-y-3 py-2">
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+          </Card>
+          <Card>
+            <div className="space-y-4 py-2">
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-4/5" />
+            </div>
+          </Card>
+          <Card>
+            <div className="space-y-4 py-2">
+              <Skeleton className="h-5 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          </Card>
+        </div>
+      </main>
+    </div>
+  )
 }
 
 export function EvaluacionDetalle() {
@@ -402,6 +512,7 @@ export function EvaluacionDetalle() {
   const [aviso, setAviso] = useState<{ texto: string; ok: boolean } | null>(null)
   const [error, setError] = useState('')
   const [moduloActivoId, setModuloActivoId] = useState('')
+  const [moduloTip, setModuloTip] = useState<{ label: string; top: number; left: number } | null>(null)
   /**
    * Filtro del detalle. El veredicto sale del mismo `proporcionItem` que calcula
    * el puntaje, así que "No cumplido" es exactamente lo que el tablero descuenta:
@@ -512,31 +623,7 @@ export function EvaluacionDetalle() {
   }, [evaluacionId, estadoEval, recargar])
 
   if (estado === 'cargando') {
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-56" />
-          <Skeleton className="h-4 w-80" />
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <div className="space-y-4 py-2">
-              <Skeleton className="h-4 w-2/3" />
-              <Skeleton className="h-4 w-1/2" />
-              <Skeleton className="h-16 w-full" />
-            </div>
-          </Card>
-          <Card>
-            <div className="space-y-4 py-2">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-4 w-1/3" />
-              <Skeleton className="h-24 w-full" />
-            </div>
-          </Card>
-        </div>
-        <SkeletonTarjetas n={2} cols="sm:grid-cols-2" />
-      </div>
-    )
+    return <SkeletonEvaluacionDetalle />
   }
 
   if (estado === 'error' || !detalle) {
@@ -629,6 +716,11 @@ export function EvaluacionDetalle() {
     }
   }
 
+  const mostrarTipModulo = (label: string, el: HTMLElement) => {
+    const rect = el.getBoundingClientRect()
+    setModuloTip({ label, top: rect.top - 8, left: rect.left + rect.width / 2 })
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 pb-10">
       <header className="sticky top-0 z-30 bg-primary text-white shadow-sm">
@@ -668,10 +760,10 @@ export function EvaluacionDetalle() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-2xl px-4 py-4 lg:max-w-7xl lg:grid lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] lg:items-start lg:gap-5 lg:px-6 lg:py-6 xl:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_10rem]">
+      <main className="mx-auto max-w-2xl px-4 py-4 lg:max-w-7xl lg:grid lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:items-start lg:gap-5 lg:px-6 lg:py-6 xl:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
         {/*
-          En escritorio el detalle separa el contexto, las respuestas y el índice de
-          módulos en tres columnas. En el teléfono todo fluye en una sola columna.
+          En escritorio el detalle separa el contexto de incidencias y las respuestas.
+          En el teléfono todo fluye en una sola columna.
         */}
         <div className="space-y-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:space-y-5 lg:overflow-y-auto">
           {error ? (
@@ -696,41 +788,6 @@ export function EvaluacionDetalle() {
               </button>
             </div>
           ) : null}
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-lg font-extrabold text-primary-900">{evaluacion.sucursal?.nombre ?? 'Sucursal'}</p>
-                <p className="text-sm text-slate-500">
-                  {[evaluacion.sucursal?.shop_id ? `Nº tienda ${evaluacion.sucursal.shop_id}` : '', evaluacion.sucursal?.direccion ?? ''].filter(Boolean).join(' · ') || 'Sin datos de tienda'}
-                </p>
-                <p className="mt-1 text-xs text-slate-400">
-                  {new Date(`${evaluacion.fecha}T12:00:00`).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {evaluacion.aperturador?.nombre ?? '—'}
-                </p>
-              </div>
-              <div className="text-right">
-                <Puntaje value={puntaje} />
-                <div className="mt-1">
-                  <Badge color={est.color}>{est.texto}</Badge>
-                </div>
-              </div>
-            </div>
-            {evaluacion.estado === 'ACTIVA' ? (
-              <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-[11px] font-bold text-green-700">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-green-600" />
-                </span>
-                EN VIVO · {respuestas.length} respuesta(s) registradas hasta ahora
-              </p>
-            ) : null}
-            {evaluacion.comentario_general ? (
-              <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2">
-                <p className="text-xs font-bold text-amber-700">Comentario general</p>
-                <p className="text-sm text-amber-900">{evaluacion.comentario_general}</p>
-              </div>
-            ) : null}
-          </section>
 
           <IncidenciasEvaluacion evaluacionId={evaluacion.id} />
 
@@ -794,11 +851,99 @@ export function EvaluacionDetalle() {
         </div>
 
         <div className="min-w-0 space-y-4 pt-4 lg:col-start-2 lg:row-start-1 lg:space-y-5 lg:pt-0">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-lg font-extrabold text-primary-900">{evaluacion.sucursal?.nombre ?? 'Sucursal'}</p>
+                <p className="text-sm text-slate-500">
+                  {[evaluacion.sucursal?.shop_id ? `Nº tienda ${evaluacion.sucursal.shop_id}` : '', evaluacion.sucursal?.direccion ?? ''].filter(Boolean).join(' · ') || 'Sin datos de tienda'}
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  {new Date(`${evaluacion.fecha}T12:00:00`).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {evaluacion.aperturador?.nombre ?? '—'}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <Puntaje value={puntaje} />
+                <div className="mt-1">
+                  <Badge color={est.color}>{est.texto}</Badge>
+                </div>
+              </div>
+            </div>
+            {evaluacion.estado === 'ACTIVA' ? (
+              <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-[11px] font-bold text-green-700">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-green-600" />
+                </span>
+                EN VIVO · {respuestas.length} respuesta(s) registradas hasta ahora
+              </p>
+            ) : null}
+            {evaluacion.comentario_general ? (
+              <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2">
+                <p className="text-xs font-bold text-amber-700">Comentario general</p>
+                <p className="text-sm text-amber-900">{evaluacion.comentario_general}</p>
+              </div>
+            ) : null}
+          </section>
           <FiltroCumplimiento
             filtro={filtro}
             onFiltro={setFiltro}
             conteo={conteo}
-          />
+          >
+            {modulos.length > 0 ? (
+              <nav aria-label="Índice de módulos" className="overflow-x-auto py-1">
+                <ol className="relative flex w-full items-center justify-between gap-2 px-1 before:absolute before:left-4 before:right-4 before:top-1/2 before:h-px before:-translate-y-1/2 before:bg-slate-300">
+                  {modulos.map((modulo, index) => (
+                    <li key={modulo.id} className="relative z-10 shrink-0">
+                      <a
+                        href={`#modulo-${modulo.id}`}
+                        aria-label={`Módulo ${index + 1}: ${modulo.nombre}`}
+                        aria-current={moduloActivoId === modulo.id ? 'location' : undefined}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          setModuloActivoId(modulo.id)
+                          document.getElementById(`modulo-${modulo.id}`)?.scrollIntoView({
+                            behavior: 'instant',
+                            block: 'start'
+                          })
+                        }}
+                        onMouseEnter={(event) => {
+                          if (moduloActivoId !== modulo.id) mostrarTipModulo(modulo.nombre, event.currentTarget)
+                        }}
+                        onMouseLeave={() => setModuloTip(null)}
+                        onFocus={(event) => {
+                          if (moduloActivoId !== modulo.id) mostrarTipModulo(modulo.nombre, event.currentTarget)
+                        }}
+                        onBlur={() => setModuloTip(null)}
+                        className={cn(
+                          'min-h-8 min-w-8 rounded-full border-2 transition-colors',
+                          moduloActivoId === modulo.id
+                            ? 'bg-primary px-3 py-1 text-center text-xs font-semibold leading-tight text-white'
+                            : 'grid h-8 w-8 place-items-center border-slate-300 bg-white text-slate-600 hover:border-primary hover:text-primary'
+                        )}
+                      >
+                        {moduloActivoId === modulo.id
+                          ? modulo.nombre
+                          : <IconoModulo nombre={modulo.icono} className="h-4 w-4" />}
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              </nav>
+            ) : null}
+          </FiltroCumplimiento>
+          {moduloTip ? (
+            <span
+              role="tooltip"
+              className="pointer-events-none fixed z-[60] flex -translate-x-1/2 -translate-y-full flex-col items-center"
+              style={{ top: moduloTip.top, left: moduloTip.left }}
+            >
+              <span className="whitespace-nowrap rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-white shadow-lg">
+                {moduloTip.label}
+              </span>
+              <span aria-hidden className="h-0 w-0 border-x-[5px] border-t-[6px] border-x-transparent border-t-primary" />
+            </span>
+          ) : null}
 
           {modulos.map((m) => {
             const itemMod = itemsEnOrdenJerarquico(items.filter((i) => i.modulo_id === m.id))
@@ -867,7 +1012,10 @@ export function EvaluacionDetalle() {
             return (
               <section id={`modulo-${m.id}`} key={m.id} className="scroll-mt-24 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-5 py-3.5">
-                  <p className="font-bold text-primary-900">{m.nombre}</p>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <IconoModulo nombre={m.icono} className="h-5 w-5 shrink-0 text-primary" />
+                    <p className="font-bold text-primary-900">{m.nombre}</p>
+                  </div>
                   <p className="text-xs font-semibold text-slate-500">
                     {punteo != null ? `${punteo}%${total ? ` (${fmt(ok)}/${total})` : ''}` : 'Sin puntuable'}
                     {ocultas > 0 ? ` · ${visibles} de ${propias.length} ítems` : ''}
@@ -944,40 +1092,6 @@ export function EvaluacionDetalle() {
           })}
         </div>
 
-        {modulos.length > 0 ? (
-          <aside className="hidden xl:col-start-3 xl:row-start-1 xl:block">
-            <nav
-              aria-label="Índice de módulos"
-              className="fixed top-20 z-20 hidden max-h-[calc(100vh-6rem)] w-40 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-sm xl:block"
-              style={{ right: 'max(1.5rem, calc((100vw - 80rem) / 2 + 1.5rem))' }}
-            >
-              <p className="mb-2 px-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">Módulos</p>
-              <ol className="space-y-1">
-                {modulos.map((modulo, index) => (
-                  <li key={modulo.id}>
-                    <a
-                      href={`#modulo-${modulo.id}`}
-                      aria-current={moduloActivoId === modulo.id ? 'location' : undefined}
-                      onClick={() => setModuloActivoId(modulo.id)}
-                      className={cn(
-                        'flex items-start gap-2 rounded-lg px-2 py-2 text-sm font-semibold transition-colors',
-                        moduloActivoId === modulo.id
-                          ? 'bg-primary-100 text-primary-900 ring-1 ring-primary-300'
-                          : 'text-slate-600 hover:bg-primary-50 hover:text-primary-900'
-                      )}
-                    >
-                      <span className={cn(
-                        'shrink-0 text-xs tabular-nums',
-                        moduloActivoId === modulo.id ? 'text-primary-800' : 'text-slate-400'
-                      )}>{index + 1}.</span>
-                      <span className="min-w-0 break-words">{modulo.nombre}</span>
-                    </a>
-                  </li>
-                ))}
-              </ol>
-            </nav>
-          </aside>
-        ) : null}
       </main>
     </div>
   )
@@ -995,10 +1109,12 @@ export function FiltroCumplimiento({
   filtro,
   onFiltro,
   conteo,
+  children
 }: {
   filtro: 'ambos' | 'cumple' | 'no-cumple'
   onFiltro: (f: 'ambos' | 'cumple' | 'no-cumple') => void
   conteo: Record<VeredictoItem, number>
+  children?: ReactNode
 }) {
   const opciones: { id: 'ambos' | 'cumple' | 'no-cumple'; texto: string; n: number }[] = [
     { id: 'ambos', texto: 'Ambos', n: conteo.cumple + conteo['no-cumple'] },
@@ -1008,9 +1124,10 @@ export function FiltroCumplimiento({
   return (
     // En escritorio queda fijo arriba: al revisar veinte ítems no se va a tener que
     // subir a cambiar el filtro. En el teléfono fluye, porque ahí sí estorba.
-    <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:sticky lg:top-20 lg:z-20 lg:bg-white/95 lg:backdrop-blur">
+    <div className="bg-primary-50 p-3 lg:sticky lg:top-20 lg:z-20 lg:bg-primary-50/95 lg:backdrop-blur">
+      {children ? <div className="mb-2">{children}</div> : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div role="group" aria-label="Filtrar los ítems por cumplimiento" className="inline-flex rounded-full bg-slate-100 p-1">
+        <div role="group" aria-label="Filtrar los ítems por cumplimiento" className="inline-flex rounded-full bg-white/70 p-1">
           {opciones.map((o) => (
             <button
               key={o.id}
@@ -1019,7 +1136,7 @@ export function FiltroCumplimiento({
               onClick={() => onFiltro(o.id)}
               className={cn(
                 'rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors',
-                filtro === o.id ? 'bg-white text-primary-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                filtro === o.id ? 'bg-primary text-white shadow-sm' : 'text-primary-900 hover:bg-white/80'
               )}
             >
               {o.texto}

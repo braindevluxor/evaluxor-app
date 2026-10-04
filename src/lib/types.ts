@@ -101,6 +101,8 @@ export interface Modulo {
   id: string
   nombre: string
   descripcion: string
+  /** Nombre de un icono Lucide usado para identificar visualmente el módulo. */
+  icono?: string
   orden: number
   activo: boolean
   /** Compartido: varios evaluadores pueden llenarlo a la vez (colaboración en vivo). No compartido = un solo evaluador. */

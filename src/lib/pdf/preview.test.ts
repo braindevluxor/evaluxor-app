@@ -308,6 +308,8 @@ describe('informe imprimible de resultados', () => {
     expect(output).toContain('Puntaje final por módulo')
     expect(output).toContain('Higiene y salubridad')
     expect(output).toContain('Equipos de refrigeración en condiciones operativas')
+    expect(output).toContain('Pérdida estimada')
+    expect(output).toContain('Pérdida estimada por faltantes')
   })
 
   it('muestra solo el porcentaje de conciliación y oculta los IDs de sucursal y central', () => {

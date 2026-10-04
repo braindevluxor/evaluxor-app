@@ -236,7 +236,7 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
       {
         productos: [
           { sku: 'SKU-OK', nombre: 'Producto conciliado', teorica: 10, fisica: 10 },
-          { sku: 'SKU-ERROR', nombre: 'Producto descuadrado', teorica: 10, fisica: 7 },
+          { sku: 'SKU-ERROR', nombre: 'Producto descuadrado', teorica: 10, fisica: 7, finalBase: 25, perdidaEstimada: 37.5 },
           { sku: 'SKU-SOBRANTE', nombre: 'Producto con sobrante', teorica: 0, fisica: 3 },
           { sku: 'SKU-FALTA-UNO', nombre: 'Producto con una unidad faltante', teorica: 4, fisica: 3 },
           { sku: 'SKU-SOBRA-UNO', nombre: 'Producto con una unidad sobrante', teorica: 3, fisica: 4 }
@@ -246,10 +246,17 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
 
     expect(html).toContain('Producto descuadrado')
     expect(html).toContain('Producto con sobrante')
+    expect(html).toContain('bg-amber-50/70')
+    expect(html).toContain('bg-amber-100 text-amber-800')
+    expect(html).toContain('bg-red-50/50')
     expect(html).toContain('70% concilia, faltan 3')
     expect(html).toContain('0% concilia, sobran 3')
     expect(html).toContain('75% concilia, falta 1')
     expect(html).toContain('75% concilia, sobra 1')
+    expect(html).toContain('Pérdida: $')
+    expect(html).toContain('Pérdida estimada por faltantes:')
+    expect(html).toContain('37,50')
+    expect(html).toContain('producto(s) sin precio base')
     expect(html).not.toContain('Producto conciliado')
     expect(html).not.toContain('overflow-x-auto')
     expect(html).not.toContain('min-w-[620px]')
