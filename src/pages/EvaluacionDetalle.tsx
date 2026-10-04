@@ -756,8 +756,11 @@ export function EvaluacionDetalle() {
                 </span>
               ) : null}
             </button>
+            {/* Va "ghost" y no "secondary": el secondary trae `border border-primary-200`
+                y sobre el fondo de color del encabezado ese borde se ve como un
+                contorno alrededor del botón. El fondo translúcido lo define el className. */}
             <Button
-              variant="secondary"
+              variant="ghost"
               className="min-h-0 gap-1.5 bg-white/10 px-3 py-1.5 text-white hover:bg-white/20"
               disabled={descargando}
               onClick={() => void descargar()}
