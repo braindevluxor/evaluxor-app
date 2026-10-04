@@ -9,3 +9,7 @@ npm-debug.log*
 *.tsbuildinfo
 .vite
 .vercel
+supabase/.temp
+
+.vercel
+.env*

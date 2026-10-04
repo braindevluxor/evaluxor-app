@@ -43,7 +43,9 @@ Vite + React 19 + TypeScript, Tailwind CSS (color primario azul oscuro `#0B2545`
 3. **Crear el esquema**: pegar `supabase/schema.sql` en *Supabase Dashboard → SQL Editor → Run*. Crea tablas, triggers (bloqueo de registro sin invitación, rol por invitación), políticas RLS y el bucket `evidencias`.
    > Si el proyecto no está activo, reactívalo primero (pausas de más de 7 días lo suspenden).
 
-3bis. **Crear el primer LÍDER**: ejecutar `supabase/crear-lider.sql` en el SQL Editor (antés edita correo, usuario y contraseña). Registro posterior sale del menú `Usuarios` del Líder.
+3bis. **Crear el primer LÍDER**: `supabase/schema.sql` ya incluye el bootstrap del primer usuario LÍDER. Antes de ejecutarlo, edita correo, usuario y contraseña si hace falta. Registro posterior sale del menú `Usuarios` del Líder.
+
+3ter. **Ejecuta la base completa una sola vez**: en Supabase se corre únicamente `supabase/schema.sql`. Ese archivo ya consolida el esquema base, incidencias, permisos, políticas RLS, biométrico, bootstrap del líder y controles de seguridad. Es idempotente: se puede volver a correr sin romper nada.
 
 4. Iniciar sesión con el **usuario de acceso** y configurar: sucursales → asignaciones → módulos/ítems.
 
