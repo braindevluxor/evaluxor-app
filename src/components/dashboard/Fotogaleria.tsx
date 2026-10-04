@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import type { Foto } from '../../lib/types'
 import { Skeleton } from '../ui'
+import { ModalImagen } from '../ModalImagen'
 
 export function Fotogaleria({ fotos }: { fotos: Foto[] }) {
   const paths = useMemo(() => fotos.map((foto) => foto.path), [fotos])
@@ -16,6 +17,7 @@ export function FotogaleriaRutas({ paths: pathsEntrada, compacta = false }: { pa
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [cargando, setCargando] = useState(true)
   const [errorCarga, setErrorCarga] = useState<string | null>(null)
+  const [imagenAbierta, setImagenAbierta] = useState<string | null>(null)
 
   useEffect(() => {
     let activo = true
@@ -66,7 +68,13 @@ export function FotogaleriaRutas({ paths: pathsEntrada, compacta = false }: { pa
       {paths
         .filter((p) => urls[p])
         .map((p) => (
-          <a key={p} href={urls[p]} target="_blank" rel="noreferrer" className={compacta ? 'block min-w-0' : undefined}>
+          <button
+            key={p}
+            type="button"
+            onClick={() => setImagenAbierta(urls[p])}
+            aria-label="Ampliar evidencia"
+            className={compacta ? 'block min-w-0' : undefined}
+          >
             <img
               src={urls[p]}
               alt="Evidencia"
@@ -75,13 +83,18 @@ export function FotogaleriaRutas({ paths: pathsEntrada, compacta = false }: { pa
                 : 'aspect-square w-full rounded-lg border border-slate-200 object-cover transition-transform hover:scale-105'}
               loading="lazy"
             />
-          </a>
+          </button>
         ))}
       {errorCarga ? (
         <p role="alert" className="col-span-full text-xs text-red-700">
           No se pudieron cargar las fotos: {errorCarga}
         </p>
       ) : null}
+      <ModalImagen
+        src={imagenAbierta}
+        alt="Evidencia"
+        onClose={() => setImagenAbierta(null)}
+      />
     </div>
   )
 }

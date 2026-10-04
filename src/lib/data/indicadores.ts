@@ -476,7 +476,7 @@ export interface ResumenItemModulo {
   ok: number
   /** Proporción promedio 0..1 (ok / muestras). null si no hay muestras. */
   promedio: number | null
-  /** Solo LISTA_COLABORADORES: total de colaboradores evaluados (que aplican) y cuántos cumplen. */
+  /** Solo LISTA_COLABORADORES: total de trabajadores evaluados (que aplican) y cuántos cumplen. */
   colaboradores?: { total: number; ok: number }
   /** Solo UNIDAD_CHECKLIST: total de unidades evaluadas y cuántas cumplen. */
   unidades?: { total: number; ok: number }
@@ -1135,13 +1135,13 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
     case 'LISTA_COLABORADORES': {
       const v = valor as ValorListaColaboradores | null
       const cols = v?.colaboradores ?? []
-      if (!cols.length) return { proporcion: p, resumen: 'Sin colaboradores' }
+      if (!cols.length) return { proporcion: p, resumen: 'Sin trabajadores' }
       const opts = (item.opciones ?? []) as Opcion[]
       const aplican = cols.filter((c) => c.aplica)
       const conChecksAplicables = aplican.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
       const cumplen = conChecksAplicables.filter((c) => colaboradorCumple(c, opts)).length
       const sinPuntos = aplican.length - conChecksAplicables.length
-      return { proporcion: p, resumen: `${cumplen}/${conChecksAplicables.length} colaboradores cumplen${sinPuntos ? ` · ${sinPuntos} sin puntos aplicables` : ''}${cols.some((c) => !c.aplica) ? ` · ${cols.length - aplican.length} excluido(s)` : ''}` }
+      return { proporcion: p, resumen: `${cumplen}/${conChecksAplicables.length} trabajadores cumplen${sinPuntos ? ` · ${sinPuntos} sin puntos aplicables` : ''}${cols.some((c) => !c.aplica) ? ` · ${cols.length - aplican.length} excluido(s)` : ''}` }
     }
     case 'UNIDAD_CHECKLIST': {
       const v = valor as ValorUnidadChecklist | null

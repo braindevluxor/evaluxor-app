@@ -753,10 +753,10 @@ function FormItem({
       ) : null}
       {tipo === 'LISTA_COLABORADORES' ? (
         <>
-          <Field label="Checklist de cada colaborador (se aplica a todos los colaboradores de la tienda)">
+          <Field label="Checklist de cada trabajador (se aplica a todos los trabajadores de la tienda)">
             <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} />
           </Field>
-          <Field label="Colaboradores en cuenta">
+          <Field label="Trabajadores en cuenta">
             <Select value={filtroColaboradores} onChange={(e) => setFiltroColaboradores(e.target.value as FiltroColaboradores)}>
               <option value="ACTIVOS">Solo activos</option>
               <option value="INACTIVOS">Solo inactivos</option>
@@ -764,7 +764,7 @@ function FormItem({
             </Select>
           </Field>
           <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-            En la evaluación se cargan los colaboradores de la tienda desde la API de talento humano (aplicando el filtro elegido) y este mismo checklist se marca para cada uno. El ítem cumple cuando todos los colaboradores en cuenta tienen su checklist completo.
+            En la evaluación se cargan los trabajadores de la tienda desde la API de talento humano (aplicando el filtro elegido) y este mismo checklist se marca para cada uno. El ítem cumple cuando todos los trabajadores en cuenta tienen su checklist completo.
           </p>
         </>
       ) : null}

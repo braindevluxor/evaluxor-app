@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Camera } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { AlertTriangle, Camera, ChevronLeft, ChevronRight } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { ChipsResponsables } from './EditorResponsablesIncidencia'
 import { normalizarResponsables, type ResponsableIncidencia } from '../lib/data/responsablesIncidencia'
 import { Skeleton, Spinner } from './ui'
+import { ModalImagen } from './ModalImagen'
 
 export interface IncidenciaFila {
   id: string
@@ -27,6 +28,8 @@ export function IncidenciasEvaluacion({ evaluacionId }: { evaluacionId: string }
   const [filas, setFilas] = useState<IncidenciaFila[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
+  const [urlsFotos, setUrlsFotos] = useState<Record<string, Record<string, string>>>({})
+  const [imagenAbierta, setImagenAbierta] = useState<{ incidenciaId: string; src: string } | null>(null)
 
   useEffect(() => {
     let vivo = true
@@ -98,6 +101,51 @@ export function IncidenciasEvaluacion({ evaluacionId }: { evaluacionId: string }
     }
   }, [evaluacionId])
 
+  useEffect(() => {
+    let vivo = true
+    const paths = Array.from(new Set((filas ?? []).flatMap((fila) => fila.fotos)))
+    if (!paths.length) {
+      setUrlsFotos({})
+      return () => { vivo = false }
+    }
+    void (async () => {
+      try {
+        const { data, error: errorFotos } = await supabase.storage.from('evidencias').createSignedUrls(paths, 3600)
+        if (errorFotos) throw errorFotos
+        if (!vivo) return
+        const urlsPorPath: Record<string, string> = {}
+        for (const foto of data ?? []) {
+          if (foto.path && foto.signedUrl) urlsPorPath[foto.path] = foto.signedUrl
+        }
+        const nuevasUrls: Record<string, Record<string, string>> = {}
+        for (const fila of filas ?? []) {
+          nuevasUrls[fila.id] = Object.fromEntries(
+            fila.fotos.filter((path) => urlsPorPath[path]).map((path) => [path, urlsPorPath[path]])
+          )
+        }
+        setUrlsFotos(nuevasUrls)
+      } catch {
+        if (vivo) setUrlsFotos({})
+      }
+    })()
+    return () => { vivo = false }
+  }, [filas])
+
+  const incidenciasConFoto = (filas ?? []).filter((fila) =>
+    fila.fotos.some((path) => urlsFotos[fila.id]?.[path])
+  )
+  const indiceIncidencia = imagenAbierta
+    ? incidenciasConFoto.findIndex((fila) => fila.id === imagenAbierta.incidenciaId)
+    : -1
+  const incidenciaAbierta = indiceIncidencia >= 0 ? incidenciasConFoto[indiceIncidencia] : null
+
+  function navegarIncidencia(direccion: -1 | 1) {
+    const siguiente = incidenciasConFoto[indiceIncidencia + direccion]
+    if (!siguiente) return
+    const src = siguiente.fotos.map((path) => urlsFotos[siguiente.id]?.[path]).find(Boolean)
+    if (src) setImagenAbierta({ incidenciaId: siguiente.id, src })
+  }
+
   if (cargando) {
     return (
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -146,38 +194,67 @@ export function IncidenciasEvaluacion({ evaluacionId }: { evaluacionId: string }
                   Hay cargos escritos sin catálogo: no se pudieron verificar.
                 </p>
               ) : null}
-              {f.fotos?.length ? <FotosIncidencia paths={f.fotos} /> : null}
+              {f.fotos?.length ? (
+                <FotosIncidencia
+                  paths={f.fotos}
+                  urls={urlsFotos[f.id] ?? {}}
+                  onAbrir={(src) => setImagenAbierta({ incidenciaId: f.id, src })}
+                />
+              ) : null}
             </li>
           ))}
         </ul>
       )}
+      <ModalImagen
+        src={imagenAbierta?.src ?? null}
+        alt="Foto de la incidencia"
+        onClose={() => setImagenAbierta(null)}
+        footer={incidenciaAbierta ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => navegarIncidencia(-1)}
+                disabled={indiceIncidencia <= 0}
+                aria-label="Incidencia anterior"
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <p className="text-xs font-semibold text-slate-500">
+                Incidencia {indiceIncidencia + 1} de {incidenciasConFoto.length}
+              </p>
+              <button
+                type="button"
+                onClick={() => navegarIncidencia(1)}
+                disabled={indiceIncidencia >= incidenciasConFoto.length - 1}
+                aria-label="Siguiente incidencia"
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Observación</p>
+              <p className="whitespace-pre-wrap text-sm text-slate-700">{incidenciaAbierta.descripcion}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Responsable</p>
+              <ChipsResponsables valor={incidenciaAbierta.responsables} className="mt-1" />
+            </div>
+          </div>
+        ) : undefined}
+      />
     </section>
   )
 }
 
 /** Miniaturas con URL firmada (el bucket `evidencias` es privado). */
-function FotosIncidencia({ paths }: { paths: string[] }) {
-  const [urls, setUrls] = useState<Record<string, string>>({})
-  const clave = useMemo(() => paths.join('|'), [paths])
-
-  useEffect(() => {
-    let vivo = true
-    void (async () => {
-      try {
-        const { data } = await supabase.storage.from('evidencias').createSignedUrls(paths, 3600)
-        if (!vivo) return
-        const map: Record<string, string> = {}
-        for (const d of data ?? []) if (d.signedUrl && d.path) map[d.path] = d.signedUrl
-        setUrls(map)
-      } catch {
-        if (vivo) setUrls({})
-      }
-    })()
-    return () => {
-      vivo = false
-    }
-  }, [clave, paths])
-
+function FotosIncidencia({ paths, urls, onAbrir }: {
+  paths: string[]
+  urls: Record<string, string>
+  onAbrir: (src: string) => void
+}) {
   return (
     <div className="mt-2">
       <div className="mb-1.5 flex items-center gap-1 text-[11px] text-amber-700">
@@ -186,9 +263,15 @@ function FotosIncidencia({ paths }: { paths: string[] }) {
       <div className="flex flex-wrap gap-2">
         {paths.map((p) =>
           urls[p] ? (
-            <a key={p} href={urls[p]} target="_blank" rel="noreferrer" title="Ver foto de la incidencia">
+            <button
+              key={p}
+              type="button"
+              onClick={() => onAbrir(urls[p])}
+              title="Ver foto de la incidencia"
+              aria-label="Ampliar foto de la incidencia"
+            >
               <img src={urls[p]} alt="Foto de la incidencia" className="h-16 w-16 rounded-lg border border-slate-200 object-cover" />
-            </a>
+            </button>
           ) : (
             <div key={p} className="grid h-16 w-16 place-items-center rounded-lg border border-slate-200 bg-slate-50">
               <Spinner size={16} />

@@ -128,7 +128,7 @@ function FormSucursal({ inicial, onGuardar }: { inicial: Sucursal | null; onGuar
     >
       <Field label="Nombre"><Input value={nombre} onChange={(e) => setNombre(e.target.value)} required /></Field>
       <Field label="Nº tienda (shop_id)" hint="Usado para consultar el nombre del producto al escanear (ej. 000)"><Input value={shopId} onChange={(e) => setShopId(e.target.value)} /></Field>
-      <Field label="ID trabajadores (branchID)" hint="Usado para consultar la lista de colaboradores. Es el ID de la sucursal en la API de trabajadores (puede diferir del shop_id)."><Input value={branchId} onChange={(e) => setBranchId(e.target.value)} /></Field>
+      <Field label="ID trabajadores (branchID)" hint="Usado para consultar la lista de trabajadores. Es el ID de la sucursal en la API de trabajadores (puede diferir del shop_id)."><Input value={branchId} onChange={(e) => setBranchId(e.target.value)} /></Field>
       <Field label="Dirección"><Input value={direccion} onChange={(e) => setDireccion(e.target.value)} /></Field>
       <Field label="Gerente S a cargo" hint="Opcional. Usuario con rol GERENTE_S responsable de la sucursal.">
         <Select value={gerenteId} onChange={(e) => setGerenteId(e.target.value)}>

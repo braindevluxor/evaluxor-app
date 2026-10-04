@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, esNoAplica, veredictoItem, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, esNoAplica, veredictoItem, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion } from './scoring'
+
+describe('etiqueta del tipo de ítem', () => {
+  it('muestra trabajadores en el listado de evaluación de personal', () => {
+    expect(ETIQUETAS_TIPO.LISTA_COLABORADORES).toBe('Listado de trabajadores')
+  })
+})
 
 describe('esNoAplica · lo que el evaluador excluye del puntaje', () => {
   it('el interruptor del ítem alcanza para todos los tipos que lo tienen', () => {
@@ -231,7 +237,7 @@ describe('valorBinario', () => {
     expect(veredictoItem({ tipo: 'CONCILIACION' }, { productos: [sobrante] })).toBe('no-cumple')
     expect(valorBinario({ tipo: 'CONCILIACION' }, { productos: [{ sku: 'B', teorica: 0, fisica: 0 }] })).toBe(true)
   })
-  it('listado de colaboradores cumple cuando todos los que aplican tienen su checklist completo', () => {
+  it('listado de trabajadores cumple cuando todos los que aplican tienen su checklist completo', () => {
     const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a' }, { id: 'b' }] }
     const col = (selected: string[], aplica = true) => ({ dni: 1, name: 'A', lastname: 'B', active: true, aplica, selected })
     expect(valorBinario(item, { colaboradores: [col(['a', 'b']), col(['a', 'b'])] })).toBe(true)
@@ -241,7 +247,7 @@ describe('valorBinario', () => {
     expect(valorBinario(item, null)).toBe(null)
     expect(valorBinario(item, { colaboradores: [col(['a', 'b'])], informativo: true })).toBe(null)
   })
-  it('listado de colaboradores excluye los puntos no aplicables a cada trabajador', () => {
+  it('listado de trabajadores excluye los puntos no aplicables a cada trabajador', () => {
     const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a' }, { id: 'b' }] }
     const v = {
       colaboradores: [
@@ -378,7 +384,7 @@ describe('incumplimientosPorResponsable', () => {
     const v = { unidades: [{ codigo: 'U1', selected: ['a'] }, { codigo: 'U2', selected: ['a'] }] }
     expect(incumplimientosPorResponsable(item, v)).toEqual([{ responsable: 'Chofer', puntos: 2 }])
   })
-  it('lista de colaboradores ignora a los que no aplican', () => {
+  it('lista de trabajadores ignora a los que no aplican', () => {
     const item = {
       tipo: 'LISTA_COLABORADORES',
       opciones: [

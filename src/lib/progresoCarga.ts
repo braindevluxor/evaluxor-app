@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 /**
  * Los mensajes de la barra mientras se arma la lista de trabajadores.
  *
- * Un texto fijo ("Consultando colaboradores…") dice que algo pasa pero no que
+ * Un texto fijo ("Consultando trabajadores…") dice que algo pasa pero no que
  * esté avanzando. Estos tres van marcando por dónde va la carga, que es lo que
  * hace que una espera de medio segundo no se sienta como que la app se clavó.
  *

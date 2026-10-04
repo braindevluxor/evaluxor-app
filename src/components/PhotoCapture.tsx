@@ -3,6 +3,7 @@ import { Camera, X } from 'lucide-react'
 import { addPhoto, deletePhoto, getPhotos } from '../lib/offline/db'
 import { comprimirFoto } from '../lib/fotos'
 import { Spinner } from './ui'
+import { ModalImagen } from './ModalImagen'
 
 interface Props {
   photoIds: string[]
@@ -27,6 +28,7 @@ export async function guardarFotosDe(files: FileList | null): Promise<string[]> 
 
 export function MinaFotos({ photoIds, onQuitar }: { photoIds: string[]; onQuitar: (id: string) => void }) {
   const [previews, setPreviews] = useState<Preview[]>([])
+  const [imagenAbierta, setImagenAbierta] = useState<string | null>(null)
   const keyRef = useRef(0)
 
   const cargarPreviews = useCallback(async () => {
@@ -52,7 +54,9 @@ export function MinaFotos({ photoIds, onQuitar }: { photoIds: string[]; onQuitar
     <div className="grid grid-cols-3 gap-2">
       {previews.map((p) => (
         <div key={p.id} className="relative aspect-square overflow-hidden rounded-xl border border-slate-200">
-          <img src={p.url} alt="Evidencia" className="h-full w-full object-cover" />
+          <button type="button" onClick={() => setImagenAbierta(p.url)} aria-label="Ampliar evidencia" className="h-full w-full">
+            <img src={p.url} alt="Evidencia" className="h-full w-full object-cover" />
+          </button>
           <button
             type="button"
             onClick={() => onQuitar(p.id)}
@@ -63,6 +67,11 @@ export function MinaFotos({ photoIds, onQuitar }: { photoIds: string[]; onQuitar
           </button>
         </div>
       ))}
+      <ModalImagen
+        src={imagenAbierta}
+        alt="Evidencia"
+        onClose={() => setImagenAbierta(null)}
+      />
     </div>
   )
 }

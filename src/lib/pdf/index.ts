@@ -33,6 +33,7 @@ import { BRANCH_CENTRAL, normalizarResponsables, type ResponsableIncidencia } fr
 import { listarResponsables, type ResponsableCatalogo } from '../data/responsables'
 import { ETIQUETAS_ROL } from '../roles'
 import { supabase } from '../supabase'
+import { ordenarTrabajadores } from '../data/colaboradores'
 
 export type FiltroPdfCumplimiento = 'ambos' | 'cumple' | 'no-cumple'
 
@@ -471,13 +472,13 @@ export function buildPdfDocument(
       }
       case 'LISTA_COLABORADORES': {
         const v = valor as ValorListaColaboradores | null
-        const colaboradores = (v?.colaboradores ?? []).filter((col) => col.aplica)
+        const colaboradores = ordenarTrabajadores(v?.colaboradores ?? []).filter((col) => col.aplica)
           .filter((col) => !soloIncumplimientos || !colaboradorCumple(col, item.opciones ?? []))
-        tabla(['Colaborador', 'Estado', 'Pendiente'], colaboradores.map((col) => {
+        tabla(['Trabajador', 'Estado', 'Pendiente'], colaboradores.map((col) => {
           const aplican = opcionesAplicablesColaborador(col, item.opciones ?? [])
           const faltan = aplican.filter((option) => !(col.selected ?? []).includes(option.id))
           return [
-            `${col.name} ${col.lastname}${col.role_name ? ` · ${col.role_name}` : ''}`,
+            `${col.lastname} ${col.name}${col.role_name ? ` · ${col.role_name}` : ''}`,
             colaboradorCumple(col, item.opciones ?? []) ? 'Completo' : 'Incompleto',
             faltan.map((option) => option.etiqueta).join(', ') || '—'
           ]
@@ -604,6 +605,44 @@ export function buildPdfDocument(
         ])
       : [['No hay incidencias registradas para esta evaluación.', '—']]
   )
+
+  pdf.addPage()
+  y = MARGEN
+  tituloSeccion('Constancia de recibido y compromiso de respuesta')
+  textoLinea(
+    `La gerencia de ${texto(ev.sucursal?.nombre ?? 'la sucursal')} deja constancia de haber recibido el presente informe de evaluación, correspondiente a la visita realizada el ${fecha}.`,
+    { size: 11, gap: 7 }
+  )
+  textoLinea(
+    'La gerencia se compromete a revisar el documento, analizar las discrepancias detectadas durante la visita y emitir una respuesta sobre estas, indicando las aclaraciones y acciones de seguimiento que correspondan.',
+    { size: 11, gap: 10 }
+  )
+  textoLinea(
+    'La firma confirma la recepción del informe y el compromiso de revisión y respuesta. No implica conformidad con los resultados consignados.',
+    { size: 9, gap: 7 }
+  )
+  textoLinea(
+    'Si dentro de los quince (15) días siguientes a la fecha de recibido no se recibe una aclaratoria sobre las discrepancias detectadas, se tendrán por aceptados por la gerencia los datos emitidos en la evaluación.',
+    { size: 9, gap: 12 }
+  )
+
+  tituloSeccion('Datos de recepción')
+  const espacioColumnas = 14
+  const anchoCampo = (anchoUtil - espacioColumnas) / 2
+  const segundaColumna = MARGEN + anchoCampo + espacioColumnas
+  const dibujarCampo = (etiqueta: string, x: number, lineaY: number, anchoLinea: number) => {
+    pdf.setDrawColor(0)
+    pdf.setLineWidth(0.25)
+    pdf.line(x, lineaY, x + anchoLinea, lineaY)
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(9)
+    pdf.setTextColor(0)
+    pdf.text(etiqueta, x, lineaY + 5)
+  }
+  dibujarCampo('Nombre de quien recibe por gerencia', MARGEN, y + 17, anchoCampo)
+  dibujarCampo('Cargo', segundaColumna, y + 17, anchoCampo)
+  dibujarCampo('Firma de gerencia', MARGEN, y + 62, anchoCampo)
+  dibujarCampo('Fecha de recibido', segundaColumna, y + 62, anchoCampo)
   return pdf
 }
 

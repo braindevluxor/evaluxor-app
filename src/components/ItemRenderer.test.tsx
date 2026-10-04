@@ -178,7 +178,7 @@ function itemColaboradores(): Item {
     id: 'it-5',
     modulo_id: 'm1',
     tipo: 'LISTA_COLABORADORES',
-    texto: 'Checklist por colaborador',
+    texto: 'Checklist por trabajador',
     opciones: [{ id: 'o1', etiqueta: 'Contrato vigente' }],
     orden: 0,
     requerido: true,
@@ -188,8 +188,8 @@ function itemColaboradores(): Item {
   }
 }
 
-describe('ItemRenderer · limpiar lista de colaboradores', () => {
-  it('ofrece el botón «Limpiar lista» cuando hay colaboradores cargados', () => {
+describe('ItemRenderer · limpiar lista de trabajadores', () => {
+  it('ofrece el botón «Limpiar lista» cuando hay trabajadores cargados', () => {
     const valor = {
       colaboradores: [
         { dni: 1, nationality: 'V-', name: 'Ana', lastname: 'Gómez', role_id: 1, role_name: 'Cajera', branch_id: 1, branch_name: '', admission_date: null, active: true, aplica: true, selected: ['o1'] }
@@ -197,12 +197,12 @@ describe('ItemRenderer · limpiar lista de colaboradores', () => {
     }
     const html = renderToStaticMarkup(<ItemRenderer item={itemColaboradores()} valor={valor} index={0} total={1} onChange={() => {}} />)
     expect(html).toContain('Limpiar lista')
-    expect(html).toContain('Colaboradores de la tienda')
+    expect(html).toContain('Trabajadores de la tienda')
   })
 
-  it('sin colaboradores carga­dos solo muestra «Cargar colaboradores», sin botón de limpiar', () => {
+  it('sin trabajadores cargados solo muestra «Cargar trabajadores», sin botón de limpiar', () => {
     const html = renderToStaticMarkup(<ItemRenderer item={itemColaboradores()} valor={undefined} index={0} total={1} onChange={() => {}} />)
-    expect(html).toContain('Cargar colaboradores')
+    expect(html).toContain('Cargar trabajadores')
     expect(html).not.toContain('Limpiar lista')
   })
 
@@ -288,7 +288,7 @@ describe('ItemRenderer · la lista no aparece sin depurar', () => {
     const html = renderToStaticMarkup(
       <ItemRenderer item={itemColaboradores()} valor={undefined} index={0} total={1} onChange={() => {}} sucursalId="s-1" fechaEvaluacion="2026-03-01" />
     )
-    expect(html).toContain('Cargar colaboradores')
+    expect(html).toContain('Cargar trabajadores')
     expect(html).not.toContain('Creando la consulta')
   })
 

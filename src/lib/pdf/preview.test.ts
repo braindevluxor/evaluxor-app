@@ -437,6 +437,28 @@ describe('informe imprimible de resultados', () => {
     expect(output).toContain('Responsable')
   })
 
+  it('agrega después de incidencias una constancia de recibido para gerencia', () => {
+    const pdf = buildPdfDocument(detalle)
+    const paginas = (pdf.internal.pages as unknown as Array<string[] | undefined>)
+      .filter((pagina): pagina is string[] => Array.isArray(pagina))
+      .map((pagina) => pagina.join(''))
+    const paginaIncidencias = paginas.findIndex((pagina) => pagina.includes('Incidencias registradas'))
+    const paginaConstancia = paginas.findIndex((pagina) => pagina.includes('Constancia de recibido'))
+    const textoConstancia = paginas[paginaConstancia]
+
+    expect(paginaConstancia).toBe(paginas.length - 1)
+    expect(paginaConstancia).toBeGreaterThan(paginaIncidencias)
+    expect(textoConstancia).toContain('compromete a revisar el documento')
+    expect(textoConstancia).toContain('discrepancias detectadas durante la')
+    expect(textoConstancia).toContain('(visita y emitir una respuesta')
+    expect(textoConstancia).toContain('quince \\(15\\) días siguientes a la fecha de recibido')
+    expect(textoConstancia).toContain('se tendrán por aceptados por la gerencia')
+    expect(textoConstancia).toContain('Nombre de quien recibe por gerencia')
+    expect(textoConstancia).toContain('Cargo')
+    expect(textoConstancia).toContain('Firma de gerencia')
+    expect(textoConstancia).toContain('Fecha de recibido')
+  })
+
   it('mantiene títulos largos en líneas separadas sin cortar el nombre del módulo', () => {
     const detalleTituloLargo: DetalleEvaluacion = {
       ...detalle,

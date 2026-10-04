@@ -63,7 +63,7 @@ export const ETAPAS: EtapaDoc[] = [
       'Checklist por módulo: se responde cada ítem marcando las opciones; los de tipo RANGO exigen un valor numérico igual o mayor al mínimo aceptable.',
       'Evidencias: se adjuntan fotos por ítem u opción para respaldar el cumplimiento o el incumplimiento.',
       'Conciliación de inventario: se escanea el producto, se carga la cantidad física y el sistema reporta la teórica (soh) y el precio base.',
-      'Colaboradores y unidades: se listan personas/unidades y se marcan las condiciones que apliquen.'
+      'Trabajadores y unidades: se listan personas/unidades y se marcan las condiciones que apliquen.'
     ]
   },
   {
@@ -235,7 +235,7 @@ export const KPIS: KpiDoc[] = [
             titulo: 'Momento de recoger',
             items: [
               'Atender los ítems del módulo en el área correspondiente; no responder de memoria.',
-              'En conciliación y listados, verificar contra el sistema (soh, precios, colaboradores) y anotar discrepancias.',
+              'En conciliación y listados, verificar contra el sistema (soh, precios, trabajadores) y anotar discrepancias.',
               'Si el área no existe en esa sucursal, dejarla sin responder (se excluye) en lugar de "aprobar".'
             ]
           }

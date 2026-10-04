@@ -289,7 +289,7 @@ export async function definirSucursalProyecto(proyectoId: string, sucursalId: st
   return { ok: true, mensaje: null }
 }
 
-/** Pone nombre/rol a los marcajes según el listado de colaboradores de la sucursal. */
+/** Pone nombre/rol a los marcajes según el listado de trabajadores de la sucursal. */
 export async function actualizarNombres(proyectoId: string, porDni: Map<string, InfoTrabajador>): Promise<void> {
   for (const [dni, info] of porDni) {
     await supabase

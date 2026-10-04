@@ -4,7 +4,7 @@
  * - CUMPLE_NO_CUMPLE   → Donut (cumplen vs no cumplen).
  * - CHECKLIST          → Promedio con barra de umbral + cumplimiento por opción.
  * - CONCILIACION       → Donut de productos conciliados vs descuadrados + tasa.
- * - LISTA_COLABORADORES→ Barra de % de colaboradores que cumplen (de los que aplican).
+ * - LISTA_COLABORADORES→ Barra de % de trabajadores que cumplen (de los que aplican).
  * - UNIDAD_CHECKLIST   → Barra de % de unidades que cumplen.
  * - CONTENEDOR         → (agrupador) resumen promedio de sus hijos en la página.
  * Sin librerías de gráficos: SVG/CSS ligeros y consistentes con la paleta de la app.
@@ -277,8 +277,8 @@ export function GraficoItem({ resumen }: { resumen: ResumenItemModulo }) {
       <BarraProporcion
         proporcion={total ? col!.ok / total : null}
         total={total}
-        etiqueta="Colaboradores que cumplen"
-        unidad="colaboradores evaluados (aplican)"
+        etiqueta="Trabajadores que cumplen"
+        unidad="trabajadores evaluados (aplican)"
       />
     )
   }

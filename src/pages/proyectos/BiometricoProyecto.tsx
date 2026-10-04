@@ -152,7 +152,7 @@ export function BiometricoProyecto() {
 
       const { insertados, mensaje: mGuardar } = await guardarMarcajes(proyecto.id, marcajesPuente, profile?.id ?? null)
 
-      // Si la carpeta tiene sucursal asignada, resolvemos los nombres de los colaboradores.
+      // Si la carpeta tiene sucursal asignada, resolvemos los nombres de los trabajadores.
       let identificados = 0
       if (!mGuardar) {
         const sucursal = sucursales.find((s) => s.id === proyecto.sucursal_id)
@@ -163,7 +163,7 @@ export function BiometricoProyecto() {
           for (const c of colaboradores) {
             const d = normalizarDni(c.dni)
             if (!d) continue
-            const nombre = [c.name, c.lastname].filter(Boolean).join(' ').trim() || d
+            const nombre = [c.lastname, c.name].filter(Boolean).join(' ').trim() || d
             porDni.set(d, { nombre, rol: c.role_name ?? '' })
           }
           if (porDni.size) {
@@ -317,7 +317,7 @@ export function BiometricoProyecto() {
                   ))}
                 </select>
                 <p className="mt-2 text-xs text-slate-400">
-                  Con sucursal asignada, los marcajes se relacionan con el listado de colaboradores para mostrar nombre y
+                  Con sucursal asignada, los marcajes se relacionan con el listado de trabajadores para mostrar nombre y
                   rol.
                 </p>
               </div>

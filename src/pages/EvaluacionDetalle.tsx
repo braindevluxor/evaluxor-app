@@ -18,6 +18,7 @@ import { Fotogaleria, FotogaleriaRutas } from '../components/dashboard/Fotogaler
 import { PlanoLectura } from '../components/PlanoEditor'
 import { pathsEvidenciaChecklist, pathsEvidenciaCumple, pathsEvidenciaOpcion } from '../lib/evidencias'
 import { IconoModulo } from '../components/IconoModulo'
+import { ordenarTrabajadores } from '../lib/data/colaboradores'
 
 function estadoBadge(puntaje: number | null): { texto: string; color: number } {
   if (puntaje == null) return { texto: 'Sin puntaje', color: 4 }
@@ -202,8 +203,8 @@ export function ValorRespuesta({
     }
     case 'LISTA_COLABORADORES': {
       const v = valor as ValorListaColaboradores | null
-      const cols = v?.colaboradores ?? []
-      if (!cols.length) return <p className="text-sm text-slate-400">Sin colaboradores</p>
+      const cols = ordenarTrabajadores(v?.colaboradores ?? [])
+      if (!cols.length) return <p className="text-sm text-slate-400">Sin trabajadores</p>
       const opts = (item.opciones ?? []) as Opcion[]
       const aplican = cols.filter((c) => c.aplica)
       const conChecksAplicables = aplican.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
@@ -221,9 +222,9 @@ export function ValorRespuesta({
           ) : null}
           <p className="text-sm font-semibold text-slate-700">
             {soloIncumplimientos
-              ? `${colaboradoresVisibles.length} colaborador(es) con incumplimientos`
+              ? `${colaboradoresVisibles.length} trabajador${colaboradoresVisibles.length === 1 ? '' : 'es'} con incumplimientos`
               : <>
-                  {aplican.length} colaboradores en cuenta · {cumplen}/{conChecksAplicables.length} completos
+                  {aplican.length} trabajador{aplican.length === 1 ? '' : 'es'} en cuenta · {cumplen}/{conChecksAplicables.length} completos
                   {conChecksAplicables.length < aplican.length ? ` · ${aplican.length - conChecksAplicables.length} sin puntos aplicables` : ''}
                 </>}
           </p>
@@ -238,7 +239,7 @@ export function ValorRespuesta({
                 <li key={c.dni} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <span className="min-w-0 font-medium text-slate-800">
-                      {c.name} {c.lastname}
+                      {c.lastname} {c.name}
                       <span className="ml-1.5 text-xs font-normal text-slate-500">C.I. {c.nationality ?? ''}{c.dni} · {c.role_name || 'Sin rol'}</span>
                     </span>
                     <span className="shrink-0">
@@ -342,11 +343,11 @@ export function ValorRespuesta({
             <table className="w-full table-fixed text-xs sm:text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                  <th scope="col" className="w-[13%] break-words px-1.5 py-2 font-bold sm:px-2">SKU</th>
-                  <th scope="col" className="w-[23%] break-words px-1.5 py-2 font-bold sm:px-2">Producto</th>
-                  <th scope="col" className="w-[12%] break-words px-1.5 py-2 text-right font-bold sm:px-2">{esPrecio ? 'Sistema' : 'Teórica'}</th>
-                  <th scope="col" className="w-[12%] break-words px-1.5 py-2 text-right font-bold sm:px-2">{esPrecio ? 'Hablador' : 'Física'}</th>
-                  <th scope="col" className="w-[18%] break-words px-1.5 py-2 font-bold sm:px-2">{esPrecio ? 'Precio base' : 'Sync'}</th>
+                  <th scope="col" className="w-[22%] break-words px-1 py-2 font-bold sm:px-2">SKU</th>
+                  <th scope="col" className="w-[18%] break-words px-1 py-2 font-bold sm:px-2">Producto</th>
+                  <th scope="col" className="w-[10%] break-words px-1 py-2 text-right font-bold sm:px-2">{esPrecio ? 'Sistema' : 'Teórica'}</th>
+                  <th scope="col" className="w-[10%] break-words px-1 py-2 text-right font-bold sm:px-2">{esPrecio ? 'Hablador' : 'Física'}</th>
+                  <th scope="col" className="w-[16%] break-words px-1 py-2 font-bold sm:px-2">{esPrecio ? 'Precio base' : 'Sync'}</th>
                   <th scope="col" className="w-[22%] break-words px-1.5 py-2 text-right font-bold sm:px-2">Estado</th>
                 </tr>
               </thead>
@@ -358,7 +359,15 @@ export function ValorRespuesta({
                       descuadra && (fisica! > teorica! ? 'bg-amber-50/70' : 'bg-red-50/50')
                     )}
                   >
-                    <td className="break-all px-1.5 py-2 font-medium text-slate-800 sm:px-2">{p.sku || '—'}</td>
+                    <td
+                      className="overflow-hidden text-ellipsis whitespace-nowrap px-1 py-2 font-medium text-slate-800 sm:px-2"
+                      style={{
+                        fontSize: p.sku.length > 22 ? '7px' : p.sku.length > 18 ? '8px' : p.sku.length > 12 ? '9px' : undefined
+                      }}
+                      title={p.sku}
+                    >
+                      {p.sku || '—'}
+                    </td>
                     <td className="break-words px-1.5 py-2 text-slate-600 sm:px-2">{p.nombre || '—'}</td>
                     <td className="break-all px-1.5 py-2 text-right tabular-nums text-slate-700 sm:px-2">{teorica ?? '—'}</td>
                     <td className="break-all px-1.5 py-2 text-right tabular-nums text-slate-700 sm:px-2">{fisica ?? '—'}</td>

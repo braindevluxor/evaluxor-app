@@ -265,8 +265,8 @@ create table if not exists public.items (
     'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES','UNIDAD_CHECKLIST','PLANO_XY','CONTENEDOR'
   )),
   texto text not null,
-  opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"...","puntos":3?,"tipo_respuesta":"CHECK|RANGO","minimo":30?,"unidad":"cm"?}]; puntos por opcion (opcional, hasta 3 decimales y mÃ­n. 0.001): si TODAS las opciones del CHECKLIST tienen puntos, la puntuacion del item se reparte entre ellas. tipo_respuesta RANGO: el evaluador ingresa un valor numerico y el punto cumple si alcanza el minimo aceptable. LISTA_COLABORADORES: checklist compartido por cada colaborador. PLANO_XY: sin opciones; el evaluador sube la imagen del layout y marca puntos (pines) con cumple/no cumple
-  colaboradores_filtro text check (colaboradores_filtro in ('ACTIVOS','INACTIVOS','TODOS')), -- LISTA_COLABORADORES: filtro aplicado al cargar colaboradores
+  opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"...","puntos":3?,"tipo_respuesta":"CHECK|RANGO","minimo":30?,"unidad":"cm"?}]; puntos por opcion (opcional, hasta 3 decimales y mÃ­n. 0.001): si TODAS las opciones del CHECKLIST tienen puntos, la puntuacion del item se reparte entre ellas. tipo_respuesta RANGO: el evaluador ingresa un valor numerico y el punto cumple si alcanza el minimo aceptable. LISTA_COLABORADORES: checklist compartido por cada trabajador. PLANO_XY: sin opciones; el evaluador sube la imagen del layout y marca puntos (pines) con cumple/no cumple
+  colaboradores_filtro text check (colaboradores_filtro in ('ACTIVOS','INACTIVOS','TODOS')), -- LISTA_COLABORADORES: filtro aplicado al cargar trabajadores
   responsables jsonb not null default '[]'::jsonb, -- responsables configurables; cada opcion usa opciones[i].responsable
   orden integer not null default 0,
   requerido boolean not null default false,
@@ -843,7 +843,7 @@ cross join (
     ('Presentacion', 'CUMPLE_NO_CUMPLE', 'Uniforme completo y limpio', NULL, 1, true),
     ('Presentacion', 'CUMPLE_NO_CUMPLE', 'Identificacion visible', NULL, 2, true),
     ('Frescos', 'CUMPLE_NO_CUMPLE', 'Temperatura de vitrinas adecuada', NULL, 1, true),
-    ('Atencion al cliente', 'CUMPLE_NO_CUMPLE', 'Colaboradores disponibles en la tienda', NULL, 1, true)
+    ('Atencion al cliente', 'CUMPLE_NO_CUMPLE', 'Trabajadores disponibles en la tienda', NULL, 1, true)
   ) as it(modulo_nombre, tipo, texto, opciones, orden, requerido)
 where mod.nombre = it.modulo_nombre
   and not exists (select 1 from public.items);

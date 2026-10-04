@@ -18,6 +18,19 @@ export interface ResultadoColaboradores {
   mensaje: string | null
 }
 
+const ORDEN_ES = new Intl.Collator('es', { sensitivity: 'base' })
+
+/** Ordena por apellido, luego nombre y por DNI como desempate estable. */
+export function ordenarTrabajadores<T extends Pick<ColaboradorAPI, 'lastname' | 'name' | 'dni'>>(
+  trabajadores: readonly T[]
+): T[] {
+  return [...trabajadores].sort((a, b) =>
+    ORDEN_ES.compare((a.lastname ?? '').trim(), (b.lastname ?? '').trim()) ||
+    ORDEN_ES.compare((a.name ?? '').trim(), (b.name ?? '').trim()) ||
+    Number(a.dni ?? 0) - Number(b.dni ?? 0)
+  )
+}
+
 interface RespuestaFuncion {
   ok?: boolean
   status?: number
@@ -31,7 +44,7 @@ export async function listarColaboradores(shopId: string): Promise<ResultadoCola
       body: { branchID: shopId }
     })
   } catch {
-    return { colaboradores: [], mensaje: 'Sin conexión para consultar los colaboradores.' }
+    return { colaboradores: [], mensaje: 'Sin conexión para consultar a los trabajadores.' }
   }
 
   const cuerpo = (respuesta?.data ?? null) as RespuestaFuncion | null
@@ -40,7 +53,7 @@ export async function listarColaboradores(shopId: string): Promise<ResultadoCola
     const status = cuerpo?.status
     return {
       colaboradores: [],
-      mensaje: status ? `Error ${status} al consultar los colaboradores.` : 'No se pudo consultar los colaboradores.'
+      mensaje: status ? `Error ${status} al consultar a los trabajadores.` : 'No se pudo consultar a los trabajadores.'
     }
   }
 
@@ -51,18 +64,12 @@ export async function listarColaboradores(shopId: string): Promise<ResultadoCola
       : null
 
   if (!arr) {
-    return { colaboradores: [], mensaje: 'La API no devolvió el listado de colaboradores.' }
+    return { colaboradores: [], mensaje: 'La API no devolvió el listado de trabajadores.' }
   }
 
-  const colaboradores = (arr as ColaboradorAPI[])
+  const colaboradores = ordenarTrabajadores((arr as ColaboradorAPI[])
     .filter((c) => c && typeof c === 'object' && c.dni != null && (c.name != null || c.lastname != null))
-    .sort((a, b) => {
-      const apeA = (a.lastname ?? '').trim().toLocaleLowerCase()
-      const apeB = (b.lastname ?? '').trim().toLocaleLowerCase()
-      const nomA = (a.name ?? '').trim().toLocaleLowerCase()
-      const nomB = (b.name ?? '').trim().toLocaleLowerCase()
-      return apeA.localeCompare(apeB) || nomA.localeCompare(nomB) || ((a.dni ?? 0) - (b.dni ?? 0))
-    })
+  )
 
   return { colaboradores, mensaje: null }
 }

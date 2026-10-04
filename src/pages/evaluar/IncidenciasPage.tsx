@@ -9,6 +9,7 @@ import { PhotoCapture } from '../../components/PhotoCapture'
 import { pathFotoIncidencia } from '../../lib/offline/sync'
 import { supabase } from '../../lib/supabase'
 import { Button, Modal, Spinner, Textarea } from '../../components/ui'
+import { ModalImagen } from '../../components/ModalImagen'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import {
   normalizarResponsables,
@@ -312,6 +313,7 @@ async function subirFotos(incidenteId: string, photoIds: string[]): Promise<stri
 function FotosNubeEditables({ paths, onQuitar }: { paths: string[]; onQuitar: (path: string) => void }) {
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [sinAcceso, setSinAcceso] = useState<Set<string>>(new Set())
+  const [imagenAbierta, setImagenAbierta] = useState<string | null>(null)
 
   useEffect(() => {
     let vivo = true
@@ -339,7 +341,9 @@ function FotosNubeEditables({ paths, onQuitar }: { paths: string[]; onQuitar: (p
       {paths.map((path) => (
         <div key={path} className="relative aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
           {urls[path] ? (
-            <img src={urls[path]} alt="Foto de la incidencia" className="h-full w-full object-cover" />
+            <button type="button" onClick={() => setImagenAbierta(urls[path])} aria-label="Ampliar foto de la incidencia" className="h-full w-full">
+              <img src={urls[path]} alt="Foto de la incidencia" className="h-full w-full object-cover" />
+            </button>
           ) : sinAcceso.has(path) ? (
             <div className="grid h-full place-items-center px-2 text-center text-[10px] font-medium text-slate-500">Foto no disponible. Revisa las políticas de Storage.</div>
           ) : (
@@ -356,6 +360,11 @@ function FotosNubeEditables({ paths, onQuitar }: { paths: string[]; onQuitar: (p
           </button>
         </div>
       ))}
+      <ModalImagen
+        src={imagenAbierta}
+        alt="Foto de la incidencia"
+        onClose={() => setImagenAbierta(null)}
+      />
     </div>
   )
 }

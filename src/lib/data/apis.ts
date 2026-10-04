@@ -87,7 +87,7 @@ export const APIS_DISPONIBLES: ApiDisponible[] = [
   {
     id: 'trabajadores',
     nombre: 'Trabajadores (talento humano)',
-    descripcion: 'Consulta por documento (C.I.) en los colaboradores de la sucursal.',
+    descripcion: 'Consulta por documento (C.I.) en los trabajadores de la sucursal.',
     campos: [
       { id: 'dni', etiqueta: 'Documento' },
       { id: 'nombre', etiqueta: 'Nombre y apellido' },

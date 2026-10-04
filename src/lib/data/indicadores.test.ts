@@ -392,7 +392,7 @@ describe('resumenItemsModulo', () => {
     expect(conc.conciliacion).toEqual({ total: 3, conciliados: 2, tasaDescuadre: 33.33 })
   })
 
-  it('cuenta colaboradores y unidades evaluadas (de los que aplican) y cuántos cumplen', () => {
+  it('cuenta trabajadores y unidades evaluadas (de los que aplican) y cuántos cumplen', () => {
     const items = [
       itemResumen('ilis', 0, 'LISTA_COLABORADORES', [{ id: 'c1', etiqueta: 'Check 1' }, { id: 'c2', etiqueta: 'Check 2' }]),
       itemResumen('iuni', 1, 'UNIDAD_CHECKLIST', [{ id: 'un1', etiqueta: 'Uno' }, { id: 'un2', etiqueta: 'Dos' }])

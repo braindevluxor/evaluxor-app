@@ -2,7 +2,7 @@ const ETIQUETAS_TIPO: Record<string, string> = {
   CHECKLIST: 'Check list',
   CUMPLE_NO_CUMPLE: 'Cumple / No cumple',
   CONCILIACION: 'Conciliación',
-  LISTA_COLABORADORES: 'Listado de colaboradores',
+  LISTA_COLABORADORES: 'Listado de trabajadores',
   UNIDAD_CHECKLIST: 'Unidad check list',
   PLANO_XY: 'Cumplimiento XY',
   CONTENEDOR: 'Sección (grupo)'

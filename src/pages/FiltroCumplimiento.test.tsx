@@ -168,7 +168,7 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
     expect(html).not.toContain('Con evidencia fotográfica')
   })
 
-  it('oculta colaboradores y opciones marcados No aplica', () => {
+  it('oculta trabajadores y opciones marcados No aplica', () => {
     const html = renderRespuesta(
       itemBase('LISTA_COLABORADORES', [
         { id: 'check', etiqueta: 'Punto aplicable' },
@@ -198,7 +198,7 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
       false
     )
 
-    expect(html).toContain('Ana Aplicable')
+    expect(html).toContain('Aplicable Ana')
     expect(html).not.toContain('Luis')
     expect(html).not.toContain('No aplica')
   })

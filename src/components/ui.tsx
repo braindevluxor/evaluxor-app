@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { createPortal } from 'react-dom'
 import { FolderOpen, X } from 'lucide-react'
 
 export function cn(...cls: (string | false | null | undefined)[]): string {
@@ -221,7 +222,8 @@ export function Modal({
   title,
   children,
   wide,
-  footer
+  footer,
+  backdropClassName
 }: {
   open: boolean
   onClose: () => void
@@ -229,12 +231,13 @@ export function Modal({
   children: ReactNode
   wide?: boolean
   footer?: ReactNode
+  backdropClassName?: string
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   useCerrarConEscape(open, onClose)
   if (!open) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 p-0 sm:p-4">
+  const contenido = (
+    <div className={cn('fixed inset-0 z-[100] flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-4', backdropClassName)}>
       <div
         className={cn('flex max-h-[92vh] w-full flex-col rounded-t-2xl sm:rounded-2xl bg-white', wide ? 'sm:max-w-2xl' : 'sm:max-w-md')}
       >
@@ -272,6 +275,7 @@ export function Modal({
       </div>
     </div>
   )
+  return typeof document === 'undefined' ? contenido : createPortal(contenido, document.body)
 }
 
 export function Confirmar({

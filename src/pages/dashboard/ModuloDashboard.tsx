@@ -243,7 +243,7 @@ export function ModuloDashboard() {
             </p>
             <p className="mt-2 text-[11px] text-slate-400">
               Acota el período o la sucursal con «Filtros»; cada ítem muestra el gráfico que mejor le corresponde (donut,
-              promedio por umbral, conciliación o colaboradores/unidades).
+              promedio por umbral, conciliación o trabajadores/unidades).
             </p>
           </div>
           <div className="shrink-0">

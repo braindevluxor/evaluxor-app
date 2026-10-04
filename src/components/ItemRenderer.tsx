@@ -3,7 +3,7 @@ import { Ban, Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Tra
 import type { Item, Opcion } from '../lib/types'
 import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, opcionesAplicablesColaborador, unidadCumple, formatearLastSync, formatearPrecioBase, guardarPerdidaConciliacion, opcionCumplida, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
-import { listarColaboradores } from '../lib/data/colaboradores'
+import { listarColaboradores, ordenarTrabajadores } from '../lib/data/colaboradores'
 import { aplicarHistorial, combinarPorDni } from '../lib/data/colaboradoresEstado'
 import { estadosCompletosDeEvaluacionesAnteriores } from '../lib/data/colaboradoresHistorico'
 import { useProgresoCarga } from '../lib/progresoCarga'
@@ -585,7 +585,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                       return (
                         <li key={i} className="space-y-2 rounded-xl border-2 border-primary bg-white px-3 py-2">
                           <p className="flex items-center gap-2 text-sm">
-                            <span className="font-semibold text-slate-800">{p.sku}</span>
+                            <span className="max-w-[55%] overflow-x-auto whitespace-nowrap text-[10px] font-semibold leading-none text-slate-800" title={p.sku}>{p.sku}</span>
                             {p.nombre ? <span className="min-w-0 flex-1 truncate text-slate-500">{p.nombre}</span> : <span className="flex-1" />}
                           </p>
                           <div className="flex flex-wrap items-end gap-2">
@@ -650,7 +650,11 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                               <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-tight text-slate-800">
                                 {p.nombre ?? p.sku}
                               </span>
-                              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold leading-none text-slate-500">
+                              <span
+                                className="max-w-[48%] shrink-0 overflow-x-auto whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold leading-none text-slate-500"
+                                style={{ fontSize: p.sku.length > 18 ? '8px' : p.sku.length > 12 ? '9px' : undefined }}
+                                title={p.sku}
+                              >
                                 {p.sku}
                               </span>
                             </div>
@@ -775,7 +779,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
   const [historialResuelto, setHistorialResuelto] = useState(false)
 
   const v = (valor as ValorListaColaboradores | null) ?? { colaboradores: [] }
-  const colaboradores = v.colaboradores ?? []
+  const colaboradores = ordenarTrabajadores(v.colaboradores ?? [])
   /**
    * Los que ya estaban completos y quedan ocultos. Se filtran acá, al pintar, y
    * no al guardar: el valor guardado los conserva (con su estado de la evaluación
@@ -802,21 +806,13 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
     }
   }
   const ocultos = new Set<number>([...ocultosHistorial, ...ocultosAhora])
-  const colaboradoresFiltrados = [...colaboradores]
-    .sort((a, b) => {
-      const apeA = (a.lastname ?? '').trim().toLocaleLowerCase()
-      const apeB = (b.lastname ?? '').trim().toLocaleLowerCase()
-      const nomA = (a.name ?? '').trim().toLocaleLowerCase()
-      const nomB = (b.name ?? '').trim().toLocaleLowerCase()
-      return apeA.localeCompare(apeB) || nomA.localeCompare(nomB) || ((a.dni ?? 0) - (b.dni ?? 0))
-    })
-    .filter((c) => {
-      const q = busqueda.trim().toLowerCase()
-      if (!q) return true
-      const documento = String(c.dni ?? '').toLowerCase()
-      const nombre = `${c.name ?? ''} ${c.lastname ?? ''}`.toLowerCase()
-      return documento.includes(q) || (c.name ?? '').toLowerCase().includes(q) || (c.lastname ?? '').toLowerCase().includes(q) || nombre.includes(q)
-    })
+  const colaboradoresFiltrados = colaboradores.filter((c) => {
+    const q = busqueda.trim().toLowerCase()
+    if (!q) return true
+    const documento = String(c.dni ?? '').toLowerCase()
+    const nombre = `${c.name ?? ''} ${c.lastname ?? ''}`.toLowerCase()
+    return documento.includes(q) || (c.name ?? '').toLowerCase().includes(q) || (c.lastname ?? '').toLowerCase().includes(q) || nombre.includes(q)
+  })
   const colaboradoresVisibles = colaboradoresFiltrados.filter((c) => {
     if (!ocultos.has(c.dni)) return true
     return hayBusqueda
@@ -973,7 +969,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         selected: []
       }))
     if (!nuevos.length) {
-      setInfo(`No hay colaboradores para el filtro configurado (${etiquetaFiltro}).`)
+      setInfo(`No hay trabajadores para el filtro configurado (${etiquetaFiltro}).`)
     }
     // A los que ya salieron bien se les carga el estado de la evaluación anterior,
     // para que no cuenten como incumplidos solo por estar ocultos.
@@ -1038,17 +1034,17 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
   const totalAplicables = conChecksAplicables.length
 
   if (!opts.length) {
-    return <p className="text-sm text-slate-400">Sin checklist definido para cada colaborador. El Líder debe configurarlo al crear el ítem.</p>
+    return <p className="text-sm text-slate-400">Sin checklist definido para cada trabajador. El Líder debe configurarlo al crear el ítem.</p>
   }
 
   return (
     <div className="space-y-3">
       <div className="rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
-        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Colaboradores de la tienda</p>
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Trabajadores de la tienda</p>
         {colaboradores.length ? (
           <>
             <p className="mt-1 text-sm text-slate-600">
-              {aplicando.length} colaboradores en cuenta ({etiquetaFiltro})
+              {aplicando.length} trabajadores en cuenta ({etiquetaFiltro})
               {totalAplicables > 0 ? (
                 <>
                   {' · '}
@@ -1061,13 +1057,13 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
           </>
         ) : (
           <p className="mt-1 text-xs text-slate-500">
-            El ítem cumple cuando todos los colaboradores en cuenta ({etiquetaFiltro}) tienen su checklist completo.
+            El ítem cumple cuando todos los trabajadores en cuenta ({etiquetaFiltro}) tienen su checklist completo.
           </p>
         )}
         <div className="mt-3 flex items-center gap-2">
           <Button type="button" variant="secondary" className="shrink-0 min-h-0 px-3 py-2" disabled={cargando} onClick={() => void cargar()} title="Trae los cambios de la API sin perder lo que ya revisaste">
             {colaboradores.length ? <RefreshCw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-            {cargando ? 'Cargando…' : colaboradores.length ? 'Actualizar listado' : 'Cargar colaboradores'}
+            {cargando ? 'Cargando…' : colaboradores.length ? 'Actualizar listado' : 'Cargar trabajadores'}
           </Button>
           {colaboradores.length ? (
             <Button
@@ -1273,16 +1269,16 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
             </p>
           ) : (
             <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-              No se encontraron colaboradores con “{busqueda}”.
+              No se encontraron trabajadores con “{busqueda}”.
             </p>
           )}
         </div>
       ) : !barraVisible ? (
-        <p className="text-sm text-slate-400">Aún no hay colaboradores cargados. Pulsa “Cargar colaboradores” para traerlos de la tienda.</p>
+        <p className="text-sm text-slate-400">Aún no hay trabajadores cargados. Pulsa “Cargar trabajadores” para traerlos de la tienda.</p>
       ) : null}
       <Confirmar
         open={confirmarLimpiar}
-        texto="¿Querés vaciar la lista de colaboradores? Se quitarán todos y se descartan los avances del checklist. Después podés volver a cargarla desde la tienda con «Cargar colaboradores»."
+        texto="¿Querés vaciar la lista de trabajadores? Se quitarán todos y se descartan los avances del checklist. Después podés volver a cargarla desde la tienda con «Cargar trabajadores»."
         textoConfirmar="Vaciar lista"
         onConfirm={limpiar}
         onCancel={() => setConfirmarLimpiar(false)}
