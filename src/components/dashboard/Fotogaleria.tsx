@@ -4,7 +4,15 @@ import type { Foto } from '../../lib/types'
 import { Skeleton } from '../ui'
 
 export function Fotogaleria({ fotos }: { fotos: Foto[] }) {
-  const paths = useMemo(() => Array.from(new Set(fotos.slice(0, 30).map((f) => f.path))), [fotos])
+  const paths = useMemo(() => fotos.map((foto) => foto.path), [fotos])
+  return <FotogaleriaRutas paths={paths} />
+}
+
+export function FotogaleriaRutas({ paths: pathsEntrada, compacta = false }: { paths: string[]; compacta?: boolean }) {
+  const paths = useMemo(() => {
+    const unicos = Array.from(new Set(pathsEntrada))
+    return compacta ? unicos : unicos.slice(0, 30)
+  }, [compacta, pathsEntrada])
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [cargando, setCargando] = useState(true)
   const [errorCarga, setErrorCarga] = useState<string | null>(null)
@@ -44,25 +52,27 @@ export function Fotogaleria({ fotos }: { fotos: Foto[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paths.join('|')])
 
-  if (!fotos.length) return null
+  if (!paths.length) return null
 
   return (
-    <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8">
+    <div className={compacta ? 'grid grid-cols-4 gap-1.5' : 'grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8'}>
       {cargando ? (
-        <div className="col-span-full grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="aspect-square w-full rounded-lg" />
+        <div className={compacta ? 'col-span-full grid grid-cols-4 gap-1.5' : 'col-span-full grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8'}>
+          {Array.from({ length: compacta ? Math.min(paths.length, 4) : 8 }).map((_, i) => (
+            <Skeleton key={i} className={compacta ? 'aspect-square w-full rounded-md' : 'aspect-square w-full rounded-lg'} />
           ))}
         </div>
       ) : null}
       {paths
         .filter((p) => urls[p])
         .map((p) => (
-          <a key={p} href={urls[p]} target="_blank" rel="noreferrer">
+          <a key={p} href={urls[p]} target="_blank" rel="noreferrer" className={compacta ? 'block min-w-0' : undefined}>
             <img
               src={urls[p]}
               alt="Evidencia"
-              className="aspect-square w-full rounded-lg border border-slate-200 object-cover transition-transform hover:scale-105"
+              className={compacta
+                ? 'aspect-square w-full rounded-md border border-slate-200 object-cover transition-transform hover:scale-110'
+                : 'aspect-square w-full rounded-lg border border-slate-200 object-cover transition-transform hover:scale-105'}
               loading="lazy"
             />
           </a>

@@ -1,10 +1,12 @@
-/// <reference types="node" />
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { buildPdfDocument, filtrarDetallePdf } from './index'
+import {
+  buildPdfDocument,
+  clasificarResultadosCargos,
+  filtrarDetallePdf,
+  type IncidenciaPdf
+} from './index'
 import type { DetalleEvaluacion } from '../data/indicadores'
+import type { ValorResponsable } from '../scoring'
 import type { Item, Modulo, Respuesta, VistaEvaluacion } from '../types'
 import { veredictoItem } from '../scoring'
 
@@ -119,7 +121,7 @@ const respuestas: Respuesta[] = [
   {
     id: 'r1', evaluacion_id: 'ev1', item_id: 'it-cn1', instancia_id: null,
     valor: { value: true, evidencias: [{ photoIds: ['f1', 'f2'], comentario: 'Cronograma exhibido junto al mesón de preparación.' }] },
-    respondido_por: 'p1', created_at: ''
+    respondido_por: 'p2', created_at: ''
   },
   {
     id: 'r2', evaluacion_id: 'ev1', item_id: 'it-cl1', instancia_id: null,
@@ -223,17 +225,104 @@ const detalle: DetalleEvaluacion = {
   instancias
 }
 
-describe('preview del PDF de resultados', () => {
-  it('genera el documento con todos los tipos de ítem y lo guarda', () => {
-    const doc = buildPdfDocument(detalle)
-    const bytes = new Uint8Array(doc.output('arraybuffer') as ArrayBuffer)
-    const dir = join(tmpdir(), 'evaluxor-pdf')
-    mkdirSync(dir, { recursive: true })
-    const file = join(dir, 'reporte-preview.pdf')
-    writeFileSync(file, bytes)
-    console.log('PDF generado:', file, '· páginas:', doc.getNumberOfPages())
-    expect(bytes.length).toBeGreaterThan(2000)
-    expect(doc.getNumberOfPages()).toBeGreaterThanOrEqual(3)
+describe('informe imprimible de resultados', () => {
+  it('separa resultados entre cargos de sucursal y central, del mayor porcentaje al menor', () => {
+    const resultados: ValorResponsable[] = [
+      { responsable: 'Cajero', items: 1, posible: 10, logrado: 8, porciento: 80 },
+      { responsable: 'Gerente', items: 1, posible: 10, logrado: 10, porciento: 100 },
+      { responsable: 'Mantenimiento', items: 1, posible: 10, logrado: 5, porciento: 50 },
+      { responsable: 'Cargo manual', items: 1, posible: 10, logrado: 9, porciento: 90 }
+    ]
+    const grupos = clasificarResultadosCargos(
+      resultados,
+      [{ departamento: 'Tienda', cargo: 'Cajero' }, { departamento: 'Tienda', cargo: 'Gerente' }],
+      [{ departamento: 'Central', cargo: 'Mantenimiento' }]
+    )
+
+    expect(grupos.sucursal.map(({ responsable }) => responsable)).toEqual(['Gerente', 'Cajero'])
+    expect(grupos.central.map(({ responsable }) => responsable)).toEqual(['Mantenimiento'])
+    expect([...grupos.sucursal, ...grupos.central].some(({ responsable }) => responsable === 'Cargo manual')).toBe(false)
+  })
+
+  it('muestra solo cargos clasificados y sustituye logrado/posible por puntos incumplidos', () => {
+    const detalleConCargo: DetalleEvaluacion = {
+      ...detalle,
+      respuestas: [{
+        id: 'fallo-gerencia',
+        evaluacion_id: 'ev1',
+        item_id: 'it-cn1',
+        instancia_id: null,
+        valor: { value: false, evidencias: [], responsables: ['Gerencia'] },
+        respondido_por: 'p1',
+        created_at: ''
+      }]
+    }
+    const output = buildPdfDocument(
+      detalleConCargo,
+      undefined,
+      {},
+      [],
+      {
+        sucursal: [],
+        central: [{ departamento: 'Central', cargo: 'Gerencia' }]
+      }
+    ).output()
+
+    expect(output).toContain('Puntos incumplidos')
+    expect(output).not.toContain('Logrado')
+    expect(output).not.toContain('Posible')
+    expect(output).not.toContain('Cargos sin clasificar')
+  })
+
+  it('genera un PDF A4 monocromo con portada, puntajes y resultados', () => {
+    const detalleConCodigo: DetalleEvaluacion = {
+      ...detalle,
+      evaluacion: {
+        ...evaluacion,
+        id: '12345678-1234-1234-1234-123456789abc'
+      }
+    }
+    const pdf = buildPdfDocument(detalleConCodigo, undefined, {
+      p1: { nombre: 'María Pérez', rol: 'LIDER' },
+      p2: { nombre: 'Carlos Gómez', rol: 'EVALUADOR' }
+    })
+    const output = pdf.output()
+    expect(output).toContain('%PDF-')
+    expect(pdf.internal.pageSize.getWidth()).toBeCloseTo(210)
+    expect(pdf.internal.pageSize.getHeight()).toBeCloseTo(297)
+    expect(pdf.getNumberOfPages()).toBeGreaterThanOrEqual(2)
+    expect(output).toContain('Puntuación general')
+    expect(output).toContain('Código de evaluación')
+    expect(output).toContain('12345678-1234-****-****-123456789abc')
+    expect(output).not.toContain('Evaluador responsable')
+    expect(output).not.toContain('Evaluación de sucursal')
+    expect(output).not.toContain('Euromaxx Villas de Aragua')
+    expect(output).toContain('Personal evaluador')
+    expect(output).toContain('2 usuarios subieron información.')
+    expect(output).toContain('Carlos Gómez')
+    expect(output).toContain('Evaluador')
+    expect(output).toContain('Líder')
+    expect(output).toContain('Firma')
+    expect(output).toContain('Gerente de Talento Humano')
+    expect(output).toContain('Gerente Corporativo')
+    expect(output).toContain('Puntaje final por módulo')
+    expect(output).toContain('Higiene y salubridad')
+    expect(output).toContain('Equipos de refrigeración en condiciones operativas')
+  })
+
+  it('muestra solo el porcentaje de conciliación y oculta los IDs de sucursal y central', () => {
+    const detalleConBranchId: DetalleEvaluacion = {
+      ...detalle,
+      evaluacion: {
+        ...evaluacion,
+        sucursal: { ...evaluacion.sucursal!, branch_id: '9' }
+      }
+    }
+    const output = buildPdfDocument(detalleConBranchId).output()
+
+    expect(output).not.toContain('% concilia')
+    expect(output).not.toContain('ID 9')
+    expect(output).not.toContain('ID 5')
   })
 
   it.each(['ambos', 'cumple', 'no-cumple'] as const)('filtra las respuestas del PDF según el selector %s', (filtro) => {
@@ -255,13 +344,13 @@ describe('preview del PDF de resultados', () => {
     ))).toBe(true)
   })
 
-  it.each(['ambos', 'cumple', 'no-cumple'] as const)('genera un PDF filtrado en modo %s', (filtro) => {
-    const doc = buildPdfDocument(detalle, filtro)
-    expect(doc.output('arraybuffer')).toBeInstanceOf(ArrayBuffer)
-    expect(doc.getNumberOfPages()).toBeGreaterThan(0)
+  it.each(['ambos', 'cumple', 'no-cumple'] as const)('genera PDF filtrado en modo %s', (filtro) => {
+    const output = buildPdfDocument(detalle, filtro).output()
+    expect(output).toContain('Filtro del informe')
+    expect(output).toContain('%PDF-')
   })
 
-  it('genera PDFs cuando las evidencias sincronizadas usan paths en lugar de photoIds', () => {
+  it('no incluye fotos ni códigos QR en el PDF', () => {
     const detalleConRutas: DetalleEvaluacion = {
       ...detalle,
       respuestas: respuestas.map((respuesta) => respuesta.item_id === 'it-cn1'
@@ -269,18 +358,47 @@ describe('preview del PDF de resultados', () => {
             ...respuesta,
             valor: {
               value: true,
-              evidencias: [{ paths: ['ev/evaluacion/item/foto.jpg'], comentario: 'Evidencia subida' }]
+              evidencias: [{ paths: ['ev/evaluacion/evidencia/foto.jpg'], comentario: 'Evidencia subida' }]
             }
           }
         : respuesta)
     }
 
-    const doc = buildPdfDocument(detalleConRutas, 'cumple')
-    expect(doc.output('arraybuffer')).toBeInstanceOf(ArrayBuffer)
-    expect(doc.getNumberOfPages()).toBeGreaterThan(0)
+    const output = buildPdfDocument(detalleConRutas, 'cumple').output()
+    expect(output).not.toContain('ev/evaluacion/evidencia/foto.jpg')
+    expect(output).toContain('Evidencia subida')
   })
 
-  it('mantiene comentarios extensos dentro de los márgenes y los continúa en otras páginas', () => {
+  it('usa tabla para checklist y ordena primero las opciones cumplidas, sin fotos', () => {
+    const detalleConFotosChecklist: DetalleEvaluacion = {
+      ...detalle,
+      respuestas: respuestas.map((respuesta) => respuesta.item_id === 'it-cl1'
+        ? {
+            ...respuesta,
+            valor: {
+              selected: ['o2', 'o1'],
+              informativos: ['o5'],
+              valores: { o4: -21 },
+              evidencias: {
+                o1: { paths: ['ev/ev1/evidencia/check-ok.jpg'] },
+                o2: { paths: ['ev/ev1/evidencia/check-ok-2.jpg'] },
+                o3: { paths: ['ev/ev1/evidencia/check-fail.jpg'] }
+              }
+            }
+          }
+        : respuesta)
+    }
+
+    const output = buildPdfDocument(detalleConFotosChecklist).output()
+    const firstCheck = output.indexOf('Estructura de cámaras en buen estado')
+    const firstFail = output.indexOf('Limpieza interior de cámaras')
+    expect(firstCheck).toBeGreaterThan(-1)
+    expect(firstCheck).toBeLessThan(firstFail)
+    expect(output).toContain('Descripción')
+    expect(output).not.toContain('check-ok.jpg')
+  })
+
+  it('mantiene comentarios largos en el PDF sin desbordar páginas', () => {
     const detalleLargo: DetalleEvaluacion = {
       ...detalle,
       respuestas: respuestas.map((respuesta) => respuesta.item_id === 'it-cn1'
@@ -288,14 +406,64 @@ describe('preview del PDF de resultados', () => {
             ...respuesta,
             valor: {
               value: true,
-              evidencias: [{ photoIds: [], comentario: 'Observación detallada '.repeat(900) }]
+              evidencias: [{ paths: [], comentario: `<Observación detallada ${'nota '.repeat(900)}>` }]
             }
           }
         : respuesta)
     }
 
-    const doc = buildPdfDocument(detalleLargo, 'cumple')
-    expect(doc.output('arraybuffer')).toBeInstanceOf(ArrayBuffer)
-    expect(doc.getNumberOfPages()).toBeGreaterThan(3)
+    const pdf = buildPdfDocument(detalleLargo, 'cumple')
+    const output = pdf.output()
+    expect(output).toContain('Observación detallada')
+    expect(pdf.getNumberOfPages()).toBeGreaterThanOrEqual(2)
+  })
+
+  it('agrega al final una hoja con incidencias, descripciones y responsables', () => {
+    const incidencias: IncidenciaPdf[] = [
+      { descripcion: 'Fuga en el área de refrigeración', responsables: [{ cargo: 'Mantenimiento', porValidar: false }] },
+      { descripcion: 'Falta señalización en depósito', responsables: [] }
+    ]
+    const pdf = buildPdfDocument(detalle, undefined, {}, incidencias)
+    const output = pdf.output()
+
+    expect(pdf.getNumberOfPages()).toBeGreaterThanOrEqual(3)
+    expect(output).toContain('Incidencias registradas')
+    expect(output).toContain('Fuga en el área de refrigeración')
+    expect(output).toContain('Mantenimiento')
+    expect(output).toContain('Falta señalización en depósito')
+    expect(output).toContain('Descripción')
+    expect(output).toContain('Responsable')
+  })
+
+  it('mantiene títulos largos en líneas separadas sin cortar el nombre del módulo', () => {
+    const detalleTituloLargo: DetalleEvaluacion = {
+      ...detalle,
+      modulos: [{
+        ...modulos[0],
+        nombre: 'Módulo de cumplimiento operativo y estándares generales de seguridad de sucursal'
+      }]
+    }
+    const output = buildPdfDocument(detalleTituloLargo).output()
+    expect(output).toContain('Módulo de cumplimiento operativo')
+    expect(output).toContain('estándares generales de seguridad')
+    expect(output).toContain('Cargos de la sucursal')
+  })
+
+  it('indica en la hoja final cuando no hay incidencias registradas', () => {
+    const pdf = buildPdfDocument(detalle)
+    const output = pdf.output()
+    expect(output).toContain('No hay incidencias registradas para esta evaluación.')
+    expect(output).toContain('Incidencias registradas')
+  })
+
+  it('ubica los cargos de central en una página independiente', () => {
+    const pdf = buildPdfDocument(detalle)
+    const paginas = (pdf.internal.pages as unknown as Array<string[] | undefined>)
+      .filter((pagina): pagina is string[] => Array.isArray(pagina))
+    const paginaSucursal = paginas.findIndex((pagina) => pagina.join('').includes('Cargos de la sucursal'))
+    const paginaCentral = paginas.findIndex((pagina) => pagina.join('').includes('Cargos de central'))
+
+    expect(paginaSucursal).toBeGreaterThan(-1)
+    expect(paginaCentral).toBeGreaterThan(paginaSucursal)
   })
 })

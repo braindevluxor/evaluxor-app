@@ -75,6 +75,9 @@ export default defineConfig({
       }
     })
   ],
+  optimizeDeps: {
+    include: ['jspdf', 'jspdf-autotable']
+  },
   server: {
     proxy: {
       // Reenvía al backend de precios como servidor (sin CORS). En producción

@@ -191,6 +191,23 @@ input[type='date'] {
   cursor: grabbing;
 }
 
+/* Reduce el relieve de las superficies de la interfaz; conserva los bordes de
+   los controles de formulario y de las tablas para mantener su legibilidad. */
+:where(div, section, article, aside, nav, li, a)[class*='rounded-'][class*='border'] {
+  border-width: 0 !important;
+  border-style: none !important;
+}
+
+[class*='shadow-'],
+[class~='shadow'] {
+  box-shadow: none !important;
+}
+
+.barra-rango::-webkit-slider-thumb,
+.barra-rango::-moz-range-thumb {
+  box-shadow: none;
+}
+
 /* --- Barra de KPIs (la barra superior azul del dashboard) -------------------- */
 .barra-kpis {
   animation: barra-kpis-entrar 0.5s ease-out both;

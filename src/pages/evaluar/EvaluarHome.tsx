@@ -43,6 +43,7 @@ export function EvaluarHome() {
 
   const fechaBonita = (fecha: string) =>
     new Date(`${fecha}T12:00:00`).toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' })
+  const sucursalesAbiertas = sucursales.filter((sucursal) => !!activas[sucursal.id])
 
   const borrarBorrador = async () => {
     if (!confirmarBorrador || borrando) return
@@ -64,14 +65,16 @@ export function EvaluarHome() {
           <p className="text-sm text-slate-500">Selecciona la sucursal con evaluación abierta por el Líder.</p>
         </div>
 
-        {!sucursales.length ? (
+        {!sucursalesAbiertas.length ? (
           <EmptyState
-            title="No hay sucursales activas"
-            subtitle="El Líder debe crear sucursales para poder evaluar."
+            title={sucursales.length ? 'No hay evaluaciones abiertas' : 'No hay sucursales activas'}
+            subtitle={sucursales.length
+              ? 'El Líder debe abrir una evaluación para que la sucursal aparezca aquí.'
+              : 'El Líder debe crear sucursales para poder evaluar.'}
           />
         ) : (
           <div className="space-y-3">
-            {sucursales.map((s) => {
+            {sucursalesAbiertas.map((s) => {
               const activa = activas[s.id]
               const draft = conDraft[s.id]
               return (

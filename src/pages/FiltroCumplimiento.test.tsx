@@ -104,7 +104,48 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
     expect(html).toContain('Opción pendiente')
     expect(html).not.toContain('Opción cumplida')
     expect(html).not.toContain('Opción no aplica')
-    expect(html).toContain('No cumplidas')
+    expect(html).toContain('<table')
+    expect(html).toContain('Descripción')
+    expect(html).toContain('Responsable')
+    expect(html).toContain('Foto')
+  })
+
+  it('muestra responsable solo cuando el checklist tiene opciones no cumplidas', () => {
+    const item = itemBase('CHECKLIST', [
+      { id: 'ok', etiqueta: 'Equipo limpio', responsables: ['Soporte'] },
+      { id: 'fallo', etiqueta: 'Cableado ordenado', responsables: ['Mantenimiento'] }
+    ])
+    const incumplido = renderRespuesta(item, {
+      selected: ['ok'],
+      responsablesPorOpcion: { fallo: ['Coordinación'] },
+      evidencias: { fallo: { paths: ['ev/evaluacion/item/foto.jpg'] } }
+    }, false)
+    expect(incumplido).toContain('Responsable')
+    expect(incumplido).toContain('Coordinación')
+    expect(incumplido).toContain('Cableado ordenado')
+    expect(incumplido).toContain('grid-cols-4')
+
+    const cumplido = renderRespuesta(item, { selected: ['ok', 'fallo'] }, false)
+    expect(cumplido).not.toContain('Responsable</th>')
+    expect(cumplido).toContain('Descripción')
+    expect(cumplido).toContain('Foto')
+  })
+
+  it('pone un check o una X antes de la descripción y ordena primero los checks', () => {
+    const html = renderRespuesta(
+      itemBase('CHECKLIST', [
+        { id: 'fallo', etiqueta: 'Falla primero' },
+        { id: 'ok', etiqueta: 'Correcto segundo' }
+      ]),
+      { selected: ['ok'] },
+      false
+    )
+
+    expect(html.indexOf('Correcto segundo')).toBeLessThan(html.indexOf('Falla primero'))
+    expect(html).toContain('aria-label="Cumple"')
+    expect(html).toContain('aria-label="No cumple"')
+    expect(html).not.toContain('>Cumple</span>')
+    expect(html).not.toContain('>No cumple</span>')
   })
 
   it('oculta opciones No aplica y sus evidencias en el detalle normal del checklist', () => {

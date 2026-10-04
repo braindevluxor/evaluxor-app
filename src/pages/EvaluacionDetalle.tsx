@@ -3,18 +3,18 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, FileDown, FolderOpen, RefreshCw, Tag, X } from 'lucide-react'
 import { useOffline } from '../context/OfflineContext'
 import { obtenerEvaluacion, resumirEvaluacion, listarPerfilesSync, type DetalleEvaluacion } from '../lib/data/indicadores'
-import { descargarPdf } from '../lib/pdf'
+import { descargarInformePdf } from '../lib/pdf'
 import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
 import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
-import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, conciliacionComparable, colaboradorCumple, opcionesAplicablesColaborador, opcionCumplida, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, tieneRespuesta, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem } from '../lib/scoring'
+import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, conciliacionComparable, colaboradorCumple, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, tieneRespuesta, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Foto, Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Card, Puntaje, Skeleton, SkeletonTarjetas, Spinner, cn } from '../components/ui'
 import { UltimaSync } from '../components/UltimaSync'
 import { IncidenciasEvaluacion } from '../components/IncidenciasEvaluacion'
-import { Fotogaleria } from '../components/dashboard/Fotogaleria'
+import { Fotogaleria, FotogaleriaRutas } from '../components/dashboard/Fotogaleria'
 import { PlanoLectura } from '../components/PlanoEditor'
 import { pathsEvidenciaChecklist, pathsEvidenciaCumple, pathsEvidenciaOpcion } from '../lib/evidencias'
 
@@ -128,39 +128,74 @@ export function ValorRespuesta({
       const opciones = (item.opciones ?? []) as Opcion[]
       const sel = (v?.selected ?? []).filter((id) => !opcionesNoAplican.includes(id))
       if (!sel.length && !opcionesNoAplican.length) return <p className="text-sm text-slate-400">Ninguna opción marcada</p>
-      const labels = sel.map((id) => {
-        const o = opciones.find((x) => x.id === id)
-        return o ? etiquetaOpcion(o, v) : id
-      })
       const pendientes = opcionesSinTildar(opciones, v)
-      const conEvidencia = opciones.filter((o) =>
-        !opcionesNoAplican.includes(o.id) && pathsEvidenciaOpcion(v?.evidencias?.[o.id]).length > 0
-      ).length
-      if (soloIncumplimientos) {
-        const fallas = pendientes.map((o) => etiquetaOpcion(o, v))
-        const evidenciasFalla = pendientes.filter((o) => pathsEvidenciaOpcion(v?.evidencias?.[o.id]).length > 0).length
-        return (
-          <div className="space-y-3">
-            <Pendientes titulo="No cumplidas" etiquetas={fallas} />
-            {evidenciasFalla ? (
-              <p className="text-xs font-medium text-slate-500">Con evidencia fotográfica en {evidenciasFalla} opción(es) no cumplidas.</p>
-            ) : null}
-          </div>
-        )
-      }
+      const opcionesVisibles = (soloIncumplimientos ? pendientes : opciones)
+        .filter((opcion) => !opcionesNoAplican.includes(opcion.id))
+        .sort((a, b) => Number(opcionCumplida(b, v, b.id)) - Number(opcionCumplida(a, v, a.id)))
+      const mostrarResponsables = pendientes.length > 0
       return (
-        <div className="space-y-3">
-          {sel.length ? (
-            <div className="flex flex-wrap gap-1.5">
-              {labels.map((l) => (
-                <span key={l} className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-semibold text-primary-700">{l}</span>
-              ))}
-            </div>
-          ) : null}
-          <Pendientes titulo="Sin tildar" etiquetas={pendientes.map((o) => etiquetaOpcion(o, v))} />
-          {conEvidencia ? (
-            <p className="text-xs font-medium text-slate-500">Con evidencia fotográfica en {conEvidencia} opción(es).</p>
-          ) : null}
+        <div className="overflow-hidden rounded-lg border border-slate-200">
+          <table className="w-full table-fixed text-left text-xs">
+            <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              <tr>
+                <th scope="col" className={cn('px-3 py-2', mostrarResponsables ? 'w-[46%]' : 'w-[58%]')}>Descripción</th>
+                {mostrarResponsables ? <th scope="col" className="w-[22%] px-2 py-2">Responsable</th> : null}
+                <th scope="col" className={cn('px-2 py-2', mostrarResponsables ? 'w-[32%]' : 'w-[42%]')}>Foto</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {opcionesVisibles.map((opcion) => {
+                const cumplida = opcionCumplida(opcion, v, opcion.id)
+                const seleccionados = v?.responsablesPorOpcion?.[opcion.id] ?? []
+                const responsables = cumplida || !mostrarResponsables
+                  ? []
+                  : seleccionados.length
+                    ? seleccionados
+                    : v?.responsablesGerente
+                      ? [v.responsablesGerente]
+                      : responsablesDeOpcion(opcion).length
+                        ? responsablesDeOpcion(opcion)
+                        : item.responsables ?? []
+                const fotos = pathsEvidenciaOpcion(v?.evidencias?.[opcion.id])
+                return (
+                  <tr key={opcion.id} className={cn(cumplida ? 'bg-white' : 'bg-red-50/40')}>
+                    <td className="break-words px-3 py-2.5 align-top text-slate-700">
+                      <span className="flex items-start gap-2">
+                        <span
+                          aria-label={cumplida ? 'Cumple' : 'No cumple'}
+                          title={cumplida ? 'Cumple' : 'No cumple'}
+                          className={cn(
+                            'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-black leading-none',
+                            cumplida ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                          )}
+                        >
+                          {cumplida ? '✓' : '×'}
+                        </span>
+                        <span>{etiquetaOpcion(opcion, v)}</span>
+                      </span>
+                    </td>
+                    {mostrarResponsables ? (
+                      <td className="break-words px-2 py-2.5 align-top text-slate-600">
+                        {responsables.length ? responsables.join(', ') : '—'}
+                      </td>
+                    ) : null}
+                    <td className="px-2 py-2 align-top">
+                      {fotos.length
+                        ? <FotogaleriaRutas paths={fotos} compacta />
+                        : <span className="text-slate-300">—</span>}
+                    </td>
+                  </tr>
+                )
+              })}
+              {!opcionesVisibles.length ? (
+                <tr>
+                  <td colSpan={mostrarResponsables ? 3 : 2} className="px-3 py-3 text-center text-slate-400">
+                    No hay opciones incumplidas.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
       )
     }
@@ -366,6 +401,7 @@ export function EvaluacionDetalle() {
   const [sincronizando, setSincronizando] = useState(false)
   const [aviso, setAviso] = useState<{ texto: string; ok: boolean } | null>(null)
   const [error, setError] = useState('')
+  const [moduloActivoId, setModuloActivoId] = useState('')
   /**
    * Filtro del detalle. El veredicto sale del mismo `proporcionItem` que calcula
    * el puntaje, así que "No cumplido" es exactamente lo que el tablero descuenta:
@@ -373,6 +409,31 @@ export function EvaluacionDetalle() {
    */
   const [filtro, setFiltro] = useState<'ambos' | 'cumple' | 'no-cumple'>('ambos')
   const { online, pendientes, sync } = useOffline()
+  const moduloIdsKey = detalle?.modulos.map((modulo) => modulo.id).join('|') ?? ''
+
+  useEffect(() => {
+    const moduloIds = moduloIdsKey ? moduloIdsKey.split('|') : []
+    if (!moduloIds.length) {
+      setModuloActivoId('')
+      return
+    }
+    setModuloActivoId((actual) => moduloIds.includes(actual) ? actual : moduloIds[0])
+    if (typeof IntersectionObserver === 'undefined') return
+
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+      const id = visible[0]?.target.id.replace(/^modulo-/, '')
+      if (id) setModuloActivoId(id)
+    }, { rootMargin: '-20% 0px -65% 0px', threshold: 0 })
+
+    for (const id of moduloIds) {
+      const section = document.getElementById(`modulo-${id}`)
+      if (section) observer.observe(section)
+    }
+    return () => observer.disconnect()
+  }, [moduloIdsKey])
 
   const recargar = useCallback(async () => {
     const d = await obtenerEvaluacion(evaluacionId)
@@ -560,9 +621,9 @@ export function EvaluacionDetalle() {
     setError('')
     setDescargando(true)
     try {
-      await descargarPdf(evaluacion.id, filtro)
+      await descargarInformePdf(evaluacion.id, filtro)
     } catch (error) {
-      setError(`No se pudo generar el PDF: ${detalleTecnico(error)}`)
+      setError(`No se pudo descargar el PDF: ${detalleTecnico(error)}`)
     } finally {
       setDescargando(false)
     }
@@ -601,7 +662,7 @@ export function EvaluacionDetalle() {
               onClick={() => void descargar()}
             >
               {descargando ? <Spinner size={16} /> : <FileDown className="h-4 w-4" />}
-              {descargando ? 'Generando…' : 'PDF'}
+              {descargando ? 'Generando PDF…' : 'Descargar PDF'}
             </Button>
           </div>
         </div>
@@ -787,7 +848,7 @@ export function EvaluacionDetalle() {
                     </div>
                   </div>
                   <ValorRespuesta item={item} valor={res.valor} soloIncumplimientos={filtro === 'no-cumple'} />
-                  <Fotogaleria fotos={fotosRespuesta} />
+                  {item.tipo !== 'CHECKLIST' ? <Fotogaleria fotos={fotosRespuesta} /> : null}
                 </div>
               )
             }
@@ -896,9 +957,19 @@ export function EvaluacionDetalle() {
                   <li key={modulo.id}>
                     <a
                       href={`#modulo-${modulo.id}`}
-                      className="flex items-start gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-primary-50 hover:text-primary-900"
+                      aria-current={moduloActivoId === modulo.id ? 'location' : undefined}
+                      onClick={() => setModuloActivoId(modulo.id)}
+                      className={cn(
+                        'flex items-start gap-2 rounded-lg px-2 py-2 text-sm font-semibold transition-colors',
+                        moduloActivoId === modulo.id
+                          ? 'bg-primary-100 text-primary-900 ring-1 ring-primary-300'
+                          : 'text-slate-600 hover:bg-primary-50 hover:text-primary-900'
+                      )}
                     >
-                      <span className="shrink-0 text-xs tabular-nums text-slate-400">{index + 1}.</span>
+                      <span className={cn(
+                        'shrink-0 text-xs tabular-nums',
+                        moduloActivoId === modulo.id ? 'text-primary-800' : 'text-slate-400'
+                      )}>{index + 1}.</span>
                       <span className="min-w-0 break-words">{modulo.nombre}</span>
                     </a>
                   </li>

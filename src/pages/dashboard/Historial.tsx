@@ -16,7 +16,7 @@ import {
   type ConjuntoDatos
 } from '../../lib/data/indicadores'
 import type { EstadoEvaluacion, VistaEvaluacion } from '../../lib/types'
-import { descargarPdf } from '../../lib/pdf'
+import { descargarInformePdf } from '../../lib/pdf'
 import { verTodo } from '../../lib/roles'
 import { Badge, Button, Card, Confirmar, Field, Input, Puntaje, Select, Skeleton, SkeletonFilas, Spinner } from '../../components/ui'
 
@@ -146,9 +146,9 @@ export function Historial() {
     setError(null)
     setDescargando(ev.id)
     try {
-      await descargarPdf(ev.id)
+      await descargarInformePdf(ev.id)
     } catch {
-      setError('No se pudo generar el PDF. Intenta de nuevo en unos segundos.')
+      setError('No se pudo descargar el PDF. Intenta de nuevo.')
     }
     setDescargando(null)
   }
@@ -397,7 +397,7 @@ export function Historial() {
                           onClick={() => void descargar(ev)}
                         >
                           {descargando === ev.id ? <Spinner size={16} /> : <FileDown className="h-4 w-4" />}
-                          {descargando === ev.id ? 'Generando…' : 'PDF'}
+                          {descargando === ev.id ? 'Generando PDF…' : 'Descargar PDF'}
                         </Button>
                         {esLider ? (
                           <button

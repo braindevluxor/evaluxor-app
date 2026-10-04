@@ -13,6 +13,13 @@ function fuente(rel: string): string {
 }
 
 describe('avance de la evaluación · solo cuentan respuestas con contenido', () => {
+  it('EvaluarHome solo muestra sucursales con una evaluación abierta', () => {
+    const src = fuente('./EvaluarHome.tsx')
+    expect(src).toContain('const sucursalesAbiertas = sucursales.filter((sucursal) => !!activas[sucursal.id])')
+    expect(src).toContain('{sucursalesAbiertas.map((s) =>')
+    expect(src).toContain('No hay evaluaciones abiertas')
+  })
+
   it('EvaluarSucursal (burbuja y modal de módulos) usa tieneRespuesta', () => {
     const src = fuente('./EvaluarSucursal.tsx')
     expect(src).toContain('tieneRespuesta')

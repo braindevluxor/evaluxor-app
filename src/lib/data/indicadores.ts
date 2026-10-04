@@ -1,5 +1,5 @@
 import { supabase } from '../supabase'
-import type { Evaluacion, Respuesta, Item, Foto, Modulo, Opcion, VistaEvaluacion, EstadoEvaluacion, SucursalOpcion, InstanciaGrupo, SucursalModulo, TipoItem } from '../types'
+import type { Evaluacion, Respuesta, Item, Foto, Modulo, Opcion, VistaEvaluacion, EstadoEvaluacion, Rol, SucursalOpcion, InstanciaGrupo, SucursalModulo, TipoItem } from '../types'
 import {
   proporcionItem,
   puntajePonderado,
@@ -53,12 +53,12 @@ export interface DetalleEvaluacion {
 /** Datos de perfil (nombre + última subida a la nube) de los ids indicados. */
 export async function listarPerfilesSync(
   ids: string[]
-): Promise<Record<string, { nombre: string; ultima_sync: string | null }>> {
-  const out: Record<string, { nombre: string; ultima_sync: string | null }> = {}
+): Promise<Record<string, { nombre: string; ultima_sync: string | null; rol: Rol }>> {
+  const out: Record<string, { nombre: string; ultima_sync: string | null; rol: Rol }> = {}
   if (!ids.length) return out
-  const { data } = await supabase.from('profiles').select('id,nombre,ultima_sync').in('id', ids)
-  for (const p of (data ?? []) as { id: string; nombre: string; ultima_sync: string | null }[]) {
-    out[p.id] = { nombre: p.nombre, ultima_sync: p.ultima_sync ?? null }
+  const { data } = await supabase.from('profiles').select('id,nombre,ultima_sync,rol').in('id', ids)
+  for (const p of (data ?? []) as { id: string; nombre: string; ultima_sync: string | null; rol: Rol }[]) {
+    out[p.id] = { nombre: p.nombre, ultima_sync: p.ultima_sync ?? null, rol: p.rol }
   }
   return out
 }

@@ -6,7 +6,7 @@ import { Badge, Button, EmptyState, Puntaje, SkeletonTarjetas, Spinner } from '.
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import { useAuth } from '../../context/AuthContext'
 import { consultarEvaluaciones } from '../../lib/data/indicadores'
-import { descargarPdf } from '../../lib/pdf'
+import { descargarInformePdf } from '../../lib/pdf'
 
 const COLOR_ESTADO: Record<EstadoEvaluacion, number> = {
   PROGRAMADA: 4,
@@ -42,9 +42,9 @@ export function MisEvaluaciones() {
     setError(null)
     setDescargando(ev.id)
     try {
-      await descargarPdf(ev.id)
+      await descargarInformePdf(ev.id)
     } catch {
-      setError('No se pudo generar el PDF. Intenta de nuevo en unos segundos.')
+      setError('No se pudo descargar el PDF. Intenta de nuevo.')
     }
     setDescargando(null)
   }
@@ -89,7 +89,7 @@ export function MisEvaluaciones() {
                   onClick={() => void descargar(ev)}
                 >
                   {descargando === ev.id ? <Spinner size={16} /> : <FileDown className="h-4 w-4" />}
-                  {descargando === ev.id ? 'Generando…' : 'PDF'}
+                  {descargando === ev.id ? 'Generando PDF…' : 'Descargar PDF'}
                 </Button>
                 <Link
                   to={`/evaluaciones/${ev.id}`}
