@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { limpiarMfaCache } from './mfaEstado'
 
 export interface FactorTotp {
   id: string
@@ -29,6 +30,8 @@ export async function confirmarConfigTotp(factorId: string, code: string): Promi
   if (error) {
     throw new Error('El código no es válido. Verifica que esté sincronizado o vuelve a escanear el QR.')
   }
+  // La cuenta pasó a tener TOTP verificado: el estado cacheado dice lo contrario.
+  limpiarMfaCache()
 }
 
 export async function desactivarTotp(code: string): Promise<void> {
@@ -39,6 +42,8 @@ export async function desactivarTotp(code: string): Promise<void> {
   if (verr) throw new Error('El código no es válido o expiró.')
   const { error } = await supabase.auth.mfa.unenroll({ factorId: factor.id })
   if (error) throw new Error(mensajeTotp(error.message))
+  // Ya no hay MFA en esta cuenta: la caché seguiría pidiendo TOTP.
+  limpiarMfaCache()
 }
 
 function mensajeTotp(msg: string): string {
