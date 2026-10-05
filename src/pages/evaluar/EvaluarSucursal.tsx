@@ -7,7 +7,7 @@ import { useOffline } from '../../context/OfflineContext'
 import { hijosOrdenados } from '../../lib/hierarchy'
 import { claveRespuesta, pasosDeModulo, raicesDeModulo } from '../../lib/pasos'
 import { tieneRespuesta } from '../../lib/scoring'
-import { causaSubida, detalleTecnico, mensajeSubida, type CausaSubida } from '../../lib/subida'
+import { causaSubida, detalleTecnico, mensajeSubida, type FallaGuardado } from '../../lib/subida'
 import {
   getDraft,
   putDraft,
@@ -101,7 +101,9 @@ export function EvaluarSucursal() {
   // Fallo de la última subida, con su causa real (`sin_conexion`, `rechazada` por
   // RLS, `servidor`...). Antes era un booleano que siempre terminaba diciendo
   // "revisá tu conexión", con reintento cada 12 s pase lo que pase.
-  const [fallaSubida, setFallaSubida] = useState<{ causa: CausaSubida; detalle: string } | null>(null)
+  // `explicacion` viene cuando el servidor pudo decir QUÉ regla de RLS falló
+  // (ver lib/permisos-guardado.ts): sin eso el mensaje tiene que adivinar.
+  const [fallaSubida, setFallaSubida] = useState<FallaGuardado | null>(null)
   // Respuestas que el servidor aceptó salvo las de ítems que ya no existen o que
 // el evaluador ya no puede escribir: el resto del avance sí subió, pero esto no
 // lo digan como un todo o menos. Los motivos cambian lo que hay que hacer.
@@ -817,10 +819,18 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
               <CloudOff className="mt-px h-4 w-4 shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="font-black">
-                  {mensajeSubida(fallaSubida.causa).titulo}: tu avance está guardado en este teléfono
-                  <span className="font-medium"> pero aún no llegó a la nube.</span>
+                  {/* Con `explicacion` el mensaje ya dice qué módulo falla y qué
+                      hacer, y se cierra solo: el título genérico al lado repetía. */}
+                  {fallaSubida.explicacion ?? (
+                    <>
+                      {mensajeSubida(fallaSubida.causa).titulo}: tu avance está guardado en este teléfono
+                      <span className="font-medium"> pero aún no llegó a la nube.</span>
+                    </>
+                  )}
                 </p>
-                <p className="mt-0.5 font-medium leading-snug">{mensajeSubida(fallaSubida.causa).ayuda}</p>
+                {!fallaSubida.explicacion ? (
+                  <p className="mt-0.5 font-medium leading-snug">{mensajeSubida(fallaSubida.causa).ayuda}</p>
+                ) : null}
                 {/* Con `reintentar: false` (dato obsoleto) no hay intervalo que
                     prometer: el mensaje de ayuda ya dice que no reintenta. */}
                 {mensajeSubida(fallaSubida.causa).reintentar ? (

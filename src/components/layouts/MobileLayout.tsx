@@ -48,7 +48,14 @@ export function SyncBanner() {
         </button>
       ) : null}
       {online && ultimoResultado?.fail && ultimoResultado.error ? (
-        <span className="basis-full break-words text-[11px] text-amber-200">{ultimoResultado.error}</span>
+        // El motivo va escrito; la interna del servidor queda en el title, a un
+        // toque de distancia para el que tiene que pasarlo al Líder.
+        <span
+          className="basis-full break-words text-[11px] leading-snug text-amber-200"
+          title={ultimoResultado.detalle}
+        >
+          {ultimoResultado.error}
+        </span>
       ) : null}
     </div>
   )

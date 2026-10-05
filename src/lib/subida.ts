@@ -19,11 +19,26 @@ export type CausaSubida =
   | 'servidor'
   | 'desconocida'
 
-export interface ErrorSubida extends Error {
+/**
+ * Lo que la pantalla guarda de una subida que falló. No es un `Error`: no se
+ * guarda el error, se guarda qué pasó y qué se le puede decir a la persona.
+ */
+export interface FallaGuardado {
   causa: CausaSubida
   /** Código y mensaje crudo del servidor: sirve para diagnosticar sin adivinar. */
   detalle: string
+  /**
+   * Por qué lo rechazó el servidor, en una frase que ya sabe el cliente.
+   *
+   * Opcional a propósito: solo lo llena `offline/sync.ts` cuando pudo comprobar
+   * la regla que falló (ver `lib/permisos-guardado.ts`). Si no se sabe, se deja
+   * en null y la pantalla usa el texto genérico de `mensajeSubida`, que es menos
+   * preciso pero no miente.
+   */
+  explicacion?: string
 }
+
+export interface ErrorSubida extends Error, FallaGuardado {}
 
 interface Partes {
   code: string

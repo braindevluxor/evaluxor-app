@@ -1,5 +1,6 @@
 import { supabase } from '../supabase'
-import { causaSubida, detalleTecnico, errorSubida, type ErrorSubida } from '../subida'
+import { causaSubida, detalleTecnico, errorSubida, mensajeSubida, type ErrorSubida } from '../subida'
+import { bloqueosDeGuardado, explicacionBloqueos, type ReglasGuardado } from '../permisos-guardado'
 import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, respuestasConInstancia, incidentesPendientes, eliminarIncidente, type SyncJob, type DraftEval } from './db'
 import { photoPath, convertirValor, extraerPhotoIds, idsFotosRespuesta } from './transform'
 import { normalizarResponsables, responsablesAColumna } from '../data/responsablesIncidencia'
@@ -227,21 +228,109 @@ async function subirLote(inst: FilaInstancia[], resp: FilaRespuesta[]): Promise<
   }
 }
 
+/** Cuántos ids entran por consulta al catálogo: van en la URL y tienen un tope. */
+const idsPorConsulta = 100
+
+/**
+ * Los datos que hay que mirar para saber qué regla de RLS falló. Todos están
+ * abiertos a autenticados salvo `asignaciones_modulos`, del que cada usuario ve
+ * solo las suyas (política `asignaciones_modulos_select`), que es justo lo que
+ * hace falta: si el módulo del ítem no aparece ahí con `activa`, no lo tiene.
+ *
+ * Devuelve `null` si falta algo: sin los datos completos es mejor no explicar
+ * nada que explicar la mitad y dejar al evaluador creyendo a medias.
+ */
+async function reglasDeGuardado(sucursalId: string | undefined, itemIds: string[]): Promise<ReglasGuardado | null> {
+  if (!sucursalId || !itemIds.length) return null
+  try {
+    // Los ids van en la URL del POST, así que un avance largo se reparte: metidos
+    // todos en un `in` una evaluación con muchas respuestas llegaría a cortar la
+    // petición, y perder el diagnóstico por eso sería perderlo justamente en el
+    // caso grande, que es donde más ítems puede haber bloqueados.
+    const trozos: string[][] = []
+    for (let i = 0; i < itemIds.length; i += idsPorConsulta) trozos.push(itemIds.slice(i, i + idsPorConsulta))
+    const [consultas, asignaciones, deLaSucursal] = await Promise.all([
+      Promise.all(trozos.map((ids) => supabase.from('items').select('id, modulo_id').in('id', ids))),
+      supabase.from('asignaciones_modulos').select('modulo_id').eq('activa', true),
+      supabase.from('sucursal_modulos').select('modulo_id').eq('sucursal_id', sucursalId).eq('activa', true)
+    ])
+    if (asignaciones.error || deLaSucursal.error) return null
+    if (consultas.some((c) => c.error)) return null
+
+    const filas = consultas.flatMap((c) => (c.data ?? []) as { id: string; modulo_id: string | null }[])
+    const moduloDeItem = new Map<string, string | null>(filas.map((f) => [f.id, f.modulo_id ?? null]))
+
+    // Los nombres van aparte para poder decir «Almacén» y no un UUID. Si esta
+    // consulta falla se sigue igual: el nombre es para que se entienda, no para
+    // detectar el bloqueo.
+    const nombreDeModulo = new Map<string, string>()
+    const modulos = [...new Set(filas.map((f) => f.modulo_id).filter((id): id is string => !!id))]
+    if (modulos.length) {
+      const { data } = await supabase.from('modulos').select('id, nombre').in('id', modulos)
+      for (const m of (data ?? []) as { id: string; nombre: string }[]) nombreDeModulo.set(m.id, m.nombre)
+    }
+
+    return {
+      asignados: new Set((asignaciones.data ?? []).map((a) => (a as { modulo_id: string }).modulo_id)),
+      habilitadosSucursal: new Set((deLaSucursal.data ?? []).map((s) => (s as { modulo_id: string }).modulo_id)),
+      moduloDeItem,
+      nombreDeModulo
+    }
+  } catch {
+    return null
+  }
+}
+
 /**
  * Un 42501 tiene cuatro causas posibles (evaluación no activa, ítem desactivado,
  * asignación dada de baja, módulo no habilitado en la sucursal) y el mensaje las
- * adivinaba todas. El cliente solo puede distinguir la primera con certeza, y es
- * la más común: se consulta y se dice la verdad en vez de seguir probando.
+ * adivinaba todas: se le mostraba al evaluador el texto crudo de Postgres,
+ * `new row violates row-level security policy for table "instancias_grupo"`.
+ *
+ * La evaluación se consulta y se afirma con certeza, que es el caso más común.
+ * Si sigue abierta se le pregunta al catálogo las otras dos reglas que el
+ * evaluador sí puede leer (ver `lib/permisos-guardado.ts`) y el motivo concreto
+ * queda en `explicacion`. Si algo de eso falla, el error vuelve como estaba:
+ * peor un motivo genérico que un motivo inventado.
  */
-async function precisarCausaDePermiso(e: ErrorSubida, evaluacionId: string): Promise<ErrorSubida> {
+async function explicarPermiso(e: ErrorSubida, evaluacionId: string, itemIds: string[]): Promise<ErrorSubida> {
   if (e.causa !== 'rechazada') return e
-  const { data } = await supabase.from('evaluaciones').select('estado').eq('id', evaluacionId).maybeSingle()
-  const estado = (data as { estado?: string } | null)?.estado
-  if (!estado || estado === 'ACTIVA') return e
-  const err = new Error(e.message) as ErrorSubida
-  err.causa = 'evaluacion_cerrada'
-  err.detalle = e.detalle
-  return err
+  const { data } = await supabase.from('evaluaciones').select('estado, sucursal_id').eq('id', evaluacionId).maybeSingle()
+  const evaluacion = data as { estado?: string; sucursal_id?: string } | null
+  const estado = evaluacion?.estado
+  if (!estado) return e
+
+  if (estado !== 'ACTIVA') {
+    const err = new Error(e.message) as ErrorSubida
+    err.causa = 'evaluacion_cerrada'
+    err.detalle = e.detalle
+    return err
+  }
+
+  const reglas = await reglasDeGuardado(evaluacion.sucursal_id, itemIds)
+  const explicacion = reglas ? explicacionBloqueos(bloqueosDeGuardado(reglas)) : null
+  if (explicacion) e.explicacion = explicacion
+  return e
+}
+
+/**
+ * Lo mismo para la cola: se tipa el error y se le pregunta qué ítems eran, para
+ * poder nombrarle al evaluador la regla que falló en vez de dejarle la interna de
+ * Postgres en la franja de arriba de la pantalla.
+ *
+ * Sin evaluación resuelta no hay nada que preguntar: un 42501 sin evaluación es
+ * un rechazo que no se puede atribuir, y `errorSubida` ya lo deja como
+ * `rechazada`, que es lo honesto.
+ */
+async function explicarRechazoDeSync(
+  error: unknown,
+  evaluacionId: string,
+  job: Pick<SyncJob, 'respuestas' | 'instancias'>
+): Promise<ErrorSubida> {
+  const tipado = errorSubida(error, 'sincronizar')
+  if (!evaluacionId || tipado.causa !== 'rechazada') return tipado
+  const itemIds = [...new Set([...(job.instancias ?? []), ...job.respuestas].map((f) => f.item_id))]
+  return explicarPermiso(tipado, evaluacionId, itemIds)
 }
 
 // Marca de la última subida a la nube del usuario actual (`profiles.ultima_sync`,
@@ -291,20 +380,33 @@ export async function guardarBorradorNube(
     }))
     descarte = await subirLote(instRows, respRows)
   } catch (e) {
-    // Se propaga tipado (causa + detalle técnico) para que la pantalla diga qué
-    // pasó de verdad en vez de culpar siempre a la conexión.
-    throw await precisarCausaDePermiso(errorSubida(e, 'guardar el avance'), evaluacionId)
+    // Se propaga tipado (causa + detalle técnico + explicación si se pudo saber
+    // qué regla falló) para que la pantalla diga qué pasó de verdad en vez de
+    // culpar siempre a la conexión.
+    const itemIds = [...new Set([...instancias, ...respuestas].map((f) => f.item_id))]
+    throw await explicarPermiso(errorSubida(e, 'guardar el avance'), evaluacionId, itemIds)
   }
   // La subida terminó bien: queda registrada como última sincronización del usuario.
   void marcarSyncNube()
   return descarte
 }
 
-export async function procesarCola(): Promise<{ ok: number; fail: number; descartes: Descarte[]; errores: string[] }> {
+export async function procesarCola(): Promise<{
+  ok: number
+  fail: number
+  descartes: Descarte[]
+  errores: string[]
+  mensajes: string[]
+}> {
   const jobs = await listQueue()
   let ok = 0
   let fail = 0
   const errores: string[] = []
+  // Lo mismo que `errores`, pero escrito para que lo lea quien está en el local
+  // y no una consola. Antes la cola solo tenía la interna de Postgres, que en el
+  // teléfono se leía como `42501 · new row violates row-level security policy
+  // for table "instancias_grupo"`: un mensaje que no dice qué hacer.
+  const mensajes: string[] = []
   // Ítems que el catálogo ya no tiene, por trabajo. La cola no se traba por
   // ellos: se suben las respuestas que siguen vigentes y el resto se avisa.
   const descartes: Descarte[] = []
@@ -320,6 +422,9 @@ export async function procesarCola(): Promise<{ ok: number; fail: number; descar
     job = { ...job, status: 'processing', processing_at: Date.now() }
     await putJob(job)
     const photoIds = idsFotosRespuesta(job.respuestas, job.photoIds)
+    // Se resuelve adentro del try pero el motivo del rechazo hay que nombrarlo en
+    // el catch, así que vive acá arriba.
+    let evaluacionId = ''
 
     try {
       // La evaluación ya existe (la apertura/abre el Líder). Se resuelve por
@@ -333,7 +438,7 @@ export async function procesarCola(): Promise<{ ok: number; fail: number; descar
         .maybeSingle()
       if (evErr) throw evErr
       if (!ev) throw new Error('La evaluación no está activa. El Líder debe abrirla antes de sincronizar respuestas.')
-      const evaluacionId = ev.id as string
+      evaluacionId = ev.id as string
 
       const map = new Map<string, string>()
       for (const id of photoIds) {
@@ -387,8 +492,10 @@ export async function procesarCola(): Promise<{ ok: number; fail: number; descar
       await deleteJob(job.id)
       ok++
     } catch (error) {
-      const detalle = `${job.id}: ${detalleTecnico(error)}`
+      const tipado = await explicarRechazoDeSync(error, evaluacionId, job)
+      const detalle = `${job.id}: ${detalleTecnico(tipado)}`
       errores.push(detalle)
+      mensajes.push(tipado.explicacion ?? `${mensajeSubida(tipado.causa, 'sincronizar').titulo}. Tu avance sigue en el teléfono.`)
       console.error('No se pudo sincronizar la evaluación y sus evidencias:', detalle, error)
       await putJob({ ...job, status: 'pending' })
       fail++
@@ -396,7 +503,7 @@ export async function procesarCola(): Promise<{ ok: number; fail: number; descar
   }
   // La cola se vació al menos una vez: el dispositivo volvió a tener señal.
   if (ok) void marcarSyncNube()
-  return { ok, fail, descartes, errores }
+  return { ok, fail, descartes, errores, mensajes }
 }
 
 /** Dónde vive la foto de una incidencia en el bucket `evidencias`. */

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import type { ErrorSubida } from '../subida'
 import { guardarBorradorNube } from './sync'
 
 function fuente(rel: string): string {
@@ -26,6 +27,16 @@ const USUARIO = 'usr-1'
 
 const respuesta = (item_id: string, valor: unknown = 'sí') => ({ item_id, instancia_id: null, valor })
 const instancia = (id: string, item_id: string) => ({ id, item_id, etiqueta: `Fila ${id}`, orden: 1 })
+
+/** El error con el que se cayó la subida, para poder mirarlo campo por campo. */
+async function rechazoDe(p: Promise<unknown>): Promise<ErrorSubida> {
+  const err = await p.then(
+    () => null,
+    (e: ErrorSubida) => e
+  )
+  expect(err, 'se esperaba que la subida fuera rechazada').not.toBeNull()
+  return err as ErrorSubida
+}
 
 beforeEach(() => {
   fromMock.mockReset()
@@ -265,6 +276,126 @@ describe('el rechazo por permiso se nombra, no se adivina', () => {
     await expect(
       guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')])
     ).rejects.toMatchObject({ causa: 'rechazada' })
+  })
+})
+
+describe('el rechazo nombra el módulo que lo causa', () => {
+  const RLS = {
+    code: '42501',
+    message: 'new row violates row-level security policy for table "instancias_grupo"',
+    details: ''
+  }
+
+  /**
+   * El catálogo tal como lo puede leer un evaluador: `items` y `modulos` están
+   * abiertos a autenticados, y de `asignaciones_modulos` solo ve las suyas, que
+   * es lo que replica `puede_manejar_instancia`.
+   */
+  function catalogoDelEvaluador(activo: string[], sucursal: string[], alConsultarItems?: () => void) {
+    fromMock.mockImplementation((tabla: string) => {
+      if (tabla === 'instancias_grupo') return { upsert: () => res(null, RLS) }
+      if (tabla === 'evaluaciones') {
+        return { select: () => ({ eq: () => ({ maybeSingle: () => res({ estado: 'ACTIVA', sucursal_id: 'suc-1' }) }) }) }
+      }
+      if (tabla === 'items') {
+        return {
+          select: () => ({
+            in: (_c: string, ids: string[]) => {
+              alConsultarItems?.()
+              return res(ids.map((id) => ({ id, modulo_id: 'mod-1' })))
+            }
+          })
+        }
+      }
+      if (tabla === 'asignaciones_modulos') {
+        return { select: () => ({ eq: () => res(activo.map((modulo_id) => ({ modulo_id }))) }) }
+      }
+      if (tabla === 'sucursal_modulos') {
+        return { select: () => ({ eq: () => ({ eq: () => res(sucursal.map((modulo_id) => ({ modulo_id }))) }) }) }
+      }
+      if (tabla === 'modulos') {
+        return { select: () => ({ in: () => res([{ id: 'mod-1', nombre: 'Almacén' }]) }) }
+      }
+      throw new Error(`tabla inesperada: ${tabla}`)
+    })
+    rpcMock.mockResolvedValue({ data: null, error: null })
+  }
+
+  it('el módulo dado de baja viene con su nombre, no con el error de Postgres', async () => {
+    // Es el caso que reportan los evaluadores: la interna de RLS no dice qué pasó,
+    // y sin esto el único texto que veían era `42501 · new row violates
+    // row-level security policy for table "instancias_grupo"`.
+    catalogoDelEvaluador([], ['mod-1'])
+
+    await expect(
+      guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')])
+    ).rejects.toMatchObject({
+      causa: 'rechazada',
+      explicacion: expect.stringContaining('«Almacén» ya no lo tenés asignado')
+    })
+  })
+
+  it('también nombra el módulo que no está habilitado en la sucursal', async () => {
+    // Asignado y activo, pero la sucursal tiene otros módulos activos y este no
+    // está: el `exists` de `puede_manejar_instancia` no lo encuentra.
+    catalogoDelEvaluador(['mod-1'], ['mod-otro'])
+
+    await expect(
+      guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')])
+    ).rejects.toMatchObject({
+      explicacion: expect.stringContaining('«Almacén» no está habilitado en esta sucursal')
+    })
+  })
+
+  it('con el módulo en regla no se inventa un motivo', async () => {
+    catalogoDelEvaluador(['mod-1'], ['mod-1'])
+
+    const err = await rechazoDe(guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')]))
+    expect(err.causa).toBe('rechazada')
+    expect(err.explicacion).toBeUndefined()
+  })
+
+  it('los ids van en tandas: el diagnóstico no se cae con un avance largo', async () => {
+    // Los ids viajan en la URL del POST. Mandarlos todos en un `in` con una
+    // evaluación larga cortaría la petición y el diagnóstico se perdería justo
+    // en el caso donde más ítems pueden estar bloqueados.
+    let consultas = 0
+    catalogoDelEvaluador([], ['mod-1'], () => consultas++)
+
+    const muchas = Array.from({ length: 250 }, (_, i) => respuesta(`i${i}`))
+    const err = await rechazoDe(guardarBorradorNube(EV, USUARIO, muchas, [instancia('a', 'i249')]))
+
+    expect(consultas).toBe(3) // 250 ids en tandas de 100
+    expect(err.explicacion).toContain('«Almacén» ya no lo tenés asignado')
+  })
+
+  it('si el catálogo no responde, el error sale igual y sin explicación', async () => {
+    // Un diagnóstico que no se puede hacer no puede tapar el error que sí se sabe.
+    fromMock.mockImplementation((tabla: string) => {
+      if (tabla === 'instancias_grupo') return { upsert: () => res(null, RLS) }
+      if (tabla === 'evaluaciones') {
+        return { select: () => ({ eq: () => ({ maybeSingle: () => res({ estado: 'ACTIVA', sucursal_id: 'suc-1' }) }) }) }
+      }
+      throw new Error(`tabla inesperada: ${tabla}`)
+    })
+
+    const err = await rechazoDe(guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')]))
+    expect(err.causa).toBe('rechazada')
+    expect(err.explicacion).toBeUndefined()
+  })
+
+  it('la evaluación cerrada manda sobre el módulo: es lo primero que se corrige', async () => {
+    fromMock.mockImplementation((tabla: string) => {
+      if (tabla === 'instancias_grupo') return { upsert: () => res(null, RLS) }
+      if (tabla === 'evaluaciones') {
+        return { select: () => ({ eq: () => ({ maybeSingle: () => res({ estado: 'CERRADA', sucursal_id: 'suc-1' }) }) }) }
+      }
+      throw new Error(`tabla inesperada: ${tabla}`)
+    })
+
+    const err = await rechazoDe(guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')]))
+    expect(err.causa).toBe('evaluacion_cerrada')
+    expect(err.explicacion).toBeUndefined()
   })
 })
 

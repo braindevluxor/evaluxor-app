@@ -650,8 +650,11 @@ export function EvaluacionDetalle() {
       let mensaje: { texto: string; ok: boolean } = { texto: 'Datos actualizados.', ok: true }
       if (pendientes > 0) {
         const r = await sync()
-        if (r.fail) mensaje = { texto: `Se subieron ${r.ok}, pero ${r.fail} no se pudieron guardar.`, ok: false }
-        else if (r.ok) mensaje = { texto: `Se guardaron ${r.ok} evaluación(es) pendiente(s) y se actualizaron los datos.`, ok: true }
+        if (r.fail) {
+          // `r.error` ya viene escrito para quien lo lee (la cola nombró el módulo
+          // que bloquea cuando pudo comprobarlo); el conteo solo no dice nada.
+          mensaje = { texto: r.error ?? `Se subieron ${r.ok}, pero ${r.fail} no se pudieron guardar.`, ok: false }
+        } else if (r.ok) mensaje = { texto: `Se guardaron ${r.ok} evaluación(es) pendiente(s) y se actualizaron los datos.`, ok: true }
       }
       await recargar()
       setAviso(mensaje)
