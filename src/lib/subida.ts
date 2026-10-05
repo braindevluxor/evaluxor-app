@@ -101,7 +101,10 @@ export function causaSubida(e: unknown): CausaSubida {
     return 'sin_conexion'
   }
   // Caída o saturación del servidor / de la base: suele aflojar solo.
-  if (/^5\d\d$/.test(code) || /pgrst5|internal server|bad gateway|service unavailable|gateway timeout/.test(texto)) {
+  if (
+    /^5\d\d$/.test(code) ||
+    /pgrst5|internal server|bad gateway|service unavailable|gateway timeout|slowdown|too many connections|connection pool|database is overloaded|max_connections|remaining connections|rate limit/.test(texto)
+  ) {
     return 'servidor'
   }
   return 'desconocida'
