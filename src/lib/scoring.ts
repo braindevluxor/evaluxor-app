@@ -67,26 +67,49 @@ export interface ProductoConciliacion {
   lastSync?: string | null
   /** Precio base final (pricing.finalBase) reportado por el sistema. */
   finalBase?: number | null
+  /** Impuesto del producto (pricing.finalTax). Se suma al base para el PVP. */
+  finalTax?: number | null
   /** Pérdida estimada congelada al guardar/corregir el conteo del producto. */
   perdidaEstimada?: number | null
 }
 
-/** Pérdida estimada por faltante de unidades, valoradas al precio base del sistema. */
+/**
+ * PVP del producto: `finalBase + finalTax`, que es el precio de venta al público.
+ *
+ * Es el número que se muestra en la conciliación de precios y el que valoriza la
+ * pérdida, no el base: multiplicar unidades faltantes por el base sin impuesto
+ * subestima lo que realmente se perdió en góndola.
+ *
+ * Sin `finalBase` no hay PVP. Sin `finalTax` se asume 0, así el producto sigue
+ * teniendo precio en vez de caer en "faltante sin precio".
+ */
+export function precioVentaPvp(
+  p: { finalBase?: number | null; finalTax?: number | null } | null | undefined
+): number | null {
+  if (typeof p?.finalBase !== 'number' || !Number.isFinite(p.finalBase) || p.finalBase < 0) return null
+  // Un finalTax negativo o corrupto no se resta del PVP: se ignora.
+  const impuesto =
+    typeof p.finalTax === 'number' && Number.isFinite(p.finalTax) && p.finalTax > 0 ? p.finalTax : 0
+  return p.finalBase + impuesto
+}
+
+/** Pérdida estimada por faltante de unidades, valoradas al PVP del sistema. */
 export function montoPerdidaConciliacion(
-  p: Pick<ProductoConciliacion, 'teorica' | 'fisica' | 'finalBase'> | null | undefined,
+  p: Pick<ProductoConciliacion, 'teorica' | 'fisica' | 'finalBase' | 'finalTax'> | null | undefined,
   contraDato: ContraDatoConciliacion = 'SOH'
 ): number | null {
   if (
     contraDato !== 'SOH' ||
     typeof p?.teorica !== 'number' || !Number.isFinite(p.teorica) ||
-    typeof p.fisica !== 'number' || !Number.isFinite(p.fisica) ||
-    typeof p.finalBase !== 'number' || !Number.isFinite(p.finalBase) || p.finalBase < 0
+    typeof p.fisica !== 'number' || !Number.isFinite(p.fisica)
   ) return null
-  return Math.max(0, p.teorica - p.fisica) * p.finalBase
+  const pvp = precioVentaPvp(p)
+  if (pvp === null) return null
+  return Math.max(0, p.teorica - p.fisica) * pvp
 }
 
 export function perdidaGuardadaConciliacion(
-  p: Pick<ProductoConciliacion, 'teorica' | 'fisica' | 'finalBase' | 'perdidaEstimada'> | null | undefined,
+  p: Pick<ProductoConciliacion, 'teorica' | 'fisica' | 'finalBase' | 'finalTax' | 'perdidaEstimada'> | null | undefined,
   contraDato: ContraDatoConciliacion = 'SOH'
 ): number | null {
   if (contraDato !== 'SOH' || !p) return null
@@ -98,7 +121,7 @@ export function perdidaGuardadaConciliacion(
   return montoPerdidaConciliacion(p, contraDato)
 }
 
-export function guardarPerdidaConciliacion<T extends Pick<ProductoConciliacion, 'teorica' | 'fisica' | 'finalBase'>>(
+export function guardarPerdidaConciliacion<T extends Pick<ProductoConciliacion, 'teorica' | 'fisica' | 'finalBase' | 'finalTax'>>(
   p: T,
   contraDato: ContraDatoConciliacion = 'SOH'
 ): T & Pick<ProductoConciliacion, 'perdidaEstimada'> {
@@ -129,13 +152,20 @@ export function resumenPerdidaConciliacion(
   }, { monto: 0, faltantesConPrecio: 0, faltantesSinPrecio: 0 })
 }
 
-/** Referencia contra la que se compara la física: el contra dato elegido (soh → stock, finalBase → precio) o, si falta, la teórica ya cargada. */
+/**
+ * Referencia contra la que se compara la física: el contra dato elegido (soh →
+ * stock, precio → PVP) o, si falta, la teórica ya cargada.
+ *
+ * En modo precio la teórica se autocompleta con el PVP y no con el base, para que
+ * sea comparable con el precio que el evaluador lee en la góndola y con la misma
+ * cifra que muestra la columna de la conciliación.
+ */
 export function referenciaConciliacion(
-  p: { teorica?: number | null; soh?: number | null; finalBase?: number | null } | null | undefined,
+  p: { teorica?: number | null; soh?: number | null; finalBase?: number | null; finalTax?: number | null } | null | undefined,
   contraDato: ContraDatoConciliacion = 'SOH'
 ): number | null {
   if (!p) return null
-  const dato = contraDato === 'FINAL_BASE' ? p.finalBase : p.soh
+  const dato = contraDato === 'FINAL_BASE' ? precioVentaPvp(p) : p.soh
   if (typeof dato === 'number') return dato
   return p.teorica ?? null
 }
@@ -426,6 +456,11 @@ export function conciliacionTotal(v: ValorConciliacion | null | undefined): numb
 export function formatearPrecioBase(n: number | null | undefined): string {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
   return `$${new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`
+}
+
+/** Formatea el PVP del producto (finalBase + finalTax) para mostrarlo en conciliación. */
+export function formatearPrecioVenta(p: { finalBase?: number | null; finalTax?: number | null } | null | undefined): string {
+  return formatearPrecioBase(precioVentaPvp(p))
 }
 
 /**

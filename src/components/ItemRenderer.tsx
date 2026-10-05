@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Ban, Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, formatearLastSync, formatearPrecioBase, guardarPerdidaConciliacion, opcionCumplida, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, formatearLastSync, formatearPrecioVenta, guardarPerdidaConciliacion, opcionCumplida, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores, ordenarTrabajadores } from '../lib/data/colaboradores'
 import { aplicarHistorial, combinarPorDni } from '../lib/data/colaboradoresEstado'
@@ -318,7 +318,7 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
   }
 }
 
-/** Aplica el resultado del escaneo al borrador: autocompleta la Teórica (sistema) con el contra dato elegido (SOH o precio base) y conserva la info consultada. */
+/** Aplica el resultado del escaneo al borrador: autocompleta la Teórica (sistema) con el contra dato elegido (SOH o PVP) y conserva la info consultada. */
 function aplicarResultadoScan(b: ProductoConciliacion, r: ResultadoScan, contraDato: ContraDatoConciliacion): ProductoConciliacion {
   return {
     ...b,
@@ -326,7 +326,8 @@ function aplicarResultadoScan(b: ProductoConciliacion, r: ResultadoScan, contraD
     teorica: referenciaConciliacion(r, contraDato) ?? b.teorica,
     soh: r.soh,
     lastSync: r.lastSync,
-    finalBase: r.finalBase
+    finalBase: r.finalBase,
+    finalTax: r.finalTax
   }
 }
 
@@ -344,7 +345,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
   const [aEliminar, setAEliminar] = useState<{ producto: ProductoConciliacion; index: number } | null>(null)
   const [editando, setEditando] = useState<number | null>(null)
   const [edicion, setEdicion] = useState<{ teorica: number | null; fisica: number | null }>({ teorica: null, fisica: null })
-  const [borrador, setBorrador] = useState<ProductoConciliacion>({ sku: '', nombre: null, teorica: null, fisica: null, soh: null, lastSync: null, finalBase: null })
+  const [borrador, setBorrador] = useState<ProductoConciliacion>({ sku: '', nombre: null, teorica: null, fisica: null, soh: null, lastSync: null, finalBase: null, finalTax: null })
 
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
   const productos = v.productos ?? []
@@ -388,7 +389,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
     if (ya) {
       // Ya fue escaneado en esta evaluación: trae el producto con su teórica y
       // deja la física vacía para cargar solo el nuevo conteo (se sumará al guardar).
-      setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase })
+setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax })
       return
     }
     if (!shopId) {
@@ -425,7 +426,8 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                 fisica: total,
                 soh: borrador.soh ?? p.soh,
                 lastSync: borrador.lastSync ?? p.lastSync,
-                finalBase: borrador.finalBase ?? p.finalBase
+                finalBase: borrador.finalBase ?? p.finalBase,
+                finalTax: borrador.finalTax ?? p.finalTax
               }
             : p
         )
@@ -441,12 +443,13 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
           fisica: borrador.fisica,
           soh: borrador.soh,
           lastSync: borrador.lastSync,
-          finalBase: borrador.finalBase
+          finalBase: borrador.finalBase,
+          finalTax: borrador.finalTax
         }
       ])
       setExito('')
     }
-    setBorrador({ sku: '', nombre: null, teorica: null, fisica: null })
+    setBorrador({ sku: '', nombre: null, teorica: null, fisica: null, soh: null, lastSync: null, finalBase: null, finalTax: null })
     setInfo('')
   }
 
@@ -474,8 +477,8 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
               setExito('')
               setBorrador(
                 ya
-                  ? { sku, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase }
-                  : { sku, nombre: null, teorica: null, fisica: null }
+                  ? { sku, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax }
+                  : { sku, nombre: null, teorica: null, fisica: null, soh: null, lastSync: null, finalBase: null, finalTax: null }
               )
             }}
             onKeyDown={(e) => { if (e.key === 'Enter') void aplicarCodigo() }}
@@ -500,7 +503,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
         {tieneInfoSistema(borrador) ? (
           <p className="text-[11px] leading-relaxed text-slate-400">
             SOH (sistema): <strong className="text-slate-600">{borrador.soh ?? '—'}</strong> · Últ. sync:{' '}
-            {formatearLastSync(borrador.lastSync)} · Precio: {formatearPrecioBase(borrador.finalBase)}
+            {formatearLastSync(borrador.lastSync)} · PVP: {formatearPrecioVenta(borrador)}
           </p>
         ) : null}
         {existente ? (
@@ -667,7 +670,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                             </div>
                             {tieneInfoSistema(p) ? (
                               <p className="mt-0.5 text-[10px] leading-tight text-slate-400">
-                                SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · Precio: {formatearPrecioBase(p.finalBase)}
+                                SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · PVP: {formatearPrecioVenta(p)}
                               </p>
                             ) : null}
                           </div>
@@ -696,7 +699,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
             if (ya) {
               // Ya escaneado en esta evaluación: trae el producto y deja la física
               // vacía para el nuevo conteo (se sumará al guardar).
-              setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase })
+        setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax })
               return
             }
             const mismo = borrador.sku.trim() === codigo

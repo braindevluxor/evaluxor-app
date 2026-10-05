@@ -113,7 +113,8 @@ describe('valoresDeProducto', () => {
       nombre: 'Aceite 1L',
       soh: 42,
       lastSync: '2025-01-10T14:30:00Z',
-      finalBase: 12990.5
+      finalBase: 12990.5,
+      finalTax: null
     })
   })
 })

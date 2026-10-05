@@ -175,7 +175,8 @@ export function valoresDeProducto(r: ResultadoScan): Record<string, unknown> {
     nombre: r.nombre,
     soh: r.soh ?? null,
     lastSync: r.lastSync ?? null,
-    finalBase: r.finalBase ?? null
+    finalBase: r.finalBase ?? null,
+    finalTax: r.finalTax ?? null
   }
 }
 

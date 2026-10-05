@@ -12,6 +12,8 @@ export interface ResultadoScan {
   lastSync?: string
   /** Precio base final del producto (pricing.finalBase). */
   finalBase?: number
+  /** Impuesto del producto (pricing.finalTax). Se suma al base para el PVP. */
+  finalTax?: number
 }
 
 export async function buscarProducto(barcode: string, shopId: string): Promise<ResultadoScan> {
@@ -42,7 +44,7 @@ export async function buscarProducto(barcode: string, shopId: string): Promise<R
     data?: unknown
     soh?: number
     lastSync?: string
-    pricing?: { finalBase?: number }
+    pricing?: { finalBase?: number; finalTax?: number }
   } | null = null
   try {
     body = (await res.json()) as {
@@ -55,7 +57,7 @@ export async function buscarProducto(barcode: string, shopId: string): Promise<R
       data?: unknown
       soh?: number
       lastSync?: string
-      pricing?: { finalBase?: number }
+      pricing?: { finalBase?: number; finalTax?: number }
     }
   } catch {
     body = null
@@ -71,7 +73,13 @@ export async function buscarProducto(barcode: string, shopId: string): Promise<R
       body?.pricing && typeof body.pricing.finalBase === 'number' && Number.isFinite(body.pricing.finalBase)
         ? body.pricing.finalBase
         : undefined
-    if (nombre) return { nombre, mensaje: null, soh, lastSync, finalBase }
+    // El PVP es finalBase + finalTax. Si la API no manda el impuesto, se trata
+    // como 0 y el PVP queda igual al base (ver precioVentaPvp en lib/scoring).
+    const finalTax =
+      body?.pricing && typeof body.pricing.finalTax === 'number' && Number.isFinite(body.pricing.finalTax)
+        ? body.pricing.finalTax
+        : undefined
+    if (nombre) return { nombre, mensaje: null, soh, lastSync, finalBase, finalTax }
     return { nombre: null, mensaje: body?.message ?? null }
   }
 
