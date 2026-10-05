@@ -7,6 +7,7 @@ import {
   incumplimientosPorResponsable,
   opcionCumplida,
   colaboradorCumple,
+  colaboradoresQueCuentan,
   opcionesAplicablesColaborador,
   unidadCumple,
   pesoItem,
@@ -476,7 +477,7 @@ export interface ResumenItemModulo {
   ok: number
   /** Proporción promedio 0..1 (ok / muestras). null si no hay muestras. */
   promedio: number | null
-  /** Solo LISTA_COLABORADORES: total de trabajadores evaluados (que aplican) y cuántos cumplen. */
+  /** Solo LISTA_COLABORADORES: total de trabajadores revisados que entran en el puntaje y cuántos cumplen. */
   colaboradores?: { total: number; ok: number }
   /** Solo UNIDAD_CHECKLIST: total de unidades evaluadas y cuántas cumplen. */
   unidades?: { total: number; ok: number }
@@ -587,7 +588,7 @@ export function resumenItemsModulo(
 
     if (it.tipo === 'LISTA_COLABORADORES') {
       const v = r.valor as ValorListaColaboradores | null
-      const aplican = (v?.colaboradores ?? []).filter((c) => c.aplica)
+      const aplican = colaboradoresQueCuentan(v?.colaboradores)
       const opts = (it.opciones ?? []) as { id: string }[]
       if (!opts.length || !aplican.length || p === null) continue
       a.muestras++
@@ -1137,11 +1138,15 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
       const cols = v?.colaboradores ?? []
       if (!cols.length) return { proporcion: p, resumen: 'Sin trabajadores' }
       const opts = (item.opciones ?? []) as Opcion[]
-      const aplican = cols.filter((c) => c.aplica)
-      const conChecksAplicables = aplican.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
+      const enCuenta = cols.filter((c) => c.aplica)
+      const enPuntaje = colaboradoresQueCuentan(cols)
+      const conChecksAplicables = enPuntaje.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
       const cumplen = conChecksAplicables.filter((c) => colaboradorCumple(c, opts)).length
-      const sinPuntos = aplican.length - conChecksAplicables.length
-      return { proporcion: p, resumen: `${cumplen}/${conChecksAplicables.length} trabajadores cumplen${sinPuntos ? ` · ${sinPuntos} sin puntos aplicables` : ''}${cols.some((c) => !c.aplica) ? ` · ${cols.length - aplican.length} excluido(s)` : ''}` }
+      const sinPuntos = enCuenta.length - conChecksAplicables.length
+      // Los que el evaluador no llegó a mirar se anuncian aparte: si no, el
+      // tablero compone "3 de 3 cumplen" sin decir que eran veinte en la lista.
+      const sinRevisar = enCuenta.length - enPuntaje.length
+      return { proporcion: p, resumen: `${cumplen}/${conChecksAplicables.length} trabajadores cumplen${sinRevisar ? ` · ${sinRevisar} sin revisar` : ''}${sinPuntos ? ` · ${sinPuntos} sin puntos aplicables` : ''}${cols.some((c) => !c.aplica) ? ` · ${cols.length - enCuenta.length} excluido(s)` : ''}` }
     }
     case 'UNIDAD_CHECKLIST': {
       const v = valor as ValorUnidadChecklist | null

@@ -448,7 +448,10 @@ describe('resumenItemsModulo', () => {
 
     const lista = resumen[0]
     expect(lista.muestras).toBe(2)
-    expect(lista.promedio).toBe(0.5)
+    // El promedio del módulo es el promedio de las proporciones POR TRABAJADOR:
+    // la primera evaluación tiene 1 de 2 completos (0.5) y la segunda 1 de 1 (1),
+    // así que 0.75. Con el todo-o-nada anterior la primera valía 0 y daba 0.5.
+    expect(lista.promedio).toBe(0.75)
     expect(lista.colaboradores).toEqual({ total: 3, ok: 2 })
 
     const uni = resumen[1]

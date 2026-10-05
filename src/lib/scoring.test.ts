@@ -1,5 +1,106 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, pesoItem, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, esNoAplica, veredictoItem, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion } from './scoring'
+
+describe('orden de lectura de una conciliación', () => {
+  const prod = (sku: string, teorica: number | null, fisica: number | null, finalBase?: number | null) => ({
+    sku,
+    nombre: `Producto ${sku}`,
+    teorica,
+    fisica,
+    ...(finalBase != null ? { finalBase } : {})
+  })
+
+  it('clasifica cada producto como falta, sobra, concilia o sin datos', () => {
+    expect(estadoConciliacion(prod('a', 10, 7))).toBe('falta')
+    expect(estadoConciliacion(prod('b', 10, 14))).toBe('sobra')
+    expect(estadoConciliacion(prod('c', 10, 10))).toBe('concilia')
+    expect(estadoConciliacion(prod('d', null, 3))).toBe('sin-datos')
+    expect(estadoConciliacion(prod('e', 3, null))).toBe('sin-datos')
+    expect(estadoConciliacion(null)).toBe('sin-datos')
+    expect(diferenciaConciliacion(prod('a', 10, 7))).toBe(3)
+    expect(diferenciaConciliacion(prod('d', null, 3))).toBe(0)
+  })
+
+  it('ordena por pérdida de mayor a menor, y detrás los sobrantes de mayor a menor', () => {
+    // Perdidas: A pierde 3 unidades × $10 = $30; B pierde 1 × $90 = $90. La más
+    // cara arriba, aunque falten menos unidades: lo que se pierde es plata.
+    const productos = [
+      prod('sobra-1', 5, 6, 10), // +1
+      prod('falta-chica', 10, 9, 90), // -1 → $90
+      prod('concilia', 8, 8, 10),
+      prod('falta-grande', 10, 7, 10), // -3 → $30
+      prod('sobra-3', 5, 8, 10), // +3
+      prod('sin-datos', null, 4, 10)
+    ]
+    const orden = ordenarConciliacion(productos).map((p) => p.sku)
+    expect(orden).toEqual([
+      'falta-chica', // $90
+      'falta-grande', // $30
+      'sobra-3', // +3
+      'sobra-1', // +1
+      'concilia',
+      'sin-datos'
+    ])
+  })
+
+  it('el sobrante no compite con la pérdida: va después aunque sea enorme', () => {
+    const productos = [
+      prod('sobra-100', 1, 101, 10),
+      prod('falta-1', 10, 9, 10)
+    ]
+    expect(ordenarConciliacion(productos).map((p) => p.sku)).toEqual(['falta-1', 'sobra-100'])
+  })
+
+  it('sin precio base los faltantes se ordenan por unidades, no todos al final', () => {
+    const productos = [
+      prod('sin-precio-1', 10, 9),
+      prod('sin-precio-5', 10, 5),
+      prod('sin-precio-3', 10, 7),
+      prod('concilia', 4, 4)
+    ]
+    expect(ordenarConciliacion(productos).map((p) => p.sku)).toEqual([
+      'sin-precio-5',
+      'sin-precio-3',
+      'sin-precio-1',
+      'concilia'
+    ])
+  })
+
+  it('lo que concilia conserva el orden en que se escaneó', () => {
+    const productos = [prod('z', 5, 5), prod('a', 5, 5), prod('m', 5, 5)]
+    expect(ordenarConciliacion(productos).map((p) => p.sku)).toEqual(['z', 'a', 'm'])
+  })
+
+  it('con contra dato precio base ningún faltante tiene pérdida calculada', () => {
+    // Con FINAL_BASE la comparación es de precios, así que no hay pérdida que
+    // ordenar: el orden cae al de unidades.
+    const productos = [prod('a', 100, 99), prod('b', 100, 50), prod('s', 10, 20)]
+    expect(ordenarConciliacion(productos, 'FINAL_BASE').map((p) => p.sku)).toEqual(['b', 'a', 's'])
+  })
+
+  it('no muta la lista original', () => {
+    const productos = [prod('concilia', 5, 5), prod('falta', 10, 7, 10)]
+    const copia = [...productos]
+    ordenarConciliacion(productos)
+    expect(productos).toEqual(copia)
+  })
+
+  it('los totales de unidades dicen cuántos hay que mandar a contar', () => {
+    // El porcentaje dice si el conteo está bien o mal; los totales dicen cuánto
+    // hay que hacer. Con el mismo 90% de desacuerdo, 40 unidades o 5 son dos
+    // trabajos distintos.
+    const productos = [
+      prod('a', 10, 7), // faltan 3
+      prod('b', 20, 18), // faltan 2
+      prod('c', 4, 9), // sobran 5
+      prod('d', 6, 6), // concilia
+      prod('e', null, 3) // sin datos: no cuenta ni para un lado ni para el otro
+    ]
+    expect(totalesConciliacion(productos)).toEqual({ unidadesFaltantes: 5, unidadesSobrantes: 5 })
+    expect(totalesConciliacion([])).toEqual({ unidadesFaltantes: 0, unidadesSobrantes: 0 })
+    expect(totalesConciliacion(null)).toEqual({ unidadesFaltantes: 0, unidadesSobrantes: 0 })
+  })
+})
 
 describe('etiqueta del tipo de ítem', () => {
   it('muestra trabajadores en el listado de evaluación de personal', () => {
@@ -264,6 +365,162 @@ describe('valorBinario', () => {
     const valor = { colaboradores: [{ dni: 1, name: 'Ana', lastname: 'A', active: true, aplica: true, selected: [], noAplica: ['a', 'b'] }] }
     expect(valorBinario(item, valor)).toBe(null)
     expect(calcularPuntaje([{ item, valor }])).toBe(null)
+  })
+  it('el trabajador sin revisar no es un incumplimiento: no entra en la evaluación', () => {
+    // El caso que motiva la regla: veinte personas cargadas destildadas, seis
+    // revisadas. Antes el ítem valía cero porque los catorce restantes "fallaban"
+    // todo, y la culpa era del reloj del evaluador, no de la tienda.
+    const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a' }, { id: 'b' }] }
+    const col = (dni: number, selected: string[]) => ({ dni, name: `T${dni}`, lastname: 'X', active: true, aplica: true, selected })
+    const seis = Array.from({ length: 6 }, (_, i) => col(i + 1, ['a', 'b']))
+    const sinTocar = Array.from({ length: 14 }, (_, i) => col(i + 100, []))
+    const valor = { colaboradores: [...seis, ...sinTocar] }
+
+    expect(esColaboradorRevisado(sinTocar[0])).toBe(false)
+    expect(esColaboradorRevisado(seis[0])).toBe(true)
+    expect(colaboradoresQueCuentan(valor.colaboradores)).toHaveLength(6)
+    // Los seis revisados cumplen, así que el ítem cumple: los catorce sin tocar
+    // no lo arruinan.
+    expect(valorBinario(item, valor)).toBe(true)
+    expect(veredictoItem(item, valor)).toBe('cumple')
+    expect(calcularPuntaje([{ item, valor }])).toBe(100)
+  })
+  it('sin nadie revisado el listado no tiene veredicto, no es un cero', () => {
+    const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a' }] }
+    const valor = { colaboradores: [{ dni: 1, name: 'A', lastname: 'B', active: true, aplica: true, selected: [] }] }
+    expect(valorBinario(item, valor)).toBe(null)
+    expect(veredictoItem(item, valor)).toBe('sin-veredicto')
+    expect(calcularPuntaje([{ item, valor }])).toBe(null)
+  })
+  it('un incumplimiento entre los revisados sigue bajando el ítem', () => {
+    // La regla no es "todo pasa": solo saca a los que nadie miró.
+    const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a' }, { id: 'b' }] }
+    const valor = {
+      colaboradores: [
+        { dni: 1, name: 'A', lastname: 'A', active: true, aplica: true, selected: ['a', 'b'] },
+        { dni: 2, name: 'B', lastname: 'B', active: true, aplica: true, selected: ['a'] },
+        { dni: 3, name: 'C', lastname: 'C', active: true, aplica: true, selected: [] }
+      ]
+    }
+    expect(valorBinario(item, valor)).toBe(false)
+    expect(veredictoItem(item, valor)).toBe('no-cumple')
+  })
+  it('"revisado" es lo que el evaluador registró en la fila, tildando o no', () => {
+    const base = { dni: 1, name: 'A', lastname: 'B', active: true, aplica: true, selected: [] as string[] }
+    // Un check tildado: queda registrado aunque el resto falle.
+    expect(esColaboradorRevisado({ ...base, selected: ['a'] })).toBe(true)
+    // Marcar "no aplica" también es haber revisado.
+    expect(esColaboradorRevisado({ ...base, noAplica: ['b'] })).toBe(true)
+    // Y asignar responsables a una falla, que es el único registro posible cuando
+    // no le cumple nada.
+    expect(esColaboradorRevisado({ ...base, responsablesPorOpcion: { a: ['Ana'] } })).toBe(true)
+    // La fila sin nada: todavía no se miró.
+    expect(esColaboradorRevisado(base)).toBe(false)
+  })
+  it('el trabajador destildado al que no le cumple nada se registra asignando responsables', () => {
+    // Si no le cumple nada no hay check que tildar, así que la revisión queda
+    // registrada en los responsables del punto incumplido. Con eso el
+    // incumplimiento cuenta igual y el trabajador entra en la evaluación.
+    const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a', responsable: 'Jefe' }] }
+    const destildado = {
+      dni: 1,
+      name: 'Ana',
+      lastname: 'A',
+      active: true,
+      aplica: true,
+      selected: [],
+      responsablesPorOpcion: { a: ['Jefe'] }
+    }
+    expect(esColaboradorRevisado(destildado)).toBe(true)
+    expect(colaboradoresQueCuentan([destildado])).toHaveLength(1)
+    expect(valorBinario(item, { colaboradores: [destildado] })).toBe(false)
+    expect(veredictoItem(item, { colaboradores: [destildado] })).toBe('no-cumple')
+    expect(incumplimientosPorResponsable(item, { colaboradores: [destildado] })).toEqual([
+      { responsable: 'Jefe', puntos: 1 }
+    ])
+  })
+  it('la fila totalmente vacía es la única que no cuenta', () => {
+    const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a' }] }
+    const vacia = { dni: 1, name: 'A', lastname: 'B', active: true, aplica: true, selected: [] }
+    expect(esColaboradorRevisado(vacia)).toBe(false)
+    expect(colaboradoresQueCuentan([vacia])).toEqual([])
+    expect(valorBinario(item, { colaboradores: [vacia] })).toBe(null)
+  })
+  it('el ítem de trabajadores puntúa por trabajador revisado, no todo o nada', () => {
+    // El caso que define la regla: un ítem de 20 puntos en una sucursal con 80
+    // trabajadores, de los cuales solo se revisaron 30. Con 15 de esos 30
+    // completos queda 15/30 = 0.5 y el ítem aporta 10 de los 20. Antes valía 0
+    // porque un solo trabajador sin uniforme se comía el módulo entero.
+    const opciones = [{ id: 'uniforme' }]
+    const completo = (dni: number) => ({ dni, name: `T${dni}`, lastname: 'X', active: true, aplica: true, selected: ['uniforme'] })
+    // Destildado pero con responsable asignado: revisado, y le falta el uniforme.
+    const conFalla = (dni: number) => ({
+      dni,
+      name: `T${dni}`,
+      lastname: 'X',
+      active: true,
+      aplica: true,
+      selected: [],
+      responsablesPorOpcion: { uniforme: ['Jefe'] }
+    })
+    const sinTocar = (dni: number) => ({ dni, name: `T${dni}`, lastname: 'X', active: true, aplica: true, selected: [] })
+
+    const quinceCompletos = Array.from({ length: 15 }, (_, i) => completo(i + 1))
+    const quinceConFalla = Array.from({ length: 15 }, (_, i) => conFalla(i + 50))
+    const sinRevisar = Array.from({ length: 50 }, (_, i) => sinTocar(i + 200))
+    const valor = { colaboradores: [...quinceCompletos, ...quinceConFalla, ...sinRevisar] }
+
+    expect(proporcionListaColaboradores(valor, opciones)).toBe(0.5)
+    expect(proporcionItem({ tipo: 'LISTA_COLABORADORES', opciones }, valor)).toBe(0.5)
+    // El veredicto sigue siendo binario: la mitad no es "cumple".
+    expect(veredictoItem({ tipo: 'LISTA_COLABORADORES', opciones }, valor)).toBe('no-cumple')
+    expect(valorBinario({ tipo: 'LISTA_COLABORADORES', opciones }, valor)).toBe(false)
+    // Los 20 puntos del ítem se llevan la mitad: 20 × 0.5 = 10. Medido sobre un
+    // módulo de 40 puntos (este ítem de 20 más otro de 20 que cumple entero), el
+    // módulo da (20×0.5 + 20×1) / 40 = 75. Con el todo-o-nada de antes daba 50.
+    expect(calcularPuntaje([{ item: { tipo: 'LISTA_COLABORADORES', opciones, puntaje: 20 }, valor }])).toBe(50)
+    expect(
+      calcularPuntaje([
+        { item: { tipo: 'LISTA_COLABORADORES', opciones, puntaje: 20 }, valor },
+        { item: { tipo: 'CUMPLE_NO_CUMPLE', opciones: null, puntaje: 20 }, valor: { value: true } }
+      ])
+    ).toBe(75)
+    // Los sin revisar no mueven el denominador: sin ellos también da 0.5.
+    expect(proporcionListaColaboradores({ colaboradores: [...quinceCompletos, ...quinceConFalla] }, opciones)).toBe(0.5)
+    // Todos completos = 1, que es el único caso que "cumple".
+    expect(
+      proporcionListaColaboradores({ colaboradores: [...quinceCompletos, ...quinceCompletos] }, opciones)
+    ).toBe(1)
+    // Nadie revisado: no hay proporción y el ítem no puntúa.
+    expect(proporcionListaColaboradores({ colaboradores: sinRevisar }, opciones)).toBe(null)
+    expect(calcularPuntaje([{ item: { tipo: 'LISTA_COLABORADORES', opciones, puntaje: 20 }, valor: { colaboradores: sinRevisar } }])).toBe(null)
+    // Un check "no aplica" a todos los deja sin nada aplicable: tampoco puntúa.
+    const todosNoAplica = quinceCompletos.map((c) => ({ ...c, noAplica: ['uniforme'] }))
+    expect(proporcionListaColaboradores({ colaboradores: todosNoAplica }, opciones)).toBe(null)
+  })
+  it('un trabajador con cinco de seis checks vale uno con una falla, no medio', () => {
+    // El corte es por persona: el requisito es del trabajador, no del requisito.
+    const opciones = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }, { id: 'e' }, { id: 'f' }]
+    const base = { name: 'A', lastname: 'B', active: true, aplica: true }
+    const valor = {
+      colaboradores: [
+        { ...base, dni: 1, selected: ['a', 'b', 'c', 'd', 'e'] },
+        { ...base, dni: 2, selected: ['a', 'b', 'c', 'd', 'e'] }
+      ]
+    }
+    // 2 de 2 revisados, y ninguno completo: el ítem vale 0, no 5/6.
+    expect(proporcionListaColaboradores(valor, opciones)).toBe(0)
+  })
+  it('los excluidos con la casilla no cuentan, y sin los excluidos el resto manda', () => {
+    const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a' }] }
+    const valor = {
+      colaboradores: [
+        { dni: 1, name: 'A', lastname: 'A', active: true, aplica: true, selected: ['a'] },
+        { dni: 2, name: 'B', lastname: 'B', active: true, aplica: true, selected: [] }
+      ]
+    }
+    expect(colaboradoresQueCuentan(valor.colaboradores).map((c) => c.dni)).toEqual([1])
+    expect(valorBinario(item, valor)).toBe(true)
   })
   it('unidad checklist cumple cuando todas las unidades tienen su checklist completo', () => {
     const item = { tipo: 'UNIDAD_CHECKLIST', opciones: [{ id: 'a' }, { id: 'b' }] }
@@ -1013,6 +1270,152 @@ describe('valorPorResponsable · selección de responsables del evaluador (falla
     expect(beto.posible).toBeCloseTo(25, 2)
     expect(beto.logrado).toBe(0)
     expect(res.find((x) => x.responsable === 'Gerente')).toBeUndefined()
+  })
+})
+
+describe('fallasDeResponsable · qué ítems y checks le costaron los puntos', () => {
+  const itemChecklist = (puntaje: number, opciones: { id: string; etiqueta: string; responsable?: string }[]) => ({
+    id: 'i1',
+    tipo: 'CHECKLIST',
+    texto: 'Higiene de la tienda',
+    modulo_id: 'm1',
+    puntaje,
+    opciones
+  })
+
+  it('lista los ítems donde perdió puntos, del que más cuesta al que menos', () => {
+    // Cada ítem tiene un check cumplido y otro fallado: un checklist sin nada
+    // tildado es "sin respuesta" y no computa para nadie.
+    const opciones = [
+      { id: 'a', etiqueta: 'Cumplido', responsable: 'Ana' },
+      { id: 'b', etiqueta: 'Fallado', responsable: 'Ana' }
+    ]
+    const items = [
+      { id: 'i1', tipo: 'CHECKLIST', texto: 'Poco peso', modulo_id: 'm1', puntaje: 4, opciones },
+      { id: 'i2', tipo: 'CHECKLIST', texto: 'Mucho peso', modulo_id: 'm2', puntaje: 20, opciones }
+    ]
+    const fallas = fallasDeResponsable('Ana', items, [
+      { item_id: 'i1', valor: { selected: ['a'] } },
+      { item_id: 'i2', valor: { selected: ['a'] } }
+    ])
+    expect(fallas.map((f) => f.texto)).toEqual(['Mucho peso', 'Poco peso'])
+    // Sin `puntos` por opción el checklist es todo o nada: un check fallado se
+    // come el ítem entero, no la mitad.
+    expect(fallas.map((f) => f.perdidos)).toEqual([20, 4])
+    expect(fallas[0].modulo_id).toBe('m2')
+  })
+
+  it('nombra los checks concretos que fallaron', () => {
+    const items = [itemChecklist(12, [
+      { id: 'a', etiqueta: 'Piso limpio', responsable: 'Ana' },
+      { id: 'b', etiqueta: 'Caja cerrada', responsable: 'Ana' },
+      { id: 'c', etiqueta: 'Luz encendida', responsable: 'Beto' }
+    ])]
+    const fallas = fallasDeResponsable('Ana', items, [{ item_id: 'i1', valor: { selected: ['b'] } }])
+    expect(fallas).toHaveLength(1)
+    expect(fallas[0].checks).toEqual(['Piso limpio'])
+  })
+
+  it('solo muestra los checks atribuidos a ese responsable, no los del ítem entero', () => {
+    // Ana y Beto cargan el mismo check fallado. Ana no puede ver en su modal el
+    // check que le pertenece a Beto: ahí están los 6 puntos de Beto, no los suyos.
+    const items = [itemChecklist(12, [
+      { id: 'a', etiqueta: 'Refrigeración', responsable: 'Ana' },
+      { id: 'b', etiqueta: 'Señalización', responsable: 'Beto' },
+      { id: 'c', etiqueta: 'Puerta cerrada', responsable: 'Ana' }
+    ])]
+    const conAna = fallasDeResponsable('Ana', items, [{ item_id: 'i1', valor: { selected: ['c'] } }])
+    const conBeto = fallasDeResponsable('Beto', items, [{ item_id: 'i1', valor: { selected: ['c'] } }])
+    expect(conAna[0].checks).toEqual(['Refrigeración'])
+    expect(conBeto[0].checks).toEqual(['Señalización'])
+  })
+
+  it('los puntos perdidos son los mismos que el posible menos lo logrado', () => {
+    // Si el modal dice otra cosa que la tarjeta, los dos números pierden
+    // credibilidad. LaTarjeta calcula con valorPorResponsable; acá se comprueba
+    // que fallasDeResponsable llegue al mismo perdido.
+    const items = [itemChecklist(20, [{ id: 'a', etiqueta: 'Limpio', responsable: 'Ana' }])]
+    const respuestas = [{ item_id: 'i1', valor: { selected: [], responsablesPorOpcion: { a: ['Ana'] } } }]
+    const valor = valorPorResponsable(items, respuestas).find((v) => v.responsable === 'Ana')!
+    const fallas = fallasDeResponsable('Ana', items, respuestas)
+    expect(fallas[0].perdidos).toBe(redondear3(valor.posible - valor.logrado))
+  })
+
+  it('con la selección del evaluador carga el punto completo del check fallado', () => {
+    // El modelo nuevo: el check fallado lo absorbe el responsable elegido, así
+    // que pierde el 100% de su parte y no una fracción.
+    const items = [itemChecklist(12, [
+      { id: 'a', etiqueta: 'Uno', responsable: 'Ana' },
+      { id: 'b', etiqueta: 'Dos', responsable: 'Ana' }
+    ])]
+    const fallas = fallasDeResponsable('Ana', items, [
+      { item_id: 'i1', valor: { selected: ['b'], responsablesPorOpcion: { a: ['Ana'] } } }
+    ])
+    // 12 repartidos en dos checks = 6 cada uno; Ana carga el fallado entero.
+    expect(fallas[0].perdidos).toBe(6)
+    expect(fallas[0].checks).toEqual(['Uno'])
+  })
+
+  it('un check que la sucursal no tiene no aparece en el modal', () => {
+    // `aplicarOpciones` borra las opciones que no aplican antes de llegar acá, así
+    // que el modal no puede nombrar un punto que el evaluador nunca vio.
+    const items = [itemChecklist(12, [{ id: 'a', etiqueta: 'Solo aplica', responsable: 'Ana' }])]
+    const fallas = fallasDeResponsable('Ana', items, [{ item_id: 'i1', valor: { selected: [], informativos: ['a'] } }])
+    expect(fallas).toEqual([])
+  })
+
+  it('un responsable que solo cumplió no aparece', () => {
+    const items = [itemChecklist(12, [{ id: 'a', etiqueta: 'Limpio', responsable: 'Ana' }])]
+    expect(fallasDeResponsable('Ana', items, [{ item_id: 'i1', valor: { selected: ['a'] } }])).toEqual([])
+  })
+
+  it('los ítems binarios sin checks nombrados no inventan un detalle', () => {
+    const items = [{ id: 'i1', tipo: 'CUMPLE_NO_CUMPLE', texto: 'Salida de emergencia', modulo_id: 'm1', puntaje: 10 }]
+    const fallas = fallasDeResponsable('Ana', items, [
+      { item_id: 'i1', valor: { value: false, responsables: ['Ana'] } }
+    ])
+    expect(fallas).toHaveLength(1)
+    expect(fallas[0].checks).toEqual([])
+    expect(fallas[0].perdidos).toBe(10)
+  })
+
+  it('cada check se nombra una sola vez aunque se repita en varias respuestas', () => {
+    const items = [itemChecklist(12, [
+      { id: 'a', etiqueta: 'Piso', responsable: 'Ana' },
+      { id: 'b', etiqueta: 'Techo', responsable: 'Ana' }
+    ])]
+    const fallas = fallasDeResponsable('Ana', items, [
+      { item_id: 'i1', instancia_id: null, valor: { selected: ['b'] } },
+      { item_id: 'i1', instancia_id: 'r2', valor: { selected: ['b'] } }
+    ])
+    expect(fallas).toHaveLength(1)
+    expect(fallas[0].checks).toEqual(['Piso'])
+  })
+
+  it('en la lista de trabajadores nombra el check sin marcar de un trabajador', () => {
+    const items = [itemChecklist(12, [{ id: 'a', etiqueta: 'Carnet a la vista', responsable: 'Ana' }])]
+    const fallas = fallasDeResponsable('Ana', items, [
+      {
+        item_id: 'i1',
+        valor: {
+          colaboradores: [
+            { dni: 1, name: 'Pedro', lastname: 'G', role_name: 'Cajero', aplica: true, active: true, selected: [], responsablesPorOpcion: { a: ['Ana'] } }
+          ]
+        }
+      }
+    ])
+    expect(fallas[0].checks).toEqual(['Carnet a la vista'])
+  })
+
+  it('un trabajador sin revisar no genera falla: no se registró nada de él', () => {
+    const items = [itemChecklist(12, [{ id: 'a', etiqueta: 'Carnet a la vista', responsable: 'Ana' }])]
+    const fallas = fallasDeResponsable('Ana', items, [
+      {
+        item_id: 'i1',
+        valor: { colaboradores: [{ dni: 1, name: 'Pedro', lastname: 'G', role_name: 'Cajero', aplica: true, active: true, selected: [] }] }
+      }
+    ])
+    expect(fallas).toEqual([])
   })
 })
 

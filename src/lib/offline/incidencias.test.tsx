@@ -1,8 +1,22 @@
 import { describe, it, expect } from 'vitest'
 import { pathFotoIncidencia } from './sync'
 import { normalizarClave } from './db'
+import { incidenciaEsDeCargo, IncidenciasEvaluacion, type IncidenciaFila } from '../../components/IncidenciasEvaluacion'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+
+/** Incidencia mínima con solo los cargos, que es lo que el cruce necesita. */
+function incidencia(cargos: string[]): IncidenciaFila {
+  return {
+    id: 'inc-1',
+    descripcion: 'Algo se vio en la tienda',
+    fotos: [],
+    modulo_id: null,
+    responsables: cargos.map((cargo) => ({ cargo, porValidar: false })),
+    created_at: '2026-01-01T00:00:00'
+  }
+}
 
 function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -140,13 +154,123 @@ describe('incidencias · pantalla independiente en el menú', () => {
 describe('incidencias · el Líder las ve en el detalle de la evaluación', () => {
   it('la sección va montada en el detalle', () => {
     const detalle = fuente('../../pages/EvaluacionDetalle.tsx')
-    expect(detalle).toContain('<IncidenciasEvaluacion evaluacionId={evaluacion.id} />')
+    expect(detalle).toContain('<IncidenciasEvaluacion')
+    expect(detalle).toContain('useIncidenciasEvaluacion(detalle?.evaluacion.id ?? null)')
+  })
+
+  /* El hook tiene que ir con los demás hooks, antes del `return` de "todavía no
+     hay datos". Colocado más abajo compila y funciona, pero rompe la regla de
+     hooks: el número de hooks que se ejecutan cambia entre el primer render
+     (sin detalle) y el segundo (con detalle), y React se queja. */
+  it('el hook se llama arriba, antes del return de la pantalla vacía', () => {
+    const detalle = fuente('../../pages/EvaluacionDetalle.tsx')
+    const hook = detalle.indexOf('useIncidenciasEvaluacion(detalle?.evaluacion.id')
+    const returnTemprano = detalle.indexOf("if (estado === 'cargando')")
+    expect(hook).toBeGreaterThan(-1)
+    expect(returnTemprano).toBeGreaterThan(-1)
+    expect(hook).toBeLessThan(returnTemprano)
+  })
+
+  /* El detalle tiene dos superficies que necesitan las mismas filas: el botón con
+     el total y el modal de un cargo que muestra las incidencias de ese cargo. Si
+     cada una consultara por su cuenta, el total del botón y el contenido del modal
+     podrían no coincidir, y el Líder vería «4» en el botón y 3 en el modal del
+     cargo. */
+  it('una sola consulta alimenta el botón y el modal del cargo', () => {
+    const detalle = fuente('../../pages/EvaluacionDetalle.tsx')
+    expect(detalle.match(/useIncidenciasEvaluacion\(/g)?.length).toBe(1)
+    expect(detalle).toContain('filas={incidencias.filas}')
+    expect(detalle).toContain('urlsFotos={incidencias.urlsFotos}')
+  })
+
+  it('el cargo se cruza con la incidencia con la clave normalizada', () => {
+    const detalle = fuente('../../pages/EvaluacionDetalle.tsx')
+    expect(detalle).toContain('incidenciaEsDeCargo(f, fallasDe)')
+  })
+
+  it('el cruce de cargo con incidencia no depende de cómo lo escribieron', () => {
+    /* El cargo de la tarjeta sale de la configuración de ítems y el de la
+       incidencia del catálogo, y los dos escriben el mismo puesto distinto. Con
+       comparación literal, «Encargado de Turno» no reconocía a «Encargado de
+       turno» y el cargo no veía la incidencia en su modal: el dato estaba
+       cargado y no se veía. */
+    expect(incidenciaEsDeCargo(incidencia(['Encargado de Turno']), 'encargado de turno')).toBe(true)
+    expect(incidenciaEsDeCargo(incidencia(['Encargado de turno']), 'Encargado de Turno')).toBe(true)
+    expect(incidenciaEsDeCargo(incidencia(['Jefe de sala']), 'Jefe de sala')).toBe(true)
+    expect(incidenciaEsDeCargo(incidencia(['Jefe de sala']), 'Vendedor')).toBe(false)
+    /* Sin cargos la incidencia no es de nadie: no se la cuelga al cargo abierto
+       solo porque sea el único que se está mirando. */
+    expect(incidenciaEsDeCargo(incidencia([]), 'Vendedor')).toBe(false)
   })
 
   it('si la tabla aún no existe en Supabase, la pantalla no se rompe', () => {
     const panel = fuente('../../components/IncidenciasEvaluacion.tsx')
     expect(panel).toContain('setError(queryError.message)')
     expect(panel).toContain('setFilas(filasNormalizadas)')
+  })
+})
+
+/**
+ * La tarjeta de incidencias con cara de notificación push.
+ *
+ * Acá no se prueba que "se vea linda", que no se puede automatizar. Se prueba que
+ * estén las cuatro piezas que hacen que el ojo la lea como una push y no como
+ * otra tarjeta de la columna: si falta alguna, vuelve a ser un rectángulo más y
+ * nadie lo nota en el diff.
+ */
+describe('incidencias · la tarjeta parece una notificación push', () => {
+  function html(props: Partial<Parameters<typeof IncidenciasEvaluacion>[0]>) {
+    return renderToStaticMarkup(
+      <IncidenciasEvaluacion filas={[]} error={null} cargando={false} {...props} />
+    )
+  }
+
+  const conFotos: IncidenciaFila[] = [
+    {
+      ...incidencia(['Jefe de sala']),
+      fotos: ['inc-1/foto.jpg'],
+      created_at: new Date(Date.now() - 3 * 60_000).toISOString()
+    }
+  ]
+
+  it('la sombra es profunda, no la suave de las otras tarjetas de la columna', () => {
+    const src = fuente('../../components/IncidenciasEvaluacion.tsx')
+    // Las notificaciones flotan sobre la página: eso es lo que las hace
+    // "notificación" y no "otra caja del documento".
+    expect(src).toContain('shadow-lg shadow-slate-900/15')
+  })
+
+  it('el ícono va en un cuadrado redondeado de color, como el ícono de una app', () => {
+    const salida = html({ filas: conFotos })
+    expect(salida).toMatch(/rounded-lg bg-amber-500[^"]*"/)
+    expect(salida).toContain('lucide-alert-triangle')
+  })
+
+  it('lleva la hora de la incidencia más reciente', () => {
+    // Sin la hora, es un cartel. Con la hora es una notificación, y de paso dice
+    // si lo que se está mirando es viejo o de la visita de hoy.
+    expect(html({ filas: conFotos })).toContain('hace 3 min')
+  })
+
+  it('cuenta las fotos de todas las incidencias, no solo de la más reciente', () => {
+    /* Con una sola miniatura se veía la foto de una incidencia y nada más: el
+       número al lado era de lo que se esperaba y faltaba la cuenta. Ahora el
+       ícono de imagen trae el total, y el total es de todas. */
+    const conVarias: IncidenciaFila[] = [
+      { ...conFotos[0], id: 'inc-1', fotos: ['a.jpg', 'b.jpg'] },
+      { ...conFotos[0], id: 'inc-2', fotos: ['c.jpg'] }
+    ]
+    const salida = html({ filas: conVarias })
+    expect(salida).toContain('lucide-image')
+    expect(salida).toContain('3 foto(s) adjunta(s)')
+    // Y sin fotos no queda un ícono vacío al lado del texto.
+    expect(html({ filas: [incidencia(['Jefe de sala'])] })).not.toContain('lucide-image')
+  })
+
+  it('sin incidencias lo dice, en vez de mostrar un 0 que parece un error', () => {
+    const salida = html({ filas: [] })
+    expect(salida).toContain('Los evaluadores no reportaron ninguna')
+    expect(salida).toContain('disabled')
   })
 })
 

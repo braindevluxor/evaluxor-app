@@ -250,6 +250,54 @@ export function colaboradorCumple(colab: ColaboradorItem, opciones: { id: string
   return aplican.every((o) => (colab.selected ?? []).includes(o.id))
 }
 
+/**
+ * ¿El evaluador llegó a mirar a este trabajador?
+ *
+ * POR QUÉ ESTA PREGUNTA EXISTE
+ * ---------------------------
+ * La lista se carga entera y destildada: esa es la posición en la que arranca
+ * todo el mundo, incluido el que el evaluador ni piensa en tocar. Si esa
+ * posición contara como "reprobado", una tienda de veinte personas con seis
+ * revisadas sacaría cero en todos los ítems de personal, y no porque estén mal
+ * sino porque al resto no le dio tiempo. Para que el filtro por tiempo sea real,
+ * el que no se revisó no entra en la evaluación.
+ *
+ * "Revisado" es "el evaluador registró algo en esa fila", y el tildado de un check
+ * es el camino normal: se tilda lo que el trabajador sí tiene. Cuando no le
+ * cumple NADA no hay check que tildar, así que la revisión se registra asignando
+ * los responsables de los checks incumplidos —que el editor muestra justo al lado
+ * de cada punto destildado— y eso también lo marca como revisado. Así ningún
+ * incumplimiento se pierde por falta de una casilla.
+ *
+ * LO QUE SÍ QUEDA FUERA
+ * ---------------------
+ * La fila completamente vacía: sin un tildado, sin un "no aplica" y sin
+ * responsables. Ahí no se registró nada y no hay forma de saber si se miró o no,
+ * así que no cuenta. Es el mismo criterio que ya usaba `tieneTrabajoRegistrado`
+ * para no perder trabajo al refrescar la lista, con un caso más: los
+ * responsables por trabajador.
+ */
+export function esColaboradorRevisado(c: ColaboradorItem): boolean {
+  return (
+    (c.selected ?? []).length > 0 ||
+    (c.noAplica ?? []).length > 0 ||
+    Object.keys(c.responsablesPorOpcion ?? {}).length > 0
+  )
+}
+
+/**
+ * Los trabajadores que entran en la evaluación de un ítem LISTA_COLABORADORES:
+ * los que el evaluador dejó en cuenta Y los que llegó a revisar.
+ *
+ * Todos los caminos que leen este tipo de ítem filtran por acá —el veredicto, el
+ * puntaje, el reparto de responsabilidades, el tablero, el PDF y el detalle— para
+ * que no puedan discrepar sobre a quién se está contando. Si cada uno filtrara
+ * por su cuenta, el tablero anunciaría cinco trabajadores y el detalle quince.
+ */
+export function colaboradoresQueCuentan(colaboradores: ColaboradorItem[] | null | undefined): ColaboradorItem[] {
+  return (colaboradores ?? []).filter((c) => c.aplica && esColaboradorRevisado(c))
+}
+
 export function unidadCumple(unidad: UnidadChecklist, opciones: { id: string }[] | null | undefined): boolean {
   const opts = (opciones ?? []) as { id: string }[]
   if (!opts.length) return false
@@ -274,6 +322,95 @@ export function conciliacionPorcentaje(p: { teorica?: number | null; fisica?: nu
   return ratioConciliacion(p.teorica, p.fisica)
 }
 
+/** Cómo cae un producto frente a su teórica. El orden de la enum es el de lectura. */
+export type EstadoConciliacion = 'falta' | 'sobra' | 'concilia' | 'sin-datos'
+
+export function estadoConciliacion(
+  p: { teorica?: number | null; fisica?: number | null } | null | undefined
+): EstadoConciliacion {
+  if (!conciliacionComparable(p)) return 'sin-datos'
+  if (p.fisica < p.teorica) return 'falta'
+  if (p.fisica > p.teorica) return 'sobra'
+  return 'concilia'
+}
+
+/** Unidades que faltan o sobran; 0 si el producto no es comparable. */
+export function diferenciaConciliacion(p: { teorica?: number | null; fisica?: number | null } | null | undefined): number {
+  return conciliacionComparable(p) ? Math.abs(p.fisica - p.teorica) : 0
+}
+
+/**
+ * Totales de unidades de una conciliación: cuántas faltan y cuántas sobran.
+ *
+ * Va aparte de `conciliacionTotal`, que es un porcentaje de desacuerdo. El
+ * porcentaje dice si el conteo está bien o mal, pero no dice cuánto hay que
+ * mandar a buscar: con 40 unidades faltantes salen cuatro personas y con 5 sale
+ * una, y con el mismo porcentaje las dos pueden dar 90%.
+ */
+export function totalesConciliacion(
+  productos: { teorica?: number | null; fisica?: number | null }[] | null | undefined
+): { unidadesFaltantes: number; unidadesSobrantes: number } {
+  let unidadesFaltantes = 0
+  let unidadesSobrantes = 0
+  for (const p of productos ?? []) {
+    if (!conciliacionComparable(p)) continue
+    if (p.fisica < p.teorica) unidadesFaltantes += p.teorica - p.fisica
+    else if (p.fisica > p.teorica) unidadesSobrantes += p.fisica - p.teorica
+  }
+  return { unidadesFaltantes, unidadesSobrantes }
+}
+
+/**
+ * Orden de lectura de una conciliación: primero las pérdidas más grandes, después
+ * los sobrantes más grandes, después lo que concilia y al final lo que no se puede
+ * comparar.
+ *
+ * POR QUÉ EN ESTE ORDEN
+ * ---------------------
+ * Una conciliación se revisa buscando qué falta, no recorrer la lista de escaneo.
+ * Con la teórica de arriba abajo, la pérdida más cara aparecía en el medio de
+ * cuarenta filas y había que buscarla. Y el sobrante no compite con la pérdida: no
+ * es una pérdida, es mercadería que está en el depósito y no en la góndola, así
+ * que va después y se ordena por unidades de a más, que es lo que dice cuántas
+ * personas hay que mandar a buscar.
+ *
+ * El desempate dentro de los faltantes es por unidades cuando no hay precio base,
+ * para que los productos sin precio no queden todos juntos en el final por un
+ * `0` que no significa que no pierdan.
+ *
+ * `sort` es estable, así que los que concilian y los sin datos conservan el orden
+ * en que se escanearon.
+ */
+export function ordenarConciliacion<T extends ProductoConciliacion>(
+  productos: T[],
+  contraDato: ContraDatoConciliacion = 'SOH'
+): T[] {
+  const peso = (p: T): number => {
+    if (estadoConciliacion(p) !== 'falta') return 0
+    return perdidaGuardadaConciliacion(p, contraDato) ?? 0
+  }
+  return [...productos].sort((a, b) => {
+    const ea = estadoConciliacion(a)
+    const eb = estadoConciliacion(b)
+    if (ea !== eb) return ORDEN_ESTADO_CONCILIACION[ea] - ORDEN_ESTADO_CONCILIACION[eb]
+    if (ea === 'falta') {
+      const pa = peso(a)
+      const pb = peso(b)
+      if (pa !== pb) return pb - pa
+      return diferenciaConciliacion(b) - diferenciaConciliacion(a)
+    }
+    if (ea === 'sobra') return diferenciaConciliacion(b) - diferenciaConciliacion(a)
+    return 0
+  })
+}
+
+const ORDEN_ESTADO_CONCILIACION: Record<EstadoConciliacion, number> = {
+  falta: 0,
+  sobra: 1,
+  concilia: 2,
+  'sin-datos': 3
+}
+
 export function conciliacionTotal(v: ValorConciliacion | null | undefined): number | null {
   // Tasa de productos sin coincidir: (productos donde física ≠ teórica) / (total
   // escaneados con ambas cantidades) × 100. Por lo tanto 0% = todo concilia y
@@ -289,6 +426,19 @@ export function conciliacionTotal(v: ValorConciliacion | null | undefined): numb
 export function formatearPrecioBase(n: number | null | undefined): string {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
   return `$${new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`
+}
+
+/**
+ * Montos de conciliación, en el formato que pide el informe: `USD1.801,09`.
+ *
+ * A diferencia de `formatearPrecioBase`, que sirve para el precio base de un
+ * producto suelto, acá el número es un total de plata perdida y va con la sigla de
+ * la moneda explícita: en el PDF lo lee gente de otras áreas y un `$` suelto se
+ * confunde con el signo de los pesos de otro país.
+ */
+export function formatearMontoPerdida(n: number | null | undefined): string {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
+  return `USD${new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`
 }
 
 /** Formatea la última sincronización (lastSync) del sistema; vuelve el texto crudo si no es una fecha válida. */
@@ -345,7 +495,7 @@ if (item.tipo === 'CHECKLIST') {
   if (item.tipo === 'LISTA_COLABORADORES') {
     const v = valor as ValorListaColaboradores | null
     if (v?.informativo) return null
-    const aplican = (v?.colaboradores ?? []).filter((c) => c.aplica)
+    const aplican = colaboradoresQueCuentan(v?.colaboradores)
     if (!aplican.length) return null
     const opts = (item.opciones ?? []) as { id: string }[]
     if (!opts.length) return null
@@ -448,13 +598,52 @@ export function proporcionChecklist(
   return Math.min(1, obtenido / total)
 }
 
-/** Proporción 0..1 de cumplimiento de un ítem (1 = cumple, 0 = no cumple, parcial para CHECKLIST con puntos y PLANO_XY por pines). null = no puntuable. */
+/**
+ * Proporción 0..1 de un ítem LISTA_COLABORADORES: los trabajadores revisados que
+ * quedaron completos sobre los trabajadores revisados.
+ *
+ * VA POR TRABAJADOR, NO POR CHECK
+ * -------------------------------
+ * El puntaje del ítem se reparte entre la gente que se evaluó, así que a un ítem
+ * de veinte puntos con ochenta trabajadores en la lista no puede pesarle lo mismo
+ * que con dos. Antes era todo o nada: un solo trabajador sin uniforme se comía
+ * los veinte puntos del módulo, y eso no mide nada — con ochenta personas en la
+ * tienda el ítem era invencible. Con esto, 30 revisados de los cuales 15 quedan
+ * completos dan 15/30 = 0.5, y el ítem de veinte puntos aporta diez.
+ *
+ * El corte por trabajador y no por check es a propósito: el requisito es de la
+ * persona, no del requisito. Una persona que tiene cinco de seis no vale medio
+ * trabajador, vale uno con una falla, y esa falla es la que después se le carga a
+ * su responsable.
+ *
+ * Los que no se revisaron no entran en el denominador (ver `colaboradoresQueCuentan`):
+ * si no hay ni un trabajador revisado, no hay proporción y el ítem no puntúa.
+ */
+export function proporcionListaColaboradores(
+  valor: ValorListaColaboradores | null | undefined,
+  opciones: { id: string }[] | null | undefined
+): number | null {
+  if (valor?.informativo) return null
+  const opts = (opciones ?? []) as { id: string }[]
+  if (!opts.length) return null
+  const cuentan = colaboradoresQueCuentan(valor?.colaboradores).filter(
+    (c) => opcionesAplicablesColaborador(c, opts).length > 0
+  )
+  if (!cuentan.length) return null
+  return cuentan.filter((c) => colaboradorCumple(c, opts)).length / cuentan.length
+}
+
+/** Proporción 0..1 de cumplimiento de un ítem (1 = cumple, 0 = no cumple, parcial para CHECKLIST con puntos, LISTA_COLABORADORES por trabajador y PLANO_XY por pines). null = no puntuable. */
 export function proporcionItem(
   item: { tipo: string; opciones?: string[] | { id: string; puntos?: number }[] | null },
   valor: unknown
 ): number | null {
   if (item.tipo === 'CHECKLIST') {
     const p = proporcionChecklist(item, valor)
+    if (p !== null) return p
+  }
+  if (item.tipo === 'LISTA_COLABORADORES') {
+    const p = proporcionListaColaboradores(valor as ValorListaColaboradores | null, item.opciones as { id: string }[])
     if (p !== null) return p
   }
   if (item.tipo === 'PLANO_XY') {
@@ -582,7 +771,7 @@ function puntoCumplido(tipo: string | undefined, o: OpcionScoring, valor: unknow
   if (tipo === 'CHECKLIST') return opcionCumplida(o, valor as ValorChecklist, o.id ?? '')
   if (tipo === 'LISTA_COLABORADORES') {
     const v = valor as ValorListaColaboradores | null
-    const aplican = (v?.colaboradores ?? []).filter((c) => c.aplica && !(c.noAplica ?? []).includes(o.id ?? ''))
+    const aplican = colaboradoresQueCuentan(v?.colaboradores).filter((c) => !(c.noAplica ?? []).includes(o.id ?? ''))
     if (!aplican.length) return null
     return aplican.every((c) => (c.selected ?? []).includes(o.id ?? ''))
   }
@@ -596,6 +785,33 @@ function puntoCumplido(tipo: string | undefined, o: OpcionScoring, valor: unknow
 }
 
 type Contribucion = Map<string, { pos: number; log: number }>
+
+/** Opciones de un ítem con el texto que las acompaña, para poder nombrar las fallas. */
+type OpcionConTexto = OpcionScoring & { etiqueta?: string | null }
+
+/**
+ * A quién se le atribuye la falla de un check concreto.
+ *
+ * Es la MISMA resolución que usa `incumplimientosPorResponsable` para contar, y se
+ * extrajo aparte por una razón concreta: el modal de "qué salió mal" y el contador
+ * de fallas tienen que decir exactamente lo mismo. Si cada uno resuelve la
+ * selección por su cuenta, el modal puede mostrar un check que el contador no
+ * contó, o al revés, y ahí el detalle deja de servir.
+ */
+function responsablesDeFalla(
+  it: { tipo?: string; opciones?: unknown; responsables?: string[] | null },
+  o: { id?: string; responsable?: string | null; responsables?: string[] | null },
+  record: Record<string, string[]> | null,
+  gerente: string | null
+): string[] {
+  if (record) {
+    const sel = o.id ? record[o.id] : undefined
+    if (sel?.length) return sel
+    if (gerente) return [gerente]
+  }
+  const conf = o.id ? responsablesDeOpcion(o) : []
+  return conf.length ? conf : responsablesDelItem(it as ItemRespLigero)
+}
 
 /**
  * Contribución de un ítem respondido con la selección nueva de responsables de
@@ -652,7 +868,7 @@ function contribucionNueva(it: ItemRespLigero, P: number, valor: unknown): Contr
         // elegidos (o la selección antigua del ítem, o el gerente, o legado). Sin esa
         // selección (legado) la falla del punto completo se absorbe una sola vez.
         const vLista = valor as ValorListaColaboradores | null
-        const aplican = (vLista?.colaboradores ?? []).filter((x) => x.aplica)
+        const aplican = colaboradoresQueCuentan(vLista?.colaboradores)
         const modoPorTrabajador = aplican.some((c) => c.responsablesPorOpcion)
         if (modoPorTrabajador) {
           for (const c of aplican) {
@@ -920,7 +1136,7 @@ export function incumplimientosPorResponsable(
       // elegidos (o la selección antigua del ítem, o el gerente, o los configurados).
       const v2 = valor as ValorListaColaboradores | null
       const modoPorTrabajador = (v2?.colaboradores ?? []).some((c) => c.responsablesPorOpcion)
-      const aplican = (v2?.colaboradores ?? []).filter((x) => x.aplica)
+      const aplican = colaboradoresQueCuentan(v2?.colaboradores)
       if (modoPorTrabajador) {
         for (const c of aplican) {
           const sel = c.selected ?? []
@@ -966,6 +1182,163 @@ export function pesoItem(item: { puntaje?: number | null } | null | undefined): 
 /** Redondea un puntaje a 3 decimales (mínimo razonable 0.001 por opción/ítem). */
 export function redondear3(n: number): number {
   return Math.round((n + Number.EPSILON) * 1000) / 1000
+}
+
+/** Ítem con lo mínimo que hace falta para describir las fallas de un responsable. */
+export type ItemFalla = ItemRespLigero & {
+  texto?: string | null
+  modulo_id?: string | null
+}
+
+export interface FallaResponsable {
+  item_id: string
+  tipo: string
+  /** Texto del ítem, para que el modal no muestre códigos. */
+  texto: string
+  modulo_id: string | null
+  /** Puntos que este responsable tenía en el ítem y no logró. */
+  perdidos: number
+  /** Checks concretos que fallaron. Vacío en los ítems que no son de checks. */
+  checks: string[]
+}
+
+/**
+ * En qué ítems falló un responsable y cuánto puntos le costaron.
+ *
+ * POR QUÉ ESTE NOMBRE Y NO UN RECUENTO
+ * ------------------------------------
+ * El detalle hace falta para dos cosas distintas y por eso trae los puntos: el
+ * modal tiene que decir qué se perdió, no solo qué se rompió. "Incumplimiento de
+ * refrigeracion" sin la cantidad no sirve para el careo, donde el dueño del
+ * área pregunta cuánto se le descontó y hay que responder con un número.
+ *
+ * Los puntos salen de `contribucionNueva` / del reparto legado, los mismos que
+ * usa `valorPorResponsable`. Si se calcularan aparte, el modal podría mostrar 8
+ * puntos donde la tarjeta dice 8,4 y el usuario pierde la confianza en los dos.
+ *
+ * `checks` nombra los checks que fallaron y se atribuyen a ESTE responsable, no
+ * los que fallaron en el ítem: si dos personas cargan el mismo ítem, cada una ve
+ * solo lo suyo.
+ */
+export function fallasDeResponsable(
+  responsable: string,
+  items: ItemFalla[],
+  respuestas: { item_id: string; instancia_id?: string | null; valor: unknown }[]
+): FallaResponsable[] {
+  const porItem = new Map<string, unknown[]>()
+  for (const r of respuestas) {
+    const arr = porItem.get(r.item_id) ?? []
+    arr.push(r.valor)
+    porItem.set(r.item_id, arr)
+  }
+
+  const salida: FallaResponsable[] = []
+  for (const it of items) {
+    if (!it?.id || it.tipo === 'CONTENEDOR') continue
+    const P = pesoItem(it)
+    if (!(P > 0)) continue
+    const muestras = porItem.get(it.id) ?? []
+    if (!muestras.length) continue
+
+    let perdidos = 0
+    for (const valor of muestras) {
+      if (tieneSeleccionResponsables(valor)) {
+        const propio = contribucionNueva(it as ItemRespLigero, P, valor).get(responsable)
+        if (propio) perdidos += propio.pos - propio.log
+        continue
+      }
+      const rs = responsablesDelItem(it)
+      if (!rs.includes(responsable)) continue
+      const prop = proporcionItem(it as { tipo: string }, valor)
+      if (prop == null) continue
+      perdidos += redondear3(P / rs.length) * (1 - prop)
+    }
+    if (perdidos <= 0) continue
+
+    salida.push({
+      item_id: it.id,
+      tipo: it.tipo ?? '',
+      texto: it.texto?.trim() || 'Ítem sin texto',
+      modulo_id: it.modulo_id ?? null,
+      perdidos: redondear3(perdidos),
+      checks: checksDeFalla(it, responsable, muestras)
+    })
+  }
+  // El que más puntos cuesta arriba: es el primero que hay que mirar.
+  return salida.sort((a, b) => b.perdidos - a.perdidos)
+}
+
+/**
+ * Checks que fallaron y se atribuyen a este responsable.
+ *
+ * Reusa `responsablesDeFalla` para no abrir un segundo criterio de atribución:
+ * el contador de fallas y este listado tienen que salir de la misma decisión.
+ */
+function checksDeFalla(it: ItemFalla, responsable: string, muestras: unknown[]): string[] {
+  const esChecklist = it.tipo === 'CHECKLIST' || it.tipo === 'LISTA_COLABORADORES' || it.tipo === 'UNIDAD_CHECKLIST'
+  const opts = ((it.opciones ?? []) as OpcionConTexto[]).filter((o) => o.id)
+  const vistos = new Set<string>()
+  const agregar = (texto: string) => {
+    const t = texto.trim()
+    if (t) vistos.add(t)
+  }
+  const nombre = (o: OpcionConTexto) => o.etiqueta?.trim() || 'Punto sin nombre'
+
+  for (const valor of muestras) {
+    const v = valor as { responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null } | null
+    const record =
+      esChecklist && v?.responsablesPorOpcion != null && typeof v.responsablesPorOpcion === 'object' && !Array.isArray(v.responsablesPorOpcion)
+        ? v.responsablesPorOpcion
+        : null
+    const gerente = typeof v?.responsablesGerente === 'string' && v.responsablesGerente ? v.responsablesGerente : null
+    if (!esChecklist) continue
+
+    if (it.tipo === 'CHECKLIST') {
+      const informative = ((valor as ValorChecklist | null)?.informativos) ?? []
+      for (const o of opts) {
+        if (informative.includes(o.id as string)) continue
+        if (opcionCumplida(o as { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }, valor as ValorChecklist, o.id as string)) continue
+        if (responsablesDeFalla(it, o, record, gerente).includes(responsable)) agregar(nombre(o))
+      }
+    } else if (it.tipo === 'UNIDAD_CHECKLIST') {
+      for (const u of (valor as ValorUnidadChecklist | null)?.unidades ?? []) {
+        const sel = u.selected ?? []
+        for (const o of opts) {
+          if (sel.includes(o.id as string)) continue
+          if (responsablesDeFalla(it, o, record, gerente).includes(responsable)) agregar(nombre(o))
+        }
+      }
+    } else {
+      // LISTA_COLABORADORES: los checks sin marcar en algún trabajador revisado.
+      const v2 = valor as ValorListaColaboradores | null
+      const modoPorTrabajador = (v2?.colaboradores ?? []).some((c) => c.responsablesPorOpcion)
+      for (const c of colaboradoresQueCuentan(v2?.colaboradores)) {
+        const sel = c.selected ?? []
+        for (const o of opts) {
+          const id = o.id as string
+          if (sel.includes(id) || (c.noAplica ?? []).includes(id)) continue
+          // Con selección por trabajador manda la del propio trabajador: es la
+          // que quiso decir "este check falló en esta persona y el responsable es
+          // tal". Sin eso, la del ítem y, en último caso, el gerente o los
+          // configurados del check.
+          const propia = modoPorTrabajador ? c.responsablesPorOpcion?.[id] : undefined
+          const rs = propia?.length
+            ? propia
+            : record?.[id]?.length
+              ? record[id]
+              : record
+                ? gerente
+                  ? [gerente]
+                  : []
+                : gerente
+                  ? [gerente]
+                  : responsablesDeOpcion(o)
+          if (rs.includes(responsable)) agregar(nombre(o))
+        }
+      }
+    }
+  }
+  return [...vistos]
 }
 
 export interface RespuestaItem {

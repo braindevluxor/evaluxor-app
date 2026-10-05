@@ -1,4 +1,4 @@
-import { colaboradorCumple, opcionesAplicablesColaborador, type ColaboradorItem } from '../scoring'
+import { colaboradorCumple, esColaboradorRevisado, opcionesAplicablesColaborador, type ColaboradorItem } from '../scoring'
 
 /**
  * Estado de la lista de colaboradores de un ítem de tipo LISTA_COLABORADORES.
@@ -89,12 +89,12 @@ export function normalizarListaColaboradores(valor: unknown): ColaboradorItem[] 
  * decidido.
  */
 export function tieneTrabajoRegistrado(c: ColaboradorItem): boolean {
-  return (
-    (c.selected ?? []).length > 0 ||
-    (c.noAplica ?? []).length > 0 ||
-    c.aplica === false ||
-    Object.keys(c.responsablesPorOpcion ?? {}).length > 0
-  )
+  // "Lo revisó" y "hay que preguntarle antes de tirarlo" son casi la misma
+  // pregunta: lo único que suma acá es que excluirlo con la casilla de "cuenta
+  // para el puntaje" también es trabajo del evaluador, aunque no haya dejado
+  // nada tildado. La definición de "revisado" vive en el scoring, que es donde
+  // decide si el trabajador cuenta.
+  return esColaboradorRevisado(c) || c.aplica === false
 }
 
 /**

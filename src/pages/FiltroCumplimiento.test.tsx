@@ -254,9 +254,15 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
     expect(html).toContain('75% concilia, falta 1')
     expect(html).toContain('75% concilia, sobra 1')
     expect(html).toContain('Pérdida: $')
-    expect(html).toContain('Pérdida estimada por faltantes:')
     expect(html).toContain('37,50')
     expect(html).toContain('producto(s) sin precio base')
+    // El cierre separa el sobrante (buscar mercadería) de la pérdida (plata), y
+    // solo la segunda va en rojo.
+    expect(html).toContain('unidades sobrantes')
+    expect(html).toContain('|')
+    expect(html).toContain('unidades faltantes con un valor estimado de USD37,50')
+    expect(html).toContain('text-red-700')
+    expect(html).toMatch(/text-red-700[^>]*>\s*4 unidades faltantes con un valor estimado/)
     expect(html).not.toContain('Producto conciliado')
     expect(html).not.toContain('overflow-x-auto')
     expect(html).not.toContain('min-w-[620px]')

@@ -1,28 +1,43 @@
 import { useCallback, useEffect, useState, Fragment, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, FileDown, FolderOpen, RefreshCw, Tag, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, FileDown, FolderOpen, RefreshCw, Tag, X } from 'lucide-react'
 import { useOffline } from '../context/OfflineContext'
-import { obtenerEvaluacion, resumirEvaluacion, listarPerfilesSync, type DetalleEvaluacion } from '../lib/data/indicadores'
+import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
+import { cargosDelCentro, centroDisponible, separacionDisponible, useCargosPorCentro, type CatalogosCentro, type CentroOperaciones } from '../lib/data/cargosCentro'
 import { descargarInformePdf } from '../lib/pdf'
 import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
 import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
-import { etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, conciliacionComparable, colaboradorCumple, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, incumplimientosPorResponsable, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, tieneRespuesta, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem } from '../lib/scoring'
+import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, conciliacionComparable, ordenarConciliacion, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Foto, Item, Opcion, SucursalOpcion } from '../lib/types'
-import { Badge, Button, Card, Puntaje, Skeleton, Spinner, cn } from '../components/ui'
-import { UltimaSync } from '../components/UltimaSync'
-import { IncidenciasEvaluacion } from '../components/IncidenciasEvaluacion'
+import { Badge, Button, Card, InfoTooltip, Modal, ProgressBar, Skeleton, Spinner, cn, colorFondoBadge } from '../components/ui'
+
+import { IncidenciasEvaluacion, ListaIncidencias, incidenciaEsDeCargo, useIncidenciasEvaluacion } from '../components/IncidenciasEvaluacion'
 import { Fotogaleria, FotogaleriaRutas } from '../components/dashboard/Fotogaleria'
 import { PlanoLectura } from '../components/PlanoEditor'
 import { pathsEvidenciaChecklist, pathsEvidenciaCumple, pathsEvidenciaOpcion } from '../lib/evidencias'
 import { IconoModulo } from '../components/IconoModulo'
 import { ordenarTrabajadores } from '../lib/data/colaboradores'
 
+/** Desde acá arranca el "Cumple". Vive acá y no junto al badge para que el color del
+ *  número, la etiqueta y el texto de "faltan N" no puedan quedar con umbrales
+ *  distintos: son tres lecturas del mismo veredicto y se contradicen en pantalla. */
+const UMBRAL_CUMPLE = 80
+
+/**
+ * El veredicto del puntaje. Solo devuelve el índice de la paleta y el texto: el
+ * color del número grande lo saca `colorFondoBadge` del MISMO índice, así que el
+ * número y su etiqueta no pueden quedar de distinto color el día que se cambie un
+ * tono de la paleta.
+ *
+ * Sin puntaje es `0` (gris) y no `4` (rojo) como antes: que falte el número no es
+ * una falla de la sucursal, es una visita que todavía no se cerró.
+ */
 function estadoBadge(puntaje: number | null): { texto: string; color: number } {
-  if (puntaje == null) return { texto: 'Sin puntaje', color: 4 }
-  if (puntaje >= 80) return { texto: 'Cumple', color: 2 }
+  if (puntaje == null) return { texto: 'Sin puntaje', color: 0 }
+  if (puntaje >= UMBRAL_CUMPLE) return { texto: 'Cumple', color: 2 }
   if (puntaje >= 60) return { texto: 'En riesgo', color: 3 }
   return { texto: 'No cumple', color: 4 }
 }
@@ -206,14 +221,21 @@ export function ValorRespuesta({
       const cols = ordenarTrabajadores(v?.colaboradores ?? [])
       if (!cols.length) return <p className="text-sm text-slate-400">Sin trabajadores</p>
       const opts = (item.opciones ?? []) as Opcion[]
-      const aplican = cols.filter((c) => c.aplica)
-      const conChecksAplicables = aplican.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
+      // Igual que en el scoring: solo los trabajadores revisados entran en la
+      // evaluación. Los que quedaron destildados sin tocar se listan aparte para
+      // que se vea que faltaron, sin que parezcan incumplimientos.
+      const enCuenta = cols.filter((c) => c.aplica)
+      const enPuntaje = colaboradoresQueCuentan(cols)
+      const conChecksAplicables = enPuntaje.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
       const cumplen = conChecksAplicables.filter((c) => colaboradorCumple(c, opts)).length
+      const sinRevisar = enCuenta.length - enPuntaje.length
       const colaboradoresVisibles = cols.filter((c) => {
         if (!c.aplica) return false
-        if (!soloIncumplimientos) return true
-        const checks = opcionesAplicablesColaborador(c, opts)
-        return checks.length > 0 && !colaboradorCumple(c, opts)
+        if (soloIncumplimientos) {
+          const checks = opcionesAplicablesColaborador(c, opts)
+          return esColaboradorRevisado(c) && checks.length > 0 && !colaboradorCumple(c, opts)
+        }
+        return true
       })
       return (
         <div className="space-y-3">
@@ -224,8 +246,9 @@ export function ValorRespuesta({
             {soloIncumplimientos
               ? `${colaboradoresVisibles.length} trabajador${colaboradoresVisibles.length === 1 ? '' : 'es'} con incumplimientos`
               : <>
-                  {aplican.length} trabajador{aplican.length === 1 ? '' : 'es'} en cuenta · {cumplen}/{conChecksAplicables.length} completos
-                  {conChecksAplicables.length < aplican.length ? ` · ${aplican.length - conChecksAplicables.length} sin puntos aplicables` : ''}
+                  {enPuntaje.length} trabajador{enPuntaje.length === 1 ? '' : 'es'} en cuenta · {cumplen}/{conChecksAplicables.length} completos
+                  {sinRevisar ? ` · ${sinRevisar} sin revisar (no suman al puntaje)` : ''}
+                  {enCuenta.length > enPuntaje.length + sinRevisar ? ` · ${enCuenta.length - enPuntaje.length - sinRevisar} sin puntos aplicables` : ''}
                 </>}
           </p>
           <ul className="space-y-2">
@@ -243,7 +266,7 @@ export function ValorRespuesta({
                       <span className="ml-1.5 text-xs font-normal text-slate-500">C.I. {c.nationality ?? ''}{c.dni} · {c.role_name || 'Sin rol'}</span>
                     </span>
                     <span className="shrink-0">
-                      <EstadoColaborador aplica={c.aplica} cumple={cumple} sinPuntosAplicables={c.aplica && checksAplicables.length === 0} />
+                      <EstadoColaborador aplica={c.aplica} cumple={cumple} sinPuntosAplicables={c.aplica && checksAplicables.length === 0} revisado={esColaboradorRevisado(c)} />
                     </span>
                   </div>
                   {!soloIncumplimientos && c.aplica && marcadas.length ? (
@@ -332,8 +355,14 @@ export function ValorRespuesta({
         return { p, indice: i, teorica, fisica, comparable, variacion, perdida, descuadra: comparable && p.fisica !== p.teorica }
       })
       const descuadrados = filas.filter((f) => f.descuadra).length
-      const filasVisibles = soloIncumplimientos ? filas.filter((f) => f.descuadra) : filas
+      // Se muestran en orden de pérdida: primero lo que falta y por cuánta plata,
+      // después lo que sobra, y al final lo que concilia. Es el mismo orden que
+      // usa el PDF, para que las dos vistas se lean igual.
+      const filaDe = new Map(ps.map((p, i) => [p, filas[i]]))
+      const ordenadas = ordenarConciliacion(ps, item.contra_dato ?? 'SOH').map((p) => filaDe.get(p)!)
+      const filasVisibles = soloIncumplimientos ? ordenadas.filter((f) => f.descuadra) : ordenadas
       const resumenPerdida = resumenPerdidaConciliacion(ps, item.contra_dato ?? 'SOH')
+      const totales = totalesConciliacion(ps)
       return (
         <div className="space-y-3">
           {v?.informativo ? (
@@ -360,10 +389,7 @@ export function ValorRespuesta({
                     )}
                   >
                     <td
-                      className="overflow-hidden text-ellipsis whitespace-nowrap px-1 py-2 font-medium text-slate-800 sm:px-2"
-                      style={{
-                        fontSize: p.sku.length > 22 ? '7px' : p.sku.length > 18 ? '8px' : p.sku.length > 12 ? '9px' : undefined
-                      }}
+                      className="overflow-hidden text-ellipsis whitespace-nowrap px-1 py-2 text-[11px] font-medium tabular-nums text-slate-800 sm:px-2"
                       title={p.sku}
                     >
                       {p.sku || '—'}
@@ -391,7 +417,10 @@ export function ValorRespuesta({
                       ) : (
                         <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Concilia</span>
                       )}
-                      {!esPrecio && variacion?.verbo.startsWith('falta') ? (
+                      {/* La pérdida solo tiene sentido donde algo falta. Con el conteo conciliado
+                          la diferencia es cero y el texto era ruido que hacía pensar
+                          que ahí también se estaba perdiendo plata. */}
+                      {!esPrecio && descuadra && variacion?.verbo.startsWith('falta') ? (
                         <span className="mt-1 block text-[11px] font-semibold text-red-700">
                           Pérdida: {perdida == null ? 'sin precio base' : formatearPrecioBase(perdida)}
                         </span>
@@ -407,9 +436,26 @@ export function ValorRespuesta({
             {!soloIncumplimientos && (descuadrados ? `${descuadrados} con descuadre` : 'todos concilian')}
             {total != null ? ` · tasa de descuadre ${total}%` : ''}
           </p>
-          {!esPrecio && resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0 ? (
-            <p className="text-sm font-semibold text-red-700">
-              Pérdida estimada por faltantes: {formatearPrecioBase(resumenPerdida.monto)}
+          {/* Una sola línea con las dos mitades separadas por "|": lo que sobra a la
+            izquierda, que es mercadería a buscar y no es pérdida, y lo que falta a
+            derecha en rojo, que es plata que se está perdiendo. El rojo se queda
+            solo con la pérdida para que el ojo vaya directo a lo que cuesta. */}
+          {!esPrecio && (resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0 || totales.unidadesFaltantes > 0 || totales.unidadesSobrantes > 0) ? (
+            <p className="text-sm text-slate-700">
+              {totales.unidadesSobrantes > 0 ? `${fmt(totales.unidadesSobrantes)} unidades sobrantes` : null}
+              {totales.unidadesSobrantes > 0 && (totales.unidadesFaltantes > 0 || resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0)
+                ? ' | '
+                : null}
+              {totales.unidadesFaltantes > 0 ? (
+                <span className="font-semibold text-red-700">
+                  {totales.unidadesFaltantes} unidades faltantes con un valor estimado de{' '}
+                  {formatearMontoPerdida(resumenPerdida.monto)}
+                </span>
+              ) : resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0 ? (
+                <span className="font-semibold text-red-700">
+                  Pérdida estimada {formatearMontoPerdida(resumenPerdida.monto)}
+                </span>
+              ) : null}
               {resumenPerdida.faltantesSinPrecio > 0
                 ? ` · ${resumenPerdida.faltantesSinPrecio} producto(s) sin precio base`
                 : ''}
@@ -513,13 +559,21 @@ export function EvaluacionDetalle() {
   const { evaluacionId = '' } = useParams()
   const navigate = useNavigate()
   const [detalle, setDetalle] = useState<DetalleEvaluacion | null>(null)
-  // Nombre y última subida a la nube de quienes respondieron en esta evaluación.
-  const [evaluadores, setEvaluadores] = useState<Record<string, { nombre: string; ultima_sync: string | null }>>({})
   const [estado, setEstado] = useState<'cargando' | 'error' | 'ok'>('cargando')
   const [descargando, setDescargando] = useState(false)
   const [sincronizando, setSincronizando] = useState(false)
   const [aviso, setAviso] = useState<{ texto: string; ok: boolean } | null>(null)
   const [error, setError] = useState('')
+  /** Responsable abierto en el modal de fallas. null = cerrado. */
+  const [fallasDe, setFallasDe] = useState<string | null>(null)
+  /** ¿El modal de todas las incidencias está abierto? */
+  const [incidenciasAbiertas, setIncidenciasAbiertas] = useState(false)
+  /**
+   * Centro de operaciones whose cargos se están viendo. Arranca en la sucursal
+   * evaluada porque es la que se está mirando: la central casi siempre aparece
+   * después y con menos gente.
+   */
+  const [centro, setCentro] = useState<CentroOperaciones>('sucursal')
   const [moduloActivoId, setModuloActivoId] = useState('')
   const [moduloTip, setModuloTip] = useState<{ label: string; top: number; left: number } | null>(null)
   /**
@@ -529,6 +583,16 @@ export function EvaluacionDetalle() {
    */
   const [filtro, setFiltro] = useState<'ambos' | 'cumple' | 'no-cumple'>('ambos')
   const { online, pendientes, sync } = useOffline()
+  /**
+   * Incidencias: una sola consulta para el botón con el total, el modal de todas
+   * y el modal de cada cargo. Va acá arriba y no junto a los cálculos porque los
+   * hooks no pueden ir después de un return temprano, y esta pantalla tiene uno
+   * mientras carga la evaluación.
+   */
+  const incidencias = useIncidenciasEvaluacion(detalle?.evaluacion.id ?? null)
+  const filasIncidencias = incidencias.filas ?? []
+  /** Catálogos de cargos de la sucursal y de la central, para el selector de centros. */
+  const catalogosCentro = useCargosPorCentro(detalle?.evaluacion.sucursal?.branch_id ?? null)
   const moduloIdsKey = detalle?.modulos.map((modulo) => modulo.id).join('|') ?? ''
 
   useEffect(() => {
@@ -559,10 +623,10 @@ export function EvaluacionDetalle() {
     const d = await obtenerEvaluacion(evaluacionId)
     if (!d) return
     setDetalle(d)
-    // Quién respondió y cuándo subió su avance por última vez: se refresca junto
-    // con la evaluación (en vivo cada 15 s) para ver al instante si alguien sube.
-    const ids = Array.from(new Set(d.respuestas.map((r) => r.respondido_por).filter((x): x is string => !!x)))
-    void listarPerfilesSync(ids).then(setEvaluadores)
+    /* Antes esto además consultaba los perfiles de quienes respondieron, para la
+       tarjeta de "Avance por evaluador". Al irse esa tarjeta, la consulta solo
+       sobraba: era un viaje extra a Supabase cada 15 s en vivo para pintar un dato
+       que ya nadie miraba. */
   }, [evaluacionId])
 
   useEffect(() => {
@@ -648,7 +712,7 @@ export function EvaluacionDetalle() {
   }
 
   const { evaluacion, respuestas, items, modulos, fotos, sucursalOpciones, instancias } = detalle
-  const { puntaje } = resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones)
+  const { puntaje, itemsBinarios, itemsBinariosOk } = resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones)
   const est = estadoBadge(puntaje)
   const aplicaOpciones = opcionesQueAplican(evaluacion.sucursal_id, sucursalOpciones)
   const aplicarOpciones = (item: Item) => {
@@ -658,27 +722,66 @@ export function EvaluacionDetalle() {
     return { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) }
   }
 
-  const incumplimientos = new Map<string, number>()
-  for (const r of respuestas) {
-    const it = items.find((i) => i.id === r.item_id)
-    if (!it) continue
-    for (const a of incumplimientosPorResponsable(aplicarOpciones(it), r.valor)) {
-      incumplimientos.set(a.responsable, (incumplimientos.get(a.responsable) ?? 0) + a.puntos)
-    }
-  }
+  /* El conteo de fallas por responsable ya no se pinta: la tarjeta quedó solo con
+     cargo, % y barra, y el detalle de qué salió mal vive en el modal. Dejar el
+     `Map` armado acá era recorrer todas las respuestas en cada render para
+     guardar un dato que nadie lee. */
 
-  // Ítems con respuesta real por evaluador (mismo criterio que los contadores de
-  // avance: una respuesta vacía no cuenta) para ver cuánto subió cada uno.
-  const porEvaluador = new Map<string, number>()
-  for (const r of respuestas) {
-    if (!r.respondido_por) continue
-    const it = items.find((i) => i.id === r.item_id)
-    if (!it || !tieneRespuesta(it, r.valor)) continue
-    porEvaluador.set(r.respondido_por, (porEvaluador.get(r.respondido_por) ?? 0) + 1)
-  }
+  /* Tampoco se calcula el avance por evaluador: la tarjeta que lo mostraba se fue
+     y el `Map` solo servía para pintarla. */
+
   // Puntaje por responsable: cada ítem reparte su peso entre quienes participan en él
   // (peso ÷ nº de responsables); el % de cada responsable = logrado / posible.
   const valoresResp = valorPorResponsable(items.map(aplicarOpciones), respuestas)
+  /**
+   * De peor a mejor puntaje. El bloque se lee para decidir a quién se le habla
+   * primero, y ese es el que quedó abajo; con el orden en que salen de
+   * `valorPorResponsable` (que es el orden de aparición en los ítems) el que más
+   * necesita atención podía quedar en el medio, escondido entre los que
+   * salieron bien.
+   *
+   * Los que no tienen posible quedan al final: no se sabe si cumplieron, y poner
+   * un "—" arriba o abajo los mezcla con números que sí significan algo.
+   */
+  const valoresOrdenados = [...valoresResp].sort((a, b) => {
+    if (a.porciento == null) return b.porciento == null ? 0 : 1
+    if (b.porciento == null) return -1
+    return a.porciento - b.porciento
+  })
+  /**
+   * Los cargos del centro elegido. El filtro va DESPUÉS del orden: ordenar por
+   * porcentaje y después recortar deja la lista en el mismo orden relativo, que es
+   * lo que hace comparable "el peor de la sucursal" con "el peor de la central".
+   */
+  const valoresVisibles = cargosDelCentro(valoresOrdenados, centro, catalogosCentro)
+
+  /**
+   * Las fallas del responsable abierto, agrupadas por módulo.
+   *
+   * Se agrupa porque el detalle de la evaluación ya está armado por módulos y el
+   * que está en el modal quiere lo mismo: "dentro de Higiene me quitaron estos
+   * puntos", no una lista de 30 ítems sueltos de seis módulos distintos. El
+   * `aplicarOpciones` es el mismo filtro de sucursal que usa el resto de la
+   * pantalla, para que el modal no nombre checks que en la tabla ni aparecen.
+   */
+  const fallasLista = fallasDe ? fallasDeResponsable(fallasDe, items.map(aplicarOpciones), respuestas) : []
+  const fallasAbiertas = fallasLista.reduce<Map<string, FallaResponsable[]>>((grupos, falla) => {
+    const clave = falla.modulo_id ?? ''
+    const lista = grupos.get(clave) ?? []
+    lista.push(falla)
+    grupos.set(clave, lista)
+    return grupos
+  }, new Map())
+  /** Puntos perdidos del responsable abierto, para el pie del modal. */
+  const perdidasAbiertas = fallasLista.reduce((suma, f) => suma + f.perdidos, 0)
+
+  /**
+   * Incidencias del cargo abierto. Van en el mismo modal y no en uno aparte
+   * porque son dos caras de lo mismo: lo que le quitó puntos del cuestionario y
+   * lo que le vio el evaluador en la tienda. Abrir dos modales para leer lo que
+   * pesa sobre la misma persona es un paso de más.
+   */
+  const incidenciasDelCargo = fallasDe ? filasIncidencias.filter((f) => incidenciaEsDeCargo(f, fallasDe)) : []
 
   /**
    * Veredicto de cada fila que se pinta (ítem + registro), que es lo que el filtro
@@ -774,17 +877,39 @@ export function EvaluacionDetalle() {
 
       <main className="mx-auto max-w-2xl px-4 py-4 lg:max-w-7xl lg:grid lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:items-start lg:gap-5 lg:px-6 lg:py-6 xl:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
         {/*
-          En escritorio el detalle separa el contexto de incidencias y las respuestas.
-          En el teléfono todo fluye en una sola columna.
+          En escritorio el detalle separa el contexto (incidencias, quién evaluó,
+          puntaje por cargo) de las respuestas. En el teléfono todo fluye en una sola
+          columna.
         */}
-        <div className="space-y-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:space-y-5 lg:overflow-y-auto">
+        {/* `min-w-0`: sin esto esta columna es un ítem flex/grid que no baja de su
+            ancho por contenido, y un cargo con nombre largo ensanchaba la columna
+            entera hasta romper el layout de dos columnas.
+
+            ALTO FIJO, NO ALTO MÁXIMO
+            ------------------------
+            Con `max-h` + `overflow-y-auto` la columna scrolleaba, y como la lista
+            de cargos también scrollea, había dos barras: la de afuera arrastraba
+            la tarjeta de incidencias y la de adentro. Dos barras para un bloque
+            que cabe en una pantalla es una de más.
+
+            Ahora la columna mide exactamente lo que hay (`h`) y es flex: los
+            bloques de arriba no se encogen (`shrink-0`) y el único que cede es
+            la lista de cargos, que recibe lo que sobra. Así ni hace falta
+            `sticky` en ninguna de las dos tarjetas para que no se muevan: no hay
+            nada que las empuje.
+
+            Y por eso el alto es fijo y no máximo: con `max-h`, si el contenido
+            pasa la pantalla la columna crece, y como la columna está `sticky`
+            contra la página su mitad de abajo queda inalcanzable. Eso ya no
+            puede pasar porque el contenido no puede crecer. */}
+        <div className="min-w-0 space-y-4 lg:sticky lg:top-20 lg:flex lg:h-[calc(100vh-6rem)] lg:flex-col lg:space-y-5 lg:overflow-hidden">
           {error ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+            <div className="shrink-0 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
           ) : null}
           {aviso ? (
             <div
               className={cn(
-                'flex items-start gap-2 rounded-xl border px-3 py-2 text-sm',
+                'flex shrink-0 items-start gap-2 rounded-xl border px-3 py-2 text-sm',
                 aviso.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-800'
               )}
             >
@@ -801,65 +926,265 @@ export function EvaluacionDetalle() {
             </div>
           ) : null}
 
-          <IncidenciasEvaluacion evaluacionId={evaluacion.id} />
-
-          {porEvaluador.size ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-bold text-primary-900">Avance por evaluador</p>
-              <p className="mb-3 text-xs text-slate-400">
-                Última vez que cada uno logró subir su avance a la nube. En rojo o sin marca puede tener el avance
-                todavía solo en su teléfono.
-              </p>
-              <ul className="space-y-1.5">
-                {[...porEvaluador.entries()]
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([id, n]) => (
-                    <li key={id} className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-700">{evaluadores[id]?.nombre || 'Evaluador'}</p>
-                        <p className="text-xs text-slate-400">
-                          {n} ítem{n !== 1 ? 's' : ''} con respuesta
-                        </p>
-                      </div>
-                      <UltimaSync ultimaSync={evaluadores[id]?.ultima_sync} />
-                    </li>
-                  ))}
-              </ul>
-            </section>
-          ) : null}
+          <IncidenciasEvaluacion
+            filas={incidencias.filas}
+            error={incidencias.error}
+            cargando={incidencias.cargando}
+            onAbrir={() => setIncidenciasAbiertas(true)}
+          />
 
           {valoresResp.length ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-bold text-primary-900">Puntaje por responsable</p>
-              <p className="mb-3 text-xs text-slate-400">Cada ítem reparte su valor entre quienes participan en él (peso ÷ nº de responsables del ítem). El % de cada responsable = logrado ÷ posible.</p>
-              <div className="space-y-1.5">
-                {valoresResp.map((v) => {
-                  const fallas = incumplimientos.get(v.responsable) ?? 0
+            /* `flex-1 min-h-0`: es lo único en la columna que cede alto, así que
+               recibe el espacio que dejan los bloques de arriba y el que sobra.
+               El `min-h-0` es lo que permite que la lista scrollee en vez de
+               empujar la tarjeta: sin él el hijo mínimo de flex es su alto
+               completo y la tarjeta crece hasta salirse de la columna. */
+            <section className="flex min-h-0 flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:min-h-0 lg:flex-1">
+              {/* La explicación de cómo se calcula el puntaje va en el tooltip del "?" y no
+                  escrita abajo. Este bloque scrollea, y un párrafo de cuatro
+                  líneas arriba empujaba la lista hacia abajo: había que pasar por
+                  él en cada evaluación para llegar al primer cargo, que es justo lo
+                  que se viene a mirar. */}
+              <div className="mb-2 flex shrink-0 items-center gap-1.5">
+                <p className="font-bold text-primary-900">Puntaje por responsable</p>
+                <InfoTooltip texto="Cada ítem reparte su valor entre quienes participan en él (peso ÷ nº de responsables del ítem). El % de cada responsable = logrado ÷ posible. Ordenadas de menor a mayor: la primera es a quien hay que hablarle. El selector de arriba deja solo los cargos de un centro de operaciones, según el catálogo de cada branch." />
+              </div>
+              <SelectorCentro
+                centro={centro}
+                onCentro={setCentro}
+                catalogos={catalogosCentro}
+                cuentaSucursal={cargosDelCentro(valoresOrdenados, 'sucursal', catalogosCentro).length}
+                cuentaCentral={cargosDelCentro(valoresOrdenados, 'central', catalogosCentro).length}
+              />
+              {/* Una tarjeta por responsable en vez de una tabla. Con cinco
+                  columnas de números el bloque se leía como un reporte: había que
+                  saltar de una fila a otra para comparar, y el nombre —que es lo
+                  único que identifica a la persona— quedaba apretado en una
+                  columna de 3 rem contra las otras, que necesitan más ancho por
+                  defecto de las cifras.
+
+                  En la tarjeta cada persona tiene su propia línea de tiempo
+                  vertical: nombre, barra, porcentaje grande. La comparación entre
+                  dos ya no requiere alinear nada, porque la barra y el número
+                  tienen el mismo ancho siempre y el ojo compara largo contra
+                  largo.
+
+                  Solo tres datos y ninguno más. Los puntos y el conteo de fallas
+                  se quitaron porque EMRUMBAN la pregunta que la tarjeta tiene que
+                  responder, que es quién va primero: el 34% de Beto se lee sin
+                  más, y los 7,5 pts de 20 no dicen si son una falla grande o
+                  siete chicas. Los puntos están a un clic, en el modal. */}
+              {/* El único scroll de la columna. `min-h-0 flex-1`: toma el alto que le
+                  dejó la tarjeta y scrollea dentro. Sin `min-h-0` no scrollea,
+                  se desborda; sin `flex-1` no crece y queda una lista corta con
+                  un hueco abajo. Ya no hace falta un `max-h` calculado a mano:
+                  el alto lo reparte flex. */}
+              {valoresVisibles.length ? (
+                <ul className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1">
+                {valoresVisibles.map((v) => {
                   const nivel = v.porciento == null
-                    ? 'bg-slate-100 text-slate-500'
+                    ? 'sin-dato'
                     : v.porciento >= 80
-                      ? 'bg-green-50 text-green-700'
+                      ? 'alto'
                       : v.porciento >= 50
-                        ? 'bg-amber-50 text-amber-700'
-                        : 'bg-red-50 text-red-600'
+                        ? 'medio'
+                        : 'bajo'
                   return (
-                    <div key={v.responsable} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-700">{v.responsable}</p>
-                        <p className="text-xs text-slate-400">
-                          <strong className="tabular-nums text-slate-600">{fmt(v.logrado)}</strong> / {fmt(v.posible)} pts
-                          {fallas ? ` · ${fallas} falla${fallas !== 1 ? 's' : ''}` : ''}
+                    <li key={v.responsable}>
+                      {/* Toda la tarjeta es el botón, para que no haya un blanco
+                          chico adivinable: con el clic solo en el nombre, la
+                          mitad derecha de la tarjeta parecía decorado y no
+                          pasaba el puntero. */}
+                      <button
+                        type="button"
+                        onClick={() => setFallasDe(v.responsable)}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-colors',
+                          nivel === 'bajo'
+                            ? 'border-red-200 bg-red-50/60 hover:bg-red-50'
+                            : nivel === 'medio'
+                              ? 'border-amber-200 bg-amber-50/60 hover:bg-amber-50'
+                              : nivel === 'alto'
+                                ? 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                                : 'border-slate-200 bg-white hover:bg-slate-50'
+                        )}
+                      >
+                        {/* `min-w-0 flex-1` es lo que deja que el nombre baje de ancho. Un ítem flex
+                            no baja de su ancho por contenido salvo que se le
+                            permita encogerse: sin esto un cargo largo
+                            ("Coordinación Regional de Ventas") empujaba la tarjeta
+                            y el % se salía de la caja. */}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-baseline justify-between gap-2">
+                        {/* El nombre envuelve en vez de recortarse. `truncate` lo dejaba en
+                            "Coordinación Regional de…", y el cargo es justo el
+                            dato que identifica a quién le toca: medio nombre no
+                            sirve para nada. La tarjeta crece dos líneas y el resto
+                            del bloque se reacomoda solo. */}
+                        <p className="min-w-0 flex-1 break-words text-sm font-bold leading-tight text-slate-800" title={v.responsable}>
+                          {v.responsable}
                         </p>
+                        {/* El porcentaje va arriba a la derecha y no abajo en una
+                            fila de números: es el dato que decide la tarjeta, y si
+                            está al final hay que recorrerla entera para verlo. */}
+                        <span
+                          className={cn(
+                            'shrink-0 text-base font-extrabold tabular-nums',
+                            nivel === 'bajo' ? 'text-red-600' : nivel === 'medio' ? 'text-amber-600' : nivel === 'alto' ? 'text-green-600' : 'text-slate-400'
+                          )}
+                        >
+                          {v.porciento == null ? '—' : `${v.porciento}%`}
+                        </span>
                       </div>
-                      <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-sm font-bold tabular-nums', nivel)}>
-                        {v.porciento == null ? '—' : `${v.porciento}%`}
-                      </span>
-                    </div>
+                      {/* Barra: el % en texto se lee mal de memoria (83 y 34 son
+                          casi el mismo número al ojo), pero dos barras de largo
+                          distinto se comparan de un vistazo aunque estén
+                          separadas por dos tarjetas. */}
+                      <ProgressBar
+                        value={v.porciento ?? undefined}
+                        className="mt-2 h-1.5 bg-white/70"
+                        fillClassName={nivel === 'bajo' ? 'bg-red-500' : nivel === 'medio' ? 'bg-amber-500' : nivel === 'alto' ? 'bg-green-500' : 'bg-slate-300'}
+                      />
+                        </div>
+                        {/* Flecha: sin ella el bloque parece un cartel de resultados y
+                            no se ve que se puede abrir. `self-center` porque el
+                            contenido crece de alto según el nombre: con una línea
+                            la flecha queda al medio y con dos, pegada al borde de
+                            arriba. */}
+                        <ChevronRight className="h-4 w-4 shrink-0 self-center text-slate-300" aria-hidden="true" />
+                      </button>
+                    </li>
                   )
                 })}
-              </div>
+                </ul>
+              ) : (
+                /* Los cargos sí existen pero ninguno es del centro elegido. Es un
+                   caso normal —una sucursal puede no tener ningún cargo de central—
+                   y sin esta nota la tarjeta queda en blanco, que se lee como que el
+                   puntaje no cargó. */
+                <p className="mt-2 min-h-0 flex-1 rounded-xl border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500">
+                  Ningún cargo de esta evaluación pertenece a{' '}
+                  <strong className="font-bold text-slate-700">{centro === 'sucursal' ? 'esta sucursal' : 'la oficina central'}</strong>.
+                </p>
+              )}
             </section>
           ) : null}
+
+          {/* Detalle de las fallas del responsable. Se calcula sobre la demanda, no
+              en un estado aparte: `fallasLista` sale de los mismos datos que ya
+              están cargados y con el mismo filtro de sucursal que la pantalla, así
+              que no puede desincronizarse de la tarjeta de la que salió. */}
+          <Modal
+            open={!!fallasDe}
+            onClose={() => setFallasDe(null)}
+            title={fallasDe ? `Fallas de ${fallasDe}` : ''}
+            wide
+            footer={
+              <p className="text-xs text-slate-500">
+                {perdidasAbiertas > 0 ? (
+                  <>
+                    Total perdido:{' '}
+                    <strong className="font-bold tabular-nums text-red-600">{fmt(perdidasAbiertas)} pts</strong> en{' '}
+                    {fallasLista.length} ítem{fallasLista.length !== 1 ? 's' : ''}.
+                  </>
+                ) : (
+                  'Este responsable no tiene puntos perdidos: su % baja por ítems en los que no participa.'
+                )}
+              </p>
+            }
+          >
+            {fallasLista.length ? (
+              <div className="space-y-4">
+                {[...fallasAbiertas.entries()]
+                  // Los módulos en el orden en que salen en la evaluación y no en
+                  // el que quedaron en el Map: sin este sort el grupo sin módulo
+                  // aparecía primero y partía la lista de la evaluación.
+                  .sort(([a], [b]) => {
+                    const ia = modulos.findIndex((m) => m.id === a)
+                    const ib = modulos.findIndex((m) => m.id === b)
+                    if (ia === -1 && ib === -1) return 0
+                    if (ia === -1) return 1
+                    if (ib === -1) return -1
+                    return ia - ib
+                  })
+                  .map(([moduloId, fallas]) => {
+                    const modulo = modulos.find((m) => m.id === moduloId)
+                    return (
+                      <section key={moduloId || moduloId}>
+                        <h4 className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                          {modulo?.nombre ?? 'Sin módulo'}
+                        </h4>
+                        <ul className="space-y-2">
+                          {fallas.map((falla) => (
+                            <li key={falla.item_id} className="rounded-xl border border-red-100 bg-red-50/50 px-3 py-2.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="min-w-0 flex-1 text-sm font-semibold text-slate-800">{falla.texto}</p>
+                                <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-bold tabular-nums text-red-600">
+                                  −{fmt(falla.perdidos)}
+                                </span>
+                              </div>
+                              {falla.checks.length ? (
+                                <ul className="mt-1.5 space-y-0.5">
+                                  {falla.checks.map((check) => (
+                                    <li key={check} className="flex gap-1.5 text-xs text-red-700">
+                                      <span aria-hidden="true">·</span>
+                                      <span>{check}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                /* Sin checks nombrados (ítems binarios y de plano): el
+                                   ítem entero es la falla, y decir "el ítem falló"
+                                   sería tautológico. Se dice el tipo para al menos
+                                   ubicar el origen. */
+                                <p className="mt-1 text-xs text-red-600">Ítem completo · {etiquetaTipo(falla.tipo)}</p>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )
+                  })}
+              </div>
+            ) : null}
+
+            {/* Las incidencias del cargo van en este mismo modal, debajo de los
+                puntos perdidos, y no en uno aparte. Son dos caras de lo mismo que
+                pesa sobre la misma persona: lo que el cuestionario le descontó y
+                lo que el evaluador le vio en la tienda. Abrir dos modales para
+                leer una cosa sola es un paso de más. */}
+            {incidenciasDelCargo.length ? (
+              <section className="mt-5 space-y-2 border-t border-slate-200 pt-4">
+                <h4 className="text-[11px] font-bold uppercase tracking-wide text-amber-600">
+                  Incidencias reportadas ({incidenciasDelCargo.length})
+                </h4>
+                <p className="text-xs text-slate-500">
+                  Fuera del cuestionario: el evaluador lo vio en la tienda y le atribuyó este cargo.
+                </p>
+                <ListaIncidencias
+                  filas={incidenciasDelCargo}
+                  urlsFotos={incidencias.urlsFotos}
+                />
+              </section>
+            ) : null}
+          </Modal>
+
+          {/* Todas las incidencias. Va en un modal y no en la columna porque el
+              bloque de incidencias ya no es para leerlas: es el contador. Con
+              veinte incidencias escritas enteras tapaba justo los cargos, que es
+              lo que el Líder está mirando. */}
+          <Modal
+            open={incidenciasAbiertas}
+            onClose={() => setIncidenciasAbiertas(false)}
+            title={`Incidencias reportadas (${filasIncidencias.length})`}
+            wide
+          >
+            <ListaIncidencias
+              filas={filasIncidencias}
+              urlsFotos={incidencias.urlsFotos}
+              vacio="Los evaluadores no reportaron incidencias en esta visita."
+            />
+          </Modal>
         </div>
 
         <div className="min-w-0 space-y-4 pt-4 lg:col-start-2 lg:row-start-1 lg:space-y-5 lg:pt-0">
@@ -874,12 +1199,12 @@ export function EvaluacionDetalle() {
                   {new Date(`${evaluacion.fecha}T12:00:00`).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {evaluacion.aperturador?.nombre ?? '—'}
                 </p>
               </div>
-              <div className="shrink-0 text-right">
-                <Puntaje value={puntaje} />
-                <div className="mt-1">
-                  <Badge color={est.color}>{est.texto}</Badge>
-                </div>
-              </div>
+              <PuntajeTotal
+                puntaje={puntaje}
+                estado={est}
+                completos={itemsBinariosOk}
+                total={itemsBinarios}
+              />
             </div>
             {evaluacion.estado === 'ACTIVA' ? (
               <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-[11px] font-bold text-green-700">
@@ -1168,8 +1493,156 @@ export function FiltroCumplimiento({
   )
 }
 
-function EstadoColaborador({ aplica, cumple, sinPuntosAplicables }: { aplica: boolean; cumple: boolean; sinPuntosAplicables?: boolean }) {
+/**
+ * El puntaje de la evaluación: el número, grande y en el color del tag de estado.
+ *
+ * POR QUÉ SOLO EL NÚMERO
+ * ---------------------
+ * Se probó con un dial (un anillo alrededor del número) y no aportó: al lado del
+ * nombre de la sucursal competía por la atención sin agregar información, y el
+ * largo del arco repetía lo que el color ya decía. El número bien grande es lo
+ * único que hay que mirar para saber cómo terminó la visita.
+ *
+ * POR QUÉ CON EL COLOR DEL TAG Y NO EN NEGRO
+ * ------------------------------------------
+ * 78% en negro obliga a buscar la etiqueta de al lado para saber si está bien. Va
+ * con el tono del tag —el rojo del "No cumple", el amarillo del "En riesgo", el
+ * verde del "Cumple"— para que número y etiqueta se lean como una sola cosa, un
+ * paso más oscuro que el fondo porque el tono exacto del tag no se leía sobre la
+ * tarjeta blanca. Y sin fondo propio: se probó como pastilla y quedaban dos
+ * bloques de color en la misma esquina.
+ */
+export function PuntajeTotal({
+  puntaje,
+  estado,
+  completos,
+  total
+}: {
+  puntaje: number | null
+  estado: { texto: string; color: number }
+  /** Íems que llegaron al 100%, de los `total` puntuables. */
+  completos: number
+  total: number
+}) {
+  const cumple = puntaje != null && puntaje >= UMBRAL_CUMPLE
+  // Un decimal alcanza: el hueco que importa ("faltan 2") se lee igual con 78,0
+  // que con 78, y `fmt` ya redondea sin arrastrar ceros inútiles.
+  const hueco = puntaje == null ? null : Math.round((UMBRAL_CUMPLE - puntaje) * 10) / 10
+  /* El puntaje va en el color del FONDO del tag de estado —rojo claro, amarillo
+     claro, verde claro— y no en el color de su texto. Es lo que se pidió, y hace
+     que el número se lea como parte de la etiqueta y no como un cartel aparte.
+
+     Sin puntaje es gris y no el `text-slate-100` que sale de la paleta: un guion
+     claro sobre la tarjeta blanca no se ve, y lo que no se ve parece un error de
+     carga en vez de "todavía no hay número". */
+  const colorNumero = puntaje == null ? 'text-slate-300' : colorFondoBadge(estado.color)
+
+  return (
+    <div className="flex shrink-0 flex-col items-end gap-1">
+      {/* `tabular-nums`: sin esto el ancho cambia con cada dígito y en una
+          evaluación en viva —que se repinta cada 15 s— el bloque entero da un tirón
+          lateral. */}
+      <span className={cn('text-4xl font-extrabold leading-none tabular-nums sm:text-5xl', colorNumero)}>
+        {puntaje == null ? '—' : fmt(puntaje)}
+        {puntaje == null ? null : <span className="text-2xl sm:text-3xl">%</span>}
+      </span>
+      <Badge color={estado.color}>{estado.texto}</Badge>
+      {hueco == null ? (
+        <span className="text-[11px] text-slate-400">Todavía no hay puntaje</span>
+      ) : (
+        <span className={cn('text-[11px]', cumple ? 'text-slate-400' : 'font-bold text-red-600')}>
+          {cumple ? `${fmt(Math.abs(hueco))} por encima del mínimo de ${UMBRAL_CUMPLE}%` : `Faltan ${fmt(hueco)} para el mínimo de ${UMBRAL_CUMPLE}%`}
+        </span>
+      )}
+      {/* `total` son los ítems puntuables CON respuesta, no todos los de la
+          plantilla. Por eso dice "al 100%" y no "de N ítems": un ítem sin
+          responder no es un ítem incompleto, es uno que todavía no toca. */}
+      {total > 0 ? <span className="text-[11px] text-slate-400 tabular-nums">{completos} de {total} ítems al 100%</span> : null}
+    </div>
+  )
+}
+
+/**
+ * Selector de centro de operaciones: ¿los cargos de esta sucursal o los de la
+ * oficina central?
+ *
+ * Es un control segmentado y no un `<select>` porque son dos opciones y caben las
+ * dos a la vista: con un desplegable hay que abrirlo para ver que existe la otra,
+ * que es justo lo que se quiere comparar. Mismo criterio que el filtro de
+ * cumplimiento de arriba, y por el mismo motivo.
+ *
+ * Los números son la cuenta de cargos que se van a ver. No son decorativos: son
+ * la respuesta a "¿esto me muestra a los míos o a los de otro lado?", y sin ellos
+ * el usuario tiene que hacer clic para averiguarlo.
+ *
+ * Si algún catálogo no se pudo leer, los dos botones quedan apagados y se dice por
+ * qué. Un selector que promete una separación y no la puede hacer es peor que no
+ * ofrecerlo: se leería como "en la central no hay cargos".
+ */
+function SelectorCentro({
+  centro,
+  onCentro,
+  catalogos,
+  cuentaSucursal,
+  cuentaCentral
+}: {
+  centro: CentroOperaciones
+  onCentro: (c: CentroOperaciones) => void
+  catalogos: CatalogosCentro
+  cuentaSucursal: number
+  cuentaCentral: number
+}) {
+  const opciones = [
+    { id: 'sucursal' as const, texto: 'Sucursal', n: cuentaSucursal },
+    { id: 'central' as const, texto: 'Central', n: cuentaCentral }
+  ]
+
+  return (
+    <div className="shrink-0">
+      <div
+        role="group"
+        aria-label="Centro de operaciones de los responsables"
+        className="inline-flex rounded-full bg-slate-100 p-0.5"
+      >
+        {opciones.map((o) => {
+          const disponible = centroDisponible(o.id, catalogos)
+          return (
+            <button
+              key={o.id}
+              type="button"
+              aria-pressed={centro === o.id}
+              disabled={!disponible}
+              onClick={() => onCentro(o.id)}
+              className={cn(
+                'rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors',
+                centro === o.id
+                  ? 'bg-white text-primary-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700',
+                !disponible && 'cursor-not-allowed opacity-40 hover:text-slate-500'
+              )}
+            >
+              {o.texto}
+              <span className="ml-1.5 tabular-nums opacity-70">{o.n}</span>
+            </button>
+          )
+        })}
+      </div>
+      {catalogos.cargando || !separacionDisponible(catalogos) ? (
+        <p className="mt-1.5 text-[11px] leading-snug text-slate-400">
+          {catalogos.cargando
+            ? 'Separando los cargos por centro…'
+            : 'No se pudo leer el catálogo de cargos, así que se ven todos juntos.'}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function EstadoColaborador({ aplica, cumple, sinPuntosAplicables, revisado }: { aplica: boolean; cumple: boolean; sinPuntosAplicables?: boolean; revisado?: boolean }) {
   if (!aplica) return <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-500">No aplica</span>
   if (sinPuntosAplicables) return <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-600">Sin puntos aplicables</span>
+  // Destildado y sin tocar no es un incumplimiento: es que no se revisó. Pinta
+  // de gris, no de rojo, para que la lista no parezca un judgment que no se hizo.
+  if (revisado === false) return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-400">Sin revisar</span>
   return <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700')}>{cumple ? 'Completo' : 'Incompleto'}</span>
 }

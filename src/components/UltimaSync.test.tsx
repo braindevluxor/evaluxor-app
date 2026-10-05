@@ -15,11 +15,20 @@ describe('última sincronización · se ve en Usuarios y en el detalle de evalua
     expect(src).toContain('<UltimaSync ultimaSync={u.ultima_sync} />')
   })
 
-  it('el detalle de evaluación muestra el avance y la última subida de cada evaluador', () => {
+  /* La tarjeta de "Avance por evaluador" se quitó del detalle: tapaba los cargos,
+     que es lo que el Líder está mirando. El semáforo sigue en Usuarios, que es
+     donde tiene sentido auditar quién tiene avance atascado en el teléfono.
+
+     Con la tarjeta se fue también la consulta de perfiles que la alimentaba: era
+     un viaje extra a Supabase en cada recarga (y en vivo cada 15 s) para pintar
+     un dato que ya no se pintaba. */
+  it('el detalle ya no trae la tarjeta de avance por evaluador', () => {
     const src = fuente('../pages/EvaluacionDetalle.tsx')
-    expect(src).toContain('Avance por evaluador')
-    expect(src).toContain('listarPerfilesSync')
-    expect(src).toContain('<UltimaSync ultimaSync={evaluadores[id]?.ultima_sync} />')
+    // El encabezado, no el texto suelto: el nombre de la tarjeta queda escrito en
+    // un comentario que explica por qué se quitó, y eso no es la tarjeta.
+    expect(src).not.toContain('>Avance por evaluador<')
+    expect(src).not.toContain('listarPerfilesSync')
+    expect(src).not.toContain('<UltimaSync')
   })
 
   it('el cliente marca la subida solo cuando termina bien, y con throttle', () => {

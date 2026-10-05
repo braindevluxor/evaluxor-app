@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Ban, Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, opcionesAplicablesColaborador, unidadCumple, formatearLastSync, formatearPrecioBase, guardarPerdidaConciliacion, opcionCumplida, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, formatearLastSync, formatearPrecioBase, guardarPerdidaConciliacion, opcionCumplida, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores, ordenarTrabajadores } from '../lib/data/colaboradores'
 import { aplicarHistorial, combinarPorDni } from '../lib/data/colaboradoresEstado'
@@ -51,7 +51,7 @@ function checkIncumplido(item: Item, o: Opcion, valor: unknown): boolean {
   }
   if (item.tipo === 'LISTA_COLABORADORES') {
     const v = valor as ValorListaColaboradores | null
-    const aplican = (v?.colaboradores ?? []).filter((c) => c.aplica)
+    const aplican = colaboradoresQueCuentan(v?.colaboradores)
     if (!aplican.length) return false
     return !aplican.every((c) => (c.selected ?? []).includes(o.id))
   }
@@ -651,8 +651,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                                 {p.nombre ?? p.sku}
                               </span>
                               <span
-                                className="max-w-[48%] shrink-0 overflow-x-auto whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold leading-none text-slate-500"
-                                style={{ fontSize: p.sku.length > 18 ? '8px' : p.sku.length > 12 ? '9px' : undefined }}
+                                className="max-w-[48%] shrink-0 overflow-x-auto whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold tabular-nums leading-none text-slate-500"
                                 title={p.sku}
                               >
                                 {p.sku}
@@ -1022,15 +1021,15 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
     actualizar(colaboradores.map((c) => (c.dni === dni ? { ...c, responsablesPorOpcion: { ...(c.responsablesPorOpcion ?? {}), [opcionId]: rs } } : c)))
   }
 
-  const aplicando = colaboradores.filter((c) => c.aplica)
+  const enCuenta = colaboradores.filter((c) => c.aplica)
+  // Los que el evaluador no llegó a tocar NO entran en el puntaje. Se cuentan
+  // aparte para que la diferencia sea explícita y nadie lea "sin marcar" como
+  // "reprobado": la lista entera arranca destildada y no revisar es una decisión
+  // legítima cuando el tiempo no alcanza.
+  const aplicando = colaboradoresQueCuentan(colaboradores)
   const conChecksAplicables = aplicando.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
   const cumplidos = conChecksAplicables.filter((c) => colaboradorCumple(c, opts)).length
-  const marcados = conChecksAplicables.filter((c) => {
-    const tieneAlgo = c.selected.length > 0 || (c.noAplica?.length ?? 0) > 0
-    return tieneAlgo
-  })
-  const incompletos = marcados.filter((c) => !colaboradorCumple(c, opts)).length
-  const sinMarcar = Math.max(0, conChecksAplicables.length - cumplidos - incompletos)
+  const sinRevisar = enCuenta.length - aplicando.length
   const totalAplicables = conChecksAplicables.length
 
   if (!opts.length) {
@@ -1048,16 +1047,24 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
               {totalAplicables > 0 ? (
                 <>
                   {' · '}
-                  {sinMarcar} sin marcar · {incompletos} incompletos · {cumplidos} completos · {totalAplicables} total
+                  {totalAplicables - cumplidos} incompletos · {cumplidos} completos
                 </>
-              ) : conChecksAplicables.length < aplicando.length ? (
-                ` · ${aplicando.length - conChecksAplicables.length} sin puntos aplicables`
+              ) : enCuenta.length > aplicando.length ? (
+                ` · ${enCuenta.length - aplicando.length} sin puntos aplicables`
               ) : null}
             </p>
+            {/* El aviso que evita el error de lectura: "Sin marcar" no es "reprobado". */}
+            {sinRevisar > 0 ? (
+              <p className="mt-1 text-xs text-slate-500">
+                {sinRevisar} trabajador{sinRevisar === 1 ? '' : 'es'} sin revisar: su checklist está destildado y
+                <span className="font-semibold text-slate-700"> no entran en el puntaje</span>. Revisalos si necesitás
+                contarlos.
+              </p>
+            ) : null}
           </>
         ) : (
           <p className="mt-1 text-xs text-slate-500">
-            El ítem cumple cuando todos los trabajadores en cuenta ({etiquetaFiltro}) tienen su checklist completo.
+            El ítem se puntúa por trabajador: cada revisado completo vale su parte, y los que quedan destildados sin tocar todavía no cuentan ({etiquetaFiltro}).
           </p>
         )}
         <div className="mt-3 flex items-center gap-2">
@@ -1154,9 +1161,11 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                 const checksAplicables = opcionesAplicablesColaborador(c, opts)
                 const todosNoAplican = checksAplicables.length === 0
                 const cumple = !todosNoAplican && colaboradorCumple(c, opts)
-                const marcado = c.selected.length > 0 || (c.noAplica?.length ?? 0) > 0
-                const estado = todosNoAplican ? 'No aplica' : cumple ? 'Completo' : marcado ? 'Incompleto' : 'Sin marcar'
-                const estadoClass = todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : marcado ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
+                // Sin nada registrado la fila dice "Sin revisar", no "Incompleto":
+                // no es un incumplimiento, es un trabajador que todavía no entró
+                // en la evaluación.
+                const estado = todosNoAplican ? 'No aplica' : cumple ? 'Completo' : esColaboradorRevisado(c) ? 'Incompleto' : 'Sin revisar'
+                const estadoClass = todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : esColaboradorRevisado(c) ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'
                 return (
                   <div key={c.dni} className={cn('rounded-xl border transition-colors', c.aplica ? (cumple ? 'border-green-200 bg-white' : 'border-slate-200 bg-white') : 'border-slate-100 bg-slate-50')}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
@@ -1179,8 +1188,8 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                       <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', estadoClass)}>
                         {estado}
                       </span>
-                      <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
-                        {todosNoAplican ? 'No aplica' : cumple ? `${checksAplicables.length}/${checksAplicables.length}` : `${c.selected.filter((id) => checksAplicables.some((o) => o.id === id)).length}/${checksAplicables.length}`}
+                      <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : esColaboradorRevisado(c) ? 'bg-slate-100 text-slate-500' : 'bg-slate-100 text-slate-400')}>
+                        {todosNoAplican ? 'No aplica' : cumple ? `${checksAplicables.length}/${checksAplicables.length}` : esColaboradorRevisado(c) ? `${c.selected.filter((id) => checksAplicables.some((o) => o.id === id)).length}/${checksAplicables.length}` : `0/${checksAplicables.length} · sin revisar`}
                       </span>
                       <button
                         type="button"

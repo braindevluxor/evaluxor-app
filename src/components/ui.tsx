@@ -1,6 +1,6 @@
-import { useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
-import { FolderOpen, X } from 'lucide-react'
+import { FolderOpen, HelpCircle, X } from 'lucide-react'
 
 export function cn(...cls: (string | false | null | undefined)[]): string {
   return cls.filter(Boolean).join(' ')
@@ -120,11 +120,51 @@ export function Card({ children, className }: { children: ReactNode; className?:
   )
 }
 
-const colores = ['bg-slate-100 text-slate-700', 'bg-primary-50 text-primary-700', 'bg-green-100 text-green-800', 'bg-amber-100 text-amber-800', 'bg-red-100 text-red-700', 'bg-indigo-100 text-indigo-700'] as const
+/**
+ * La paleta de las etiquetas: fondo + texto de la misma familia.
+ *
+ * Se exporta porque hay pantallas que necesitan el MISMO fondo que su etiqueta —
+ * el puntaje total de la evaluación es una etiqueta gigante— y elegir el color a
+ * mano en el segundo uso haría que el número y la etiqueta que lo califica
+ * dejaran de coincidir el día que se cambie un tono acá.
+ *
+ * `cn` solo concatena clases, no resuelve conflictos: pasar un `bg-red-600` por
+ * `className` sobre un `bg-red-100` de la paleta deja las dos en el HTML y gana
+ * la que aparezca después en la hoja de estilos. Por eso el color se elige con el
+ * índice y no pisando el fondo.
+ */
+const COLORES_BADGE = ['bg-slate-100 text-slate-700', 'bg-primary-50 text-primary-700', 'bg-green-100 text-green-800', 'bg-amber-100 text-amber-800', 'bg-red-100 text-red-700', 'bg-indigo-100 text-indigo-700'] as const
+
+/**
+ * El fondo de una etiqueta pintado como texto, un paso más oscuro. Lo usa el
+ * puntaje total de la evaluación: el rojo del "No cumple" de al lado, el amarillo
+ * del "En riesgo", el verde del "Cumple".
+ *
+ * POR QUÉ UN PASO MÁS OSCURO Y NO EL FONDO TAL CUAL
+ * -------------------------------------------------
+ * `bg-red-100` como texto es un rosado que sobre la tarjeta blanca no se lee: se
+ * veía el 62% como una mancha y no como un número. Sumarle un paso a la escala
+ * (`red-100` → `red-200`) devuelve un color de la misma familia y del mismo tono
+ * claro, pero con cuerpo suficiente para leerse sin cambiar de matiz. Por eso la
+ * suma es aritmética y no una lista escrita a mano: si mañana el fondo del tag
+ * pasa a `-200`, el número pasa a `-300` solo.
+ *
+ * Por qué no escribir el color en cada uso: los dos tonos de una etiqueta viven en
+ * la misma clase (`bg-red-100 text-red-700`) y `cn` solo concatena, no resuelve
+ * conflictos, así que un `text-red-600` pasado por `className` convive con el
+ * `text-red-700` de la paleta y gana el que aparezca después en la hoja de estilos.
+ */
+export function colorFondoBadge(color: number): string {
+  const clases = COLORES_BADGE[color % COLORES_BADGE.length].split(' ')
+  const fondo = clases.find((c) => c.startsWith('bg-')) ?? ''
+  return fondo
+    .replace(/^bg-/, 'text-')
+    .replace(/-(\d+)$/, (_, paso: string) => `-${Number(paso) + 100}`)
+}
 
 export function Badge({ children, color = 0, className }: { children: ReactNode; color?: number; className?: string }) {
   return (
-    <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold', colores[color % colores.length], className)}>
+    <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold', COLORES_BADGE[color % COLORES_BADGE.length], className)}>
       {children}
     </span>
   )
@@ -243,7 +283,10 @@ export function Modal({
       >
         {/* Cabecera fija: título y botón de cerrar siempre visibles. */}
         <div className="flex shrink-0 items-center justify-between gap-2 px-5 pt-5 pb-3">
-          <h3 className="min-w-0 text-lg font-bold text-primary-900">{title}</h3>
+          {/* `break-words`: los títulos vienen de datos (un nombre de cargo, una
+            incidencia) y sin esto uno largo empuja el botón de cerrar fuera de la
+            cabecera en vez de partirse en dos líneas. */}
+          <h3 className="min-w-0 text-lg font-bold break-words text-primary-900">{title}</h3>
           <button onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-400 hover:bg-slate-100">
             <X className="h-5 w-5" />
           </button>
@@ -325,11 +368,16 @@ export function Confirmar({
 export function ProgressBar({
   value,
   valorAprox,
-  className
+  className,
+  fillClassName
 }: {
   value?: number
   valorAprox?: number
   className?: string
+  /** Color del relleno. Por defecto el primario de la app; las barras que
+   *  dependen del valor (una Calificación, un %) lo pasan para que el color
+   *  venga de la misma regla que el número que acompaña. */
+  fillClassName?: string
 }) {
   const ancho = Math.max(0, Math.min(100, value ?? valorAprox ?? 0))
   return (
@@ -346,7 +394,7 @@ export function ProgressBar({
         // transición más larga que el intervalo el relleno siempre va atrasado
         // respecto al número. `motion-reduce` lo pasa a saltos, que para una
         // barra de adorno se lee mejor que un llenado continuo.
-        className="h-full rounded-full bg-primary transition-all duration-200 motion-reduce:transition-none"
+        className={cn('h-full rounded-full bg-primary transition-all duration-200 motion-reduce:transition-none', fillClassName)}
         style={{ width: `${ancho}%` }}
       />
     </div>
@@ -357,4 +405,130 @@ export function Puntaje({ value, className }: { value: number | null; className?
   if (value == null) return <span className={cn('text-sm text-slate-400', className)}>—</span>
   const color = value >= 80 ? 'text-green-700' : value >= 60 ? 'text-amber-700' : 'text-red-700'
   return <span className={cn('font-bold tabular-nums', color, className)}>{value.toLocaleString('es')}%</span>
+}
+
+const MARGEN_TOOLTIP = 12
+
+/**
+ * Signo de interrogación que explica el bloque que tiene al lado.
+ *
+ * POR QUÉ UN PORTAL Y NO `absolute`
+ * --------------------------------
+ * Nace para el detalle de evaluación, y ahí el panel NO puede ser un hijo con
+ * `position: absolute`: la columna izquierda lleva `overflow-hidden` (su alto es
+ * fijo justamente para no tener scroll propio) y cualquier tooltip dentro se
+ * cortaría contra el borde de la columna, a media frase. Se mide el botón, se
+ * calcula dónde hay sitio y se pinta en `document.body` con `position: fixed`,
+ * como hace el `Modal`.
+ *
+ * SE ABRE CON CLIC, NO SOLO AL PASAR EL CURSOR
+ * --------------------------------------------
+ * Porque en el teléfono no hay cursor. Un tooltip que solo abre con `hover` es
+ * inalcanzable en la mitad de los dispositivos donde corre la app, y estos textos
+ * son los que explican cómo se calcula el puntaje.
+ *
+ * La posición se mide con `useLayoutEffect` a propósito: si se midiera después del
+ * paint, el panel aparecería un instante en la esquina (0, 0) antes de saltar a su
+ * sitio. Antes del paint no se ve ese salto.
+ */
+export function InfoTooltip({ texto, className }: { texto: string; className?: string }) {
+  const [abierto, setAbierto] = useState(false)
+  const [caja, setCaja] = useState<{ top: number; left: number } | null>(null)
+  const botonRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  const cerrar = useCallback(() => setAbierto(false), [])
+
+  useCerrarConEscape(abierto, cerrar)
+
+  // Medir y colocar. Sin esto el panel quedaría en el `top`/`left` que se le pase,
+  // que no es donde está el botón.
+  useLayoutEffect(() => {
+    if (!abierto) {
+      setCaja(null)
+      return
+    }
+    const boton = botonRef.current?.getBoundingClientRect()
+    const panel = panelRef.current?.getBoundingClientRect()
+    if (!boton || !panel) return
+
+    // Horizontal: alineado al botón, y empujado dentro de la ventana si no cabe.
+    // La columna mide 17rem y el panel 20: alineado a la derecha del botón se
+    // salía por el borde, y sin este ajuste el texto quedaba cortado.
+    let left = boton.left
+    if (left + panel.width > window.innerWidth - MARGEN_TOOLTIP) {
+      left = window.innerWidth - MARGEN_TOOLTIP - panel.width
+    }
+    if (left < MARGEN_TOOLTIP) left = MARGEN_TOOLTIP
+
+    // Vertical: debajo del botón, o arriba si no cabe. Con poco espacio abajo se
+    // sube; si tampoco cabe arriba (pantalla muy baja) se pega al borde inferior
+    // y el propio panel scrollea por su `max-h`.
+    let top = boton.bottom + 8
+    if (top + panel.height > window.innerHeight - MARGEN_TOOLTIP) {
+      const arriba = boton.top - 8 - panel.height
+      top = arriba >= MARGEN_TOOLTIP ? arriba : window.innerHeight - MARGEN_TOOLTIP - panel.height
+    }
+    setCaja({ top, left })
+  }, [abierto, texto])
+
+  // Click afuera y scroll: el panel está posicionado en píxeles contra la ventana,
+  // así que si la página se mueve queda flotando en el aire. Se cierra antes de
+  // que se note.
+  useEffect(() => {
+    if (!abierto) return
+    const fuera = (e: PointerEvent) => {
+      if (botonRef.current?.contains(e.target as Node)) return
+      if (panelRef.current?.contains(e.target as Node)) return
+      setAbierto(false)
+    }
+    const mover = () => setAbierto(false)
+    document.addEventListener('pointerdown', fuera)
+    window.addEventListener('resize', mover)
+    // `capture`: el scroll de cualquier contenedor interno también lo dispara, y sin
+    // esto el tooltip se quedaría pegado a un botón que ya se movió.
+    window.addEventListener('scroll', mover, true)
+    return () => {
+      document.removeEventListener('pointerdown', fuera)
+      window.removeEventListener('resize', mover)
+      window.removeEventListener('scroll', mover, true)
+    }
+  }, [abierto])
+
+  return (
+    <>
+      <button
+        ref={botonRef}
+        type="button"
+        onClick={() => setAbierto((a) => !a)}
+        aria-expanded={abierto}
+        aria-label="Más información"
+        className={cn(
+          'inline-grid h-5 w-5 shrink-0 place-items-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600',
+          abierto && 'bg-slate-100 text-slate-600',
+          className
+        )}
+      >
+        <HelpCircle className="h-4 w-4" />
+      </button>
+      {abierto
+        ? createPortal(
+            <div
+              ref={panelRef}
+              role="tooltip"
+              style={{
+                top: caja?.top ?? 0,
+                left: caja?.left ?? 0,
+                // Invisible hasta que se midió: evita el parpadeo en el 0,0.
+                visibility: caja ? 'visible' : 'hidden'
+              }}
+              className="fixed z-[110] max-h-[70vh] w-80 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs leading-snug text-slate-600 shadow-lg"
+            >
+              {texto}
+            </div>,
+            document.body
+          )
+        : null}
+    </>
+  )
 }

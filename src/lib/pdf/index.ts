@@ -5,6 +5,11 @@ import { listarPerfilesSync, obtenerEvaluacion, resumirEvaluacion } from '../dat
 import {
   colaboradorCumple,
   conciliacionPorcentaje,
+  esColaboradorRevisado,
+  estadoConciliacion,
+  diferenciaConciliacion,
+  totalesConciliacion,
+  formatearMontoPerdida,
   formatearPrecioBase,
   perdidaGuardadaConciliacion,
   resumenPerdidaConciliacion,
@@ -12,6 +17,7 @@ import {
   incumplimientosPorResponsable,
   opcionCumplida,
   opcionesAplicablesColaborador,
+  ordenarConciliacion,
   proporcionItem,
   puntajePonderado,
   tieneRespuesta,
@@ -85,6 +91,12 @@ function ocultarCentroCodigoEvaluacion(codigo: string): string {
 
 const MARGEN = 14
 const TAMANO_FUENTE = 10
+/**
+ * El informe es monocromo salvo por la pérdida: el rojo es lo único que separa
+ * "mercadería que hay que buscar" de "plata que se está perdiendo", y por eso no
+ * se usa en las filas, solo en el cierre.
+ */
+const ROJO_PERDIDA: [number, number, number] = [178, 34, 34]
 const fmt = (value: number): string => Number.isInteger(value) ? `${value}` : `${Math.round(value * 100) / 100}`
 const texto = (value: unknown): string => String(value ?? '')
 
@@ -171,11 +183,12 @@ export function buildPdfDocument(
   const anchoUtil = ancho - MARGEN * 2
   let y = MARGEN
 
-  const textoLinea = (value: string, options: { bold?: boolean; size?: number; gap?: number } = {}) => {
+  const textoLinea = (value: string, options: { bold?: boolean; size?: number; gap?: number; color?: [number, number, number] } = {}) => {
     const size = options.size ?? TAMANO_FUENTE
     pdf.setFont('helvetica', options.bold ? 'bold' : 'normal')
     pdf.setFontSize(size)
-    pdf.setTextColor(0, 0, 0)
+    const [r, g, b] = options.color ?? [0, 0, 0]
+    pdf.setTextColor(r, g, b)
     const lineas = pdf.splitTextToSize(value, anchoUtil) as string[]
     const altoLinea = size * 0.42
     if (y + lineas.length * altoLinea > alto - MARGEN) {
@@ -184,6 +197,49 @@ export function buildPdfDocument(
     }
     pdf.text(lineas, MARGEN, y)
     y += lineas.length * altoLinea + (options.gap ?? 2)
+  }
+
+  /**
+   * Una línea hecha de tramos, cada uno con su color.
+   *
+   * Sirve para el cierre de la conciliación, que tiene que dejar en una sola
+   * línea dos cosas que no se deben leer igual: el sobrante, que es mercadería que
+   * hay que ir a buscar, y el faltante con su plata, que es pérdida. Puesto que
+   * el rojo marca plata perdida, tiene que ser solo del faltante: si el rojo se
+   * repite en la pérdida estimada de cada fila, el número grande de abajo deja de
+   * decir "esto es lo que te cuesta" y pasa a ser decoración.
+   *
+   * jsPDF no pinta dos colores dentro de un mismo `text`, así que se mide cada
+   * tramo y se dibuja el siguiente justo donde terminó el anterior. Si la línea
+   * completa no entra en el ancho útil —con muchos dígitos y muchos miles de
+   * unidades pasa— se cae a `textoLinea` en negro: es peor que perder el color
+   * que perder el texto en el borde de la hoja.
+   */
+  const textoLineaTrozos = (
+    trozos: { texto: string; color?: [number, number, number] }[],
+    options: { bold?: boolean; size?: number; gap?: number } = {}
+  ) => {
+    const size = options.size ?? TAMANO_FUENTE
+    const anchoTotal = trozos.reduce((suma, trozo) => suma + pdf.getTextWidth(trozo.texto), 0)
+    if (anchoTotal > anchoUtil) {
+      textoLinea(trozos.map((trozo) => trozo.texto).join(' '), options)
+      return
+    }
+    pdf.setFont('helvetica', options.bold ? 'bold' : 'normal')
+    pdf.setFontSize(size)
+    const altoLinea = size * 0.42
+    if (y + altoLinea > alto - MARGEN) {
+      pdf.addPage()
+      y = MARGEN
+    }
+    let x = MARGEN
+    for (const trozo of trozos) {
+      const [r, g, b] = trozo.color ?? [0, 0, 0]
+      pdf.setTextColor(r, g, b)
+      pdf.text(trozo.texto, x, y)
+      x += pdf.getTextWidth(trozo.texto)
+    }
+    y += altoLinea + (options.gap ?? 2)
   }
 
   const tituloSeccion = (value: string) => {
@@ -432,7 +488,11 @@ export function buildPdfDocument(
         const v = valor as ValorConciliacion | null
         const precio = item.contra_dato === 'FINAL_BASE'
         const contraDato = item.contra_dato ?? 'SOH'
-        const productos = (v?.productos ?? []).filter((product) => !soloIncumplimientos ||
+        // Mismo orden que la vista de detalle: pérdidas de mayor a menor, después
+        // los sobrantes de mayor a menor y al final lo que concilia. En el informe
+        // es donde más importa: la pérdida grande tiene que verse arriba sin
+        // tener que leer cuarenta filas.
+        const productos = ordenarConciliacion(v?.productos ?? [], contraDato).filter((product) => !soloIncumplimientos ||
           (typeof product.teorica === 'number' && typeof product.fisica === 'number' && product.teorica !== product.fisica))
         tabla(
           [
@@ -446,34 +506,66 @@ export function buildPdfDocument(
           productos.map((product) => {
             const porcentaje = conciliacionPorcentaje(product)
             const perdida = perdidaGuardadaConciliacion(product, contraDato)
+            const estado = estadoConciliacion(product)
+            const dice = diferenciaConciliacion(product)
+            // El estado va escrito, no solo el porcentaje: las filas están
+            // ordenadas por gravedad y el lector tiene que poder ver por qué.
+            const etiquetaEstado =
+              estado === 'falta'
+                ? `Faltan ${fmt(dice)}`
+                : estado === 'sobra'
+                  ? `Sobran ${fmt(dice)}`
+                  : estado === 'concilia'
+                    ? 'Concilia'
+                    : 'Sin datos'
             return [
               texto(product.teorica ?? '—'),
               texto(product.fisica ?? '—'),
               product.sku || '—',
               product.nombre || '—',
-              porcentaje == null ? 'Sin datos' : `${fmt(porcentaje)}%`,
-              ...(!precio ? [perdida == null ? '—' : formatearPrecioBase(perdida)] : [])
+              porcentaje == null ? etiquetaEstado : `${etiquetaEstado} · ${fmt(porcentaje)}%`,
+              ...(!precio
+                ? [estado === 'falta' && perdida != null ? formatearPrecioBase(perdida) : '—']
+                : [])
             ]
           })
         )
         if (!precio) {
           const resumenPerdida = resumenPerdidaConciliacion(v?.productos ?? [], contraDato)
-          if (resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0) {
-            textoLinea(
-              `Pérdida estimada por faltantes: ${formatearPrecioBase(resumenPerdida.monto)}` +
-              (resumenPerdida.faltantesSinPrecio > 0
-                ? ` · ${resumenPerdida.faltantesSinPrecio} producto(s) sin precio base`
-                : ''),
-              { bold: true }
-            )
+          const totales = totalesConciliacion(v?.productos ?? [])
+          const hayPerdida = resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0
+          if (hayPerdida || totales.unidadesFaltantes || totales.unidadesSobrantes) {
+            // Mismo corte que la pantalla: el sobrante a la izquierda, que es
+            // mercadería a buscar y no plata perdida, y la pérdida a la derecha en
+            // rojo. El PDF es monocromo, así que el rojo es el único acento.
+            const cierre: { texto: string; color?: [number, number, number] }[] = []
+            if (totales.unidadesSobrantes) cierre.push({ texto: `${fmt(totales.unidadesSobrantes)} unidades sobrantes` })
+            if (totales.unidadesSobrantes && (totales.unidadesFaltantes || hayPerdida)) cierre.push({ texto: '|' })
+            if (totales.unidadesFaltantes) {
+              cierre.push({
+                texto: `${fmt(totales.unidadesFaltantes)} unidades faltantes con un valor estimado de ${formatearMontoPerdida(resumenPerdida.monto)}`,
+                color: ROJO_PERDIDA
+              })
+            } else if (hayPerdida) {
+              cierre.push({ texto: `Pérdida estimada ${formatearMontoPerdida(resumenPerdida.monto)}`, color: ROJO_PERDIDA })
+            }
+            if (resumenPerdida.faltantesSinPrecio) {
+              cierre.push({ texto: `${resumenPerdida.faltantesSinPrecio} producto(s) sin precio base` })
+            }
+            textoLineaTrozos(cierre, { bold: true })
           }
         }
         break
       }
       case 'LISTA_COLABORADORES': {
         const v = valor as ValorListaColaboradores | null
-        const colaboradores = ordenarTrabajadores(v?.colaboradores ?? []).filter((col) => col.aplica)
-          .filter((col) => !soloIncumplimientos || !colaboradorCumple(col, item.opciones ?? []))
+        // Solo los revisados: el PDF tiene que contar la misma gente que cuenta el
+        // puntaje. Si aparecieran los veinte destildados como "Incompleto", el
+        // informe contradiría al tablero que dice que no entran.
+        const enCuenta = ordenarTrabajadores(v?.colaboradores ?? []).filter((col) => col.aplica)
+        const enPuntaje = enCuenta.filter(esColaboradorRevisado)
+        const sinRevisar = enCuenta.length - enPuntaje.length
+        const colaboradores = enPuntaje.filter((col) => !soloIncumplimientos || !colaboradorCumple(col, item.opciones ?? []))
         tabla(['Trabajador', 'Estado', 'Pendiente'], colaboradores.map((col) => {
           const aplican = opcionesAplicablesColaborador(col, item.opciones ?? [])
           const faltan = aplican.filter((option) => !(col.selected ?? []).includes(option.id))
@@ -483,6 +575,9 @@ export function buildPdfDocument(
             faltan.map((option) => option.etiqueta).join(', ') || '—'
           ]
         }))
+        if (sinRevisar) {
+          textoLinea(`${sinRevisar} trabajador(es) sin revisar: no evaluados y fuera del puntaje de este ítem.`, { size: 8, gap: 4 })
+        }
         break
       }
       case 'UNIDAD_CHECKLIST': {

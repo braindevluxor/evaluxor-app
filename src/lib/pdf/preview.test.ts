@@ -309,7 +309,38 @@ describe('informe imprimible de resultados', () => {
     expect(output).toContain('Higiene y salubridad')
     expect(output).toContain('Equipos de refrigeración en condiciones operativas')
     expect(output).toContain('Pérdida estimada')
-    expect(output).toContain('Pérdida estimada por faltantes')
+    // La línea de cierre lleva los totales de unidades además de la plata. El
+    // fixture de este reporte solo tiene faltantes, así que el sobrante se prueba
+    // en el test de abajo.
+    expect(output).toContain('unidades faltantes')
+  })
+
+  it('la conciliación del PDF cierra con las unidades que faltan y las que sobran', () => {
+    const conSobrante: DetalleEvaluacion = {
+      ...detalle,
+      respuestas: detalle.respuestas.map((respuesta) =>
+        respuesta.item_id === 'it-co1'
+          ? {
+              ...respuesta,
+              valor: {
+                ...(respuesta.valor as { productos: unknown[] }),
+                productos: [
+                  ...(respuesta.valor as { productos: unknown[] }).productos,
+                  { sku: 'SKU0900', nombre: 'Fideos 500g', teorica: 10, fisica: 15, finalBase: 2 }
+                ]
+              }
+            }
+          : respuesta
+      )
+    }
+    const output = buildPdfDocument(conSobrante).output()
+
+    expect(output).toContain('5 unidades sobrantes')
+    expect(output).toContain('Faltan')
+    expect(output).toContain('Sobran')
+    // El cierre nombra la plata con la sigla de la moneda: en el PDF lo lee gente
+    // de otras áreas y un "$" suelto se confunde con pesos de otro país.
+    expect(output).toContain('unidades faltantes con un valor estimado de USD')
   })
 
   it('muestra solo el porcentaje de conciliación y oculta los IDs de sucursal y central', () => {

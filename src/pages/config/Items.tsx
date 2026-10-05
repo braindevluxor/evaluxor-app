@@ -764,7 +764,7 @@ function FormItem({
             </Select>
           </Field>
           <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-            En la evaluación se cargan los trabajadores de la tienda desde la API de talento humano (aplicando el filtro elegido) y este mismo checklist se marca para cada uno. El ítem cumple cuando todos los trabajadores en cuenta tienen su checklist completo.
+            En la evaluación se cargan los trabajadores de la tienda desde la API de talento humano (aplicando el filtro elegido) y este mismo checklist se marca para cada uno. El ítem se puntúa por trabajador: cada revisado completo vale su parte del puntaje, y los que no se revisaron todavía no cuentan.
           </p>
         </>
       ) : null}
