@@ -41,6 +41,8 @@ export const productoDePrueba: ResultadoScan = {
   mensaje: null,
   soh: 42,
   lastSync: '2025-01-10T14:30:00Z',
+  finalTax: 2080.5,
+  departamento: 'LIMPIEZA',
   finalBase: 12990.5
 }
 

@@ -17,8 +17,11 @@ import {
 } from '../../lib/data/indicadores'
 import type { EstadoEvaluacion, VistaEvaluacion } from '../../lib/types'
 import { descargarInformePdf } from '../../lib/pdf'
+import { useModulosExportables } from '../../lib/pdf/modulosExportables'
+import type { OpcionesPdf } from '../../lib/pdf/opciones'
+import { SelectorPdf } from '../../components/SelectorPdf'
 import { verTodo } from '../../lib/roles'
-import { Badge, Button, Card, Confirmar, Field, Input, Puntaje, Select, Skeleton, SkeletonFilas, Spinner } from '../../components/ui'
+import { Badge, Button, Card, Confirmar, Field, Input, Puntaje, Select, Skeleton, SkeletonFilas } from '../../components/ui'
 
 function haceMeses(n: number): string {
   const d = new Date()
@@ -76,6 +79,9 @@ export function Historial() {
   const [evals, setEvals] = useState<VistaEvaluacion[] | null>(null)
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
   const [descargando, setDescargando] = useState<string | null>(null)
+  /** Evaluación cuyo selector de PDF está abierto. null = cerrado. */
+  const [elegirEn, setElegirEn] = useState<string | null>(null)
+  const { modulos: modulosDeElegir, cargando: cargandoModulosElegir } = useModulosExportables(elegirEn)
   const [aEliminar, setAEliminar] = useState<VistaEvaluacion | null>(null)
   const [aReabrir, setAReabrir] = useState<VistaEvaluacion | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -142,15 +148,16 @@ export function Historial() {
     return m
   }, [datos])
 
-  const descargar = async (ev: VistaEvaluacion) => {
+  const descargar = async (ev: VistaEvaluacion, impresion?: OpcionesPdf) => {
     setError(null)
     setDescargando(ev.id)
     try {
-      await descargarInformePdf(ev.id)
+      await descargarInformePdf(ev.id, undefined, impresion)
     } catch {
       setError('No se pudo descargar el PDF. Intenta de nuevo.')
     }
     setDescargando(null)
+    setElegirEn(null)
   }
 
   const eliminar = async () => {
@@ -394,10 +401,10 @@ export function Historial() {
                           variant="secondary"
                           className="min-h-0 gap-1.5 px-3 py-1.5"
                           disabled={descargando === ev.id}
-                          onClick={() => void descargar(ev)}
+                          onClick={() => setElegirEn(ev.id)}
                         >
-                          {descargando === ev.id ? <Spinner size={16} /> : <FileDown className="h-4 w-4" />}
-                          {descargando === ev.id ? 'Generando PDF…' : 'Descargar PDF'}
+                          <FileDown className="h-4 w-4" />
+                          Descargar PDF
                         </Button>
                         {esLider ? (
                           <button
@@ -432,6 +439,20 @@ export function Historial() {
         texto={`¿Eliminar la evaluación de ${aEliminar?.sucursal?.nombre ?? 'esta sucursal'} (${new Date(`${aEliminar?.fecha}T12:00:00`).toLocaleDateString('es')})? Se borrarán sus respuestas y fotografías.`}
         onConfirm={() => void eliminar()}
         onCancel={() => setAEliminar(null)}
+      />
+
+      {/* Una sola instancia para toda la tabla: si cada fila montara su modal
+          quedarían todos abiertos a la vez en el DOM. */}
+      <SelectorPdf
+        abierto={!!elegirEn}
+        onClose={() => setElegirEn(null)}
+        modulos={modulosDeElegir}
+        cargandoModulos={cargandoModulosElegir}
+        onConfirmar={(impresion) => {
+          const objetivo = (evals ?? []).find((ev) => ev.id === elegirEn)
+          if (objetivo) void descargar(objetivo, impresion)
+        }}
+        descargando={!!descargando}
       />
     </div>
   )

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Ban, Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, formatearLastSync, formatearPrecioVenta, guardarPerdidaConciliacion, opcionCumplida, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores, ordenarTrabajadores } from '../lib/data/colaboradores'
 import { aplicarHistorial, combinarPorDni } from '../lib/data/colaboradoresEstado'
@@ -327,13 +327,16 @@ function aplicarResultadoScan(b: ProductoConciliacion, r: ResultadoScan, contraD
     soh: r.soh,
     lastSync: r.lastSync,
     finalBase: r.finalBase,
-    finalTax: r.finalTax
+    finalTax: r.finalTax,
+    departamento: r.departamento
   }
 }
 
 /** ¿El borrador tiene info consultada del sistema (SOH / última sync / precio) para mostrar? */
-function tieneInfoSistema(p: { soh?: number | null; lastSync?: string | null; finalBase?: number | null } | null | undefined): boolean {
-  return !!(p && (p.soh != null || p.lastSync || p.finalBase != null))
+function tieneInfoSistema(p: { soh?: number | null; lastSync?: string | null; finalBase?: number | null; departamento?: string | null } | null | undefined): boolean {
+  // El departamento por sí solo cuenta como info consultada: si la API solo manda
+  // eso, hay que mostrar la línea para que el evaluador sepa que síConsultó.
+  return !!(p && (p.soh != null || p.lastSync || p.finalBase != null || p.departamento))
 }
 
 export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; item?: Item; gerente?: string | null }) {
@@ -344,7 +347,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
   const [verLista, setVerLista] = useState(false)
   const [aEliminar, setAEliminar] = useState<{ producto: ProductoConciliacion; index: number } | null>(null)
   const [editando, setEditando] = useState<number | null>(null)
-  const [edicion, setEdicion] = useState<{ teorica: number | null; fisica: number | null }>({ teorica: null, fisica: null })
+  const [edicion, setEdicion] = useState<{ teorica: number | null; fisica: number | null; sinHablador: boolean }>({ teorica: null, fisica: null, sinHablador: false })
   const [borrador, setBorrador] = useState<ProductoConciliacion>({ sku: '', nombre: null, teorica: null, fisica: null, soh: null, lastSync: null, finalBase: null, finalTax: null })
 
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
@@ -368,7 +371,9 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
   const promedio = conciliacionTotal(v)
 
   const conciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && p.fisica === p.teorica).length
-  const desconciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && p.fisica !== p.teorica).length
+  // Los sin hablador son No Match aunque no tengan precio físico que comparar:
+  // contar solo las filas con las dos cantidades los dejaba fuera del resumen.
+  const desconciliadas = productos.filter((p) => esSinHablador(p) || (p.teorica != null && p.fisica != null && p.fisica !== p.teorica)).length
 
   const codigoActual = borrador.sku.trim()
   const existenteIdx = codigoActual ? productos.findIndex((p) => p.sku === codigoActual) : -1
@@ -386,10 +391,17 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
     setExito('')
     if (!codigo) return
     const ya = productos.find((p) => p.sku === codigo)
-    if (ya) {
-      // Ya fue escaneado en esta evaluación: trae el producto con su teórica y
-      // deja la física vacía para cargar solo el nuevo conteo (se sumará al guardar).
-setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax })
+    // Ya fue escaneado en esta evaluación con todos los datos que usa la
+    // conciliación: se reutiliza la teórica y solo se carga el nuevo conteo, sin
+    // volver a pegarle a la API.
+    //
+    // El departamento es la excepción. Es un campo que se agregó después, así que
+    // un producto guardado antes de que existiera lo tiene en `undefined`: si el
+    // atajo saltara, re-escanearlo no volvería a consultar la API y el producto
+    // se quedaría para siempre en el grupo "Sin departamento". Por eso, si le
+    // falta, se cae al camino normal de abajo y la API lo rellena.
+    if (ya && ya.departamento) {
+      setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax, departamento: ya.departamento, sinHablador: ya.sinHablador })
       return
     }
     if (!shopId) {
@@ -408,14 +420,48 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
 
   const agregar = () => {
     const sku = borrador.sku.trim()
-    if (!sku || borrador.teorica == null || borrador.fisica == null) {
-      setInfo('Completa el SKU y ambas cantidades para agregar.')
+    const sinHablador = borrador.sinHablador === true
+    // Sin hablador no hay precio físico que leer, así que la física no se puede
+    // pedir: lo único indispensable es el SKU. La teórica la manda el sistema al
+    // escanear y se guarda si vino, pero no bloquea registrar la fila.
+    if (!sku || (!sinHablador && (borrador.teorica == null || borrador.fisica == null))) {
+      setInfo(sinHablador ? 'Agrega el SKU para registrar el producto sin hablador.' : 'Completa el SKU y ambas cantidades para agregar.')
       return
     }
     if (existente) {
+      if (sinHablador) {
+        // Re-escaneo de un producto que ahora está sin hablador: no hay precio
+        // físico que sumar al previo, la fila queda marcada y sin precio.
+        actualizar(
+          productos.map((p, idx) =>
+            idx === existenteIdx
+              ? {
+                  ...p,
+                  nombre: borrador.nombre ?? p.nombre,
+                  teorica: borrador.teorica ?? p.teorica,
+                  fisica: null,
+                  soh: borrador.soh ?? p.soh,
+                  lastSync: borrador.lastSync ?? p.lastSync,
+                  finalBase: borrador.finalBase ?? p.finalBase,
+                  finalTax: borrador.finalTax ?? p.finalTax,
+                  departamento: borrador.departamento ?? p.departamento,
+                  sinHablador: true
+                }
+              : p
+          )
+        )
+        setExito('Marcado sin hablador · cuenta como No Match.')
+        setBorrador({ sku: '', nombre: null, teorica: null, fisica: null })
+        setInfo('')
+        return
+      }
       // Re-escaneo: el físico nuevo se suma al previo en lugar de duplicar el producto.
+      // La validación de arriba exige la física cuando no hay sin hablador, pero
+      // eso lo garantiza un booleano alias y TypeScript no lo puede seguir: el
+      // `?? 0` es solo para calmar al compilador, no se usa.
       const previo = existente.fisica ?? 0
-      const total = previo + borrador.fisica
+      const fisicaNueva = borrador.fisica ?? 0
+      const total = previo + fisicaNueva
       actualizar(
         productos.map((p, idx) =>
           idx === existenteIdx
@@ -427,12 +473,16 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
                 soh: borrador.soh ?? p.soh,
                 lastSync: borrador.lastSync ?? p.lastSync,
                 finalBase: borrador.finalBase ?? p.finalBase,
-                finalTax: borrador.finalTax ?? p.finalTax
+                finalTax: borrador.finalTax ?? p.finalTax,
+                departamento: borrador.departamento ?? p.departamento,
+                // El re-escaneo trae precio nuevo: si la fila estaba sin hablador
+                // y el evaluador ya no la tiene tildada, vuelve a ser comparable.
+                sinHablador: false
               }
             : p
         )
       )
-      setExito(`Sumado: FP ${previo} + ${borrador.fisica} = ${total}`)
+      setExito(`Sumado: FP ${previo} + ${fisicaNueva} = ${total}`)
     } else {
       actualizar([
         ...productos,
@@ -440,11 +490,13 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
           sku,
           nombre: borrador.nombre,
           teorica: borrador.teorica,
-          fisica: borrador.fisica,
+          fisica: sinHablador ? null : borrador.fisica,
           soh: borrador.soh,
           lastSync: borrador.lastSync,
           finalBase: borrador.finalBase,
-          finalTax: borrador.finalTax
+          finalTax: borrador.finalTax,
+          departamento: borrador.departamento,
+          sinHablador
         }
       ])
       setExito('')
@@ -454,6 +506,8 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
   }
 
   const pctBorrador = conciliacionPorcentaje({ teorica: borrador.teorica, fisica: fisicaResultante })
+  const borradorSinHablador = borrador.sinHablador === true
+  const borradorCompleto = !!borrador.sku.trim() && (borradorSinHablador || (borrador.teorica != null && borrador.fisica != null))
 
   return (
     <div className="space-y-3">
@@ -477,8 +531,8 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
               setExito('')
               setBorrador(
                 ya
-                  ? { sku, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax }
-                  : { sku, nombre: null, teorica: null, fisica: null, soh: null, lastSync: null, finalBase: null, finalTax: null }
+                  ? { sku, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax, departamento: ya.departamento, sinHablador: ya.sinHablador }
+                  : { sku, nombre: null, teorica: null, fisica: null }
               )
             }}
             onKeyDown={(e) => { if (e.key === 'Enter') void aplicarCodigo() }}
@@ -503,7 +557,11 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
         {tieneInfoSistema(borrador) ? (
           <p className="text-[11px] leading-relaxed text-slate-400">
             SOH (sistema): <strong className="text-slate-600">{borrador.soh ?? '—'}</strong> · Últ. sync:{' '}
-            {formatearLastSync(borrador.lastSync)} · PVP: {formatearPrecioVenta(borrador)}
+            {formatearLastSync(borrador.lastSync)} · Precio: {formatearPrecioBase(precioVenta(borrador))}
+            {/* El departamento no se muestra solo si vino: sin él, el producto cae en
+                el grupo "Sin departamento" del informe y no hay forma de saber que
+                fue la API la que no lo mandó. */}
+            {borrador.departamento ? <> · Dep: {borrador.departamento}</> : null}
           </p>
         ) : null}
         {existente ? (
@@ -513,9 +571,11 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
               Teórica: {borrador.teorica ?? '—'} · Físico previo (FP): <strong>{existente.fisica ?? 0}</strong>
             </p>
             <p className="mt-0.5 font-semibold text-primary-900">
-              {borrador.fisica != null && fisicaResultante != null
-                ? `Al guardar: ${existente.fisica ?? 0} + ${borrador.fisica} = ${fisicaResultante}`
-                : 'Ingresa la nueva cantidad física; al guardar se sumará al previo.'}
+              {borradorSinHablador
+                ? 'Al guardar: la fila queda marcada sin hablador y cuenta como No Match.'
+                : borrador.fisica != null && fisicaResultante != null
+                  ? `Al guardar: ${existente.fisica ?? 0} + ${borrador.fisica} = ${fisicaResultante}`
+                  : 'Ingresa la nueva cantidad física; al guardar se sumará al previo.'}
             </p>
           </div>
         ) : null}
@@ -533,12 +593,33 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
           <CampoConciliacion
             etiqueta={existente ? 'Física nueva (suma al previo)' : 'Física (contada)'}
             valor={borrador.fisica}
+            disabled={borrador.sinHablador === true}
             onChange={(n) => setBorrador((b) => ({ ...b, fisica: n }))}
           />
         </div>
+        {/* Solo en conciliación por precio: el hablador es la etiqueta con el precio
+            de venta, así que en modo stock no existe que marcar. */}
+        {contraDato === 'FINAL_BASE' ? (
+          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0 accent-red-600"
+              checked={borrador.sinHablador === true}
+              onChange={(e) => {
+                const marcado = e.target.checked
+                setBorrador((b) => ({ ...b, sinHablador: marcado, fisica: marcado ? null : b.fisica }))
+                setInfo('')
+                setExito('')
+              }}
+            />
+            No tiene hablador · se registra sin precio y cuenta como No Match
+          </label>
+        ) : null}
         <div className="flex items-center justify-between gap-2">
           {exito ? (
             <p className="text-xs font-bold text-green-600">{exito}</p>
+          ) : borradorSinHablador ? (
+            <p className="text-xs font-bold text-red-600">Sin hablador · cuenta como No Match</p>
           ) : pctBorrador != null ? (
             <p className={cn('text-sm font-bold', pctBorrador === 100 ? 'text-green-600' : 'text-red-600')}>
               Conciliación: {pctBorrador}%
@@ -550,7 +631,7 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
             type="button"
             variant="primary"
             className="shrink-0 min-h-0 px-4 py-2"
-            disabled={!borrador.sku.trim() || borrador.teorica == null || borrador.fisica == null}
+            disabled={!borradorCompleto}
             onClick={agregar}
           >
             <Check className="h-4 w-4" /> Agregar
@@ -583,7 +664,12 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
                 </p>
                 <ul className="space-y-2 p-3">
                   {productos.map((p, i) => {
-                    const pct = conciliacionPorcentaje(p)
+                    // Lo que se compara y lo que se muestra es el número con dos
+                    // decimales, el mismo que va a ver el detalle. Lo que se guarda
+                    // queda entero: acá el evaluador está escribiendo y recortarle
+                    // el número de lo que acaba de teclear lo pelearía con el teclado.
+                    const [paraMirar] = productosParaConciliar([p], contraDato)
+                    const pct = conciliacionPorcentaje(paraMirar)
                     if (editando === i) {
                       return (
                         <li key={i} className="space-y-2 rounded-xl border-2 border-primary bg-white px-3 py-2">
@@ -593,12 +679,26 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
                           </p>
                           <div className="flex flex-wrap items-end gap-2">
                             <CampoConciliacion etiqueta="T · Teórica" valor={edicion.teorica} onChange={(n) => setEdicion((d) => ({ ...d, teorica: n }))} />
-                            <CampoConciliacion etiqueta="F · Física" valor={edicion.fisica} onChange={(n) => setEdicion((d) => ({ ...d, fisica: n }))} />
+                            <CampoConciliacion etiqueta="F · Física" valor={edicion.fisica} disabled={edicion.sinHablador} onChange={(n) => setEdicion((d) => ({ ...d, fisica: n }))} />
                           </div>
+                          {contraDato === 'FINAL_BASE' ? (
+                            <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 shrink-0 accent-red-600"
+                                checked={edicion.sinHablador}
+                                onChange={(e) => {
+                                  const marcado = e.target.checked
+                                  setEdicion((d) => ({ ...d, sinHablador: marcado, fisica: marcado ? null : d.fisica }))
+                                }}
+                              />
+                              No tiene hablador · se registra sin precio y cuenta como No Match
+                            </label>
+                          ) : null}
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" onClick={() => setEditando(null)}>Cancelar</Button>
                             <Button variant="success" onClick={() => {
-                              actualizarProducto(i, { teorica: edicion.teorica, fisica: edicion.fisica })
+                              actualizarProducto(i, { teorica: edicion.teorica, fisica: edicion.sinHablador ? null : edicion.fisica, sinHablador: edicion.sinHablador })
                               setEditando(null)
                             }}>
                               <Check className="h-4 w-4" /> Confirmar
@@ -608,7 +708,7 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
                       )
                     }
                     const editar = () => {
-                      setEdicion({ teorica: p.teorica, fisica: p.fisica })
+                      setEdicion({ teorica: p.teorica, fisica: p.fisica, sinHablador: p.sinHablador === true })
                       setEditando(i)
                     }
                     const eliminar = () => setAEliminar({ producto: p, index: i })
@@ -662,15 +762,19 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
                             </div>
                             <div className="mt-0.5 flex items-center justify-between gap-2">
                               <span className="text-xs leading-tight text-slate-500">
-                                Teórica: {p.teorica ?? '—'} · Física: {p.fisica ?? '—'}
+                                Teórica: {contraDato === 'FINAL_BASE' ? formatearPrecioBase(paraMirar?.teorica) : (p.teorica ?? '—')} · Física:{' '}
+                                {esSinHablador(p) ? (
+                                  <span className="font-bold text-red-600">sin hablador</span>
+                                ) : contraDato === 'FINAL_BASE' ? formatearPrecioBase(paraMirar?.fisica) : (p.fisica ?? '—')}
                               </span>
-                              <span className={cn('text-xs font-bold leading-tight', pct != null && pct === 100 ? 'text-green-600' : 'text-red-600')}>
-                                {pct != null ? `${pct}%` : '—'}
+                              <span className={cn('text-xs font-bold leading-tight', !esSinHablador(p) && pct != null && pct === 100 ? 'text-green-600' : 'text-red-600')}>
+                                {esSinHablador(p) ? 'No Match' : pct != null ? `${pct}%` : '—'}
                               </span>
                             </div>
                             {tieneInfoSistema(p) ? (
                               <p className="mt-0.5 text-[10px] leading-tight text-slate-400">
-                                SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · PVP: {formatearPrecioVenta(p)}
+                                SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · Precio: {formatearPrecioBase(precioVenta(p))}
+                                {p.departamento ? <> · {p.departamento}</> : null}
                               </p>
                             ) : null}
                           </div>
@@ -696,15 +800,18 @@ setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null,
             setInfo('')
             setExito('')
             const ya = productos.find((p) => p.sku === codigo)
-            if (ya) {
-              // Ya escaneado en esta evaluación: trae el producto y deja la física
-              // vacía para el nuevo conteo (se sumará al guardar).
-        setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax })
+            // Mismo criterio que en el campo de código: solo se reutiliza el
+            // producto guardado si tiene departamento. Si le falta (fue escaneado
+            // antes de que el campo existiera), se sigue abajo a consultar la API
+            // para rellenarlo, porque re-escanear no debe dejar el producto
+            // atrapado en "Sin departamento".
+            if (ya && ya.departamento) {
+              setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax, departamento: ya.departamento, sinHablador: ya.sinHablador })
               return
             }
             const mismo = borrador.sku.trim() === codigo
             setBorrador(
-              mismo ? (b) => b : { sku: codigo, nombre: null, teorica: null, fisica: null }
+              mismo ? (b) => b : { sku: codigo, nombre: null, teorica: null, fisica: null, sinHablador: ya?.sinHablador }
             )
             void (async () => {
               if (!shopId) {
@@ -1701,7 +1808,7 @@ function BotonNoCumple({ activo, onPick }: { activo: boolean; onPick: () => void
   )
 }
 
-function CampoConciliacion({ etiqueta, valor, onChange }: { etiqueta: string; valor: number | null; onChange: (n: number | null) => void }) {
+function CampoConciliacion({ etiqueta, valor, onChange, disabled }: { etiqueta: string; valor: number | null; onChange: (n: number | null) => void; disabled?: boolean }) {
   return (
     <div className="min-w-0 flex-1">
       <label className="mb-1 block text-xs font-medium text-slate-500">{etiqueta}</label>
@@ -1710,7 +1817,8 @@ function CampoConciliacion({ etiqueta, valor, onChange }: { etiqueta: string; va
           type="number"
           inputMode="decimal"
           min={0}
-          placeholder="0"
+          placeholder={disabled ? '—' : '0'}
+          disabled={disabled}
           value={valor ?? ''}
           onChange={(e) => {
             const n = Number(e.target.value)

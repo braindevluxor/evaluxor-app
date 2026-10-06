@@ -10,6 +10,7 @@ import {
   colaboradoresQueCuentan,
   opcionesAplicablesColaborador,
   unidadCumple,
+  esSinHablador,
   pesoItem,
   puntosMarcadosPlano,
   redondear3,
@@ -121,6 +122,37 @@ export function itemsDelModulo(todosItems: Item[], moduloId: string): Item[] {
     if (i.padre_id) ids.add(i.padre_id)
   }
   return todosItems.filter((i) => ids.has(i.id))
+}
+
+/**
+ * Módulos que tienen algo respondido en esta evaluación, en el orden en que
+ * salen en el PDF.
+ *
+ * Es lo mismo que deja `detalle.modulos`, pero sin traer respuestas ni fotos:
+ * el selector de qué exportar tiene que ofrecer los módulos *antes* de que el
+ * usuario elija, y en las pantallas de listado la evaluación todavía no está
+ * cargada. Por eso van en tandas: una evaluación larga pasa de los 100 ids y la
+ * petición se corta.
+ */
+export async function modulosRespondidos(evaluacionId: string): Promise<Modulo[]> {
+  const { data: resp } = await supabase
+    .from('respuestas')
+    .select('item_id')
+    .eq('evaluacion_id', evaluacionId)
+  const itemIds = Array.from(new Set((resp ?? []).map((r) => (r as { item_id: string }).item_id).filter(Boolean)))
+  if (!itemIds.length) return []
+  const moduloIds = new Set<string>()
+  for (let i = 0; i < itemIds.length; i += 100) {
+    const tanda = itemIds.slice(i, i + 100)
+    const { data: items } = await supabase.from('items').select('id, modulo_id').in('id', tanda)
+    for (const item of items ?? []) {
+      const moduloId = (item as { modulo_id: string | null }).modulo_id
+      if (moduloId) moduloIds.add(moduloId)
+    }
+  }
+  if (!moduloIds.size) return []
+  const { data: mods } = await supabase.from('modulos').select('*').in('id', Array.from(moduloIds))
+  return ((mods ?? []) as Modulo[]).sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
 }
 
 export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<ConjuntoDatos> {
@@ -616,15 +648,17 @@ export function resumenItemsModulo(
 
     if (it.tipo === 'CONCILIACION') {
       const v = r.valor as ValorConciliacion | null
+      // Los sin hablador entran aunque no tengan precio físico: son No Match y
+      // sacarlos del total habría hecho que empeorar la tasa en lugar de bajarla.
       const validos = (v?.productos ?? []).filter(
-        (pro) => typeof pro.teorica === 'number' && typeof pro.fisica === 'number' && pro.teorica > 0
+        (pro) => esSinHablador(pro) || (typeof pro.teorica === 'number' && typeof pro.fisica === 'number' && pro.teorica > 0)
       )
       if (!validos.length) continue
       a.muestras++
       a.ok += p ?? 0
       for (const pro of validos) {
         a.concTotal++
-        if (pro.fisica === pro.teorica) a.concOk++
+        if (!esSinHablador(pro) && pro.fisica === pro.teorica) a.concOk++
       }
       continue
     }
@@ -1167,13 +1201,15 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
     }
     case 'CONCILIACION': {
       const v = valor as ValorConciliacion | null
+      // Mismo criterio que el resumen del módulo: el sin hablador cuenta en el
+      // total y nunca en los conciliados.
       const validos = (v?.productos ?? []).filter(
-        (pro) => typeof pro.teorica === 'number' && typeof pro.fisica === 'number' && pro.teorica > 0
+        (pro) => esSinHablador(pro) || (typeof pro.teorica === 'number' && typeof pro.fisica === 'number' && pro.teorica > 0)
       )
       if (!validos.length) {
         return { proporcion: p, resumen: v?.productos?.length ? `${v.productos.length} producto(s) escaneados` : 'Sin productos escaneados' }
       }
-      const conc = validos.filter((pro) => pro.fisica === pro.teorica).length
+      const conc = validos.filter((pro) => !esSinHablador(pro) && pro.fisica === pro.teorica).length
       const tasa = Math.round(((validos.length - conc) / validos.length) * 100)
       return { proporcion: p, resumen: `${conc}/${validos.length} productos conciliados · descuadre ${tasa}%` }
     }

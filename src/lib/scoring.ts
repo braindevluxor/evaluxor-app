@@ -40,12 +40,12 @@ export interface ValorCumple {
   /** Nombre del gerente de la sucursal, horneado al responder: destino por defecto de los puntos incumplidos. */
   responsablesGerente?: string | null
 }
-/** Dato del sistema usado como referencia ("contra dato") en una conciliación: stock teórico (soh) o precio base (finalBase). */
+/** Dato del sistema usado como referencia ("contra dato") en una conciliación: stock teórico (soh) o precio de venta (finalBase + finalTax). */
 export type ContraDatoConciliacion = 'SOH' | 'FINAL_BASE'
 
 export const ETIQUETAS_CONTRA_DATO: Record<ContraDatoConciliacion, string> = {
   SOH: 'SOH (stock)',
-  FINAL_BASE: 'Precio base'
+  FINAL_BASE: 'Precio de venta'
 }
 
 export interface ValorConciliacion {
@@ -65,12 +65,60 @@ export interface ProductoConciliacion {
   soh?: number | null
   /** Última sincronización del producto reportada por el sistema. */
   lastSync?: string | null
-  /** Precio base final (pricing.finalBase) reportado por el sistema. */
+  /**
+   * Base final (pricing.finalBase) reportada por el sistema: precio de lista ya
+   * descontado y **sin impuesto**. No es el precio de venta.
+   */
   finalBase?: number | null
-  /** Impuesto del producto (pricing.finalTax). Se suma al base para el PVP. */
+  /** Impuesto (pricing.finalTax) reportado por el sistema, ya calculado sobre la base descontada. */
   finalTax?: number | null
+  /** Departamento del producto (`department.name` de la API): LIMPIEZA, PANADERÍA, etc. */
+  departamento?: string | null
   /** Pérdida estimada congelada al guardar/corregir el conteo del producto. */
   perdidaEstimada?: number | null
+  /**
+   * El producto no tiene hablador (etiqueta de precio) en la góndola: no hay
+   * precio físico que comparar contra el sistema. Lo marca el evaluador con el
+   * check "No tiene hablador" y la fila se guarda **sin `fisica`**.
+   *
+   * Cuenta como No Match: es un incumplimiento registrado a propósito, así que
+   * baja la tasa de descuadre y deja el ítem de conciliación en "no cumple"
+   * mientras exista una fila así. Solo puede darse en conciliación por precio
+   * (contra dato FINAL_BASE), que es donde existe el hablador.
+   */
+  sinHablador?: boolean
+}
+
+/** ¿El producto quedó marcado como "sin hablador"? No hay precio en la góndola que comparar. */
+export function esSinHablador(p: ProductoConciliacion | null | undefined): boolean {
+  return p?.sinHablador === true
+}
+
+/**
+ * El precio contra el que se compara la física, y con el que se valoriza la
+ * mercadería faltante.
+ *
+ * POR QUÉ SUMA EL IMPUESTO
+ * ------------------------
+ * `finalBase` es la base final **ya descontada y sin impuesto**. Para el papel del
+ * ejemplo de la API, `originalBase: 2.84` con `percentDiscount: 44.07` da
+ * `finalBase: 1.59` (2,84 × 0,5593) y `finalTax: 0.25`, así que lo que se cobra es
+ * **1,84**.
+ *
+ * El `percentDiscount` no se vuelve a aplicar: la base que manda la API ya viene
+ * descontada, y descontar otra vez dejaría el papel en 1,14 en vez de 1,84.
+ *
+ * Por qué importa sumarlo: el hablador muestra el precio de venta. Comparar la
+ * base sin impuesto contra el hablador marca descuadre en **todas** las filas con
+ * IVA — un 16% de diferencia constante — y deja la pérdida estimada
+ * subvaluada por lo mismo.
+ */
+export function precioVenta(p: { finalBase?: number | null; finalTax?: number | null } | null | undefined): number | null {
+  if (typeof p?.finalBase !== 'number' || !Number.isFinite(p.finalBase)) return null
+  // Sin impuesto (o con impuesto 0, que es lo que traen los exentos) el precio
+  // de venta es la base. `||` en vez de `??` para no devolver `NaN` si viniera.
+  const impuesto = typeof p.finalTax === 'number' && Number.isFinite(p.finalTax) ? p.finalTax : 0
+  return p.finalBase + impuesto
 }
 
 /**
@@ -103,9 +151,11 @@ export function montoPerdidaConciliacion(
     typeof p?.teorica !== 'number' || !Number.isFinite(p.teorica) ||
     typeof p.fisica !== 'number' || !Number.isFinite(p.fisica)
   ) return null
-  const pvp = precioVentaPvp(p)
-  if (pvp === null) return null
-  return Math.max(0, p.teorica - p.fisica) * pvp
+  // Se valoriza al precio de venta, no a la base sin impuesto: lo que la tienda
+  // dejó de tener es lo que el cliente iba a pagar.
+  const precio = precioVenta(p)
+  if (precio == null || precio < 0) return null
+  return Math.max(0, p.teorica - p.fisica) * precio
 }
 
 export function perdidaGuardadaConciliacion(
@@ -152,20 +202,15 @@ export function resumenPerdidaConciliacion(
   }, { monto: 0, faltantesConPrecio: 0, faltantesSinPrecio: 0 })
 }
 
-/**
- * Referencia contra la que se compara la física: el contra dato elegido (soh →
- * stock, precio → PVP) o, si falta, la teórica ya cargada.
- *
- * En modo precio la teórica se autocompleta con el PVP y no con el base, para que
- * sea comparable con el precio que el evaluador lee en la góndola y con la misma
- * cifra que muestra la columna de la conciliación.
- */
+/** Referencia contra la que se compara la física: el contra dato elegido (soh → stock, finalBase → precio de venta) o, si falta, la teórica ya cargada. */
 export function referenciaConciliacion(
   p: { teorica?: number | null; soh?: number | null; finalBase?: number | null; finalTax?: number | null } | null | undefined,
   contraDato: ContraDatoConciliacion = 'SOH'
 ): number | null {
   if (!p) return null
-  const dato = contraDato === 'FINAL_BASE' ? precioVentaPvp(p) : p.soh
+  // En modo precio va el precio de venta (base + impuesto): es lo que muestra el
+  // hablador. En modo stock, el SOH pelado.
+  const dato = contraDato === 'FINAL_BASE' ? precioVenta(p) : p.soh
   if (typeof dato === 'number') return dato
   return p.teorica ?? null
 }
@@ -441,21 +486,155 @@ const ORDEN_ESTADO_CONCILIACION: Record<EstadoConciliacion, number> = {
   'sin-datos': 3
 }
 
+/**
+ * Los productos agrupados por departamento, en el orden en que se muestran.
+ *
+ * POR QUÉ AGRUPAR
+ * ---------------
+ * Una conciliación se cuenta en la góndola, y el recorrido de la góndola es por
+ * departamento: LIMPIEZA, PANADERÍA, ABARROTES. Con las filas mezcladas por
+ * gravedad, el evaluador iba y volvía por la tienda para llegar al mismo pasillo
+ * dos veces. Con el departamento de arriba, camina una vez y cuenta todo lo que
+ * hay en ese pasillo.
+ *
+ * DENTRO DE CADA GRUPO
+ * -------------------
+ * El orden de lectura de `ordenarConciliacion` se conserva: dentro del
+ * departamento sigue mandando la gravedad, primero lo que más falta. El
+ * departamento decide el pasillo, no borra el orden de urgencia.
+ *
+ * POR QUÉ ALFABÉTICO Y NO EL QUE DEVUELVE LA API
+ * ---------------------------------------------
+ * El `department.id` de la API (17 = LIMPIEZA) no se puede ordenar: son claves de
+ * base de datos, no un criterio de recorrido. Y el nombre viene en mayúsculas y a
+ * veces con acentos inconsistentes, así que se compara normalizado («ABARROTES» y
+ * «Abarrotes» son el mismo grupo) pero se muestra tal como lo manda la API.
+ *
+ * Lo que no tiene departamento va al final, no al principio: si el dato falta, es
+ * ruido de la fuente y no vale la pena que arranque la lista.
+ */
+export interface GrupoDepartamento<T> {
+  departamento: string | null
+  productos: T[]
+}
+
+export function agruparPorDepartamento<T extends ProductoConciliacion>(
+  productos: T[],
+  contraDato: ContraDatoConciliacion = 'SOH'
+): GrupoDepartamento<T>[] {
+  const ordenados = ordenarConciliacion(productos, contraDato)
+  const grupos: GrupoDepartamento<T>[] = []
+  const indice = new Map<string, GrupoDepartamento<T>>()
+  // Clave del grupo sin departamento. Existe porque "el campo no vino" y "el campo
+  // vino vacío" son el mismo pasillo para el evaluador, y sin esta clave cada fila
+  // sin departamento abriría su propio grupo.
+  const SIN_DEPARTAMENTO = '\0sin-departamento'
+  for (const producto of ordenados) {
+    const nombre = producto.departamento?.trim() || null
+    // La clave va normalizada para que dos filas del mismo pasillo que difieren
+    // solo en mayúsculas o acentos caigan en el mismo grupo.
+    const clave = nombre ? claveOrden(nombre) : SIN_DEPARTAMENTO
+    let grupo = indice.get(clave)
+    if (!grupo) {
+      grupo = { departamento: nombre, productos: [] }
+      grupos.push(grupo)
+      indice.set(clave, grupo)
+    }
+    grupo.productos.push(producto)
+  }
+  // Los grupos sí van en orden alfabético, no en el de aparición: la lista entra
+  // ordenada por gravedad, así que el primer departamento que se ve sería el de la
+  // pérdida más grande y el recorrido de la góndola quedaría decidedo por cuánto
+  // falta y no por dónde está la mercadería.
+  return grupos.sort((a, b) => {
+    if (!a.departamento) return b.departamento ? 1 : 0
+    if (!b.departamento) return -1
+    return claveOrden(a.departamento) < claveOrden(b.departamento) ? -1 : 1
+  })
+}
+
+/** Clave de comparación sin acentos, mayúsculas ni espacios: "LIMPIEZA" y "limpieza" son el mismo grupo. */
+function claveOrden(valor: string): string {
+  return valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+}
+
 export function conciliacionTotal(v: ValorConciliacion | null | undefined): number | null {
   // Tasa de productos sin coincidir: (productos donde física ≠ teórica) / (total
   // escaneados con ambas cantidades) × 100. Por lo tanto 0% = todo concilia y
   // 100% = ningún producto coincide.
+  //
+  // Los marcados "sin hablador" entran en las dos mitades de la fracción aunque
+  // no tengan precio físico: son No Match y sacarlos de acá habría hecho que un
+  // producto sin etiqueta mejorara la tasa en vez de empeorarla.
   const ps = v?.productos ?? []
-  const escaneados = ps.filter(conciliacionComparable)
+  const escaneados = ps.filter((p) => conciliacionComparable(p) || esSinHablador(p))
   if (!escaneados.length) return null
-  const sinCoincidir = escaneados.filter((p) => p.fisica !== p.teorica).length
+  const sinCoincidir = escaneados.filter((p) => esSinHablador(p) || p.fisica !== p.teorica).length
   return Math.round((sinCoincidir / escaneados.length) * 10000) / 100
+}
+
+/** Los decimales con los que se muestra y se compara un monto de conciliación. */
+export const DECIMALES_PRECIO = 2
+
+/**
+ * Deja `n` con `decimales` decimales, **cortando**, no redondeando.
+ *
+ * Por qué cortar y no redondear
+ * -----------------------------
+ * El precio que se muestra tiene que ser el número con el que después se compara
+ * la fila. Si dos precios que se leen `$2,56` se comparan como 2,564 contra 2,566,
+ * la fila sale con descuadre de dos centavo-fracciones que ninguna de las dos
+ * pantallas donde mira el evaluador muestra. Con redondeo pasa lo contrario y
+ * peor: 2,564 se muestra `$2,56` y 2,566 se muestra `$2,57`, así que dos números
+ * que en pantalla son distintos sí coinciden.
+ *
+ * Por qué no `Math.trunc(n * 100) / 100`
+ * -------------------------------------
+ * Porque `0.29 * 100` da `28.999999999999996` en la máquina y el trunc leería
+ * `$0,28` de un `$0,29` que el sistema sí tiene. Primero se redondea a 6
+ * decimales para matar ese error binario y después se corta el texto: el corte es
+ * el que decide, el redondeo intermedio solo limpia.
+ */
+export function truncarDecimales(n: number, decimales = DECIMALES_PRECIO): number {
+  if (!Number.isFinite(n) || Math.abs(n) >= 1e21) return n
+  const [entero, cola] = n.toFixed(decimales + 4).split('.')
+  const cortado = Number(`${entero}.${(cola ?? '').slice(0, decimales).padEnd(decimales, '0')}`)
+  // Un `-0.004` se corta a cero, y el cero se devuelve sin signo: si no, el
+  // formateador lo imprime como `$-0,00`.
+  return cortado === 0 ? 0 : cortado
+}
+
+const recortar = (n: number | null | undefined): number | null | undefined =>
+  typeof n === 'number' && Number.isFinite(n) ? truncarDecimales(n) : n
+
+/**
+ * Los productos con el número con el que se los va a mirar y comparar.
+ *
+ * Solo cambia algo en la conciliación por precio. El conteo de unidades es entero
+ * por naturaleza y cortarlo no tiene sentido. En precio, en cambio, el sistema y
+ * el hablador guardan floats y el evaluador los mira con dos decimales: si tras
+ * cortar los dos dan el mismo número, para él concilia, y por eso tampoco puede
+ * salir con descuadre. Un descuadre de una fracción de centavo no se ve en
+ * ninguna parte y manda a buscar mercadería que sí está en la góndola.
+ *
+ * Se aplica una sola vez, arriba de todo, para que el mismo número alimente el
+ * texto de la pantalla, el porcentaje, el orden de lectura, los totales y el PDF.
+ * Si se hiciera dentro de `estadoConciliacion` y `conciliacionPorcentaje` por
+ * separado, cada uno tendría que acordarse del `contra_dato` y alguno se olvidaría.
+ */
+export function productosParaConciliar<T extends ProductoConciliacion>(
+  productos: T[] | null | undefined,
+  contraDato: ContraDatoConciliacion = 'SOH'
+): T[] {
+  const ps = productos ?? []
+  if (contraDato !== 'FINAL_BASE') return ps
+  return ps.map((p) => ({ ...p, teorica: recortar(p.teorica), fisica: recortar(p.fisica) }))
 }
 
 /** Formatea el precio base final (pricing.finalBase) del sistema para mostrarlo en conciliación. */
 export function formatearPrecioBase(n: number | null | undefined): string {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
-  return `$${new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`
+  return `$${new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(truncarDecimales(n))}`
 }
 
 /** Formatea el PVP del producto (finalBase + finalTax) para mostrarlo en conciliación. */
@@ -473,7 +652,7 @@ export function formatearPrecioVenta(p: { finalBase?: number | null; finalTax?: 
  */
 export function formatearMontoPerdida(n: number | null | undefined): string {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
-  return `USD${new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`
+  return `USD${new Intl.NumberFormat('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(truncarDecimales(n))}`
 }
 
 /** Formatea la última sincronización (lastSync) del sistema; vuelve el texto crudo si no es una fecha válida. */
@@ -514,6 +693,11 @@ export function valorBinario(item: { tipo: string; opciones?: string[] | { id: s
     if (v?.informativo) return null
     const ps = v?.productos ?? []
     if (!ps.length) return null
+    // Un producto sin hablador es un descuadre deliberado: no hay precio en la
+    // góndola que cuadre con el sistema, así que el ítem no puede cumplir. Va
+    // antes que la revisión de "ambas cantidades" porque esa fila nunca las va a
+    // tener (no hay etiqueta de la que leer el precio) y quedaría saltada.
+    if (ps.some(esSinHablador)) return false
     for (const p of ps) {
       if (!conciliacionComparable(p)) return null
       if (p.fisica !== p.teorica) return false
@@ -574,7 +758,10 @@ export function estaVacioItem(item: { tipo: string; repetible?: boolean | null }
       return !((valor as ValorChecklist | null)?.selected?.length)
     case 'CONCILIACION': {
       const ps = (valor as ValorConciliacion | null)?.productos ?? []
-      return ps.length === 0 || ps.some((p) => !p.sku.trim() || p.teorica == null || p.fisica == null)
+      // Un producto marcado "sin hablador" se completa sin precio: no hay
+      // etiqueta de la que leerlo, y exigirlo dejaba el ítem bloqueado en
+      // "Obligatorio para enviar" sin que el evaluador pudiera arreglarlo.
+      return ps.length === 0 || ps.some((p) => !p.sku.trim() || (!esSinHablador(p) && (p.teorica == null || p.fisica == null)))
     }
     case 'LISTA_COLABORADORES':
       return !((valor as ValorListaColaboradores | null)?.colaboradores?.length)

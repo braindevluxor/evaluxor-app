@@ -71,7 +71,9 @@ export const APIS_DISPONIBLES: ApiDisponible[] = [
       { id: 'nombre', etiqueta: 'Nombre' },
       { id: 'soh', etiqueta: 'Stock teórico (SOH)' },
       { id: 'lastSync', etiqueta: 'Última sincronización' },
-      { id: 'finalBase', etiqueta: 'Precio base' }
+      { id: 'finalBase', etiqueta: 'Precio base' },
+      { id: 'finalTax', etiqueta: 'Impuesto (IVA)' },
+      { id: 'departamento', etiqueta: 'Departamento' }
     ],
     consultar: async (codigo, ctx) => {
       if (!ctx.shopId) {
@@ -176,7 +178,8 @@ export function valoresDeProducto(r: ResultadoScan): Record<string, unknown> {
     soh: r.soh ?? null,
     lastSync: r.lastSync ?? null,
     finalBase: r.finalBase ?? null,
-    finalTax: r.finalTax ?? null
+    finalTax: r.finalTax ?? null,
+    departamento: r.departamento ?? null
   }
 }
 

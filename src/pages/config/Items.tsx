@@ -620,7 +620,7 @@ function FormItem({
         {tipo === 'CONCILIACION' ? (
           <Field
             label="Calcular contra"
-            hint="Dato del sistema contra el que se autocompleta la teórica al escanear: stock (SOH) o precio base (finalBase). El evaluador solo registra la física."
+            hint="Dato del sistema contra el que se autocompleta la teórica al escanear: stock (SOH) o precio de venta (finalBase + finalTax, la base ya descontada más el impuesto). El evaluador solo registra la física."
           >
             <Select value={contraDato} onChange={(e) => setContraDato(e.target.value as ContraDatoConciliacion)}>
               <option value="SOH">{ETIQUETAS_CONTRA_DATO.SOH}</option>

@@ -107,14 +107,17 @@ describe('valoresDeVehiculo', () => {
 })
 
 describe('valoresDeProducto', () => {
-  it('mapea nombre, soh, lastSync y precio base', () => {
+  it('mapea nombre, soh, lastSync, base, impuesto y departamento', () => {
+    // La base y el impuesto van por separado: el precio de venta es la suma, y
+    // guardarlos juntos perdería la información de cuánto de cada cosa es.
     const v = valoresDeProducto(productoDePrueba)
     expect(v).toEqual({
       nombre: 'Aceite 1L',
       soh: 42,
       lastSync: '2025-01-10T14:30:00Z',
       finalBase: 12990.5,
-      finalTax: null
+      finalTax: 2080.5,
+      departamento: 'LIMPIEZA'
     })
   })
 })

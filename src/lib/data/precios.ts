@@ -10,10 +10,20 @@ export interface ResultadoScan {
   soh?: number
   /** Última sincronización del producto reportada por la API. */
   lastSync?: string
-  /** Precio base final del producto (pricing.finalBase). */
+  /**
+   * Base final del producto (pricing.finalBase): precio de lista **ya
+   * descontado** y **sin impuesto**. Ojo, no es el precio de venta.
+   *
+   * En el ejemplo real de la API, para un papel de 2,84 con 44,07% de descuento,
+   * la API manda `finalBase: 1.59` (2,84 × 0,5593) y el precio que se cobra es
+   * 1,84. El `percentDiscount` viene solo como dato informativo y no se vuelve a
+   * aplicar: la base que manda la API ya viene descontada.
+   */
   finalBase?: number
-  /** Impuesto del producto (pricing.finalTax). Se suma al base para el PVP. */
+  /** Impuesto del producto (pricing.finalTax), ya calculado sobre la base descontada. */
   finalTax?: number
+  /** Nombre del departamento del producto (`department.name`): LIMPIEZA, PANADERÍA, etc. */
+  departamento?: string
 }
 
 export async function buscarProducto(barcode: string, shopId: string): Promise<ResultadoScan> {
@@ -45,6 +55,7 @@ export async function buscarProducto(barcode: string, shopId: string): Promise<R
     soh?: number
     lastSync?: string
     pricing?: { finalBase?: number; finalTax?: number }
+    department?: { id?: number; name?: string }
   } | null = null
   try {
     body = (await res.json()) as {
@@ -58,6 +69,7 @@ export async function buscarProducto(barcode: string, shopId: string): Promise<R
       soh?: number
       lastSync?: string
       pricing?: { finalBase?: number; finalTax?: number }
+      department?: { id?: number; name?: string }
     }
   } catch {
     body = null
@@ -69,17 +81,17 @@ export async function buscarProducto(barcode: string, shopId: string): Promise<R
     const nombre = String(nombreDirecto ?? (typeof data === 'string' ? data : '')) || null
     const soh = typeof body?.soh === 'number' && Number.isFinite(body.soh) ? body.soh : undefined
     const lastSync = typeof body?.lastSync === 'string' && body.lastSync.trim() ? body.lastSync : undefined
-    const finalBase =
-      body?.pricing && typeof body.pricing.finalBase === 'number' && Number.isFinite(body.pricing.finalBase)
-        ? body.pricing.finalBase
-        : undefined
-    // El PVP es finalBase + finalTax. Si la API no manda el impuesto, se trata
-    // como 0 y el PVP queda igual al base (ver precioVentaPvp en lib/scoring).
-    const finalTax =
-      body?.pricing && typeof body.pricing.finalTax === 'number' && Number.isFinite(body.pricing.finalTax)
-        ? body.pricing.finalTax
-        : undefined
-    if (nombre) return { nombre, mensaje: null, soh, lastSync, finalBase, finalTax }
+    const numero = (n: unknown): number | undefined =>
+      typeof n === 'number' && Number.isFinite(n) ? n : undefined
+    const finalBase = numero(body?.pricing?.finalBase)
+    const finalTax = numero(body?.pricing?.finalTax)
+    // El departamento viene anidado y en mayúsculas ("LIMPIEZA"). Se deja tal cual
+    // salvo espacios de los bordes: es un rótulo de góndola, no un dato a calcular,
+    // y recortarlo más allá sería inventar formato.
+    const departamento = typeof body?.department?.name === 'string' && body.department.name.trim()
+      ? body.department.name.trim()
+      : undefined
+    if (nombre) return { nombre, mensaje: null, soh, lastSync, finalBase, finalTax, departamento }
     return { nombre: null, mensaje: body?.message ?? null }
   }
 

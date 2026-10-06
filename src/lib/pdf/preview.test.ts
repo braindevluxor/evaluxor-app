@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import type { jsPDF } from 'jspdf'
 import {
   buildPdfDocument,
   clasificarResultadosCargos,
   filtrarDetallePdf,
   type IncidenciaPdf
 } from './index'
+import { TODOS_LOS_BLOQUES, opcionesPorDefecto } from './opciones'
 import type { DetalleEvaluacion } from '../data/indicadores'
 import type { ValorResponsable } from '../scoring'
 import type { Item, Modulo, Respuesta, VistaEvaluacion } from '../types'
@@ -343,6 +345,36 @@ describe('informe imprimible de resultados', () => {
     expect(output).toContain('unidades faltantes con un valor estimado de USD')
   })
 
+  it('el encabezado de departamento lleva la pérdida de ese pasillo', () => {
+    const porDepartamento: DetalleEvaluacion = {
+      ...detalle,
+      respuestas: detalle.respuestas.map((respuesta) =>
+        respuesta.item_id === 'it-co1'
+          ? {
+              ...respuesta,
+              valor: {
+                productos: [
+                  // LIMPIEZA: 3 unidades de cloro a $2 y 1 de jabón a $1.
+                  { sku: 'SKU0901', nombre: 'Cloro', teorica: 4, fisica: 1, finalBase: 2, departamento: 'LIMPIEZA' },
+                  { sku: 'SKU0902', nombre: 'Jabón', teorica: 9, fisica: 8, finalBase: 1, departamento: 'LIMPIEZA' },
+                  // BAZAR: sobran unidades, así que hay descuadre pero no pérdida.
+                  { sku: 'SKU0903', nombre: 'Cubeta', teorica: 1, fisica: 6, finalBase: 3, departamento: 'BAZAR' }
+                ]
+              }
+            }
+          : respuesta
+      )
+    }
+    const output = buildPdfDocument(porDepartamento).output()
+
+    expect(output).toContain('LIMPIEZA')
+    expect(output).toContain('BAZAR')
+    expect(output).toContain('Pérdida $7,00')
+    // Solo un encabezado lleva pérdida: el de BAZAR no muestra un $0, porque ahí
+    // sobraron unidades y no se está perdiendo plata.
+    expect(output.match(/Pérdida \$/g) ?? []).toHaveLength(1)
+  })
+
   it('muestra solo el porcentaje de conciliación y oculta los IDs de sucursal y central', () => {
     const detalleConBranchId: DetalleEvaluacion = {
       ...detalle,
@@ -520,5 +552,178 @@ describe('informe imprimible de resultados', () => {
 
     expect(paginaSucursal).toBeGreaterThan(-1)
     expect(paginaCentral).toBeGreaterThan(paginaSucursal)
+  })
+})
+
+describe('qué se imprime en el informe', () => {
+  /** Páginas del PDF, ya sin los arrays vacíos que deja jsPDF al principio. */
+  const paginasDe = (pdf: jsPDF): string[] =>
+    (pdf.internal.pages as unknown as Array<string[] | undefined>)
+      .filter((pagina): pagina is string[] => Array.isArray(pagina))
+      .map((pagina) => pagina.join(''))
+
+  it('sin opciones sale el informe entero, igual que antes del selector', () => {
+    const pdf = buildPdfDocument(detalle, undefined, {}, [{ descripcion: 'Fuga en cámaras', responsables: [] }])
+    const output = pdf.output()
+
+    expect(output).toContain('Higiene y salubridad')
+    expect(output).toContain('Cargos de la sucursal')
+    expect(output).toContain('Cargos de central')
+    expect(output).toContain('Incidencias registradas')
+    expect(output).toContain('Constancia de recibido')
+  })
+
+  it('desmarcar un módulo saca su detalle y deja el resto', () => {
+    const opciones = { modulos: ['m2'], bloques: TODOS_LOS_BLOQUES }
+    const output = buildPdfDocument(detalle, undefined, {}, [], { sucursal: [], central: [] }, opciones).output()
+
+    // Se comparan los ítems y no los nombres de los módulos porque el nombre de
+    // todos sigue apareciendo en el gráfico de barras, que no es seleccionable.
+    expect(output).not.toContain('Equipos de refrigeración en condiciones operativas')
+    expect(output).not.toContain('Conteo de productos de la bodega de secos')
+    expect(output).toContain('Higiene y operatividad de las áreas de patio')
+    expect(output).toContain('Extintor vigente y accesible')
+  })
+
+  it('los puntajes que se imprimen siguen siendo los de la evaluación entera', () => {
+    // Es la decisión de fondo: lo que se apaga es lo que se imprime, no lo que se
+    // cuenta. Con un solo módulo no hay portada, así que los números que quedan
+    // a la vista son el del título del módulo y el de los cargos, y los dos
+    // tienen que ser los mismos del informe completo.
+    const catalogos = { sucursal: [], central: [{ departamento: 'Central', cargo: 'Gerencia' }] }
+    const completo = paginasDe(buildPdfDocument(detalle, undefined, {}, [], catalogos))
+    const parcial = paginasDe(buildPdfDocument(detalle, undefined, {}, [], catalogos, {
+      modulos: ['m3'],
+      bloques: TODOS_LOS_BLOQUES
+    }))
+
+    const hojaDelDetalle = (paginas: string[]) => paginas.find((p) => p.includes('Extintor de emergencia')) ?? ''
+    const puntajeDelTitulo = (paginas: string[]) =>
+      hojaDelDetalle(paginas).match(/Cumplimiento normativo[^0-9]*([0-9.]+)%/)?.[1]
+    expect(puntajeDelTitulo(completo)).toBeDefined()
+    expect(puntajeDelTitulo(parcial)).toBe(puntajeDelTitulo(completo))
+
+    // Y desde la hoja de cargos para adelante todo sale idéntico. Ahí está el
+    // puntaje de cada cargo, que se arma sobre todas las respuestas: si se
+    // recalculara sobre el módulo elegido, el 50% de Gerencia no se vería igual.
+    const desdeCargos = (paginas: string[]) => paginas.slice(paginas.findIndex((p) => p.includes('Cargos de la sucursal'))).join('')
+    expect(desdeCargos(completo)).toContain('Gerencia')
+    expect(desdeCargos(parcial)).toBe(desdeCargos(completo))
+  })
+
+  it('sin portada el detalle de los módulos arranca en la primera hoja', () => {
+    const sinBloques = (modulos: string[]) => ({
+      modulos,
+      bloques: { cargosSucursal: false, cargosCentral: false, incidencias: false, compromiso: false }
+    })
+    const conTodos = buildPdfDocument(detalle, undefined, {}, [], undefined, sinBloques(modulos.map((m) => m.id)))
+    const parcial = buildPdfDocument(detalle, undefined, {}, [], undefined, sinBloques(['m3']))
+    const paginas = paginasDe(parcial)
+
+    expect(paginas[0]).toContain('Cumplimiento normativo')
+    expect(paginas[0]).not.toContain('Datos de la tienda')
+    expect(conTodos.getNumberOfPages()).toBeGreaterThan(parcial.getNumberOfPages())
+    // Y ninguna hoja quedó en blanco donde estaba la portada.
+    for (const pagina of paginas) expect(pagina.trim().length).toBeGreaterThan(0)
+  })
+
+  it('la portada no se pierde por el filtro del informe', () => {
+    // El filtro de la pantalla y la selección del selector son cosas distintas:
+    // `contenido.modulos` se reduce, `detalle.modulos` no. Si la portada se
+    // decidiera sobre el contenido, con el filtro puesto un informe entero
+    // perdería la portada y la puntuación general.
+    const output = buildPdfDocument(detalle, 'cumple', {}, [], undefined, opcionesPorDefecto(modulos.map((m) => m.id))).output()
+
+    expect(output).toContain('Datos de la tienda')
+    expect(output).toContain('Puntuación general')
+    expect(output).toContain('Puntaje final por módulo')
+  })
+
+  it('sin portada, el filtro del informe sigue saliendo en la primera hoja', () => {
+    // Si no se dice, un recorte de "solo los que no se cumplieron" se lee como si
+    // fuera el resultado completo.
+    const parcial = paginasDe(buildPdfDocument(detalle, 'no-cumple', {}, [], undefined, {
+      modulos: ['m3'],
+      bloques: TODOS_LOS_BLOQUES
+    }))
+
+    expect(parcial[0]).toContain('Filtro del informe')
+    expect(parcial[0]).toContain('No cumple')
+  })
+
+  it('pone la sucursal y la fecha al pie de todas las hojas', () => {
+    const paginas = paginasDe(buildPdfDocument(detalle, undefined, {}, [{ descripcion: 'Fuga', responsables: [] }], {
+      sucursal: [], central: []
+    }))
+    expect(paginas.length).toBeGreaterThanOrEqual(3)
+    for (const pagina of paginas) {
+      expect(pagina).toContain('Sucursal Centro | 10/9/2026')
+    }
+  })
+
+  it('el pie va también en las hojas de un informe sin portada ni bloques finales', () => {
+    const paginas = paginasDe(buildPdfDocument(detalle, undefined, {}, [], undefined, {
+      modulos: ['m3'],
+      bloques: { cargosSucursal: false, cargosCentral: false, incidencias: false, compromiso: false }
+    }))
+    expect(paginas.length).toBeGreaterThan(0)
+    for (const pagina of paginas) expect(pagina).toContain('Sucursal Centro | 10/9/2026')
+  })
+
+  it('cada bloque del final se puede apagar por separado', () => {
+    const sinCargos = buildPdfDocument(detalle, undefined, {}, [], { sucursal: [], central: [] }, {
+      modulos: modulos.map((m) => m.id),
+      bloques: { ...TODOS_LOS_BLOQUES, cargosSucursal: false, cargosCentral: false }
+    }).output()
+    expect(sinCargos).not.toContain('Cargos de la sucursal')
+    expect(sinCargos).not.toContain('Cargos de central')
+    expect(sinCargos).toContain('Incidencias registradas')
+
+    const sinIncidencias = buildPdfDocument(detalle, undefined, {}, [{ descripcion: 'Fuga', responsables: [] }], undefined, {
+      modulos: modulos.map((m) => m.id),
+      bloques: { ...TODOS_LOS_BLOQUES, incidencias: false }
+    }).output()
+    expect(sinIncidencias).not.toContain('Incidencias registradas')
+    expect(sinIncidencias).not.toContain('Fuga')
+    expect(sinIncidencias).toContain('Cargos de la sucursal')
+
+    const soloCompromiso = buildPdfDocument(detalle, undefined, {}, [], undefined, {
+      modulos: [],
+      bloques: { cargosSucursal: false, cargosCentral: false, incidencias: false, compromiso: true }
+    }).output()
+    expect(soloCompromiso).toContain('Constancia de recibido')
+    expect(soloCompromiso).not.toContain('Incidencias registradas')
+  })
+
+  it('apagados los cuatro bloques no deja páginas en blanco entre medio', () => {
+    // El salto de página va antes de cada bloque. Si uno se apaga y el siguiente
+    // igual saca una hoja, entre los que quedan queda un folio en blanco que
+    // alguien tiene que sacar a mano antes de mandar el informe.
+    const completo = buildPdfDocument(detalle)
+    const sinNada = buildPdfDocument(detalle, undefined, {}, [], undefined, {
+      modulos: modulos.map((m) => m.id),
+      bloques: { cargosSucursal: false, cargosCentral: false, incidencias: false, compromiso: false }
+    })
+
+    expect(completo.getNumberOfPages() - sinNada.getNumberOfPages()).toBe(4)
+    const paginas = paginasDe(sinNada)
+    for (const pagina of paginas) expect(pagina.trim().length).toBeGreaterThan(0)
+  })
+
+  it('el filtro del informe y los módulos marcados se combinan', () => {
+    // El filtro saca ítems, el selector saca módulos: son dos filtros distintos y
+    // se aplican en ese orden. Acá el módulo 'm2' está marcado y además es de los
+    // que tienen algo incumplido, así que es el que sobrevive al filtro.
+    const output = buildPdfDocument(detalle, 'no-cumple', {}, [], undefined, {
+      modulos: ['m2'],
+      bloques: TODOS_LOS_BLOQUES
+    }).output()
+
+    expect(output).toContain('Filtro del informe')
+    expect(output).toContain('No cumple')
+    expect(output).toContain('Extintor vigente y accesible')
+    // Los otros dos módulos quedan fuera, marcados o no: aquí no entran.
+    expect(output).not.toContain('Equipos de refrigeración en condiciones operativas')
+    expect(output).not.toContain('Cumplimiento normativo')
   })
 })

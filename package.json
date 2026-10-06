@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "backfill:departamentos": "node scripts/backfill-departamentos.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.0",

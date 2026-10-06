@@ -249,10 +249,15 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
     expect(html).toContain('bg-amber-50/70')
     expect(html).toContain('bg-amber-100 text-amber-800')
     expect(html).toContain('bg-red-50/50')
-    expect(html).toContain('70% concilia, faltan 3')
-    expect(html).toContain('0% concilia, sobran 3')
-    expect(html).toContain('75% concilia, falta 1')
-    expect(html).toContain('75% concilia, sobra 1')
+    // El estado es el signo de la diferencia y nada más: "sobran 3" ocupaba media
+    // columna para decir lo mismo que "+3" con el color del distintivo al lado.
+    expect(html).toMatch(/bg-red-100 text-red-700">-3</)
+    expect(html).toMatch(/bg-red-100 text-red-700">-1</)
+    expect(html).toMatch(/bg-amber-100 text-amber-800">\+3</)
+    expect(html).toMatch(/bg-amber-100 text-amber-800">\+1</)
+    // Y el porcentaje por fila ya no está: los dos montos de al lado lo dicen.
+    expect(html).not.toContain('concilia,')
+    expect(html).not.toContain('% concilia')
     expect(html).toContain('Pérdida: $')
     expect(html).toContain('37,50')
     expect(html).toContain('producto(s) sin precio base')
@@ -267,5 +272,199 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
     expect(html).not.toContain('overflow-x-auto')
     expect(html).not.toContain('min-w-[620px]')
     expect(html).toContain('table-fixed')
+  })
+
+  it('en la conciliación de precio el estado lleva el signo de plata y los montos van con $', () => {
+    const html = renderRespuesta(
+      { ...itemBase('CONCILIACION'), contra_dato: 'FINAL_BASE' },
+      {
+        productos: [
+          { sku: 'SKU-OK', nombre: 'Conciliado', teorica: 10, fisica: 10, finalBase: 25 },
+          { sku: 'SKU-FALTA', nombre: 'Falta plata', teorica: 10, fisica: 7.5, finalBase: 25 },
+          { sku: 'SKU-SOBRA', nombre: 'Sobra plata', teorica: 4, fisica: 9.25, finalBase: 25 }
+        ]
+      }
+    )
+
+    // La diferencia se marca con el mismo signo que la columna Sistema/Hablador,
+    // y con los dos decimales de siempre para que los tres números de la fila se
+    // puedan comparar de un vistazo.
+    expect(html).toMatch(/bg-red-100 text-red-700">-\$2,50</)
+    expect(html).toMatch(/bg-amber-100 text-amber-800">\+\$5,25</)
+    expect(html).toMatch(/tabular-nums text-slate-700[^>]*>\$10,00</)
+    expect(html).toMatch(/tabular-nums text-slate-700[^>]*>\$7,50</)
+    expect(html).toContain('Sync')
+    // Sin el precio base por fila: la columna Sync es solo la fecha.
+    expect(html).not.toContain('Precio base')
+    expect(html).not.toMatch(/bg-red-100 text-red-700[^>]*>[^<]*\$[^<]*\$/)
+  })
+
+  it('el producto sin hablador entra como descuadre, no como fila sin datos', () => {
+    const html = renderRespuesta(
+      { ...itemBase('CONCILIACION'), contra_dato: 'FINAL_BASE' },
+      {
+        productos: [
+          { sku: 'SKU-OK', nombre: 'Conciliado', teorica: 10, fisica: 10, finalBase: 25 },
+          { sku: 'SKU-SIN', nombre: 'Sin etiqueta', teorica: 10, fisica: null, finalBase: 25, sinHablador: true }
+        ]
+      }
+    )
+
+    // Con «solo incumplimientos» activo (el default del detalle): la fila sin
+    // hablador es un descuadre y tiene que estar, aunque no haya precio que
+    // comparar. La columna Hablador dice por qué no hay número.
+    expect(html).toContain('Sin etiqueta')
+    expect(html).toContain('Sin hablador')
+    expect(html).toMatch(/bg-red-100 text-red-700">No Match</)
+    expect(html).not.toMatch(/text-slate-500">Sin datos</)
+    // Uno de dos productos descuadra → la tasa del pie lo refleja.
+    expect(html).toContain('tasa de descuadre 50%')
+  })
+
+  it('el estado de la conciliación de cantidades no lleva signo de plata', () => {
+    const html = renderRespuesta(
+      itemBase('CONCILIACION'),
+      {
+        productos: [
+          { sku: 'SKU-FALTA', nombre: 'Faltan unidades', teorica: 10, fisica: 7, finalBase: 25 }
+        ]
+      }
+    )
+
+    // Son unidades, no dólares: ponerle `$` haría creer que faltan tres dólares
+    // de producto.
+    expect(html).toMatch(/bg-red-100 text-red-700">-3</)
+    expect(html).not.toMatch(/bg-red-100 text-red-700">-\$/)
+  })
+
+  it('la pérdida de la conciliación se valúa al precio de venta', () => {
+    // Caso real de la API: base 2,84 con 44,07% de descuento ya viene en 1,59 y
+    // el IVA de 0,25 va aparte. Tres unidades perdidas son 5,52, no 4,77.
+    const html = renderRespuesta(
+      itemBase('CONCILIACION'),
+      {
+        productos: [{ sku: 'SKU-PAPEL', nombre: 'Papel Rosal Plus', teorica: 10, fisica: 7, finalBase: 1.59, finalTax: 0.25 }]
+      }
+    )
+
+    expect(html).toContain('USD5,52')
+    expect(html).not.toContain('USD4,77')
+  })
+
+  it('los productos salen agrupados por departamento', () => {
+    const html = renderRespuesta(
+      itemBase('CONCILIACION'),
+      {
+        productos: [
+          { sku: 'SKU-PAN', nombre: 'Pan cocido', teorica: 5, fisica: 2, finalBase: 1, departamento: 'PANADERÍA' },
+          { sku: 'SKU-LIM1', nombre: 'Cloro', teorica: 4, fisica: 1, finalBase: 2, departamento: 'LIMPIEZA' },
+          { sku: 'SKU-LIM2', nombre: 'Jabón', teorica: 9, fisica: 8, finalBase: 1, departamento: 'LIMPIEZA' }
+        ]
+      }
+    )
+
+    // Los rótulos de departamento salen como encabezado de grupo, con la cuenta
+    // de filas de cada uno.
+    expect(html).toContain('LIMPIEZA')
+    expect(html).toContain('PANADERÍA')
+    expect(html).toMatch(/LIMPIEZA[\s\S]{0,80}\(2\)/)
+
+    // Y LIMPIEZA va antes que PANADERÍA aunque en PANADERÍA esté la pérdida más
+    // grande: el recorrido lo manda el pasillo, no el monto.
+    expect(html.indexOf('LIMPIEZA')).toBeLessThan(html.indexOf('PANADERÍA'))
+    expect(html.indexOf('SKU-PAN')).toBeGreaterThan(html.indexOf('SKU-LIM2'))
+
+    // Cada producto sale DESPUÉS de su propio rótulo y ANTES del rótulo siguiente.
+    // Esto es lo que convierte a los rótulos en encabezados de grupo y no en una
+    // lista suelta arriba de la tabla: los productos de LIMPIEZA tienen que estar
+    // entre el rótulo de LIMPIEZA y el de PANADERÍA.
+    expect(html.indexOf('SKU-LIM1')).toBeGreaterThan(html.indexOf('LIMPIEZA'))
+    expect(html.indexOf('SKU-LIM1')).toBeLessThan(html.indexOf('PANADERÍA'))
+    expect(html.indexOf('SKU-PAN')).toBeGreaterThan(html.indexOf('PANADERÍA'))
+  })
+
+  it('el rótulo del departamento lleva la pérdida de ese pasillo', () => {
+    const html = renderRespuesta(
+      itemBase('CONCILIACION'),
+      {
+        productos: [
+          { sku: 'SKU-PAN', nombre: 'Pan cocido', teorica: 5, fisica: 2, finalBase: 1, departamento: 'PANADERÍA' },
+          { sku: 'SKU-LIM1', nombre: 'Cloro', teorica: 4, fisica: 1, finalBase: 2, departamento: 'LIMPIEZA' },
+          { sku: 'SKU-LIM2', nombre: 'Jabón', teorica: 9, fisica: 8, finalBase: 1, departamento: 'LIMPIEZA' }
+        ]
+      }
+    )
+
+    // LIMPIEZA pierde 3 unidades a $2 (cloro) y 1 unidad a $1 (jabón) = $7.
+    // PANADERÍA pierde 3 unidades a $1 = $3.
+    expect(html).toMatch(/LIMPIEZA[\s\S]{0,220}Pérdida \$7,00/)
+    expect(html).toMatch(/PANADERÍA[\s\S]{0,220}Pérdida \$3,00/)
+
+    // Y los rótulos suman lo mismo que la pérdida estimada del pie: el desglose por
+    // departamento tiene que poder reconstruirse contra el total.
+    expect(html).toContain('USD10,00')
+  })
+
+  it('un departamento que concilia no muestra pérdida en el rótulo', () => {
+    const html = renderRespuesta(
+      itemBase('CONCILIACION'),
+      {
+        productos: [
+          { sku: 'SKU-LIM1', nombre: 'Cloro', teorica: 4, fisica: 1, finalBase: 2, departamento: 'LIMPIEZA' },
+          // Sobran unidades: hay descuadre, pero no plata perdida.
+          { sku: 'SKU-BAZ', nombre: 'Cubeta', teorica: 1, fisica: 6, finalBase: 3, departamento: 'BAZAR' }
+        ]
+      }
+    )
+
+    // El rótulo de LIMPIEZA sí lleva su pérdida...
+    expect(html).toMatch(/LIMPIEZA[\s\S]{0,220}Pérdida \$6,00/)
+    // ...y el de BAZAR no, porque ahí sobraron unidades y no se está perdiendo
+    // nada. Ponerle un $0 haría creer que el pasillo está en cero.
+    expect(html).toMatch(/BAZAR[\s\S]{0,220}/)
+    expect(html).not.toMatch(/BAZAR[\s\S]{0,220}Pérdida \$0,00/)
+  })
+
+  it('con un solo departamento no se imprime el rótulo', () => {
+    const html = renderRespuesta(
+      itemBase('CONCILIACION'),
+      {
+        productos: [
+          { sku: 'SKU-A', nombre: 'Cloro', teorica: 4, fisica: 1, finalBase: 2, departamento: 'LIMPIEZA' },
+          { sku: 'SKU-B', nombre: 'Jabón', teorica: 9, fisica: 8, finalBase: 1, departamento: 'LIMPIEZA' }
+        ]
+      }
+    )
+
+    // Sería una fila repetida por cada producto, sin información.
+    expect(html).not.toContain('LIMPIEZA')
+  })
+
+  it('si los dos precios se leen iguales, la fila concilia', () => {
+    const html = renderRespuesta(
+      { ...itemBase('CONCILIACION'), contra_dato: 'FINAL_BASE' },
+      {
+        productos: [
+          // La diferencia existe en el float y no se ve: los dos se muestran
+          // $2,56. Marcarla descuadrada mandaría a buscar mercadería que está.
+          { sku: 'SKU-CENTIMO', nombre: 'Diferencia invisible', teorica: 2.564, fisica: 2.566, finalBase: 25 },
+          { sku: 'SKU-CENTAVO', nombre: 'Un centavo de verdad', teorica: 2.56, fisica: 2.55, finalBase: 25 },
+          { sku: 'SKU-LIMPIO', nombre: 'Precio exacto', teorica: 12.5, fisica: 12.5, finalBase: 25 }
+        ]
+      }
+    )
+
+    // Este renderer es el del filtro "No cumplido", así que solo muestra las
+    // descuadradas: la prueba de que la fila invisible no cuenta es que no está.
+    expect(html).not.toContain('SKU-CENTIMO')
+    expect(html).not.toContain('Diferencia invisible')
+    expect(html).not.toContain('SKU-LIMPIO')
+    expect(html).toContain('1 producto(s) con descuadre')
+    expect(html).toContain('tasa de descuadre 66.67%')
+    // El centavo que sí existe sale como descuadre, con el signo de plata.
+    expect(html).toMatch(/bg-red-100 text-red-700">-\$0,01</)
+    // Y los precios se muestran cortados, no redondeados.
+    expect(html).not.toContain('$2,57')
+    expect(html).toMatch(/tabular-nums text-slate-700[^>]*>\$2,56</)
   })
 })

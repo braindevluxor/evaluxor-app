@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Eye, FileDown } from 'lucide-react'
 import type { EstadoEvaluacion, VistaEvaluacion } from '../../lib/types'
-import { Badge, Button, EmptyState, Puntaje, SkeletonTarjetas, Spinner } from '../../components/ui'
+import { Badge, Button, EmptyState, Puntaje, SkeletonTarjetas } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import { useAuth } from '../../context/AuthContext'
 import { consultarEvaluaciones } from '../../lib/data/indicadores'
 import { descargarInformePdf } from '../../lib/pdf'
+import { useModulosExportables } from '../../lib/pdf/modulosExportables'
+import type { OpcionesPdf } from '../../lib/pdf/opciones'
+import { SelectorPdf } from '../../components/SelectorPdf'
 
 const COLOR_ESTADO: Record<EstadoEvaluacion, number> = {
   PROGRAMADA: 4,
@@ -20,6 +23,9 @@ export function MisEvaluaciones() {
   const [cargando, setCargando] = useState(true)
   const [descargando, setDescargando] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** Evaluación cuyo selector de PDF está abierto. null = cerrado. */
+  const [elegirEn, setElegirEn] = useState<string | null>(null)
+  const { modulos: modulosDeElegir, cargando: cargandoModulosElegir } = useModulosExportables(elegirEn)
 
   useEffect(() => {
     if (!profile) return
@@ -38,15 +44,16 @@ export function MisEvaluaciones() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.id])
 
-  const descargar = async (ev: VistaEvaluacion) => {
+  const descargar = async (ev: VistaEvaluacion, impresion?: OpcionesPdf) => {
     setError(null)
     setDescargando(ev.id)
     try {
-      await descargarInformePdf(ev.id)
+      await descargarInformePdf(ev.id, undefined, impresion)
     } catch {
       setError('No se pudo descargar el PDF. Intenta de nuevo.')
     }
     setDescargando(null)
+    setElegirEn(null)
   }
 
   return (
@@ -86,10 +93,10 @@ export function MisEvaluaciones() {
                   variant="secondary"
                   className="flex-1"
                   disabled={descargando === ev.id}
-                  onClick={() => void descargar(ev)}
+                  onClick={() => setElegirEn(ev.id)}
                 >
-                  {descargando === ev.id ? <Spinner size={16} /> : <FileDown className="h-4 w-4" />}
-                  {descargando === ev.id ? 'Generando PDF…' : 'Descargar PDF'}
+                  <FileDown className="h-4 w-4" />
+                  Descargar PDF
                 </Button>
                 <Link
                   to={`/evaluaciones/${ev.id}`}
@@ -102,6 +109,21 @@ export function MisEvaluaciones() {
           ))}
         </div>
       )}
+
+      {/* Una sola instancia del selector para todas las tarjetas: abrir uno por
+          evaluación dejaría N modales montados, cada uno con su propio estado de
+          casillas. */}
+      <SelectorPdf
+        abierto={!!elegirEn}
+        onClose={() => setElegirEn(null)}
+        modulos={modulosDeElegir}
+        cargandoModulos={cargandoModulosElegir}
+        onConfirmar={(impresion) => {
+          const objetivo = evals.find((ev) => ev.id === elegirEn)
+          if (objetivo) void descargar(objetivo, impresion)
+        }}
+        descargando={!!descargando}
+      />
     </MobileLayout>
   )
 }

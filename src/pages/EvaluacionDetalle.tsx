@@ -5,16 +5,18 @@ import { useOffline } from '../context/OfflineContext'
 import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { cargosDelCentro, centroDisponible, separacionDisponible, useCargosPorCentro, type CatalogosCentro, type CentroOperaciones } from '../lib/data/cargosCentro'
 import { descargarInformePdf } from '../lib/pdf'
+import type { OpcionesPdf } from '../lib/pdf/opciones'
 import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
 import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
-import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionPorcentaje, conciliacionComparable, ordenarConciliacion, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
+import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionComparable, agruparPorDepartamento, esSinHablador, productosParaConciliar, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Foto, Item, Opcion, SucursalOpcion } from '../lib/types'
-import { Badge, Button, Card, InfoTooltip, Modal, ProgressBar, Skeleton, Spinner, cn, colorFondoBadge } from '../components/ui'
+import { Badge, Button, Card, InfoTooltip, Modal, ProgressBar, Skeleton, cn, colorFondoBadge } from '../components/ui'
 
 import { IncidenciasEvaluacion, ListaIncidencias, incidenciaEsDeCargo, useIncidenciasEvaluacion } from '../components/IncidenciasEvaluacion'
+import { SelectorPdf } from '../components/SelectorPdf'
 import { Fotogaleria, FotogaleriaRutas } from '../components/dashboard/Fotogaleria'
 import { PlanoLectura } from '../components/PlanoEditor'
 import { pathsEvidenciaChecklist, pathsEvidenciaCumple, pathsEvidenciaOpcion } from '../lib/evidencias'
@@ -333,7 +335,11 @@ export function ValorRespuesta({
       return <PlanoLectura valor={valor} soloIncumplimientos={soloIncumplimientos} />
     case 'CONCILIACION': {
       const v = valor as ValorConciliacion | null
-      const ps = v?.productos ?? []
+      // El número con el que se compara y se muestra sale de acá, una sola vez:
+      // en una conciliación por precio, lo que manda es el valor con dos
+      // decimales que se ve en la fila, no el float que vino del sistema.
+      const contraDato = item.contra_dato ?? 'SOH'
+      const ps = productosParaConciliar(v?.productos, contraDato)
       if (!ps.length) return <p className="text-sm text-slate-400">Sin productos</p>
       const total = conciliacionTotal(v)
       // La columna del contra dato sigue la configuración del ítem, que es el mismo
@@ -343,25 +349,42 @@ export function ValorRespuesta({
         const teorica = typeof p.teorica === 'number' ? p.teorica : null
         const fisica = typeof p.fisica === 'number' ? p.fisica : null
         const comparable = conciliacionComparable(p)
-        const perdida = perdidaGuardadaConciliacion(p, item.contra_dato ?? 'SOH')
+        const sinHablador = esSinHablador(p)
+        const perdida = perdidaGuardadaConciliacion(p, contraDato)
         const variacion = comparable
           ? {
               cantidad: Math.abs(p.fisica - p.teorica),
-              verbo: p.fisica > p.teorica
-                ? (Math.abs(p.fisica - p.teorica) === 1 ? 'sobra' : 'sobran')
-                : (Math.abs(p.fisica - p.teorica) === 1 ? 'falta' : 'faltan')
+              // El signo y no "sobran 3": el color del distintivo ya dice de qué
+              // lado se fue, y con la palabra el número quedaba empujado al
+              // borde de una columna que a lo que da es otro número.
+              signo: p.fisica > p.teorica ? '+' : '-'
             }
           : null
-        return { p, indice: i, teorica, fisica, comparable, variacion, perdida, descuadra: comparable && p.fisica !== p.teorica }
+        return { p, indice: i, teorica, fisica, comparable, sinHablador, variacion, perdida, descuadra: sinHablador || (comparable && p.fisica !== p.teorica) }
       })
       const descuadrados = filas.filter((f) => f.descuadra).length
-      // Se muestran en orden de pérdida: primero lo que falta y por cuánta plata,
-      // después lo que sobra, y al final lo que concilia. Es el mismo orden que
-      // usa el PDF, para que las dos vistas se lean igual.
       const filaDe = new Map(ps.map((p, i) => [p, filas[i]]))
-      const ordenadas = ordenarConciliacion(ps, item.contra_dato ?? 'SOH').map((p) => filaDe.get(p)!)
-      const filasVisibles = soloIncumplimientos ? ordenadas.filter((f) => f.descuadra) : ordenadas
-      const resumenPerdida = resumenPerdidaConciliacion(ps, item.contra_dato ?? 'SOH')
+      // Se muestran agrupadas por departamento, porque el conteo se hace en la
+      // góndola y las filas tienen que seguir el recorrido de los pasillos. Dentro
+      // de cada grupo el orden de lectura sigue siendo por gravedad (primero lo
+      // que más falta), y es el mismo que usa el PDF.
+      const candidatos = soloIncumplimientos ? filas.filter((f) => f.descuadra).map((f) => f.p) : ps
+      const grupos = agruparPorDepartamento(candidatos, contraDato)
+        .map((grupo) => ({
+          ...grupo,
+          filas: grupo.productos.map((p) => filaDe.get(p)!),
+          // Cuánta plata se fue en ese pasillo. Sale de la misma función que arma
+          // la pérdida estimada del pie, pero aplicada solo a los productos del
+          // grupo: como el descarte es por producto (los que sobran no aportan), la
+          // suma de los rótulos da exactamente el total del pie.
+          //
+          // En conciliación por precio esto queda en 0, porque ahí la diferencia
+          // son unidades y no plata. No hace falta un modo especial: lo decide la
+          // misma función.
+          perdida: resumenPerdidaConciliacion(grupo.productos, contraDato).monto
+        }))
+        .filter((grupo) => grupo.filas.length)
+      const resumenPerdida = resumenPerdidaConciliacion(ps, contraDato)
       const totales = totalesConciliacion(ps)
       return (
         <div className="space-y-3">
@@ -376,57 +399,105 @@ export function ValorRespuesta({
                   <th scope="col" className="w-[18%] break-words px-1 py-2 font-bold sm:px-2">Producto</th>
                   <th scope="col" className="w-[10%] break-words px-1 py-2 text-right font-bold sm:px-2">{esPrecio ? 'Sistema' : 'Teórica'}</th>
                   <th scope="col" className="w-[10%] break-words px-1 py-2 text-right font-bold sm:px-2">{esPrecio ? 'Hablador' : 'Física'}</th>
-                  <th scope="col" className="w-[16%] break-words px-1 py-2 font-bold sm:px-2">{esPrecio ? 'Precio base' : 'Sync'}</th>
+                  {/* La columna es la misma en las dos conciliaciones y se llama igual: solo la
+                      fecha del último sync. En precio el precio base ya no va
+                      acá: queda como dato de referencia del cálculo de la pérdida
+                      y no de esta fila. */}
+                  <th scope="col" className="w-[16%] break-words px-1 py-2 font-bold sm:px-2">Sync</th>
                   <th scope="col" className="w-[22%] break-words px-1.5 py-2 text-right font-bold sm:px-2">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filasVisibles.map(({ p, indice, teorica, fisica, comparable, variacion, perdida, descuadra }) => (
-                  <tr
-                    key={`${p.sku}-${indice}`}
-                    className={cn(
-                      descuadra && (fisica! > teorica! ? 'bg-amber-50/70' : 'bg-red-50/50')
-                    )}
-                  >
-                    <td
-                      className="overflow-hidden text-ellipsis whitespace-nowrap px-1 py-2 text-[11px] font-medium tabular-nums text-slate-800 sm:px-2"
-                      title={p.sku}
-                    >
-                      {p.sku || '—'}
-                    </td>
-                    <td className="break-words px-1.5 py-2 text-slate-600 sm:px-2">{p.nombre || '—'}</td>
-                    <td className="break-all px-1.5 py-2 text-right tabular-nums text-slate-700 sm:px-2">{teorica ?? '—'}</td>
-                    <td className="break-all px-1.5 py-2 text-right tabular-nums text-slate-700 sm:px-2">{fisica ?? '—'}</td>
-                    <td className="break-words px-1.5 py-2 text-slate-600 sm:px-2">
-                      {esPrecio ? <span className="block tabular-nums">{formatearPrecioBase(p.finalBase)}</span> : null}
-                      {p.lastSync ? <span className="block text-[11px] text-slate-400">{formatearLastSync(p.lastSync)}</span> : null}
-                    </td>
-                    <td className="break-words px-1.5 py-2 text-right sm:px-2">
-                      {!comparable ? (
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-500">Sin datos</span>
-                      ) : descuadra ? (
-                        <span className={cn(
-                          'rounded-full px-2 py-0.5 text-[11px] font-bold',
-                          fisica! > teorica! ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'
-                        )}>
-                          {conciliacionPorcentaje(p) ?? '—'}% concilia,{' '}
-                          {variacion
-                            ? `${variacion.verbo} ${fmt(variacion.cantidad)}`
-                            : ''}
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Concilia</span>
-                      )}
-                      {/* La pérdida solo tiene sentido donde algo falta. Con el conteo conciliado
-                          la diferencia es cero y el texto era ruido que hacía pensar
-                          que ahí también se estaba perdiendo plata. */}
-                      {!esPrecio && descuadra && variacion?.verbo.startsWith('falta') ? (
-                        <span className="mt-1 block text-[11px] font-semibold text-red-700">
-                          Pérdida: {perdida == null ? 'sin precio base' : formatearPrecioBase(perdida)}
-                        </span>
-                      ) : null}
-                    </td>
-                  </tr>
+                {/* Un solo recorrido: primero el rótulo del departamento y
+                    enseguida sus productos. Tiene que ser así porque el conteo se
+                    hace recorriendo la góndola y el evaluador necesita saber en qué
+                    pasillo está cada fila.
+
+                    Antes el rótulo y las filas iban en dos bucles separados (los
+                    rótulos primero, y después todas las filas aplanadas con
+                    flatMap), así que los nueve rótulos salían en bloque arriba y
+                    los productos perdían el grupo.
+
+                    El rótulo solo se muestra si hay más de un grupo: con uno solo
+                    sería ruido. */}
+                {grupos.map((grupo) => (
+                  <Fragment key={`dep-${grupo.departamento ?? ''}`}>
+                    {grupos.length > 1 ? (
+                      <tr className="bg-slate-100/80">
+                        <td colSpan={6} className="px-1.5 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-600 sm:px-2">
+                          {grupo.departamento ?? 'Sin departamento'}
+                          <span className="ml-1 font-medium normal-case tracking-normal text-slate-400">
+                            ({grupo.filas.length})
+                          </span>
+                          {/* La plata perdida en ese departamento, junto al nombre
+                              para no tener que sumar los renglones de abajo. Solo
+                              cuando hay pérdida: un grupo que concilia con 0 solo
+                              metería ruido. */}
+                          {grupo.perdida > 0 ? (
+                            <span className="ml-2 font-bold normal-case tracking-normal text-red-700">
+                              Pérdida {formatearPrecioBase(grupo.perdida)}
+                            </span>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ) : null}
+                    {grupo.filas.map(({ p, indice, teorica, fisica, comparable, sinHablador, variacion, perdida, descuadra }) => (
+                      <tr
+                        key={`${p.sku}-${indice}`}
+                        className={cn(
+                          descuadra && (fisica! > teorica! ? 'bg-amber-50/70' : 'bg-red-50/50')
+                        )}
+                      >
+                        <td
+                          className="overflow-hidden text-ellipsis whitespace-nowrap px-1 py-2 text-[11px] font-medium tabular-nums text-slate-800 sm:px-2"
+                          title={p.sku}
+                        >
+                          {p.sku || '—'}
+                        </td>
+                        <td className="break-words px-1.5 py-2 text-slate-600 sm:px-2">{p.nombre || '—'}</td>
+                        <td className="break-all px-1.5 py-2 text-right tabular-nums text-slate-700 sm:px-2">
+                          {esPrecio ? formatearPrecioBase(teorica) : (teorica ?? '—')}
+                        </td>
+                        <td className="break-all px-1.5 py-2 text-right tabular-nums text-slate-700 sm:px-2">
+                          {sinHablador ? (
+                            <span className="font-bold text-red-600">Sin hablador</span>
+                          ) : esPrecio ? formatearPrecioBase(fisica) : (fisica ?? '—')}
+                        </td>
+                        <td className="break-words px-1.5 py-2 text-slate-600 sm:px-2">
+                          {p.lastSync ? <span className="block text-[11px] text-slate-400">{formatearLastSync(p.lastSync)}</span> : null}
+                        </td>
+                        <td className="break-words px-1.5 py-2 text-right sm:px-2">
+                          {sinHablador ? (
+                            <span className="rounded-full px-2 py-0.5 text-[11px] font-bold bg-red-100 text-red-700">No Match</span>
+                          ) : !comparable ? (
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-500">Sin datos</span>
+                          ) : descuadra ? (
+                            <span className={cn(
+                              'rounded-full px-2 py-0.5 text-[11px] font-bold',
+                              fisica! > teorica! ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'
+                            )}>
+                              {/* El signo de plata va solo cuando la diferencia es plata. En la conciliación
+                                de cantidades el número son unidades, y ponerle `$`
+                                haría creer que sobraron tres dólares de producto. */}
+                              {variacion
+                                ? `${variacion.signo}${esPrecio ? formatearPrecioBase(variacion.cantidad) : fmt(variacion.cantidad)}`
+                                : ''}
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Concilia</span>
+                          )}
+                          {/* La pérdida solo tiene sentido donde algo falta. Con el conteo conciliado
+                              la diferencia es cero y el texto era ruido que hacía pensar
+                              que ahí también se estaba perdiendo plata. */}
+                          {!esPrecio && descuadra && variacion?.signo === '-' ? (
+                            <span className="mt-1 block text-[11px] font-semibold text-red-700">
+                              Pérdida: {perdida == null ? 'sin precio base' : formatearPrecioBase(perdida)}
+                            </span>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -561,6 +632,8 @@ export function EvaluacionDetalle() {
   const [detalle, setDetalle] = useState<DetalleEvaluacion | null>(null)
   const [estado, setEstado] = useState<'cargando' | 'error' | 'ok'>('cargando')
   const [descargando, setDescargando] = useState(false)
+  /** ¿El selector de qué va al PDF está abierto? */
+  const [selectorAbierto, setSelectorAbierto] = useState(false)
   const [sincronizando, setSincronizando] = useState(false)
   const [aviso, setAviso] = useState<{ texto: string; ok: boolean } | null>(null)
   const [error, setError] = useState('')
@@ -819,15 +892,16 @@ export function EvaluacionDetalle() {
     return f ? pasaFiltro(f.veredicto) : false
   }
 
-  const descargar = async () => {
+  const descargar = async (impresion?: OpcionesPdf) => {
     setError('')
     setDescargando(true)
     try {
-      await descargarInformePdf(evaluacion.id, filtro)
+      await descargarInformePdf(evaluacion.id, filtro, impresion)
     } catch (error) {
       setError(`No se pudo descargar el PDF: ${detalleTecnico(error)}`)
     } finally {
       setDescargando(false)
+      setSelectorAbierto(false)
     }
   }
 
@@ -869,10 +943,11 @@ export function EvaluacionDetalle() {
               variant="ghost"
               className="min-h-0 gap-1.5 bg-white/10 px-3 py-1.5 text-white hover:bg-white/20"
               disabled={descargando}
-              onClick={() => void descargar()}
+              onClick={() => setSelectorAbierto(true)}
+              title="Elegir qué incluye el PDF"
             >
-              {descargando ? <Spinner size={16} /> : <FileDown className="h-4 w-4" />}
-              {descargando ? 'Generando PDF…' : 'Descargar PDF'}
+              <FileDown className="h-4 w-4" />
+              Descargar PDF
             </Button>
           </div>
         </div>
@@ -1188,6 +1263,17 @@ export function EvaluacionDetalle() {
               vacio="Los evaluadores no reportaron incidencias en esta visita."
             />
           </Modal>
+
+          {/* Selector de qué va al PDF. Acá los módulos salen de `detalle`, que
+              ya está cargado: no hace falta volver a preguntarle al servidor
+              cuáles son para poder elegir cuáles imprimir. */}
+          <SelectorPdf
+            abierto={selectorAbierto}
+            onClose={() => setSelectorAbierto(false)}
+            modulos={modulos.map((modulo) => ({ id: modulo.id, nombre: modulo.nombre }))}
+            onConfirmar={(impresion) => void descargar(impresion)}
+            descargando={descargando}
+          />
         </div>
 
         <div className="min-w-0 space-y-4 pt-4 lg:col-start-2 lg:row-start-1 lg:space-y-5 lg:pt-0">

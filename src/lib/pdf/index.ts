@@ -6,6 +6,7 @@ import {
   colaboradorCumple,
   conciliacionPorcentaje,
   esColaboradorRevisado,
+  esSinHablador,
   estadoConciliacion,
   diferenciaConciliacion,
   totalesConciliacion,
@@ -17,7 +18,8 @@ import {
   incumplimientosPorResponsable,
   opcionCumplida,
   opcionesAplicablesColaborador,
-  ordenarConciliacion,
+  agruparPorDepartamento,
+  productosParaConciliar,
   proporcionItem,
   puntajePonderado,
   tieneRespuesta,
@@ -40,6 +42,7 @@ import { listarResponsables, type ResponsableCatalogo } from '../data/responsabl
 import { ETIQUETAS_ROL } from '../roles'
 import { supabase } from '../supabase'
 import { ordenarTrabajadores } from '../data/colaboradores'
+import { imprimeBloque, imprimeCargos, imprimeModulo, imprimePortada, type OpcionesPdf } from './opciones'
 
 export type FiltroPdfCumplimiento = 'ambos' | 'cumple' | 'no-cumple'
 
@@ -166,12 +169,20 @@ function puntajeModulo(detalle: DetalleEvaluacion, moduloId: string, opciones: M
     : null
 }
 
+/**
+ * `impresion` en `undefined` = informe entero, que es como se llamaba antes de
+ * que existiera el selector. Ver `opciones.ts` para qué los puntajes no cambian
+ * aunque se desmarquen módulos. Se llama así y no `opciones` porque en este
+ * archivo `opciones` ya es otra cosa: las opciones de ítem que la sucursal
+ * habilitó.
+ */
 export function buildPdfDocument(
   detalle: DetalleEvaluacion,
   filtro?: FiltroPdfCumplimiento,
   perfiles: Readonly<Record<string, { nombre: string; rol?: keyof typeof ETIQUETAS_ROL }>> = {},
   incidencias: IncidenciaPdf[] = [],
-  catalogoCargos: { sucursal: ResponsableCatalogo[]; central: ResponsableCatalogo[] } = { sucursal: [], central: [] }
+  catalogoCargos: { sucursal: ResponsableCatalogo[]; central: ResponsableCatalogo[] } = { sucursal: [], central: [] },
+  impresion?: OpcionesPdf
 ): jsPDF {
   const resumenDetalle = detalle
   const contenido = filtro ? filtrarDetallePdf(detalle, filtro) : detalle
@@ -263,7 +274,14 @@ export function buildPdfDocument(
     y = posicionLinea + espacioPosterior
   }
 
-  const tabla = (headers: string[], rows: string[][], columnaFirma?: number) => {
+  /**
+   * Una fila puede ser un texto suelto o una celda con `colSpan`, que es como se
+   * dibuja el encabezado de departamento: ocupa la fila entera y se lee como un
+   * título, no como el nombre de la primera columna.
+   */
+  type CeldaTabla = string | { content: string; colSpan?: number; styles?: Record<string, unknown> }
+
+  const tabla = (headers: string[], rows: CeldaTabla[][], columnaFirma?: number) => {
     if (!rows.length) return
     autoTable(pdf, {
       head: [headers],
@@ -376,64 +394,89 @@ export function buildPdfDocument(
   const fecha = new Date(`${ev.fecha}T12:00:00`).toLocaleDateString('es')
   const resumen = resumirEvaluacion(ev, resumenDetalle.respuestas, resumenDetalle.items, resumenDetalle.sucursalOpciones)
   const opcionesResumen = opcionesDeSucursal(resumenDetalle)
+  const nombreDelFiltro = filtro === 'cumple' ? 'Cumple' : filtro === 'ambos' ? 'Ambos' : 'No cumple'
 
-  tituloSeccion('Datos de la tienda')
-  tabla(['Dato de la tienda', 'Información'], [
-    ['Código de evaluación', ocultarCentroCodigoEvaluacion(ev.id)],
-    ['Sucursal', texto(ev.sucursal?.nombre ?? '—')],
-    ['Código de tienda', texto(ev.sucursal?.shop_id ?? '—')],
-    ['Dirección', texto(ev.sucursal?.direccion ?? '—')],
-    ['Fecha de evaluación', fecha],
-    ...(filtro ? [['Filtro del informe', filtro === 'ambos' ? 'Ambos' : filtro === 'cumple' ? 'Cumple' : 'No cumple']] : [])
-  ])
-  tituloSeccion('Puntuación general')
-  textoLinea(resumen.puntaje == null ? 'Sin puntaje' : `${fmt(resumen.puntaje)}%`, { bold: true, gap: 3 })
+  // La portada es la primera hoja y resume la evaluación entera: los datos de la
+  // tienda, la puntuación general, el personal evaluador y el gráfico de barras
+  // con todos los módulos. Si el informe va parcial, no se imprime: quedaría un
+  // total y un gráfico dando por completos módulos que en el papel no están.
+  const conPortada = imprimePortada(impresion, resumenDetalle.modulos.map((modulo) => modulo.id))
 
-  const respuestasPorUsuario = new Map<string, number>()
-  for (const respuesta of resumenDetalle.respuestas) {
-    if (!respuesta.respondido_por) continue
-    const item = resumenDetalle.items.find((candidate) => candidate.id === respuesta.item_id)
-    if (!item || !tieneRespuesta(item, respuesta.valor)) continue
-    respuestasPorUsuario.set(
-      respuesta.respondido_por,
-      (respuestasPorUsuario.get(respuesta.respondido_por) ?? 0) + 1
-    )
+  if (conPortada) {
+    tituloSeccion('Datos de la tienda')
+    tabla(['Dato de la tienda', 'Información'], [
+      ['Código de evaluación', ocultarCentroCodigoEvaluacion(ev.id)],
+      ['Sucursal', texto(ev.sucursal?.nombre ?? '—')],
+      ['Código de tienda', texto(ev.sucursal?.shop_id ?? '—')],
+      ['Dirección', texto(ev.sucursal?.direccion ?? '—')],
+      ['Fecha de evaluación', fecha],
+      ...(filtro ? [['Filtro del informe', nombreDelFiltro]] : [])
+    ])
+    tituloSeccion('Puntuación general')
+    textoLinea(resumen.puntaje == null ? 'Sin puntaje' : `${fmt(resumen.puntaje)}%`, { bold: true, gap: 3 })
+
+    // Solo la cuenta del personal evaluador, y solo para la portada. Va adentro a
+    // propósito: es un recorrido por todas las respuestas buscando el ítem de cada
+    // una, y sin portada no hay a quién mostrárselo.
+    const respuestasPorUsuario = new Map<string, number>()
+    for (const respuesta of resumenDetalle.respuestas) {
+      if (!respuesta.respondido_por) continue
+      const item = resumenDetalle.items.find((candidate) => candidate.id === respuesta.item_id)
+      if (!item || !tieneRespuesta(item, respuesta.valor)) continue
+      respuestasPorUsuario.set(
+        respuesta.respondido_por,
+        (respuestasPorUsuario.get(respuesta.respondido_por) ?? 0) + 1
+      )
+    }
+
+    tituloSeccion('Personal evaluador')
+    textoLinea(`${respuestasPorUsuario.size} usuario${respuestasPorUsuario.size === 1 ? ' subió' : 's subieron'} información.`)
+    tabla(['Personal evaluador', 'Información registrada', 'Firma'], [...respuestasPorUsuario.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([id, cantidad]) => {
+        const perfil = perfiles[id]
+        const nombreRol = perfil?.rol ? `\n${ETIQUETAS_ROL[perfil.rol]}` : ''
+        return [
+          `${perfil?.nombre ?? `Usuario ${id.slice(0, 8)}`}${nombreRol}`,
+          `${cantidad} ítem${cantidad === 1 ? '' : 's'} con respuesta`,
+          ''
+        ]
+      }), 2)
+
+    tituloSeccion('Puntaje final por módulo')
+    graficoBarrasModulos(resumenDetalle.modulos.map((modulo) => {
+      const resultado = puntajeModulo(resumenDetalle, modulo.id, opcionesResumen)
+      return { nombre: modulo.nombre, puntaje: resultado }
+    }))
+    y += 4
+    const anchoFirma = (anchoUtil - 20) / 2
+    for (const [index, cargo] of ['Gerente de Talento Humano', 'Gerente Corporativo'].entries()) {
+      const x = MARGEN + 10 + index * (anchoFirma + 20)
+      const lineaY = y + 8
+      pdf.setDrawColor(0)
+      pdf.setLineWidth(0.25)
+      pdf.line(x, lineaY, x + anchoFirma, lineaY)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(9)
+      pdf.setTextColor(0)
+      pdf.text(cargo, x + anchoFirma / 2, lineaY + 5, { align: 'center' })
+    }
   }
-  tituloSeccion('Personal evaluador')
-  textoLinea(`${respuestasPorUsuario.size} usuario${respuestasPorUsuario.size === 1 ? ' subió' : 's subieron'} información.`)
-  tabla(['Personal evaluador', 'Información registrada', 'Firma'], [...respuestasPorUsuario.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([id, cantidad]) => {
-      const perfil = perfiles[id]
-      const nombreRol = perfil?.rol ? `\n${ETIQUETAS_ROL[perfil.rol]}` : ''
-      return [
-        `${perfil?.nombre ?? `Usuario ${id.slice(0, 8)}`}${nombreRol}`,
-        `${cantidad} ítem${cantidad === 1 ? '' : 's'} con respuesta`,
-        ''
-      ]
-    }), 2)
 
-  tituloSeccion('Puntaje final por módulo')
-  graficoBarrasModulos(resumenDetalle.modulos.map((modulo) => {
-    const resultado = puntajeModulo(resumenDetalle, modulo.id, opcionesResumen)
-    return { nombre: modulo.nombre, puntaje: resultado }
-  }))
-  y += 4
-  const anchoFirma = (anchoUtil - 20) / 2
-  for (const [index, cargo] of ['Gerente de Talento Humano', 'Gerente Corporativo'].entries()) {
-    const x = MARGEN + 10 + index * (anchoFirma + 20)
-    const lineaY = y + 8
-    pdf.setDrawColor(0)
-    pdf.setLineWidth(0.25)
-    pdf.line(x, lineaY, x + anchoFirma, lineaY)
-    pdf.setFont('helvetica', 'normal')
-    pdf.setFontSize(9)
-    pdf.setTextColor(0)
-    pdf.text(cargo, x + anchoFirma / 2, lineaY + 5, { align: 'center' })
+  // Sin portada el detalle arranca directo en la primera hoja: no se saca una hoja
+  // para dejarla vacía. El filtro, en cambio, se avisa igual porque sin la portada
+  // es el único lugar donde cabe.
+  if (conPortada) {
+    pdf.addPage()
+    y = MARGEN
+  } else if (filtro) {
+    // El aviso de que el informe viene recortado ("solo lo que no se cumplió") es
+    // el dato que más importa para leer el papel. Vivía en la tabla de la portada,
+    // así que sin portada se perdía en silencio: un recorte se lee igual que el
+    // resultado completo.
+    tituloSeccion('Filtro del informe')
+    textoLinea(nombreDelFiltro, { bold: true, gap: 3 })
   }
-
-  pdf.addPage()
-  y = MARGEN
 
   const checklist = (item: Item, valor: unknown) => {
     const v = valor as ValorChecklist | null
@@ -488,12 +531,66 @@ export function buildPdfDocument(
         const v = valor as ValorConciliacion | null
         const precio = item.contra_dato === 'FINAL_BASE'
         const contraDato = item.contra_dato ?? 'SOH'
-        // Mismo orden que la vista de detalle: pérdidas de mayor a menor, después
-        // los sobrantes de mayor a menor y al final lo que concilia. En el informe
-        // es donde más importa: la pérdida grande tiene que verse arriba sin
-        // tener que leer cuarenta filas.
-        const productos = ordenarConciliacion(v?.productos ?? [], contraDato).filter((product) => !soloIncumplimientos ||
+        // El número con el que se compara es el que sale en la fila, con dos decimales:
+        // si la pantalla lee "Concilia", el informe no puede decir "Faltan 0,003".
+        // Agrupado por departamento, igual que la pantalla: el informe lo lee
+        // quien va a contar, y cuenta recorriendo la góndola.
+        const productos = productosParaConciliar(v?.productos, contraDato).filter((product) => !soloIncumplimientos ||
+          esSinHablador(product) ||
           (typeof product.teorica === 'number' && typeof product.fisica === 'number' && product.teorica !== product.fisica))
+        const grupos = agruparPorDepartamento(productos, contraDato).filter((grupo) => grupo.productos.length)
+        const columnas = precio ? 5 : 6
+        // El encabezado de departamento solo si hay más de un grupo: con uno solo
+        // es una fila de ruido repetida por cada producto.
+        const conRotulos = grupos.length > 1
+        const filas: CeldaTabla[][] = []
+        for (const grupo of grupos) {
+          if (conRotulos) {
+            // La pérdida del departamento va en el mismo encabezado, por la misma
+            // cuenta que la del pie pero solo sobre los productos de este grupo.
+            // Quien lee el informe compara el total contra la suma de los rótulos, y
+            // tiene que cuadrar.
+            const perdidaGrupo = resumenPerdidaConciliacion(grupo.productos, contraDato).monto
+            filas.push([{
+              content: perdidaGrupo > 0
+                ? `${grupo.departamento ?? 'Sin departamento'} · Pérdida ${formatearPrecioBase(perdidaGrupo)}`
+                : grupo.departamento ?? 'Sin departamento',
+              colSpan: columnas,
+              styles: { fontStyle: 'bold', fillColor: [240, 240, 240], minCellHeight: 15 }
+            }])
+          }
+          filas.push(...grupo.productos.map((product): CeldaTabla[] => {
+            const porcentaje = conciliacionPorcentaje(product)
+            const perdida = perdidaGuardadaConciliacion(product, contraDato)
+            const estado = estadoConciliacion(product)
+            const dice = diferenciaConciliacion(product)
+            // El estado va escrito, no solo el porcentaje: las filas están
+            // ordenadas por gravedad y el lector tiene que poder ver por qué.
+            const etiquetaEstado = esSinHablador(product)
+              ? 'No Match · sin hablador'
+              : estado === 'falta'
+                ? `Faltan ${precio ? formatearPrecioBase(dice) : fmt(dice)}`
+                : estado === 'sobra'
+                  ? `Sobran ${precio ? formatearPrecioBase(dice) : fmt(dice)}`
+                  : estado === 'concilia'
+                    ? 'Concilia'
+                    : 'Sin datos'
+            return [
+              // En precio, el monto con signo de plata y dos decimales, igual que
+              // en la pantalla. En cantidades, la unidad pelada.
+              precio ? formatearPrecioBase(product.teorica) : texto(product.teorica ?? '—'),
+              esSinHablador(product)
+                ? 'Sin hablador'
+                : precio ? formatearPrecioBase(product.fisica) : texto(product.fisica ?? '—'),
+              product.sku || '—',
+              product.nombre || '—',
+              porcentaje == null ? etiquetaEstado : `${etiquetaEstado} · ${fmt(porcentaje)}%`,
+              ...(!precio
+                ? [estado === 'falta' && perdida != null ? formatearPrecioBase(perdida) : '—']
+                : [])
+            ]
+          }))
+        }
         tabla(
           [
             precio ? 'Sistema' : 'Teórica',
@@ -503,32 +600,7 @@ export function buildPdfDocument(
             'Estado',
             ...(!precio ? ['Pérdida estimada'] : [])
           ],
-          productos.map((product) => {
-            const porcentaje = conciliacionPorcentaje(product)
-            const perdida = perdidaGuardadaConciliacion(product, contraDato)
-            const estado = estadoConciliacion(product)
-            const dice = diferenciaConciliacion(product)
-            // El estado va escrito, no solo el porcentaje: las filas están
-            // ordenadas por gravedad y el lector tiene que poder ver por qué.
-            const etiquetaEstado =
-              estado === 'falta'
-                ? `Faltan ${fmt(dice)}`
-                : estado === 'sobra'
-                  ? `Sobran ${fmt(dice)}`
-                  : estado === 'concilia'
-                    ? 'Concilia'
-                    : 'Sin datos'
-            return [
-              texto(product.teorica ?? '—'),
-              texto(product.fisica ?? '—'),
-              product.sku || '—',
-              product.nombre || '—',
-              porcentaje == null ? etiquetaEstado : `${etiquetaEstado} · ${fmt(porcentaje)}%`,
-              ...(!precio
-                ? [estado === 'falta' && perdida != null ? formatearPrecioBase(perdida) : '—']
-                : [])
-            ]
-          })
+          filas
         )
         if (!precio) {
           const resumenPerdida = resumenPerdidaConciliacion(v?.productos ?? [], contraDato)
@@ -637,35 +709,78 @@ export function buildPdfDocument(
     }
   }
 
-  for (const modulo of contenido.modulos) dibujarModulo(modulo)
+  for (const modulo of contenido.modulos) {
+    if (imprimeModulo(impresion, modulo.id)) dibujarModulo(modulo)
+  }
   if (ev.comentario_general?.trim()) {
     tituloSeccion('Comentario general')
     textoLinea(ev.comentario_general.trim())
   }
 
-  pdf.addPage()
-  y = MARGEN
-  tituloSeccion('Resultados por cargo')
-  const resultadosCargos = clasificarResultadosCargos(
-    valorPorResponsable(
-      resumenDetalle.items.map((item) => aplicarOpciones(item, opcionesResumen)),
-      resumenDetalle.respuestas
-    ),
-    ev.sucursal?.branch_id === BRANCH_CENTRAL ? [] : catalogoCargos.sucursal,
-    catalogoCargos.central
-  )
+  // Cada bloque del final arranca en su propia página. El salto va dentro de
+  // cada bloque y no entre medio: si uno está apagado, el siguiente hace su
+  // propio salto y no queda una hoja en blanco entre los que sí se imprimen.
+  const nuevaPagina = () => {
+    pdf.addPage()
+    y = MARGEN
+  }
+
+  /**
+   * Pie de página: de qué sucursal es y de qué fecha es, en todas las hojas.
+   *
+   * Va al final del documento y no al principio porque recién ahí se sabe cuántas
+   * hojas quedaron. Se dibuja con `setPage` sobre cada una, que es la única
+   * forma de escribir en una hoja que ya estaba cerrada: el resto del documento
+   * escribe solo en la hoja en curso.
+   *
+   * Va en 7 pt y gris claro, abajo de todo: es un dato de referencia para cuando
+   * el papel se separa del resto, no algo que compita con el contenido. Por eso
+   * queda por debajo del área útil, que termina en `alto - MARGEN`.
+   *
+   * El separador es una barra y no un punto medio a propósito: `jspdf` escribe
+   * los textos con las fuentes estándar en WinAnsi, sin pasar los acentos por
+   * UTF-8, así que un `·` sale corrupto en el papel. La barra es ASCII y se ve
+   * igual en cualquier impresora.
+   */
+  const pieEnTodasLasHojas = () => {
+    const pie = `${ev.sucursal?.nombre ?? 'Sucursal'} | ${fecha}`
+    for (let hoja = 1; hoja <= pdf.getNumberOfPages(); hoja++) {
+      pdf.setPage(hoja)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7)
+      pdf.setTextColor(130, 140, 150)
+      pdf.text(pie, MARGEN, alto - 7)
+    }
+  }
+
+  // Los cargos se reparten entre sucursal y central, y para eso hacen falta los
+  // dos catálogos: con el de la sucursal se reconoce cuáles cargos son de la
+  // tienda, y lo que no es de la tienda se presume de central. Si ningún bloque
+  // de cargos va al informe, no se calcula nada: son dos vueltas sobre todas las
+  // respuestas, y el detalle de los incumplimientos solo lo usa esa tabla.
+  let resultadosCargos: { sucursal: ValorResponsable[]; central: ValorResponsable[] } = { sucursal: [], central: [] }
   const puntosIncumplidosPorCargo = new Map<string, number>()
-  for (const respuesta of resumenDetalle.respuestas) {
-    const item = resumenDetalle.items.find((candidato) => candidato.id === respuesta.item_id)
-    if (!item) continue
-    for (const incumplimiento of incumplimientosPorResponsable(
-      aplicarOpciones(item, opcionesResumen),
-      respuesta.valor
-    )) {
-      puntosIncumplidosPorCargo.set(
-        claveCargo(incumplimiento.responsable),
-        (puntosIncumplidosPorCargo.get(claveCargo(incumplimiento.responsable)) ?? 0) + incumplimiento.puntos
-      )
+  if (imprimeCargos(impresion)) {
+    resultadosCargos = clasificarResultadosCargos(
+      valorPorResponsable(
+        resumenDetalle.items.map((item) => aplicarOpciones(item, opcionesResumen)),
+        resumenDetalle.respuestas
+      ),
+      ev.sucursal?.branch_id === BRANCH_CENTRAL ? [] : catalogoCargos.sucursal,
+      catalogoCargos.central
+    )
+    for (const respuesta of resumenDetalle.respuestas) {
+      const item = resumenDetalle.items.find((candidato) => candidato.id === respuesta.item_id)
+      if (!item) continue
+      for (const incumplimiento of incumplimientosPorResponsable(
+        aplicarOpciones(item, opcionesResumen),
+        respuesta.valor
+      )) {
+        puntosIncumplidosPorCargo.set(
+          claveCargo(incumplimiento.responsable),
+          (puntosIncumplidosPorCargo.get(claveCargo(incumplimiento.responsable)) ?? 0) + incumplimiento.puntos
+        )
+      }
     }
   }
   const filasCargos = (resultados: ValorResponsable[]) => resultados.map((resultado) => [
@@ -673,36 +788,48 @@ export function buildPdfDocument(
     resultado.porciento == null ? 'Sin puntaje' : `${fmt(resultado.porciento)}%`,
     fmt(puntosIncumplidosPorCargo.get(claveCargo(resultado.responsable)) ?? 0)
   ])
-  tituloSeccion('Cargos de la sucursal')
-  if (resultadosCargos.sucursal.length) {
-    tabla(['Cargo', 'Puntaje', 'Puntos incumplidos'], filasCargos(resultadosCargos.sucursal))
-  } else {
-    textoLinea('No hay cargos de la sucursal con resultados.')
+
+  if (imprimeBloque(impresion, 'cargosSucursal')) {
+    nuevaPagina()
+    tituloSeccion('Cargos de la sucursal')
+    const resultados = resultadosCargos.sucursal
+    if (resultados.length) {
+      tabla(['Cargo', 'Puntaje', 'Puntos incumplidos'], filasCargos(resultados))
+    } else {
+      textoLinea('No hay cargos de la sucursal con resultados.')
+    }
   }
-  pdf.addPage()
-  y = MARGEN
-  tituloSeccion('Cargos de central')
-  if (resultadosCargos.central.length) {
-    tabla(['Cargo', 'Puntaje', 'Puntos incumplidos'], filasCargos(resultadosCargos.central))
-  } else {
-    textoLinea('No hay cargos de central con resultados.')
+  if (imprimeBloque(impresion, 'cargosCentral')) {
+    nuevaPagina()
+    tituloSeccion('Cargos de central')
+    const resultados = resultadosCargos.central
+    if (resultados.length) {
+      tabla(['Cargo', 'Puntaje', 'Puntos incumplidos'], filasCargos(resultados))
+    } else {
+      textoLinea('No hay cargos de central con resultados.')
+    }
   }
 
-  pdf.addPage()
-  y = MARGEN
-  tituloSeccion('Incidencias registradas')
-  tabla(
-    ['Descripción', 'Responsable'],
-    incidencias.length
-      ? incidencias.map((incidencia) => [
-          incidencia.descripcion,
-          incidencia.responsables.map((responsable) => responsable.cargo).join(', ') || '—'
-        ])
-      : [['No hay incidencias registradas para esta evaluación.', '—']]
-  )
+  if (imprimeBloque(impresion, 'incidencias')) {
+    nuevaPagina()
+    tituloSeccion('Incidencias registradas')
+    tabla(
+      ['Descripción', 'Responsable'],
+      incidencias.length
+        ? incidencias.map((incidencia) => [
+            incidencia.descripcion,
+            incidencia.responsables.map((responsable) => responsable.cargo).join(', ') || '—'
+          ])
+        : [['No hay incidencias registradas para esta evaluación.', '—']]
+    )
+  }
 
-  pdf.addPage()
-  y = MARGEN
+  if (!imprimeBloque(impresion, 'compromiso')) {
+    pieEnTodasLasHojas()
+    return pdf
+  }
+
+  nuevaPagina()
   tituloSeccion('Constancia de recibido y compromiso de respuesta')
   textoLinea(
     `La gerencia de ${texto(ev.sucursal?.nombre ?? 'la sucursal')} deja constancia de haber recibido el presente informe de evaluación, correspondiente a la visita realizada el ${fecha}.`,
@@ -738,25 +865,40 @@ export function buildPdfDocument(
   dibujarCampo('Cargo', segundaColumna, y + 17, anchoCampo)
   dibujarCampo('Firma de gerencia', MARGEN, y + 62, anchoCampo)
   dibujarCampo('Fecha de recibido', segundaColumna, y + 62, anchoCampo)
+  pieEnTodasLasHojas()
   return pdf
 }
 
-export async function descargarInformePdf(id: string, filtro?: FiltroPdfCumplimiento): Promise<void> {
+/**
+ * `impresion` en `undefined` = informe entero. Cuando viene, no se piden las
+ * cosas que no se van a pintar: sin el bloque de incidencias no hace falta la
+ * consulta, y sin ninguno de cargos no hacen falta los dos catálogos. Los
+ * nombres de los evaluadores se piden siempre porque van en la cabecera, que no
+ * se apaga.
+ */
+export async function descargarInformePdf(
+  id: string,
+  filtro?: FiltroPdfCumplimiento,
+  impresion?: OpcionesPdf
+): Promise<void> {
   const detalle = await obtenerEvaluacion(id)
   if (!detalle) throw new Error('No se encontró la evaluación.')
   const ids = Array.from(new Set(detalle.respuestas
     .map((respuesta) => respuesta.respondido_por)
     .filter((userId): userId is string => !!userId)))
+  const branchId = detalle.evaluacion.sucursal?.branch_id
   const [perfiles, incidenciasResult, cargosSucursal, cargosCentral] = await Promise.all([
     listarPerfilesSync(ids),
-    supabase.from('incidencias')
-      .select('descripcion, responsables')
-      .eq('evaluacion_id', id)
-      .order('created_at', { ascending: true }),
-    detalle.evaluacion.sucursal?.branch_id && detalle.evaluacion.sucursal.branch_id !== BRANCH_CENTRAL
-      ? listarResponsables([detalle.evaluacion.sucursal.branch_id])
+    imprimeBloque(impresion, 'incidencias')
+      ? supabase.from('incidencias')
+          .select('descripcion, responsables')
+          .eq('evaluacion_id', id)
+          .order('created_at', { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
+    imprimeCargos(impresion) && branchId && branchId !== BRANCH_CENTRAL
+      ? listarResponsables([branchId])
       : Promise.resolve({ responsables: [], mensaje: null }),
-    listarResponsables([BRANCH_CENTRAL])
+    imprimeCargos(impresion) ? listarResponsables([BRANCH_CENTRAL]) : Promise.resolve({ responsables: [], mensaje: null })
   ])
   if (incidenciasResult.error) throw incidenciasResult.error
   const incidencias: IncidenciaPdf[] = (incidenciasResult.data ?? []).map((incidencia) => ({
@@ -766,7 +908,7 @@ export async function descargarInformePdf(id: string, filtro?: FiltroPdfCumplimi
   const pdf = buildPdfDocument(detalle, filtro, perfiles, incidencias, {
     sucursal: cargosSucursal.responsables,
     central: cargosCentral.responsables
-  })
+  }, impresion)
   const sucursal = (detalle.evaluacion.sucursal?.nombre ?? 'evaluacion')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')

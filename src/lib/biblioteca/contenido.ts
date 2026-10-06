@@ -650,7 +650,7 @@ export const KPIS: KpiDoc[] = [
           {
             titulo: 'Cómo se registra',
             items: [
-              'Se escanea el código del producto con la cámara; el sistema devuelve la cantidad teórica (soh) y el precio base (finalBase).',
+              'Se escanea el código del producto con la cámara; el sistema devuelve la cantidad teórica (soh), la base final ya descontada (finalBase), el impuesto (finalTax) y el departamento del producto. El precio contra el que se concilia es la base más el impuesto, y los productos se agrupan por departamento para que el conteo siga el recorrido de la góndola.',
               'Se carga la cantidad física contada en el punto.',
               'Si el escaneo no responde (sin conexión), el ítem se devuelve sin puntuar, no se aprueba.',
               'Se puede adjuntar foto del producto como evidencia de la diferencia.'

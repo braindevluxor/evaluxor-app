@@ -171,6 +171,30 @@ describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
     const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion('FINAL_BASE')} valor={undefined} index={0} total={1} onChange={() => {}} />)
     expect(html).toContain('Teórica (precio)')
   })
+
+  it('con precio ofrece el check de "No tiene hablador"', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion('FINAL_BASE')} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('No tiene hablador')
+  })
+
+  it('en conciliación de stock no aparece el check (no hay hablador que marcar)', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(html).not.toContain('No tiene hablador')
+  })
+
+  it('el producto marcado sin hablador cae en el contador de No Match del resumen', () => {
+    const valor = {
+      productos: [
+        { sku: 'SKU-OK', nombre: 'Pan', teorica: 1.84, fisica: 1.84 },
+        { sku: 'SKU-SIN', nombre: 'Papel', teorica: 2.84, fisica: null, sinHablador: true }
+      ]
+    }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion('FINAL_BASE')} valor={valor} index={0} total={1} onChange={() => {}} />)
+    // Dos escaneados: uno concilia (Match = 1) y el sin hablador cuenta como
+    // descuadre (No Match = 1) aunque no tenga precio físico.
+    expect(html).toMatch(/>1<\/p><p[^>]*>Match<\/p>/)
+    expect(html).toMatch(/>1<\/p><p[^>]*>No Match<\/p>/)
+  })
 })
 
 function itemColaboradores(): Item {

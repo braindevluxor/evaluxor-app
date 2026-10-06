@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, esSinHablador, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion, agruparPorDepartamento, precioVenta, productosParaConciliar, truncarDecimales, formatearPrecioBase, formatearMontoPerdida } from './scoring'
 
 describe('orden de lectura de una conciliación', () => {
   const prod = (sku: string, teorica: number | null, fisica: number | null, finalBase?: number | null) => ({
@@ -271,7 +271,242 @@ describe('contra dato de conciliación', () => {
   })
   it('ETIQUETAS_CONTRA_DATO expone ambas opciones', () => {
     expect(ETIQUETAS_CONTRA_DATO.SOH).toContain('SOH')
-    expect(ETIQUETAS_CONTRA_DATO.FINAL_BASE).toContain('Precio')
+    // Se llama precio de venta y no precio base porque el número con el que se
+    // concilia ya incluye el impuesto.
+    expect(ETIQUETAS_CONTRA_DATO.FINAL_BASE).toBe('Precio de venta')
+  })
+})
+
+describe('agrupar la conciliación por departamento', () => {
+  const prod = (sku: string, teorica: number | null, fisica: number | null, departamento?: string | null) => ({
+    sku, nombre: sku, teorica, fisica, ...(departamento != null ? { departamento } : {})
+  })
+
+  it('junta los productos del mismo departamento', () => {
+    const grupos = agruparPorDepartamento([
+      prod('A', 10, 7, 'LIMPIEZA'),
+      prod('B', 5, 5, 'PANADERIA'),
+      prod('C', 8, 6, 'LIMPIEZA')
+    ])
+
+    expect(grupos.map((g) => g.departamento)).toEqual(['LIMPIEZA', 'PANADERIA'])
+    expect(grupos[0].productos.map((p) => p.sku)).toEqual(['A', 'C'])
+  })
+
+  it('dentro del departamento sigue mandando la gravedad', () => {
+    // El departamento elige el pasillo, no borra el orden de urgencia: dentro de
+    // LIMPIEZA la pérdida grande va primero.
+    const grupos = agruparPorDepartamento([
+      prod('CHICO', 3, 2, 'LIMPIEZA'),
+      prod('GRANDE', 10, 1, 'LIMPIEZA'),
+      prod('MEDIO', 6, 4, 'LIMPIEZA')
+    ])
+
+    expect(grupos[0].productos.map((p) => p.sku)).toEqual(['GRANDE', 'MEDIO', 'CHICO'])
+  })
+
+  it('LIMPIEZA y "limpieza" son el mismo grupo', () => {
+    // Si el nombre se compara tal cual, la misma góndola aparece partida en dos
+    // rótulos y el conteo sale mal.
+    const grupos = agruparPorDepartamento([
+      prod('A', 10, 7, 'LIMPIEZA'),
+      prod('B', 5, 3, 'limpieza')
+    ])
+
+    expect(grupos).toHaveLength(1)
+    expect(grupos[0].productos.map((p) => p.sku)).toEqual(['A', 'B'])
+  })
+
+  it('los acentos tampoco parten el grupo', () => {
+    const grupos = agruparPorDepartamento([
+      prod('A', 10, 7, 'ABARROTES'),
+      prod('B', 5, 3, 'Abarrotes')
+    ])
+
+    expect(grupos).toHaveLength(1)
+  })
+
+  it('el que no tiene departamento va en su propio grupo, al final', () => {
+    // Si el dato falta, es ruido de la fuente y no debe arrancar la lista.
+    const grupos = agruparPorDepartamento([
+      prod('A', 10, 7),
+      prod('B', 5, 3, 'LIMPIEZA'),
+      prod('C', 4, 1, null)
+    ])
+
+    expect(grupos.map((g) => g.departamento)).toEqual(['LIMPIEZA', null])
+    expect(grupos[1].productos.map((p) => p.sku)).toEqual(['A', 'C'])
+  })
+
+  it('no muta la lista original', () => {
+    const original = [prod('A', 10, 7, 'LIMPIEZA'), prod('B', 5, 3, 'PANADERIA')]
+    agruparPorDepartamento(original)
+    expect(original.map((p) => p.sku)).toEqual(['A', 'B'])
+  })
+
+  it('no inventa una lista vacía', () => {
+    expect(agruparPorDepartamento([])).toEqual([])
+  })
+
+  it('un solo departamento no se parte en grupos de a uno', () => {
+    const grupos = agruparPorDepartamento([
+      prod('A', 10, 7, 'LIMPIEZA'),
+      prod('B', 5, 3, 'LIMPIEZA')
+    ])
+
+    expect(grupos).toHaveLength(1)
+    expect(grupos[0].productos).toHaveLength(2)
+  })
+})
+
+describe('el precio contra el que se concilia: base más impuesto', () => {
+  // Números tomados de una respuesta real de la API.
+  const PAPEL = { finalBase: 1.59, finalTax: 0.25 } // lista 2.84 con 44.07% de descuento
+
+  it('el precio de venta es la base final más el impuesto', () => {
+    expect(precioVenta(PAPEL)).toBe(1.84)
+  })
+
+  it('el descuento de la API NO se vuelve a aplicar', () => {
+    // 2.84 × (1 − 0.4407) = 1.5884 → la API ya mandó la base descontada en 1.59.
+    // Aplicar 44.07% otra vez sobre 1.59 dejaría 0.89 y el papel en 1,14 en vez
+    // de 1,84: 38% menos del precio real.
+    expect(1.59 * (1 - 0.4407) + 0.25).toBeCloseTo(1.14, 2)
+    expect(precioVenta(PAPEL)).toBeCloseTo(1.84, 2)
+  })
+
+  it('un producto exento, sin impuesto, se concilia contra la base', () => {
+    expect(precioVenta({ finalBase: 1.59 })).toBe(1.59)
+    expect(precioVenta({ finalBase: 1.59, finalTax: null })).toBe(1.59)
+    // Los exentos vienen con 0, no con el campo ausente: mismo resultado.
+    expect(precioVenta({ finalBase: 1.59, finalTax: 0 })).toBe(1.59)
+  })
+
+  it('un impuesto que no es número no Rompe el precio', () => {
+    // Si la API cambiara el tipo del campo, el precio tiene que seguir saliendo
+    // por la base en vez de dar `NaN` en toda la columna.
+    expect(precioVenta({ finalBase: 1.59, finalTax: Number.NaN })).toBe(1.59)
+    expect(precioVenta({ finalBase: 1.59, finalTax: Infinity })).toBe(1.59)
+  })
+
+  it('sin base no hay precio', () => {
+    expect(precioVenta(null)).toBeNull()
+    expect(precioVenta(undefined)).toBeNull()
+    expect(precioVenta({})).toBeNull()
+    expect(precioVenta({ finalBase: null, finalTax: 0.25 })).toBeNull()
+  })
+
+  it('la teórica en modo precio es el precio de venta, no la base', () => {
+    // Es la línea que evita el descuadre de 16% en todas las filas con IVA: el
+    // hablador muestra 1,84 y antes se comparaba contra 1,59.
+    const p = { teorica: null, soh: 62, ...PAPEL }
+    expect(referenciaConciliacion(p, 'FINAL_BASE')).toBe(1.84)
+  })
+
+  it('la pérdida se valoriza al precio de venta', () => {
+    // 3 unidades faltantes de un producto a 1,84 son 5,52. Con la base sin
+    // impuesto salían 4,77: menos plata de la que realmente se perdió.
+    expect(montoPerdidaConciliacion({ teorica: 10, fisica: 7, ...PAPEL })).toBeCloseTo(5.52, 10)
+    expect(montoPerdidaConciliacion({ teorica: 10, fisica: 7, finalBase: 1.59 })).toBeCloseTo(4.77, 10)
+  })
+
+  it('un precio de venta negativo se descarta en vez de restar plata', () => {
+    // Si la API mandara un impuesto raro que deja la base en negativo, lo
+    // correcto es no mostrar monto: restarlo del total de la conciliación
+    // inventaría plata perdida que no ocurrió.
+    expect(precioVenta({ finalBase: 0.1, finalTax: -0.25 })).toBeCloseTo(-0.15, 10)
+    expect(montoPerdidaConciliacion({ teorica: 10, fisica: 7, finalBase: 0.1, finalTax: -0.25 })).toBeNull()
+    expect(resumenPerdidaConciliacion([
+      { sku: 'A', nombre: null, teorica: 10, fisica: 7, finalBase: 0.1, finalTax: -0.25 }
+    ]).monto).toBe(0)
+  })
+
+  it('el total de la conciliación suma el precio de venta de cada faltante', () => {
+    // 3 unidades a 1,84 son 5,52; más 1 unidad a 10,00 (sin impuesto) son 10.
+    expect(resumenPerdidaConciliacion([
+      { sku: 'A', nombre: null, teorica: 10, fisica: 7, finalBase: 1.59, finalTax: 0.25 },
+      { sku: 'B', nombre: null, teorica: 4, fisica: 3, finalBase: 10 }
+    ]).monto).toBeCloseTo(15.52, 10)
+  })
+})
+
+describe('el número con el que se concilia por precio', () => {
+  it('corta los decimales en vez de redondear', () => {
+    // Redondear haría que 2,564 y 2,566 se vieran distintos ($2,56 y $2,57) y la
+    // fila saliera con descuadre de un centavo que ninguna pantalla muestra.
+    expect(truncarDecimales(2.567)).toBe(2.56)
+    expect(truncarDecimales(2.564)).toBe(2.56)
+    expect(truncarDecimales(2.566)).toBe(2.56)
+    expect(truncarDecimales(2.999)).toBe(2.99)
+    expect(truncarDecimales(-2.569)).toBe(-2.56)
+  })
+
+  it('no se come un centavo por el error binario', () => {
+    // Math.trunc(0.29 * 100) da 28 y el precio se leería $0,28 de un $0,29 que el
+    // sistema sí tiene. Este es el caso que hace que el corte vaya por el texto.
+    expect(truncarDecimales(0.29)).toBe(0.29)
+    expect(formatearPrecioBase(0.29)).toBe('$0,29')
+    expect(truncarDecimales(12.5)).toBe(12.5)
+    expect(formatearPrecioBase(12.5)).toBe('$12,50')
+  })
+
+  it('lo que se corta a cero no conserva el signo negativo', () => {
+    expect(Object.is(truncarDecimales(-0.004), 0)).toBe(true)
+    expect(formatearPrecioBase(-0.004)).toBe('$0,00')
+  })
+
+  it('el precio se muestra con dos decimales cortados y sin redondeo', () => {
+    expect(formatearPrecioBase(2.567)).toBe('$2,56')
+    expect(formatearPrecioBase(1234.5678)).toBe('$1.234,56')
+    expect(formatearMontoPerdida(2.567)).toBe('USD2,56')
+    expect(formatearPrecioBase(null)).toBe('—')
+  })
+
+  it('en precio, dos montos que se leen iguales se consideran iguales', () => {
+    // El caso que motiva todo: la diferencia existe en el float y no se ve en
+    // ninguna parte. Marcarla descuadrada manda a buscar mercadería que está.
+    const [p] = productosParaConciliar([{ sku: 'A', nombre: null, teorica: 2.564, fisica: 2.566, finalBase: 10 }], 'FINAL_BASE')
+    expect(p.teorica).toBe(2.56)
+    expect(p.fisica).toBe(2.56)
+    expect(estadoConciliacion(p)).toBe('concilia')
+    expect(diferenciaConciliacion(p)).toBe(0)
+    expect(conciliacionPorcentaje(p)).toBe(100)
+  })
+
+  it('y sigue marcando descuadre cuando de verdad hay un centavo de diferencia', () => {
+    const [p] = productosParaConciliar([{ sku: 'A', nombre: null, teorica: 2.56, fisica: 2.55, finalBase: 10 }], 'FINAL_BASE')
+    expect(estadoConciliacion(p)).toBe('falta')
+    // La diferencia cruda arrastra el error binario (0.010000000000000231), pero lo
+    // que importa es el número que se imprime, y ese sale de dos decimales.
+    expect(formatearPrecioBase(diferenciaConciliacion(p))).toBe('$0,01')
+  })
+
+  it('el corte es solo del número con el que se compara: el resto del producto queda igual', () => {
+    const original = { sku: 'A', nombre: 'Harina', teorica: 2.567, fisica: 3, soh: 2.567, finalBase: 1234.5678, perdidaEstimada: 7.77 }
+    const [p] = productosParaConciliar([original], 'FINAL_BASE')
+    expect(p).toMatchObject({ sku: 'A', nombre: 'Harina', soh: 2.567, finalBase: 1234.5678, perdidaEstimada: 7.77 })
+    expect(p.teorica).toBe(2.56)
+    expect(p.fisica).toBe(3)
+    // Y el original no se toca: es el valor guardado en la respuesta.
+    expect(original.teorica).toBe(2.567)
+  })
+
+  it('en conteo de unidades no se toca nada', () => {
+    // Son unidades enteras: cortarlas no significaría nada.
+    const ps = [{ sku: 'A', nombre: null, teorica: 10, fisica: 7 }]
+    expect(productosParaConciliar(ps, 'SOH')).toBe(ps)
+    expect(estadoConciliacion(ps[0])).toBe('falta')
+  })
+
+  it('un producto sin dato sigue sin comparable después del corte', () => {
+    const ps = [{ sku: 'A', nombre: null, teorica: null, fisica: 7 }]
+    expect(conciliacionComparable(productosParaConciliar(ps, 'FINAL_BASE')[0])).toBe(false)
+    expect(conciliacionPorcentaje(productosParaConciliar(ps, 'FINAL_BASE')[0])).toBe(null)
+  })
+
+  it('sin productos no inventa una lista', () => {
+    expect(productosParaConciliar(null, 'FINAL_BASE')).toEqual([])
+    expect(productosParaConciliar(undefined, 'FINAL_BASE')).toEqual([])
   })
 })
 
@@ -556,6 +791,43 @@ it('conciliacion porcentaje: si pasa de 100 se resta el excedente, si no queda c
     expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: null }] })).toBe(null)
     expect(conciliacionTotal({ productos: [] })).toBe(null)
     expect(conciliacionTotal(null)).toBe(null)
+  })
+
+  describe('producto sin hablador (conciliación por precio)', () => {
+    const item = { tipo: 'CONCILIACION', opciones: [] }
+    const sinHablador = { sku: 'A', nombre: 'Papel', teorica: 1.84, fisica: null, sinHablador: true }
+    const ok = { sku: 'B', nombre: 'Pan', teorica: 1.84, fisica: 1.84 }
+
+    it('es No Match: el ítem no cumple aunque el resto de los productos concilie', () => {
+      expect(valorBinario(item, { productos: [ok, sinHablador] })).toBe(false)
+      expect(valorBinario(item, { productos: [sinHablador] })).toBe(false)
+      expect(veredictoItem(item, { productos: [sinHablador] })).toBe('no-cumple')
+      expect(proporcionItem(item, { productos: [sinHablador] })).toBe(0)
+    })
+
+    it('no deja el ítem vacío: se puede enviar sin precio físico', () => {
+      expect(estaVacioItem(item, { productos: [sinHablador] })).toBe(false)
+      expect(tieneRespuesta(item, { productos: [sinHablador] })).toBe(true)
+      // Sin la marca, la misma fila sin física sigue incompleta como antes.
+      expect(estaVacioItem(item, { productos: [{ sku: 'A', teorica: 1.84, fisica: null }] })).toBe(true)
+    })
+
+    it('entra en la tasa de descuadre en vez de quedar fuera del denominador', () => {
+      // Uno concilia y otro no tiene hablador → 1 de 2 sin coincidir = 50
+      expect(conciliacionTotal({ productos: [ok, sinHablador] })).toBe(50)
+      // Solo sin hablador → 100
+      expect(conciliacionTotal({ productos: [sinHablador] })).toBe(100)
+      // Ni siquiera trae teórica del sistema: igual cuenta como descuadre
+      expect(conciliacionTotal({ productos: [{ sku: 'C', nombre: null, teorica: null, fisica: null, sinHablador: true }] })).toBe(100)
+      // Una fila sin marca y sin física sigue fuera del cálculo
+      expect(conciliacionTotal({ productos: [{ sku: 'D', nombre: null, teorica: 10, fisica: null }] })).toBe(null)
+    })
+
+    it('en modo stock (sin la marca) todo sigue funcionando igual', () => {
+      expect(esSinHablador(ok)).toBe(false)
+      expect(esSinHablador(sinHablador)).toBe(true)
+      expect(esSinHablador(null)).toBe(false)
+    })
   })
 })
 
