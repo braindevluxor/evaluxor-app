@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Item, Modulo, Opcion, Respuesta, Sucursal, SucursalModulo, VistaEvaluacion } from '../types'
-import { medidoresPorModulo, puntajePorSucursalModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, type ConjuntoDatos } from './indicadores'
+import { medidoresPorModulo, puntajePorSucursalModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, type ConjuntoDatos } from './indicadores'
 
 const sucursales: Sucursal[] = [
   { id: 's1', nombre: 'Sucursal Norte', shop_id: null, branch_id: null, direccion: null, gerente_id: null, activa: true, created_at: '' },
@@ -783,6 +783,7 @@ describe('puntajeEnCurso', () => {
 
     // Con la sección: pesa 100 como grupo con 50% de cumplimiento, más el suelto.
     expect(puntajeEnCurso(activa, resps, conSeccion).puntaje).toBe(75)
+    expect(puntajeModuloDeRespuestas(resps, conSeccion, 'm1', 's1')).toBe(75)
     // Sin la sección (lo que llegaba desde el historial): los hijos pesan 10 cada uno.
     expect(puntajeEnCurso(activa, resps, soloHijos).puntaje).toBe(91.67)
   })
@@ -799,5 +800,40 @@ describe('puntajeEnCurso', () => {
     // Y el detalle los sigue trayendo: es la referencia de la regla.
     const detalle = codigo.slice(codigo.indexOf('export async function obtenerEvaluacion'), codigo.indexOf('export function itemsDelModulo'))
     expect(detalle).toContain('[...it, ...padres]')
+  })
+})
+
+describe('conPuntajesRecalculados', () => {
+  it('promedia los módulos por igual, aunque tengan distinta cantidad de ítems', () => {
+    const evaluacion = mkEvaluacion('ev1', 's1', '2026-09-10', 66.67)
+    const itemsEvaluacion = [
+      { ...itemResumen('a', 0, 'CUMPLE_NO_CUMPLE'), modulo_id: 'm1' },
+      { ...itemResumen('b', 1, 'CUMPLE_NO_CUMPLE'), modulo_id: 'm1' },
+      { ...itemResumen('c', 2, 'CUMPLE_NO_CUMPLE'), modulo_id: 'm2' }
+    ]
+    const respuestas = [
+      respuesta('ev1', 'a', true),
+      respuesta('ev1', 'b', false),
+      respuesta('ev1', 'c', true)
+    ]
+
+    const actualizada = conPuntajesRecalculados([evaluacion], respuestas, itemsEvaluacion)
+
+    expect(actualizada[0].puntuacion).toBe(75)
+    expect(puntajeModuloDeRespuestas(respuestas, itemsEvaluacion, 'm1', 's1')).toBe(50)
+    expect(puntajeModuloDeRespuestas(respuestas, itemsEvaluacion, 'm2', 's1')).toBe(100)
+  })
+
+  it('reemplaza una puntuación histórica con el cálculo actual que usa el detalle', () => {
+    const evaluacion = mkEvaluacion('ev1', 's1', '2026-09-10', 60.73)
+    const respuestas = [respuesta('ev1', 'i1', true)]
+
+    const actualizada = conPuntajesRecalculados([evaluacion], respuestas, items)
+
+    expect(actualizada[0].puntuacion).toBe(100)
+    expect(actualizada[0].puntuacion).toBe(
+      resumirEvaluacion(evaluacion, respuestas, items).puntaje
+    )
+    expect(evaluacion.puntuacion).toBe(60.73)
   })
 })

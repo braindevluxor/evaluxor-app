@@ -3,6 +3,7 @@ import type { Evaluacion, Respuesta, Item, Foto, Modulo, Opcion, VistaEvaluacion
 import {
   proporcionItem,
   puntajePonderado,
+  promedioPuntajesModulos,
   conSeccionesPonderadas,
   incumplimientosPorResponsable,
   opcionCumplida,
@@ -197,6 +198,8 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
   const todosItems = (itemsResp ?? []) as Item[]
   const todosModulos = (mods.data ?? []) as Modulo[]
   const respuestas = (resp.data ?? []) as Respuesta[]
+  const sucursalOpciones = (opciones.data ?? []) as SucursalOpcion[]
+  const evaluacionesActualizadas = conPuntajesRecalculados(evaluaciones, respuestas, todosItems, sucursalOpciones)
   // Ítems del rango: los respondidos MÁS sus contenedores padre, como en
   // `obtenerEvaluacion`. Dejarlos afuera rompe el puntaje: una sección pesa como
   // grupo con su propio puntaje, así que si no está en la lista cada hijo pesa
@@ -212,23 +215,23 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
     const idsItemsModulo = new Set(itemsModulo.map((i) => i.id))
     const respModulo = respuestas.filter((r) => idsItemsModulo.has(r.item_id))
     return {
-      evaluaciones,
+      evaluaciones: evaluacionesActualizadas,
       respuestas: respModulo,
       items: itemsModulo,
       modulos: todosModulos.filter((m) => m.id === f.modulo_id),
       fotos: ((fot.data ?? []) as Foto[]).filter((f2) => idsItemsModulo.has(f2.item_id)),
-      sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[],
+      sucursalOpciones,
       instancias: ((instancias.data ?? []) as InstanciaGrupo[]).filter((ins) => idsItemsModulo.has(ins.item_id))
     }
   }
 
   return {
-    evaluaciones,
+    evaluaciones: evaluacionesActualizadas,
     respuestas,
     items,
     modulos: todosModulos.filter((m) => items.some((i) => i.modulo_id === m.id)),
     fotos: ((fot.data ?? []) as Foto[]).filter((f2) => items.some((i) => i.id === f2.item_id)),
-    sucursalOpciones: (opciones.data ?? []) as SucursalOpcion[],
+    sucursalOpciones,
     instancias: (instancias.data ?? []) as InstanciaGrupo[]
   }
 }
@@ -237,6 +240,26 @@ export interface ResumenEvaluacion {
   puntaje: number | null
   itemsBinarios: number
   itemsBinariosOk: number
+}
+
+export function puntajeModuloDeRespuestas(
+  respuestas: Pick<Respuesta, 'item_id' | 'valor'>[],
+  items: Item[],
+  moduloId: string,
+  sucursalId: string,
+  sucursalOpciones: SucursalOpcion[] = []
+): number | null {
+  const itemDe = new Map(items.map((item) => [item.id, item]))
+  const binarios: { item: Item; cumple: number }[] = []
+  for (const respuesta of respuestas) {
+    const item = itemDe.get(respuesta.item_id)
+    if (!item || item.modulo_id !== moduloId) continue
+    const cumple = proporcionItem(aplicarOpcionesSucursal(item, sucursalId, sucursalOpciones), respuesta.valor)
+    if (cumple === null) continue
+    binarios.push({ item, cumple })
+  }
+  if (!binarios.length) return null
+  return puntajePonderado(conSeccionesPonderadas(items, binarios))
 }
 
 function aplicarOpcionesSucursal(item: Item, sucursalId: string, sucursalOpciones: SucursalOpcion[]): Item {
@@ -258,11 +281,28 @@ export function resumirEvaluacion(ev: Evaluacion, resps: Respuesta[], items: Ite
   const binarios = rr
     .map((r) => ({ item: r.item, cumple: proporcionItem(r.item, r.valor) }))
     .filter((b): b is { item: Item; cumple: number } => b.cumple !== null)
-  // Las secciones ponderadas participan como grupo (su peso agrupa el de sus hijos).
-  const conSecciones = conSeccionesPonderadas(items, binarios)
-  const puntaje = conSecciones.length ? puntajePonderado(conSecciones) : ev.puntuacion
+  const moduloIds = [...new Set(binarios.map((binario) => binario.item.modulo_id))]
+  const puntajesModulo = moduloIds.map((moduloId) => {
+    const binariosModulo = binarios.filter((binario) => binario.item.modulo_id === moduloId)
+    const itemsModulo = items.filter((item) => item.modulo_id === moduloId)
+    return puntajePonderado(conSeccionesPonderadas(itemsModulo, binariosModulo))
+  })
+  const puntaje = promedioPuntajesModulos(puntajesModulo) ?? ev.puntuacion
 
   return { puntaje, itemsBinarios: binarios.length, itemsBinariosOk: binarios.filter((b) => b.cumple === 1).length }
+}
+
+/** Usa el mismo puntaje recalculado que el detalle, no el valor histórico almacenado al cerrar. */
+export function conPuntajesRecalculados(
+  evaluaciones: VistaEvaluacion[],
+  respuestas: Respuesta[],
+  items: Item[],
+  sucursalOpciones: SucursalOpcion[] = []
+): VistaEvaluacion[] {
+  return evaluaciones.map((evaluacion) => ({
+    ...evaluacion,
+    puntuacion: resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones).puntaje
+  }))
 }
 
 /** Puntaje en curso de una evaluación a partir de sus respuestas (mismas reglas que al cerrar):
@@ -336,16 +376,13 @@ function puntajeModuloEnEvaluacion(
   respuestasDe: Map<string, Respuesta[]>,
   itemDe: Map<string, Item>
 ): number | null {
-  const binarios: { item: Item; cumple: number }[] = []
-  for (const r of respuestasDe.get(ev.id) ?? []) {
-    const item = itemDe.get(r.item_id)
-    if (!item || item.modulo_id !== moduloId) continue
-    const cumple = proporcionItem(aplicarOpcionesSucursal(item, ev.sucursal_id, datos.sucursalOpciones), r.valor)
-    if (cumple === null) continue
-    binarios.push({ item, cumple })
-  }
-  if (!binarios.length) return null
-  return puntajePonderado(conSeccionesPonderadas(datos.items, binarios))
+  return puntajeModuloDeRespuestas(
+    respuestasDe.get(ev.id) ?? [],
+    [...itemDe.values()],
+    moduloId,
+    ev.sucursal_id,
+    datos.sucursalOpciones
+  )
 }
 
 /**

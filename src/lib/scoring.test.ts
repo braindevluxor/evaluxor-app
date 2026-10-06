@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, esSinHablador, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion, agruparPorDepartamento, precioVenta, productosParaConciliar, truncarDecimales, formatearPrecioBase, formatearMontoPerdida } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, esSinHablador, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion, agruparPorDepartamento, precioVenta, productosParaConciliar, truncarDecimales, formatearPrecioBase, formatearMontoPerdida, promedioPuntajesModulos } from './scoring'
 
 describe('orden de lectura de una conciliación', () => {
   const prod = (sku: string, teorica: number | null, fisica: number | null, finalBase?: number | null) => ({
@@ -874,6 +874,17 @@ describe('calcularPuntaje', () => {
       { item: { tipo: 'CUMPLE_NO_CUMPLE' }, valor: { value: false } }
     ]
     expect(calcularPuntaje(resps)).toBe(50)
+  })
+})
+
+describe('promedioPuntajesModulos', () => {
+  it('promedia cada módulo por igual y redondea a dos decimales', () => {
+    expect(promedioPuntajesModulos([62.5, 79.61, 85.71, 35.14, 58.25])).toBe(64.24)
+  })
+
+  it('excluye módulos sin puntaje y devuelve null si ninguno es puntuable', () => {
+    expect(promedioPuntajesModulos([80, null, 60])).toBe(70)
+    expect(promedioPuntajesModulos([null, null])).toBeNull()
   })
 })
 

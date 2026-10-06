@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, Fragment, type ReactNode } from 'reac
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, ChevronRight, FileDown, FolderOpen, RefreshCw, Tag, X } from 'lucide-react'
 import { useOffline } from '../context/OfflineContext'
-import { obtenerEvaluacion, resumirEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
+import { obtenerEvaluacion, resumirEvaluacion, puntajeModuloDeRespuestas, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { cargosDelCentro, centroDisponible, separacionDisponible, useCargosPorCentro, type CatalogosCentro, type CentroOperaciones } from '../lib/data/cargosCentro'
 import { descargarInformePdf } from '../lib/pdf'
 import type { OpcionesPdf } from '../lib/pdf/opciones'
@@ -1428,7 +1428,7 @@ export function EvaluacionDetalle() {
               .map((r) => ({ item: itemMod.find((i) => i.id === r.item_id), valor: r.valor }))
               .filter((x): x is { item: Item; valor: unknown } => !!x.item)
             const { ok, total } = itemsProporcion(vals.map((v) => ({ item: aplicarOpciones(v.item), valor: v.valor })))
-            const punteo = total ? Math.round((ok / total) * 10000) / 100 : null
+            const punteo = puntajeModuloDeRespuestas(respuestas, items, m.id, evaluacion.sucursal_id, sucursalOpciones)
             // Cuántas filas del módulo quedan en pantalla con el filtro actual. El
             // puntaje del módulo NO se recalcula: es el del módulo entero, y bajarlo
             // con el filtro haría creer que el filtro cambió la evaluación.

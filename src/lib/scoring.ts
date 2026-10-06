@@ -1650,6 +1650,13 @@ export function puntajePonderado(binarios: BinarioConPuntaje[]): number | null {
   return agregarPuntaje(binarios)
 }
 
+/** Promedia por igual los puntajes de los módulos que sí tienen respuestas puntuables. */
+export function promedioPuntajesModulos(puntajes: (number | null)[]): number | null {
+  const puntuables = puntajes.filter((puntaje): puntaje is number => puntaje !== null && Number.isFinite(puntaje))
+  if (!puntuables.length) return null
+  return Math.round((puntuables.reduce((suma, puntaje) => suma + puntaje, 0) / puntuables.length) * 100) / 100
+}
+
 /**
  * Agrega a la lista de binarios las secciones ponderadas que no la tengan pero sí
  * tengan hijos respondidos, para que participen como grupo en el puntaje agregado.
