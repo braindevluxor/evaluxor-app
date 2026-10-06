@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { guardarBorradorNube } from './sync'
 
-const { fromMock, rpcMock, uploadMock, getPhotosMock } = vi.hoisted(() => ({
+const { fromMock, rpcMock, uploadMock, downloadMock, getPhotosMock } = vi.hoisted(() => ({
   fromMock: vi.fn(),
   rpcMock: vi.fn(),
   uploadMock: vi.fn(),
+  downloadMock: vi.fn(),
   getPhotosMock: vi.fn()
 }))
 
@@ -12,7 +13,7 @@ vi.mock('../supabase', () => ({
   supabase: {
     from: fromMock,
     rpc: rpcMock,
-    storage: { from: () => ({ upload: uploadMock }) }
+    storage: { from: () => ({ upload: uploadMock, download: downloadMock }) }
   }
 }))
 
@@ -35,6 +36,7 @@ beforeEach(() => {
   fromMock.mockReset()
   rpcMock.mockReset()
   uploadMock.mockReset().mockResolvedValue({ error: null })
+  downloadMock.mockReset().mockResolvedValue({ data: null, error: { message: 'Object not found' } })
   getPhotosMock.mockReset().mockResolvedValue([
     { id: 'foto-local-1', mime: 'image/jpeg', blob: new Blob(['foto']), created_at: 1 }
   ])
@@ -107,5 +109,23 @@ describe('guardarBorradorNube · fotos', () => {
     }])).rejects.toThrow('No se encontró la foto local foto-perdida')
 
     expect(rpcMock).not.toHaveBeenCalledWith('upsert_respuestas', expect.anything())
+  })
+
+  it('reutiliza la foto de Storage si la copia local ya no existe', async () => {
+    getPhotosMock.mockResolvedValue([])
+    downloadMock.mockResolvedValue({ data: new Blob(['foto subida']), error: null })
+
+    await expect(guardarBorradorNube('evaluacion-foto-remota', 'usuario-1', [{
+      item_id: 'item-1',
+      instancia_id: null,
+      valor: { selected: [], evidencias: { limpieza: { photoIds: ['foto-remota'] } } }
+    }])).resolves.toEqual({ item_ids: [], motivos: [] })
+
+    expect(downloadMock).toHaveBeenCalledWith('ev/evaluacion-foto-remota/evidencia/foto-remota.jpg')
+    expect(uploadMock).not.toHaveBeenCalled()
+    const filas = rpcMock.mock.calls.find(([nombre]) => nombre === 'upsert_respuestas')?.[1].rows
+    expect(filas[0].valor.evidencias.limpieza.paths).toEqual([
+      'ev/evaluacion-foto-remota/evidencia/foto-remota.jpg'
+    ])
   })
 })

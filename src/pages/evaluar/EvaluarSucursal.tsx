@@ -98,6 +98,11 @@ export function EvaluarSucursal() {
   const evaluacionIdRef = useRef<string | null>(null)
   const draftRef = useRef<DraftEval | null>(null)
   const nubeTimer = useRef<number | null>(null)
+  const guardadoNubeRef = useRef<Promise<Descarte> | null>(null)
+  const guardadoNubePendienteRef = useRef(false)
+  const ultimaSubidaNubeRef = useRef<{ evaluacionId: string; draft: DraftEval; descarte: Descarte } | null>(null)
+  const lecturaNubeRef = useRef<Promise<boolean> | null>(null)
+  const lecturaNubePendienteRef = useRef(false)
   // Fallo de la última subida, con su causa real (`sin_conexion`, `rechazada` por
   // RLS, `servidor`...). Antes era un booleano que siempre terminaba diciendo
   // "revisá tu conexión", con reintento cada 12 s pase lo que pase.
@@ -113,6 +118,43 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
   const sinPermisoDescarte = descarte.motivos.includes('sin_permiso')
   // Marca que la página sigue montada: las fusiones con la nube no tocan el estado si ya no lo están.
   const vivoRef = useRef(false)
+
+  function guardarDraftActualEnNube(): Promise<Descarte> {
+    if (guardadoNubeRef.current) {
+      guardadoNubePendienteRef.current = true
+      return guardadoNubeRef.current
+    }
+
+    const guardarCambios = async () => {
+      let resultado: Descarte = { item_ids: [], motivos: [] }
+      do {
+        guardadoNubePendienteRef.current = false
+        const snapshot = draftRef.current
+        const evId = evaluacionIdRef.current
+        if (!snapshot || !evId) return resultado
+        const anterior = ultimaSubidaNubeRef.current
+        if (anterior?.evaluacionId === evId && anterior.draft === snapshot) return anterior.descarte
+        const respuestas = respuestasConInstancia(snapshot)
+        const instancias = instanciasDeDraft(snapshot)
+        if (!respuestas.length && !instancias.length) return resultado
+        try {
+          resultado = await guardarBorradorNube(evId, snapshot.evaluador_id, respuestas, instancias)
+          ultimaSubidaNubeRef.current = { evaluacionId: evId, draft: snapshot, descarte: resultado }
+        } catch (error) {
+          if (draftRef.current !== snapshot || guardadoNubePendienteRef.current) continue
+          throw error
+        }
+        if (draftRef.current !== snapshot) guardadoNubePendienteRef.current = true
+      } while (guardadoNubePendienteRef.current)
+      return resultado
+    }
+
+    const guardado = guardarCambios().finally(() => {
+      if (guardadoNubeRef.current === guardado) guardadoNubeRef.current = null
+    })
+    guardadoNubeRef.current = guardado
+    return guardado
+  }
 
   useEffect(() => {
     if (!avisoSync) return
@@ -133,7 +175,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       const respuestas = respuestasConInstancia(d)
       const instancias = instanciasDeDraft(d)
       if (!respuestas.length && !instancias.length) return
-      void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
+      void guardarDraftActualEnNube()
         .then((r) => {
           setFallaSubida(null)
           setDescarte(r)
@@ -156,7 +198,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       const respuestas = respuestasConInstancia(d)
       const instancias = instanciasDeDraft(d)
       if (!respuestas.length && !instancias.length) return
-      void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias).catch(() => undefined)
+      void guardarDraftActualEnNube().catch(() => undefined)
     }
     window.addEventListener('beforeunload', flush)
     return () => {
@@ -184,7 +226,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       setFallaSubida(null)
       return
     }
-    void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
+    void guardarDraftActualEnNube()
       .then((r) => {
         setFallaSubida(null)
         setDescarte(r)
@@ -212,7 +254,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
         setFallaSubida(null)
         return
       }
-      void guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
+      void guardarDraftActualEnNube()
         .then(() => setFallaSubida(null))
         .catch(() => undefined) // el siguiente tick vuelve a intentar
     }, cada)
@@ -334,6 +376,11 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
   // se suman (add-only) y se actualizan vía realtime, un barrido de respaldo o
   // el botón de sincronización.
   const sincronizar = useCallback(async (): Promise<boolean> => {
+    if (lecturaNubeRef.current) {
+      lecturaNubePendienteRef.current = true
+      return lecturaNubeRef.current
+    }
+    const lectura = (async (): Promise<boolean> => {
     if (!vivoRef.current) return false
     const evId = evaluacionIdRef.current
     const miId = profile?.id
@@ -384,6 +431,17 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       // Sin conexión en este instante; el siguiente evento o barrido reintenta.
       return false
     }
+    })()
+    lecturaNubeRef.current = lectura
+    try {
+      return await lectura
+    } finally {
+      if (lecturaNubeRef.current === lectura) lecturaNubeRef.current = null
+      if (lecturaNubePendienteRef.current) {
+        lecturaNubePendienteRef.current = false
+        void sincronizar()
+      }
+    }
   }, [profile?.id, itemsCompartidos])
 
   useEffect(() => {
@@ -403,7 +461,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
         () => void sincronizar()
       )
       .subscribe()
-    const iv = window.setInterval(() => void sincronizar(), 15000)
+    const iv = window.setInterval(() => void sincronizar(), 60000)
     void sincronizar()
     return () => {
       vivoRef.current = false
@@ -439,7 +497,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
         const respuestas = respuestasConInstancia(d)
         const instancias = instanciasDeDraft(d)
         if (respuestas.length || instancias.length) {
-          const r = await guardarBorradorNube(evId, d.evaluador_id, respuestas, instancias)
+          const r = await guardarDraftActualEnNube()
           setFallaSubida(null)
           setDescarte(r)
           guardado = true
@@ -602,6 +660,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       ...actual,
       respuestas: { ...actual.respuestas, [key]: { valor, por: 'yo' } }
     }
+    draftRef.current = nuevo
     setDraft(nuevo)
     const now = Date.now()
     const ultimo = guardadoRef.current.get(key) ?? 0
@@ -625,6 +684,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       ...actual,
       instancias: { ...actual.instancias, [paso.id]: [...previas, ins] }
     }
+    draftRef.current = nuevo
     setDraft(nuevo)
     setEtiquetaNueva('')
     void putDraft(nuevo)
@@ -671,6 +731,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       ...actual,
       instancias: { ...actual.instancias, [paso.id]: [...previas, ins] }
     }
+    draftRef.current = nuevo
     setDraft(nuevo)
     void putDraft(nuevo)
     agendarNube()
@@ -695,6 +756,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       ...actual,
       instancias: { ...actual.instancias, [paso.id]: [...previas, ins] }
     }
+    draftRef.current = nuevo
     setDraft(nuevo)
     setCodigoConsulta('')
     setResultadoConsulta(null)
@@ -717,6 +779,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       respuestas,
       instancias: { ...actual.instancias, [paso.id]: resto }
     }
+    draftRef.current = nuevo
     setDraft(nuevo)
     setConfirmarBorrar(null)
     void putDraft(nuevo)

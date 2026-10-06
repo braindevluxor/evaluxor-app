@@ -40,7 +40,16 @@ async function subirFotosDeRespuestas(
         continue
       }
       const rec = await getPhotos([id]).then((r) => r[0])
-      if (!rec) throw new Error(`No se encontró la foto local ${id}; no se sincronizó el borrador con sus evidencias.`)
+      if (!rec) {
+        const { data, error } = await supabase.storage.from('evidencias').download(path)
+        if (error || !data) {
+          const detalle = error ? ` Storage respondió: ${error.message}` : ''
+          throw new Error(`No se encontró la foto local ${id} ni una copia ya subida a Storage; no se sincronizó el borrador con sus evidencias.${detalle}`)
+        }
+        fotosSubidasEnEstaSesion.add(path)
+        map.set(id, path)
+        continue
+      }
       const { error } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
         contentType: rec.mime,
         upsert: false
