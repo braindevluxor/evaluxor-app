@@ -167,6 +167,28 @@ describe('combinarPorDni', () => {
     colaboradores[0].selected.push('o2')
     expect(actuales[0].selected).toEqual(['o1'])
   })
+
+  it('el que nunca se tocó hereda del fresco: una lista vacía guardada no traga el historial', () => {
+    // El caso de producción vs local: si la evaluación quedó guardada con el
+    // trabajador sin tocar (por ejemplo, cargada por una versión que no
+    // heredaba), la fusión conservaba ese vacío y el avance de la evaluación
+    // anterior nunca volvía. El vacío no es trabajo humano: gana el fresco, que
+    // ya viene con el historial aplicado.
+    const actuales = [colab({ dni: 1 })]
+    const frescos = [colab({ dni: 1, selected: ['o1', 'o2'] })]
+    const { colaboradores } = combinarPorDni(actuales, frescos)
+    expect(colaboradores[0].selected).toEqual(['o1', 'o2'])
+  })
+
+  it('el que sí se trabajó manda, aunque el fresco llegue con otro estado', () => {
+    // Al revés: hay trabajo humano de esta evaluación (tildes, exclusión) y no
+    // se pisa por el historial ni por una API que no trae esas marcas.
+    const actuales = [colab({ dni: 1, selected: ['o1'], aplica: false, noAplica: ['o2'] })]
+    const { colaboradores } = combinarPorDni(actuales, [colab({ dni: 1, selected: ['o1', 'o2', 'o3'] })])
+    expect(colaboradores[0].selected).toEqual(['o1'])
+    expect(colaboradores[0].aplica).toBe(false)
+    expect(colaboradores[0].noAplica).toEqual(['o2'])
+  })
 })
 
 describe('estadosAnteriores', () => {

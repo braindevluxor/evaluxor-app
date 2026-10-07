@@ -117,7 +117,11 @@ export function tieneTrabajoRegistrado(c: ColaboradorItem): boolean {
  *     apellido o de rol, la lista tiene que mostrarlo; la API es la fuente de
  *     verdad de eso.
  *   · De la lista ya cargada: lo que el evaluador marcó. Eso es trabajo humano
- *     y no se tira abajo porque la API volvió.
+ *     y no se tira abajo porque la API volvió. El trabajador que nunca se tocó
+ *     no tiene trabajo que proteger: ahí manda el lado fresco, que ya viene con
+ *     el historial aplicado. Sin ese detalle, una lista que quedó guardada sin
+ *     tocar (por ejemplo, de una versión anterior que no heredaba) taparía para
+ *     siempre el avance que el trabajador ya tenía en evaluaciones viejas.
  *
  * Lo que la API no trae nunca: si el trabajador estaba excluido a propósito, qué
  * checks le marcaron y qué responsables le asignó el evaluador a cada check
@@ -144,7 +148,11 @@ export function combinarPorDni(
     }
     presentes.add(f.dni)
     const previo = porDni.get(f.dni)
-    colaboradores.push(previo ? { ...f, ...respuestasDe(previo) } : f)
+    // Se conserva de la lista actual solo lo que es trabajo del evaluador. El
+    // trabajador sin nada tocado hereda del lado fresco (que viene con el
+    // historial aplicado en `cargar`): si se conservara el vacío de acá, una
+    // lista guardada sin tocar le taparía para siempre el avance que ya tenía.
+    colaboradores.push(previo && tieneTrabajoRegistrado(previo) ? { ...f, ...respuestasDe(previo) } : f)
   }
 
   // Los que ya no están en la API (renunciaron, cambiaron de tienda). Solo se
