@@ -1,13 +1,10 @@
 import { supabase } from '../supabase'
-import {
-  estadosCompletosAnteriores,
-  normalizarListaColaboradores
-} from './colaboradoresEstado'
+import { estadosAnteriores, normalizarListaColaboradores } from './colaboradoresEstado'
 import type { ColaboradorItem } from '../scoring'
 
 /**
- * Qué trabajadores de esta tienda ya salieron completos en una evaluación
- * anterior, con el estado que tenían entonces.
+ * Qué estado tenía cada trabajador de esta tienda en las evaluaciones
+ * anteriores, con el que estaba entonces.
  *
  * POR QUÉ ESTO SE LEE DEL SERVIDOR Y NO DEL TELÉFONO
  * -------------------------------------------------
@@ -30,16 +27,18 @@ import type { ColaboradorItem } from '../scoring'
 const EVALUACIONES_REVISADAS = 12
 
 /**
- * Devuelve, por DNI, el estado de los trabajadores que estaban completos en la
- * evaluación más reciente donde aparecen. Un `Map` vacío significa "no hay
- * historial" y no es un error: la lista se muestra entera.
+ * Devuelve, por DNI, el estado con el que quedó cada trabajador en la evaluación
+ * más reciente donde aparece: los completos, que se dejan de mostrar, y los
+ * incompletos, que vuelven con lo que ya estaba tildado y lo que faltaba. Un
+ * `Map` vacío significa "no hay historial" y no es un error: la lista se muestra
+ * entera.
  *
  * Nunca tira. Si algo falla se devuelve el mapa vacío, que es el mismo
  * comportamiento que no tener historial: se ve la lista completa y listo. Perder
  * el historial es una molestia; romper la carga del listado deja al evaluador
  * sin poder trabajar.
  */
-export async function estadosCompletosDeEvaluacionesAnteriores(
+export async function estadosDeEvaluacionesAnteriores(
   sucursalId: string,
   itemId: string,
   fechaActual: string,
@@ -71,8 +70,8 @@ export async function estadosCompletosDeEvaluacionesAnteriores(
     if (errorResp || !respuestas?.length) return vacio
 
     // Un ítem repetible guarda una respuesta por registro, así que una evaluación
-    // puede traer varias listas del mismo ítem. Se agrupan: el trabajador tiene que
-    // estar completo en todos los registros donde aparece.
+    // puede traer varias listas del mismo ítem. Se agrupan: el estado que manda es
+    // el menos completo de todos los registros donde aparece.
     const porEvaluacion = new Map<string, ColaboradorItem[][]>()
     for (const fila of respuestas as Array<{ evaluacion_id: string; valor: unknown }>) {
       const colaboradores = normalizarListaColaboradores(fila.valor)
@@ -82,13 +81,13 @@ export async function estadosCompletosDeEvaluacionesAnteriores(
       porEvaluacion.set(fila.evaluacion_id, listas)
     }
 
-    // El orden lo trae la consulta (fecha descendente) y `estadosCompletosAnteriores`
-    // depende de eso: gana la evaluación más reciente en la que salió cada uno.
+    // El orden lo trae la consulta (fecha descendente) y `estadosAnteriores`
+    // depende de eso: gana la evaluación más reciente en la que apareció cada uno.
     const ordenadas = (evaluaciones as Array<{ id: string; fecha: string }>)
       .filter((e) => porEvaluacion.has(e.id))
       .map((e) => ({ fecha: e.fecha, listas: porEvaluacion.get(e.id)! }))
 
-    return estadosCompletosAnteriores(ordenadas, idsChecks)
+    return estadosAnteriores(ordenadas, idsChecks)
   } catch {
     return vacio
   }

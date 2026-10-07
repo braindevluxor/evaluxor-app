@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Ban, Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
 import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores, ordenarTrabajadores } from '../lib/data/colaboradores'
-import { aplicarHistorial, combinarPorDni } from '../lib/data/colaboradoresEstado'
-import { estadosCompletosDeEvaluacionesAnteriores } from '../lib/data/colaboradoresHistorico'
+import { combinarPorDni, aplicarHistorial } from '../lib/data/colaboradoresEstado'
+import { estadosDeEvaluacionesAnteriores } from '../lib/data/colaboradoresHistorico'
 import { useProgresoCarga } from '../lib/progresoCarga'
 import { formatearValorConsulta } from '../lib/data/apis'
 import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar, ProgressBar } from './ui'
@@ -28,9 +28,10 @@ interface Props {
   gerente?: string | null
   /**
    * Sucursal y fecha de la evaluación en curso. Solo las usa LISTA_COLABORADORES,
-   * para buscar qué trabajadores de esta tienda ya salieron completos en una
-   * evaluación anterior. Sin estos dosprops el listado funciona igual: se ve
-   * entero y no se oculta nadie.
+   * para traer con qué estado quedó cada trabajador en las evaluaciones
+   * anteriores de la misma tienda: los completos no vuelven a aparecer y los
+   * incompletos vuelven con lo que ya estaba tildado. Sin estos dos props el
+   * listado funciona igual: se ve entero, arrancando de cero.
    */
   sucursalId?: string
   fechaEvaluacion?: string
@@ -864,57 +865,45 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
   const [busqueda, setBusqueda] = useState('')
   const [confirmarLimpiar, setConfirmarLimpiar] = useState(false)
   /**
-   * Trabajadores que ya estaban completos en la evaluación anterior de esta
-   * tienda, con el estado que tenían entonces. Se ocultan de la lista pero NO
-   * se sacan del valor guardado: si se sacaran con las casillas vacías, el
-   * tablero los contaría como incumplidos.
-   */
-  const [resueltosAntes, setResueltosAntes] = useState<Map<number, ColaboradorItem>>(new Map())
-  const [mostrarResueltos, setMostrarResueltos] = useState(false)
-  /**
    * La combinación esperando confirmación: la lista nueva ya combinada y a quién
    * se le está por perder el trabajo. Se guarda entera y no solo los nombres
    * porque al confirmar hay que aplicar la misma lista que se iba a aplicar, no
    * una segunda versión recalculada.
    */
-  const [pendienteCombinacion, setPendienteCombinacion] = useState<{ colaboradores: ColaboradorItem[]; perdidos: ColaboradorItem[]; historial: Map<number, ColaboradorItem> } | null>(null)
-  /** Evita volver a pedir el historial en cada remount del ítem. */
-  const historicoPedido = useRef(false)
-  /**
-   * Ya se sabe qué trabajadores estaban completos antes. `false` hasta que se
-   * consulta (o hasta que se decide que no hay nada que consultar). Es lo único
-   * que separa "lista depurada" de "lista entera".
-   */
-  const [historialResuelto, setHistorialResuelto] = useState(false)
+  const [pendienteCombinacion, setPendienteCombinacion] = useState<{ colaboradores: ColaboradorItem[]; perdidos: ColaboradorItem[] } | null>(null)
 
   const v = (valor as ValorListaColaboradores | null) ?? { colaboradores: [] }
   const colaboradores = ordenarTrabajadores(v.colaboradores ?? [])
+  const opts = useMemo(() => (item.opciones ?? []) as Opcion[], [item.opciones])
+  // Solo los ids, y en un useMemo, porque es lo único que la consulta del
+  // historial necesita. Depende de `opts` y no de `item.opciones` porque cuando
+  // el ítem no tiene checklist `(item.opciones ?? [])` devuelve un `[]` nuevo en
+  // cada render y el arreglo no se podría comparar.
+  const idsChecks = useMemo(() => opts.map((o) => o.id), [opts])
   /**
-   * Los que ya estaban completos y quedan ocultos. Se filtran acá, al pintar, y
-   * no al guardar: el valor guardado los conserva (con su estado de la evaluación
-   * anterior) para que el tablero y el puntaje sigan contando a toda la
-   * plantilla. Si se ocultaran guardándolos fuera, el porcentaje del ítem se
+   * Los que ya tienen la lista completa: no queda nada que verificar en ellos,
+   * así que se dejan de mostrar.
+   *
+   * Se filtran acá, al pintar, y no al guardar: el valor guardado los conserva
+   * (con su estado) para que el tablero y el puntaje sigan contando a toda la
+   * plantilla. Si se sacaran guardándolos fuera, el porcentaje del ítem se
    * deformaría y la tienda mejorada parecería peor.
    *
-   * Además, si un trabajador queda completo AHORA (acabás de tildar todo), se
-   * oculta para limpiar la lista. Si lo buscás por cédula o nombre, sigue
+   * Sale del valor y no de una consulta al servidor a propósito: lo que decide
+   * si alguien está completo es lo que hay guardado, así que con volver al ítem
+   * desde otro paso ya se sabe. Ninguna barra que esperar, ningún flash de la
+   * lista entera que después se acorta. Si lo buscás por cédula o nombre, sigue
    * apareciendo igual: eso permite volver a revisarlo si querés.
    */
   const hayBusqueda = busqueda.trim().length > 0
-  const ocultosHistorial = mostrarResueltos ? new Set<number>() : new Set(resueltosAntes.keys())
-  const ocultosAhora = mostrarResueltos ? new Set<number>() : new Set<number>()
-  const optsCalculo = (item.opciones ?? []) as Opcion[]
-  if (!mostrarResueltos && !hayBusqueda && historialResuelto) {
-    for (const c of colaboradores) {
-      if (!c.aplica) continue
-      const checksAplicables = opcionesAplicablesColaborador(c, optsCalculo)
-      if (checksAplicables.length === 0) continue
-      if (colaboradorCumple(c, optsCalculo)) {
-        ocultosAhora.add(c.dni)
-      }
-    }
+  const ocultos = new Set<number>()
+  for (const c of colaboradores) {
+    // El excluido a propósito tampoco se esconde: la pantalla es el único lugar
+    // desde el cual se lo puede volver a incluir.
+    if (!c.aplica) continue
+    if (opcionesAplicablesColaborador(c, opts).length === 0) continue
+    if (colaboradorCumple(c, opts)) ocultos.add(c.dni)
   }
-  const ocultos = new Set<number>([...ocultosHistorial, ...ocultosAhora])
   const colaboradoresFiltrados = colaboradores.filter((c) => {
     const q = busqueda.trim().toLowerCase()
     if (!q) return true
@@ -927,74 +916,38 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
     return hayBusqueda
   })
   const ocultosVisibles = colaboradoresFiltrados.length - colaboradoresVisibles.length
-  const opts = useMemo(() => (item.opciones ?? []) as Opcion[], [item.opciones])
-  // Solo los ids, y en un useMemo, porque es lo único que la consulta del
-  // historial necesita. Si el efecto dependiera del arreglo de opciones entero,
-  // se volvería a disparar en cada render cuando el ítem no tiene checklist: ahí
-  // `(item.opciones ?? [])` crea un `[]` nuevo en cada vuelta.
-  const idsChecks = useMemo(() => opts.map((o) => o.id), [opts])
   const filtro = item.colaboradores_filtro ?? 'ACTIVOS'
   const etiquetaFiltro = filtro === 'TODOS' ? 'activos e inactivos' : filtro === 'ACTIVOS' ? 'solo activos' : 'solo inactivos'
   // La API de trabajadores usa un ID de sucursal propio (branch_id) que puede
   // diferir del shop_id (productos). Si no está configurado, cae al shop_id.
   const idTrabajadores = branchId ?? shopId
-  // Si no hay sucursal, fecha o checks, no hay historial que traer: la lista se
-  // muestra entera desde el primer render y no hay barra.
-  const puedeConsultarHistorial = !!sucursalId && !!fechaEvaluacion && idsChecks.length > 0
-  const historialPendiente = !historialResuelto && puedeConsultarHistorial && colaboradores.length > 0
 
-  const actualizar = (cols: ColaboradorItem[]) => onChange({ ...v, colaboradores: cols })
+  /**
+   * El único conducto por el que pasa cualquier cambio de la lista, y por eso es
+   * el lugar donde se mantiene coherente el check general de cada trabajador.
+   *
+   * "Cuenta para el puntaje" no significa nada sobre alguien a quien no se le
+   * tildó ni se le marcó nada: si el evaluador le desmarcó todo, la exclusión ya
+   * no tiene a quién aplicarse y se borra sola. Así el primer punto que tilde
+   * vuelve a encender el check, como manda la regla de que sin nada tildado el
+   * check general está apagado.
+   */
+  const actualizar = (cols: ColaboradorItem[]) =>
+    onChange({ ...v, colaboradores: cols.map((c) => (esColaboradorRevisado(c) || c.aplica !== false ? c : { ...c, aplica: true })) })
   const limpiar = () => {
     setConfirmarLimpiar(false)
     setPendienteCombinacion(null)
     setBusqueda('')
     setAbiertoDni(null)
     setInfo('')
-    // Se olvida el historial también: si no, al recargar la lista volverían a
-    // ocultarse los que ya estaban completos y el evaluador no vería a quién
-    // le puso "no aplica" a propósito.
-    setResueltosAntes(new Map())
-    setMostrarResueltos(false)
-    // Y se libera la consulta: la lista quedó vacía, así que al recargarla hay
-    // que volver a preguntarle al servidor cuáles eran los resueltos.
-    historicoPedido.current = false
-    setHistorialResuelto(false)
     actualizar([])
   }
-  const ocultarResueltos = (historial: Map<number, ColaboradorItem>, lista: ColaboradorItem[]) => {
-    setResueltosAntes(historial)
-    setMostrarResueltos(false)
+  const aplicarListaCombinada = (lista: ColaboradorItem[]) => {
     setPendienteCombinacion(null)
     actualizar(lista)
     setAbiertoDni(null)
   }
-
-  const ocultarAunSinCargar = async () => {
-    // El guard NO puede mirar `resueltosAntes`: al remontar viene vacío, así que
-    // preguntar "hay alguno ya resuelto" ahí siempre da falso y nunca se consulta.
-    // Lo único que se sabe sin consultar es si hay lista cargada; si no hay
-    // colaboradores, no hay nada que ocultar.
-    if (historicoPedido.current || !puedeConsultarHistorial || !colaboradores.length) return
-    historicoPedido.current = true
-    const historial = await estadosCompletosDeEvaluacionesAnteriores(sucursalId!, item.id, fechaEvaluacion!, idsChecks)
-    setResueltosAntes(historial)
-    setHistorialResuelto(true)
-  }
-
-  /**
-   * Si la lista todavía no se sabe depurada, no se muestra.
-   *
-   * No es un estado con `useState` a propósito. Sale de lo que se sabe, no de
-   * lo que alguien se acordara de apagar. Así no hay forma de que la barra quede
-   * girando para siempre porque un `return` temprano se olvidó de apagarla: si
-   * no hay nada que consultar, `puedeConsultarHistorial` da falso y no hay barra
-   * desde el primer render.
-   *
-   * Esto tapa los dos casos en que la lista se veía entera y después se
-   * acortaba sola: apretar "Actualizar listado" y volver al ítem desde otro
-   * paso. En los dos, hasta saber quién ya estaba completo, no se muestra nada.
-   */
-  const hayAlgoQueEsperar = cargando || historialPendiente
+  const hayAlgoQueEsperar = cargando
 
   /**
    * El avance de la barra. Los tres mensajes van marcando por dónde va la
@@ -1012,18 +965,6 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
    * la barra.
    */
   const { avance, visible: barraVisible, mensaje } = useProgresoCarga(hayAlgoQueEsperar)
-
-  // Al volver al ítem el componente se vuelve a montar y el estado local se
-  // pierde. Los que estaban ocultos siguen guardados en el valor (con su estado
-  // de la evaluación anterior), así que sin esto aparecerían todos otra vez.
-  //
-  // La lógica va adentro del efecto y no en una función aparte porque esa
-  // función se recrea en cada render, y ponerla en las dependencias dispararía
-  // el efecto siempre. Las dependencias son solo los valores que de verdad lee.
-  useEffect(() => {
-    void ocultarAunSinCargar()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colaboradores.length, sucursalId, fechaEvaluacion, item.id, idsChecks])
 
   const toggleAbierto = (dni: number) => {
     setAbiertoDni((prev) => (prev === dni ? null : dni))
@@ -1046,17 +987,10 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
     const [r, historial] = await Promise.all([
       listarColaboradores(idTrabajadores),
       sucursalId && fechaEvaluacion
-        ? estadosCompletosDeEvaluacionesAnteriores(sucursalId, item.id, fechaEvaluacion, idsChecks)
+        ? estadosDeEvaluacionesAnteriores(sucursalId, item.id, fechaEvaluacion, idsChecks)
         : Promise.resolve(new Map<number, ColaboradorItem>())
     ])
     setCargando(false)
-    // El historial ya está en la mano: se marca como pedido para que el efecto de
-    // remount no vuelva a preguntar lo mismo. Y como ya se sabe qué estaba
-    // completo, la lista se puede pintar depurada. Va antes de los `return` de
-    // error a propósito: si la consulta falló y se devuelve el mapa vacío, la
-    // lista se ve entera, pero no debe quedar la barra girando.
-    historicoPedido.current = true
-    setHistorialResuelto(true)
     if (r.mensaje) {
       setInfo(r.mensaje)
       return
@@ -1080,27 +1014,29 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
     if (!nuevos.length) {
       setInfo(`No hay trabajadores para el filtro configurado (${etiquetaFiltro}).`)
     }
-    // A los que ya salieron bien se les carga el estado de la evaluación anterior,
-    // para que no cuenten como incumplidos solo por estar ocultos.
+    // A cada trabajador se le carga el estado con el que quedó en la evaluación
+    // anterior: los 25 puntos que ya estaban tildados y los que seguían
+    // pendientes. Sin esto el avance se perdía cada vez que se abría una
+    // evaluación nueva, y los que ya estaban completos volvían a contar como
+    // incumplidos solo por estar ocultos.
     const conHistorial = aplicarHistorial(nuevos, historial)
     const { colaboradores: combinados, perdidos } = combinarPorDni(colaboradores, conHistorial)
 
     if (perdidos.length) {
       // Hay trabajo humano que la API ya no trae. No se descarta solo: se pregunta.
-      // El historial se aplica igual, para que la lista que se ve detrás del
-      // diálogo no sea la entera cuando el filtro ya se sabe.
-      setResueltosAntes(historial)
-      setPendienteCombinacion({ colaboradores: combinados, perdidos, historial })
+      setPendienteCombinacion({ colaboradores: combinados, perdidos })
       return
     }
-    setResueltosAntes(historial)
     setPendienteCombinacion(null)
     actualizar(combinados)
     setAbiertoDni(null)
   }
 
   const marcarAplica = (dni: number) => {
-    actualizar(colaboradores.map((c) => (c.dni === dni ? { ...c, aplica: !c.aplica } : c)))
+    // Con la casilla deshabilitada no se llega acá, pero el guard está igual: si
+    // nada del checklist del trabajador está tildado, su check general tiene que
+    // estar apagado, y no hay clic que pueda encenderlo.
+    actualizar(colaboradores.map((c) => (c.dni === dni && esColaboradorRevisado(c) ? { ...c, aplica: !c.aplica } : c)))
   }
 
   const toggleCheck = (dni: number, opcionId: string) => {
@@ -1200,11 +1136,13 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
       </div>
 
       {/*
-        La barra va arriba de la lista y no adentro, porque mientras está no hay
-        lista: hasta saber quién ya estaba completo, mostrar los diez y después
-        sacar cinco se lee como que la app se arrepintió. También reemplaza al
-        spinner del header, que decía lo mismo en otra parte y dejaba dos
-        indicadores para una sola espera.
+        La barra va arriba de la lista y no adentro, porque mientras `cargar()`
+        está corriendo no hay lista que mirar: los nombres que había vienen de
+        una consulta que se está reemplazando, y con el historial recién
+        sembrado varios van a dejar de aparecer. Mostrarlos y sacarlos después se
+        lee como que la app cambió de opinión. También reemplaza al spinner del
+        header, que decía lo mismo en otra parte y dejaba dos indicadores para
+        una sola espera.
 
         El número del relleno es de adorno (`valorAprox`, no `value`): por eso no
         se anuncia. Lo que anuncia el avance es el mensaje, que sí va cambiando.
@@ -1212,40 +1150,15 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         La barra se queda llena un instante después de que la consulta respondió
         (`mensaje` pasa a `null`), y recién ahí entra la lista. Sin esa pausa el
         salto al 100% no se ve: la lista taparía el final de la barra.
+
+        Al volver al ítem desde otro paso no hay barra: el valor guardado ya
+        trae a quién estaba completo, así que la lista se pinta depurada en el
+        primer render y la única espera es la del "Actualizar listado".
       */}
       {barraVisible ? (
         <div className="rounded-xl border border-slate-200 bg-white p-3">
           <ProgressBar valorAprox={avance} />
           {mensaje ? <p className="mt-2 text-xs text-slate-500">{mensaje}</p> : null}
-        </div>
-      ) : null}
-
-      {/*
-        Los que ya estaban completos. El aviso va fuera de la lista y antes del
-        buscador porque es lo primero que hay que entender al abrir el ítem: si
-        no, un evaluador ve "9 de 10 completos" y una sola persona en pantalla y
-        piensa que faltan nueve.
-
-        Todo lo de abajo —aviso, buscador y lista— se esconde mientras la barra está a
-        la vista. Si no, al volver al ítem se veían los diez un instante y al
-        terminar la consulta quedaban cinco: el flash es justo lo que esta barra
-        viene a tapar.
-      */}
-      {!barraVisible && resueltosAntes.size ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2">
-          <Check className="h-4 w-4 shrink-0 text-green-600" />
-          <p className="min-w-0 flex-1 text-xs text-green-800">
-            {mostrarResueltos
-              ? `Se están mostrando los ${resueltosAntes.size} que ya estaban completos. Siguen contando en el puntaje.`
-              : `${resueltosAntes.size} ${resueltosAntes.size === 1 ? 'trabajador estaba' : 'trabajadores estaban'} completo${resueltosAntes.size === 1 ? '' : 's'} en la evaluación anterior y no se vuelve a revisar. Siguen contando en el puntaje.`}
-          </p>
-          <button
-            type="button"
-            onClick={() => setMostrarResueltos((v) => !v)}
-            className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-green-800 shadow-sm hover:bg-green-100"
-          >
-            {mostrarResueltos ? 'Ocultarlos' : 'Verlos'}
-          </button>
         </div>
       ) : null}
 
@@ -1271,16 +1184,27 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                 const checksAplicables = opcionesAplicablesColaborador(c, opts)
                 const todosNoAplican = checksAplicables.length === 0
                 const cumple = !todosNoAplican && colaboradorCumple(c, opts)
+                // Si el trabajador todavía no tiene nada registrado no entró en la
+                // evaluación, y su check general tiene que estar apagado. Tildarle
+                // el primer documento es lo que lo enciende, no apretarlo a mano.
+                const revisado = esColaboradorRevisado(c)
                 // Sin nada registrado la fila dice "Sin revisar", no "Incompleto":
                 // no es un incumplimiento, es un trabajador que todavía no entró
                 // en la evaluación.
-                const estado = todosNoAplican ? 'No aplica' : cumple ? 'Completo' : esColaboradorRevisado(c) ? 'Incompleto' : 'Sin revisar'
-                const estadoClass = todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : esColaboradorRevisado(c) ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'
+                const estado = todosNoAplican ? 'No aplica' : cumple ? 'Completo' : revisado ? 'Incompleto' : 'Sin revisar'
+                const estadoClass = todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : revisado ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'
                 return (
                   <div key={c.dni} className={cn('rounded-xl border transition-colors', c.aplica ? (cumple ? 'border-green-200 bg-white' : 'border-slate-200 bg-white') : 'border-slate-100 bg-slate-50')}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-                        <input type="checkbox" className="h-5 w-5 shrink-0 accent-primary" checked={c.aplica} onChange={() => marcarAplica(c.dni)} title="Cuenta para el puntaje" />
+                        <input
+                          type="checkbox"
+                          className="h-5 w-5 shrink-0 accent-primary"
+                          checked={c.aplica && revisado}
+                          disabled={!revisado}
+                          onChange={() => marcarAplica(c.dni)}
+                          title={revisado ? 'Cuenta para el puntaje' : 'Sin nada tildado todavía: tildá al menos un punto del checklist'}
+                        />
                         <span className="min-w-0 flex-1">
                           <span className="block whitespace-normal break-words text-sm font-semibold leading-snug text-slate-800">{c.lastname} {c.name}</span>
                           <span className="block text-[11px] text-slate-500">
@@ -1298,8 +1222,8 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                       <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', estadoClass)}>
                         {estado}
                       </span>
-                      <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : esColaboradorRevisado(c) ? 'bg-slate-100 text-slate-500' : 'bg-slate-100 text-slate-400')}>
-                        {todosNoAplican ? 'No aplica' : cumple ? `${checksAplicables.length}/${checksAplicables.length}` : esColaboradorRevisado(c) ? `${c.selected.filter((id) => checksAplicables.some((o) => o.id === id)).length}/${checksAplicables.length}` : `0/${checksAplicables.length} · sin revisar`}
+                      <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : revisado ? 'bg-slate-100 text-slate-500' : 'bg-slate-100 text-slate-400')}>
+                        {todosNoAplican ? 'No aplica' : cumple ? `${checksAplicables.length}/${checksAplicables.length}` : revisado ? `${c.selected.filter((id) => checksAplicables.some((o) => o.id === id)).length}/${checksAplicables.length}` : `0/${checksAplicables.length} · sin revisar`}
                       </span>
                       <button
                         type="button"
@@ -1379,12 +1303,11 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                 )
               })}
             </div>
-          ) : ocultosVisibles > 0 && !busqueda.trim() ? (
-            // Todo lo que queda en pantalla está oculto por historial. No es un
-            // error ni una búsqueda sin resultados: es que ya no hay nada por
-            // revisar acá.
+          ) : ocultosVisibles > 0 ? (
+            // Todo lo que quedaba en pantalla está completo. No es un error ni una
+            // búsqueda sin resultados: es que ya no hay nada por revisar acá.
             <p className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
-              No queda nadie por revisar: los {ocultosVisibles} de la lista ya estaban completos en la evaluación anterior.
+              No queda nadie por revisar: {ocultosVisibles} de la lista {ocultosVisibles === 1 ? 'ya tiene' : 'ya tienen'} el checklist completo.
             </p>
           ) : (
             <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
@@ -1421,7 +1344,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         textoConfirmar="Actualizar igual"
         variant="secondary"
         onConfirm={() => {
-          if (pendienteCombinacion) ocultarResueltos(pendienteCombinacion.historial, pendienteCombinacion.colaboradores)
+          if (pendienteCombinacion) aplicarListaCombinada(pendienteCombinacion.colaboradores)
         }}
         onCancel={() => setPendienteCombinacion(null)}
       />

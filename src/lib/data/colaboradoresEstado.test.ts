@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   aplicarHistorial,
   combinarPorDni,
-  estadosCompletosAnteriores,
+  estadosAnteriores,
   normalizarListaColaboradores,
   tieneTrabajoRegistrado
 } from './colaboradoresEstado'
@@ -169,34 +169,45 @@ describe('combinarPorDni', () => {
   })
 })
 
-describe('estadosCompletosAnteriores', () => {
+describe('estadosAnteriores', () => {
   it('con las listas de más nueva a más vieja', () => {
-    const historial = estadosCompletosAnteriores([{ fecha: '2026-02-01', listas: [[completo(1)]] }], IDS)
+    const historial = estadosAnteriores([{ fecha: '2026-02-01', listas: [[completo(1)]] }], IDS)
     expect(historial.has(1)).toBe(true)
     expect(historial.get(1)?.selected).toEqual(['o1', 'o2', 'o3'])
   })
 
+  it('devuelve también a los incompletos, con lo tildado y lo que faltaba', () => {
+    // El motivo de heredar a todos y no solo a los completos: con 25 de los 30
+    // documentos, esos 25 tildes son la única manera de corroborar en la próxima
+    // evaluación si los 5 faltantes ya están bien. Antes se perdían.
+    const historial = estadosAnteriores(
+      [{ fecha: '2026-02-01', listas: [[colab({ dni: 1, selected: ['o1', 'o2'] })]] }],
+      IDS
+    )
+    expect(historial.get(1)?.selected).toEqual(['o1', 'o2'])
+  })
+
   it('sin historial no oculta a nadie', () => {
-    expect(estadosCompletosAnteriores([], IDS).size).toBe(0)
+    expect(estadosAnteriores([], IDS).size).toBe(0)
   })
 
   it('gana la evaluación más reciente, aunque antes estuviera completo', () => {
-    // El caso importante: si en la última lewentó la falla hacia atrás, el
-    // problema sigue ahí y esconderlo lo dejaría pasar.
-    const historial = estadosCompletosAnteriores(
+    // El caso importante: si en la última reapareció la falla, el problema sigue
+    // ahí y heredar el estado completo de antes lo dejaría pasar.
+    const historial = estadosAnteriores(
       [
         { fecha: '2026-02-01', listas: [[colab({ dni: 1, selected: ['o1'] })]] },
         { fecha: '2026-01-01', listas: [[completo(1)]] }
       ],
       IDS
     )
-    expect(historial.has(1)).toBe(false)
+    expect(historial.get(1)?.selected).toEqual(['o1'])
   })
 
   it('no vuelve a una evaluación vieja si en la última no estaba', () => {
     // Si el trabajador no aparece en la última evaluación, la que manda es la
     // anterior donde sí estaba: no hay dato más reciente.
-    const historial = estadosCompletosAnteriores(
+    const historial = estadosAnteriores(
       [
         { fecha: '2026-02-01', listas: [[completo(2)]] },
         { fecha: '2026-01-01', listas: [[completo(1)]] }
@@ -206,54 +217,58 @@ describe('estadosCompletosAnteriores', () => {
     expect([...historial.keys()].sort()).toEqual([1, 2])
   })
 
-  it('exige que esté completo en todos los registros del ítem repetible', () => {
+  it('si en algún registro del ítem repetible no cumplió, manda ese estado', () => {
     // Un ítem repetible guarda una lista por registro. Cumplir en uno y no en
-    // otro no es estar completo.
-    const historial = estadosCompletosAnteriores(
+    // otro no es estar completo, y heredar el completo lo escondería de la
+    // revisión sin que nadie lo haya decidido.
+    const historial = estadosAnteriores(
       [{ fecha: '2026-02-01', listas: [[completo(1)], [colab({ dni: 1, selected: ['o1'] })]] }],
       IDS
     )
-    expect(historial.has(1)).toBe(false)
+    expect(historial.get(1)?.selected).toEqual(['o1'])
+    expect(colaboradorCumple(historial.get(1)!, IDS.map((id) => ({ id })))).toBe(false)
   })
 
-  it('exige que esté completo en todos los registros, y lo acepta si lo está', () => {
-    const historial = estadosCompletosAnteriores(
+  it('y lo devuelve completo si lo está en todos los registros', () => {
+    const historial = estadosAnteriores(
       [{ fecha: '2026-02-01', listas: [[completo(1)], [completo(1)]] }],
       IDS
     )
-    expect(historial.has(1)).toBe(true)
+    expect(historial.get(1)?.selected).toEqual(['o1', 'o2', 'o3'])
   })
 
   it('no confunde "no le aplica nada" con "cumplió"', () => {
-    // Al que el evaluador le marcó "no aplica" en todo no se lo evaluó. Ocultarlo
-    // lo haría desaparecer de la revisión sin que nadie lo haya decidido.
+    // Al que el evaluador le marcó "no aplica" en todo no se lo evaluó. No hay
+    // nada que heredar de ahí: tiene que volver a decidirse.
     const todosNoAplican = colab({ dni: 1, selected: [], noAplica: ['o1', 'o2', 'o3'] })
     expect(opcionesAplicablesColaborador(todosNoAplican, IDS.map((id) => ({ id })))).toEqual([])
-    expect(estadosCompletosAnteriores([{ fecha: '2026-02-01', listas: [[todosNoAplican]] }], IDS).size).toBe(0)
+    expect(estadosAnteriores([{ fecha: '2026-02-01', listas: [[todosNoAplican]] }], IDS).size).toBe(0)
   })
 
   it('no cuenta a quien el evaluador excluyó a propósito', () => {
     const excluido = colab({ dni: 1, aplica: false, selected: ['o1', 'o2', 'o3'] })
-    expect(estadosCompletosAnteriores([{ fecha: '2026-02-01', listas: [[excluido]] }], IDS).size).toBe(0)
+    expect(estadosAnteriores([{ fecha: '2026-02-01', listas: [[excluido]] }], IDS).size).toBe(0)
   })
 
   it('manda sobre el estado guardado, no sobre el del checklist de hoy', () => {
-    // Si se ocultara solo por lo que quedó guardado, un check nuevo quedaría sin
-    // revisar para siempre. Con los checks de hoy, uno nuevo sin marcar hace que
-    // el trabajador deje de estar completo y vuelva a la lista.
+    // Si se heredara lo viejo sin mirar los checks de hoy, un check nuevo quedaría
+    // sin revisar para siempre. Con los checks de hoy, uno nuevo sin marcar hace
+    // que el trabajador deje de estar completo: hereda lo que tenía y vuelve a la
+    // lista a completarlo.
     const antes = colab({ dni: 1, selected: ['o1', 'o2'] })
-    const conCheckNuevo = estadosCompletosAnteriores(
+    const conCheckNuevo = estadosAnteriores(
       [{ fecha: '2026-02-01', listas: [[antes]] }],
       [...IDS, 'o4']
     )
-    expect(conCheckNuevo.size).toBe(0)
+    expect(conCheckNuevo.get(1)?.selected).toEqual(['o1', 'o2'])
+    expect(colaboradorCumple(conCheckNuevo.get(1)!, [...IDS, 'o4'].map((id) => ({ id })))).toBe(false)
   })
 
   it('ignora un check que ya no existe en el ítem de hoy', () => {
     // Al revés: si le sacaron un check, el `selected` viejo lo tiene guardado pero
     // ya no puntúa, así que el trabajador sigue estando completo.
     const antes = colab({ dni: 1, selected: ['o1', 'o2', 'o99'] })
-    expect(estadosCompletosAnteriores([{ fecha: '2026-02-01', listas: [[antes]] }], ['o1', 'o2']).size).toBe(1)
+    expect(estadosAnteriores([{ fecha: '2026-02-01', listas: [[antes]] }], ['o1', 'o2']).size).toBe(1)
   })
 })
 
@@ -271,11 +286,13 @@ describe('aplicarHistorial', () => {
     expect(aplicarHistorial(frescos, new Map())).toBe(frescos)
   })
 
-  it('el ocultado NO hunde el puntaje: el que estaba bien sigue contando como bien', () => {
-    // Este es el motivo de todo el módulo. Si al que ya salió bien se lo
-    // ocultara con las casillas vacías, `colaboradorCumple` daría false, el ítem
-    // se caería y la tienda mejorada parecería en rojo.
-    const historial = estadosCompletosAnteriores(
+  it('el oculto NO hunde el puntaje: el que estaba bien sigue contando como bien', () => {
+    // Este es el motivo de guardar en el valor y no solo en la pantalla. Si al
+    // que ya salió bien se le cargara el historial con las casillas vacías,
+    // `colaboradorCumple` daría false, el ítem se caería y la tienda mejorada
+    // parecería en rojo. El incompleto (dni 2) tampoco se inventa: hereda lo que
+    // tenía tildado, no un avance que no correspondía.
+    const historial = estadosAnteriores(
       [{ fecha: '2026-02-01', listas: [[completo(1), colab({ dni: 2, selected: ['o1'] })]] }],
       IDS
     )

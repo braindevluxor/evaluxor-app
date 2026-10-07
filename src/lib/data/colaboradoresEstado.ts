@@ -169,29 +169,43 @@ function respuestasDe(previo: ColaboradorItem): Partial<ColaboradorItem> {
 }
 
 /**
- * Qué trabajadores ya estaban completos y con qué estado, para no volver a
- * revisar lo que ya salió bien.
+ * Qué estado tenía cada trabajador en la evaluación más reciente donde
+ * apareció: completos e incompletos, no solo los completos.
+ *
+ * POR QUÉ TAMBIÉN SE HEREDAN LOS INCOMPLETOS
+ * ------------------------------------------
+ * Si un trabajador tenía 25 de los 30 documentos, esos 25 tildes son la única
+ * manera de corroborar en la próxima evaluación si los 5 faltantes ya están
+ * bien. Devolver solo a los completos (lo que hacía antes) obligaba a arrancar
+ * de cero cada vez que se abría una evaluación y el avance se perdía.
+ *
+ * Quien terminó completo, en cambio, ya no tiene nada que verificar: se hereda
+ * su estado y la pantalla lo deja de mostrar, que es justo lo que le pasa a un
+ * ítem cuyo valor ya viene resuelto.
  *
  * LAS REGLAS, Y POR QUÉ SON ESTAS
  * ------------------------------
  * 1. Gana la evaluación MÁS RECIENTE en la que apareció. Si en la última estaba
- *    incompleto y en la anterior completo, se lo vuelve a mostrar: si lewentó la
- *    falla hacia atrás en el tiempo, el problema sigue ahí y esconderlo sería
- *    dejarlo pasar. Por eso el recorrido es de la más nueva a la más vieja y
- *    cada DNI se toma una sola vez.
- * 2. Dentro de una misma evaluación, tiene que estar completo en TODAS las
- *    listas donde aparece. Un ítem repetible genera una lista por registro, y
- *    que cumpla en un registro y no en otro no es estar completo.
+ *    incompleto y en la anterior completo, se lo vuelve a mostrar incompleto: si
+ *    la falla reapareció, el problema sigue ahí y esconderlo sería dejarlo
+ *    pasar. Por eso el recorrido es de la más nueva a la más vieja y cada DNI
+ *    se toma una sola vez.
+ * 2. Dentro de una misma evaluación, manda el estado MENOS completo. Un ítem
+ *    repetible genera una lista por registro, y que cumpla en uno y no en otro
+ *    no es estar completo: si en algún registro no llegó a cumplir, ese es el
+ *    estado que se hereda, para que vuelva a la lista y se verifique.
  * 3. Solo se considera a quien tenía al menos un check aplicable. Un
  *    trabajador al que el evaluador le marcó "no aplica" en todo no es que
- *    "cumplió": es que no se lo evaluó, y esconderlo lo haría desaparecer de
- *    la revisión sin que nadie lo haya decidido.
+ *    "cumplió": es que no se lo evaluó, y no hay nada que heredar de ahí.
+ * 4. Al que el evaluador excluyó con la casilla de "cuenta para el puntaje"
+ *    tampoco: esa exclusión era una decisión de ese evaluador en ese momento,
+ *    no un dato de la tienda que le compete al próximo.
  *
  * Se devuelve el estado previo, no solo el DNI, porque ese estado es el que se
  * vuelve a cargar en la lista nueva: si solo se ocultara de la pantalla y se lo
  * dejara con las casillas vacías, el tablero lo contaría como incumplido.
  */
-export function estadosCompletosAnteriores(
+export function estadosAnteriores(
   evaluaciones: { fecha: string; listas: ColaboradorItem[][] }[],
   idsChecks: readonly string[]
 ): Map<number, ColaboradorItem> {
@@ -213,7 +227,9 @@ export function estadosCompletosAnteriores(
         const previo = porDni.get(c.dni)
         porDni.set(c.dni, {
           completo: previo ? previo.completo && completo : completo,
-          estado: previo ? previo.estado : c
+          // Si en algún registro no llegó a cumplir, manda ese estado: esconderlo
+          // sería dar por revisado algo que todavía no lo está.
+          estado: previo && previo.completo && !completo ? c : previo ? previo.estado : c
         })
       }
     }
@@ -221,7 +237,7 @@ export function estadosCompletosAnteriores(
     for (const [dni, info] of porDni) {
       if (vistos.has(dni)) continue
       vistos.add(dni)
-      if (info.completo) salida.set(dni, info.estado)
+      salida.set(dni, info.estado)
     }
   }
 
@@ -230,13 +246,14 @@ export function estadosCompletosAnteriores(
 
 /**
  * Carga en la lista nueva el estado que el trabajador tenía en la evaluación
- * anterior.
+ * anterior: los puntos que ya estaban tildados y los que seguían pendientes.
  *
  * Es lo que mantiene el número del tablero igual. Si al que ya salió bien se lo
  * oculta de la pantalla pero se lo deja con las casillas vacías, el ítem lo
  * cuenta como incumplido y la evaluación de la tienda se cae entera por un
- * trabajador que nadie revisó. La lista se acorta para trabajar más rápido; los
- * números no se mueven.
+ * trabajador que nadie revisó. Y si al incompleto no se le carga su avance, lo
+ * que llevaba revisado se pierde cada vez que se abre una evaluación nueva.
+ * La lista se acorta para trabajar más rápido; los números no se mueven.
  */
 export function aplicarHistorial(
   frescos: ColaboradorItem[],

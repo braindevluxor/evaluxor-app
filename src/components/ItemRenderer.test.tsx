@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { ItemRenderer } from './ItemRenderer'
 import { ProgressBar } from './ui'
-import { INICIO_INDETERMINADO, TECHO_INDETERMINADO } from '../lib/progresoCarga'
 import type { Item } from '../lib/types'
 
 function itemDe(texto: string, repetible?: boolean | null): Item {
@@ -212,6 +211,55 @@ function itemColaboradores(): Item {
   }
 }
 
+/**
+ * El mismo ítem con dos puntos: el mínimo para que un trabajador pueda estar
+ * revisado y aun así incompleto. Con un solo punto, cualquier tildes lo deja
+ * completo (y por lo tanto oculto), y no se podría ver un check general encendido.
+ */
+function itemColaboradoresVarios(): Item {
+  return {
+    ...itemColaboradores(),
+    opciones: [
+      { id: 'o1', etiqueta: 'Contrato vigente' },
+      { id: 'o2', etiqueta: 'Uniforme en regla' }
+    ]
+  }
+}
+
+type Trabajador = {
+  dni: number
+  nationality: string
+  name: string
+  lastname: string
+  role_id: number
+  role_name: string
+  branch_id: number
+  branch_name: string
+  admission_date: string | null
+  active: boolean
+  aplica: boolean
+  selected: string[]
+}
+
+/** Fila de trabajador tal como la guarda la lista, con lo importante en false/[] */
+function trabajador(dni: number, name: string, lastname: string, extra: Partial<Trabajador> = {}): Trabajador {
+  return {
+    dni,
+    nationality: 'V-',
+    name,
+    lastname,
+    role_id: 1,
+    role_name: 'Cajera',
+    branch_id: 1,
+    branch_name: '',
+    admission_date: null,
+    active: true,
+    aplica: true,
+    selected: [],
+    ...extra
+  }
+}
+
 describe('ItemRenderer · limpiar lista de trabajadores', () => {
   it('ofrece el botón «Limpiar lista» cuando hay trabajadores cargados', () => {
     const valor = {
@@ -248,62 +296,88 @@ describe('ItemRenderer · limpiar lista de trabajadores', () => {
 })
 
 /**
- * La barra de carga hasta que la lista esté depurada.
+ * La lista se pinta depurada desde el primer render, sin consulta previa.
  *
- * Estos tests son de markup, no de source, y esa es la gracia: el flash era un
- * problema de lo que se pinta en el primer render, y un test que lee el código no
- * lo vería. Con el valor guardado (el caso de volver al ítem desde otro paso) el
- * primer render tiene que ser la barra y nada de la lista.
+ * No hay ninguna barra que esperar al volver al ítem: el valor guardado ya trae
+ * a quién estaba completo, así que la lista corta aparece de una. Si hubiera que
+ * consultar primero, el flash sería mostrar los diez y sacar cinco después.
+ *
+ * Los tests son de markup, no de source, y esa es la gracia: el depurado es un
+ * problema de lo que se pinta en el primer render, y un test que lee el código
+ * no lo vería.
  */
-describe('ItemRenderer · la lista no aparece sin depurar', () => {
+describe('ItemRenderer · la lista se pinta depurada desde el primer render', () => {
+  const fuente = (rel: string): string =>
+    readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+  /** Con un solo punto en el checklist, Ana está completa: no debería aparecer. */
   const listaGuardada = {
     colaboradores: [
-      { dni: 1, nationality: 'V-', name: 'Ana', lastname: 'Gómez', role_id: 1, role_name: 'Cajera', branch_id: 1, branch_name: '', admission_date: null, active: true, aplica: true, selected: ['o1'] },
-      { dni: 2, nationality: 'V-', name: 'Luis', lastname: 'Pérez', role_id: 2, role_name: 'Cajero', branch_id: 1, branch_name: '', admission_date: null, active: true, aplica: true, selected: ['o1'] }
+      trabajador(1, 'Ana', 'Gómez', { selected: ['o1'] }),
+      trabajador(2, 'Luis', 'Pérez')
     ]
   }
 
-  it('con lista guardada, el primer render es la barra y no se ve ningún nombre', () => {
+  /**
+   * El check general de una fila, tal como sale en el HTML. El nombre está
+   * DESPUÉS del input dentro de la fila, así que el último `<input` antes de
+   * "Apellido Nombre" es justamente el que busca el test.
+   */
+  const checkGeneralDe = (html: string, apellido: string): string => {
+    const pos = html.indexOf(`${apellido} `)
+    expect(pos).toBeGreaterThan(-1)
+    const desde = html.lastIndexOf('<input', pos)
+    expect(desde).toBeGreaterThan(-1)
+    return html.slice(desde, html.indexOf('/>', desde))
+  }
+
+  it('con lista guardada la lista se ve de una, sin barra', () => {
     const html = renderToStaticMarkup(
       <ItemRenderer item={itemColaboradores()} valor={listaGuardada} index={0} total={1} onChange={() => {}} sucursalId="s-1" fechaEvaluacion="2026-03-01" />
     )
-    // Primer render, avance en el arranque: primer mensaje y relleno chico.
-    expect(html).toContain('Creando la consulta')
-    expect(html).toContain(`width:${INICIO_INDETERMINADO}%`)
-    // Lo esencial: todavía no se sabe quién estaba completo, así que no se
-    // muestra a nadie. Este es el flash que la barra viene a tapar.
+    expect(html).toContain('Buscar por documento')
+    expect(html).toContain('Pérez Luis')
+    expect(html).not.toContain('Creando la consulta')
+  })
+
+  it('los que ya tienen todo tildado dejan de aparecer', () => {
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemColaboradores()} valor={listaGuardada} index={0} total={1} onChange={() => {}} sucursalId="s-1" fechaEvaluacion="2026-03-01" />
+    )
+    // Se van de la pantalla pero no del valor: sigue en `colaboradores`, que es
+    // lo que cuentan el tablero y el puntaje. Acá solo se filtra el pintado.
     expect(html).not.toContain('Gómez')
-    expect(html).not.toContain('Pérez')
-    expect(html).not.toContain('Buscar por documento')
+    expect(html).toContain('Pérez Luis')
   })
 
-  it('la barra arranca baja, no en un porcentaje que ya parece avance', () => {
-    // El complaint original: al abrir el ítem la barra ya estaba en 40%, que se
-    // lee como que algo se procesó antes de que el usuario pidiera nada.
-    const html = renderToStaticMarkup(
-      <ItemRenderer item={itemColaboradores()} valor={listaGuardada} index={0} total={1} onChange={() => {}} sucursalId="s-1" fechaEvaluacion="2026-03-01" />
-    )
-    const ancho = Number(html.match(/width:([\d.]+)%/)?.[1])
-    expect(ancho).toBeLessThan(20)
-    // Y el avance automático no puede declararse listo solo.
-    expect(TECHO_INDETERMINADO).toBeLessThan(100)
-  })
-
-  it('sin sucursal no hay nada que esperar y la lista se ve de una', () => {
-    // Sin historial que traer, una barra sería una espera falsa.
+  it('sin sucursal ni fecha la lista se ve igual: son opcionales', () => {
     const html = renderToStaticMarkup(
       <ItemRenderer item={itemColaboradores()} valor={listaGuardada} index={0} total={1} onChange={() => {}} />
     )
-    expect(html).toContain('Gómez')
-    expect(html).not.toContain('Creando la consulta')
+    expect(html).toContain('Pérez Luis')
+    expect(html).not.toContain('Gómez')
   })
 
-  it('sin fecha tampoco hay nada que esperar', () => {
+  it('si están todos completos, avisa que no queda nadie por revisar', () => {
+    // El `else` de "sin resultados" diría `con “”`, que es mentira: nadie buscó
+    // nada, lo que pasó es que ya no hay nada por revisar.
+    const valor = { colaboradores: [trabajador(1, 'Ana', 'Gómez', { selected: ['o1'] })] }
     const html = renderToStaticMarkup(
-      <ItemRenderer item={itemColaboradores()} valor={listaGuardada} index={0} total={1} onChange={() => {}} sucursalId="s-1" />
+      <ItemRenderer item={itemColaboradores()} valor={valor} index={0} total={1} onChange={() => {}} />
     )
-    expect(html).toContain('Gómez')
-    expect(html).not.toContain('Creando la consulta')
+    expect(html).toContain('No queda nadie por revisar')
+    expect(html).not.toContain('No se encontraron trabajadores')
+    expect(html).not.toContain('con “”')
+  })
+
+  it('a quien excluyó el evaluador no se le esconde', () => {
+    // Es lo único desde la pantalla se lo puede volver a incluir. Esconderlo lo
+    // dejaría excluido para siempre, sin manera de revertirlo.
+    const valor = { colaboradores: [trabajador(4, 'Ivan', 'Roca', { aplica: false, selected: ['o1'] })] }
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemColaboradores()} valor={valor} index={0} total={1} onChange={() => {}} />
+    )
+    expect(html).toContain('Roca Ivan')
   })
 
   it('sin lista cargada no hay barra: se ve el botón de cargar', () => {
@@ -316,34 +390,85 @@ describe('ItemRenderer · la lista no aparece sin depurar', () => {
     expect(html).not.toContain('Creando la consulta')
   })
 
-  it('la barra se apaga aunque la consulta de la tienda falle', () => {
-    // `setHistorialResuelto(true)` va antes de los `return` de error a
-    // propósito. Si quedara después, con la API caída la lista quedaría
-    // reemplazada por una barra girando para siempre y el evaluador no podría
-    // trabajar ni ver por qué.
-    const src = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
-    const cargar = src.slice(src.indexOf('const cargar = async () => {'), src.indexOf('const marcarAplica'))
-    const marca = cargar.indexOf('setHistorialResuelto(true)')
-    const error = cargar.indexOf('if (r.mensaje)')
-    expect(marca).toBeGreaterThan(-1)
-    expect(error).toBeGreaterThan(-1)
-    expect(marca).toBeLessThan(error)
+  it('el check general está apagado y bloqueado mientras no haya nada tildado', () => {
+    // La regla del evaluador: si dentro de la lista no hay nada tildado, el check
+    // general del trabajador tiene que estar en false. Y si está deshabilitado no
+    // se puede encender a mano, que es justamente lo que no puede pasar.
+    const valor = { colaboradores: [trabajador(2, 'Luis', 'Pérez')] }
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemColaboradores()} valor={valor} index={0} total={1} onChange={() => {}} />
+    )
+    const check = checkGeneralDe(html, 'Pérez')
+    expect(check).toContain('disabled=""')
+    expect(check).not.toContain('checked=""')
+    expect(check).toContain('Sin nada tildado todavía')
+    expect(html).toContain('Sin revisar')
   })
 
-  it('el pendiente es derivado, no un estado: no se puede quedar girando', () => {
-    const src = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
-    // Si `historialPendiente` fuera `useState`, un camino olvidado lo dejaría en
-    // true para siempre. Al derivarlo de "hay lista y hay qué consultar y no
-    // resolví", no hay estado que olvidar.
-    expect(src).toContain('const historialPendiente = !historialResuelto && puedeConsultarHistorial && colaboradores.length > 0')
-    expect(src).not.toMatch(/const \[historialPendiente, setHistorialPendiente\] = useState/)
-    // Y la lista se esconde con la visibilidad de la barra.
-    expect(src).toContain('const hayAlgoQueEsperar = cargando || historialPendiente')
-    expect(src).toMatch(/\{!barraVisible && colaboradores\.length \? \(/)
+  it('con un punto tildado el check general se enciende solo', () => {
+    const valor = { colaboradores: [trabajador(5, 'Marta', 'Sosa', { selected: ['o1'] })] }
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemColaboradoresVarios()} valor={valor} index={0} total={1} onChange={() => {}} />
+    )
+    // Está revisada y cuenta, pero le falta `o2`: sigue en la lista, incompleta.
+    const check = checkGeneralDe(html, 'Sosa')
+    expect(check).toContain('checked=""')
+    expect(check).not.toContain('disabled=""')
+    expect(check).toContain('title="Cuenta para el puntaje"')
+    expect(html).toContain('Incompleto')
+  })
+
+  it('a quien se le tildó algo pero está excluido, el check queda apagado y se puede encender', () => {
+    // Si estuviera bloqueado no habría manera de reincorporarlo: la exclusión es
+    // una decisión que se puede deshacer, por eso solo se bloquea sin revisar.
+    const valor = { colaboradores: [trabajador(4, 'Ivan', 'Roca', { aplica: false, selected: ['o1'] })] }
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemColaboradoresVarios()} valor={valor} index={0} total={1} onChange={() => {}} />
+    )
+    const check = checkGeneralDe(html, 'Roca')
+    expect(check).not.toContain('checked=""')
+    expect(check).not.toContain('disabled=""')
+    expect(check).toContain('title="Cuenta para el puntaje"')
+  })
+
+  it('si se le desmarca todo, la exclusión se limpia y el primer punto vuelve a encender el check', () => {
+    // Sin esto el ciclo queda trabado: excluido → se desmarca todo → se vuelve a
+    // tildar y el check general sigue apagado, porque `aplica` seguía en false.
+    const src = fuente('./ItemRenderer.tsx')
+    const actualizar = src.slice(src.indexOf('const actualizar = (cols'), src.indexOf('const limpiar = () => {'))
+    expect(actualizar).toContain('esColaboradorRevisado(c) || c.aplica !== false')
+    expect(actualizar).toContain('aplica: true')
+    // Y el chequeo del propio botón: nada revisado, nada que tocar.
+    expect(src).toContain('checked={c.aplica && revisado}')
+    expect(src).toContain('disabled={!revisado}')
+    expect(src).toContain('c.dni === dni && esColaboradorRevisado(c)')
+  })
+
+  it('buscar por cédula o nombre revela a los que estaban completos', () => {
+    // Ocultar no puede significar perder el acceso: con una búsqueda se pueden
+    // volver a ver y revisar. Si no, el único camino para corregir un completo
+    // sería limpiar la lista entera.
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).toContain('    if (!ocultos.has(c.dni)) return true')
+    expect(src).toContain('    return hayBusqueda')
+    expect(src).toContain('const ocultosVisibles = colaboradoresFiltrados.length - colaboradoresVisibles.length')
+  })
+
+  it('la barra se apaga aunque la consulta de la tienda falle', () => {
+    // `setCargando(false)` va antes de los `return` de error a propósito. Si
+    // quedara después, con la API caída la lista quedaría reemplazada por una
+    // barra girando para siempre y el evaluador no podría trabajar ni ver por qué.
+    const src = fuente('./ItemRenderer.tsx')
+    const cargar = src.slice(src.indexOf('const cargar = async () => {'), src.indexOf('const marcarAplica'))
+    const apaga = cargar.indexOf('setCargando(false)')
+    const error = cargar.indexOf('if (r.mensaje)')
+    expect(apaga).toBeGreaterThan(-1)
+    expect(error).toBeGreaterThan(-1)
+    expect(apaga).toBeLessThan(error)
   })
 
   it('la lista espera a que la barra termine, no solo a que deje de cargar', () => {
-    const src = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
+    const src = fuente('./ItemRenderer.tsx')
     // El gate del render tiene que ser `barraVisible` y no `hayAlgoQueEsperar`:
     // cuando la consulta responde, `hayAlgoQueEsperar` ya es falso, pero la
     // barra queda llena un instante. Con el otro gate la lista entraría tapando
@@ -352,11 +477,8 @@ describe('ItemRenderer · la lista no aparece sin depurar', () => {
     expect(src).toContain('visible: barraVisible')
     expect(src).toMatch(/\{barraVisible \? \(\s*\n\s*<div[^>]*>\s*\n\s*<ProgressBar valorAprox=\{avance\}/)
     expect(src).not.toMatch(/\{hayAlgoQueEsperar \? \(\s*\n\s*<div[^>]*>\s*\n\s*<ProgressBar/)
-  })
-
-  it('mientras carga, el aviso de los resueltos tampoco se muestra', () => {
-    const src = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
-    expect(src).toMatch(/\{!barraVisible && resueltosAntes\.size \? \(/)
+    // Y la lista no se mezcla mientras `cargar` reemplaza lo que había guardado.
+    expect(src).toMatch(/\{!barraVisible && colaboradores\.length \? \(/)
   })
 })
 
@@ -390,8 +512,8 @@ describe('ProgressBar · número de adorno vs. número real', () => {
 })
 
 /**
- * El cableado de "Actualizar listado". El render es de servidor, así que los
- * efectos no corren y la consulta al historial no se dispara: lo que se verifica
+ * El cableado de "Actualizar listado". El render es de servidor, así que la
+ * consulta al historial no se dispara: lo que se verifica
  * acá es que las piezas estén conectadas en el orden correcto, que es donde se
  * cuecen los errores silenciosos (se guarda la lista sin combinar, se oculta sin
  * sembrar el estado, etc.).
@@ -420,7 +542,7 @@ describe('ItemRenderer · actualizar el listado sin perder lo revisado', () => {
 
   it('pide el historial con sucursal, ítem, fecha y los ids de los checks', () => {
     const src = fuente('./ItemRenderer.tsx')
-    expect(src).toContain('estadosCompletosDeEvaluacionesAnteriores(sucursalId, item.id, fechaEvaluacion, idsChecks)')
+    expect(src).toContain('estadosDeEvaluacionesAnteriores(sucursalId, item.id, fechaEvaluacion, idsChecks)')
     // Sin sucursal o sin fecha no hay historial: se ve la lista entera. Por eso
     // los dos props son opcionales y no hay un `!` que rompa el ítem.
     expect(src).toMatch(/sucursalId && fechaEvaluacion\s*\?/)
@@ -454,46 +576,14 @@ describe('ItemRenderer · actualizar el listado sin perder lo revisado', () => {
     expect(src).toMatch(/textoConfirmar="Actualizar igual"\s*\n\s*variant="secondary"/)
   })
 
-  it('limpiar la lista olvida el historial, para no volver a ocultar a nadie', () => {
-    // Si no, al recargar la lista desaparecerían los que el evaluador acababa de
-    // marcar, y no podría ver a quién le puso "no aplica".
+  it('limpiar vacía la lista entera, ocultos incluidos', () => {
+    // No queda ningún registro aparte de "quién estaba completo": el ocultado se
+    // deriva del valor, así que al vaciarlo se va todo junto y la próxima carga
+    // arranca de cero, sin heredar nada de lo que el evaluador decidió borrar.
     const src = fuente('./ItemRenderer.tsx')
-    const limpiar = src.slice(src.indexOf('const limpiar = () => {'), src.indexOf('const ocultarResueltos'))
-    expect(limpiar).toContain('setResueltosAntes(new Map())')
-    expect(limpiar).toContain('setMostrarResueltos(false)')
-  })
-
-  it('al volver al ítem se vuelve a ocultar lo que ya estaba completo', () => {
-    // El componente se remonta al cambiar de paso y el estado local se pierde.
-    const src = fuente('./ItemRenderer.tsx')
-    expect(src).toMatch(/useEffect\(\(\) => \{\s*\n\s*void ocultarAunSinCargar\(\)/)
-    expect(src).toContain('const ocultarAunSinCargar = async () => {')
-    expect(src).toContain('estadosCompletosDeEvaluacionesAnteriores(sucursalId, item.id, fechaEvaluacion, idsChecks)')
-    // Y no se vuelve a pedir en cada render.
-    expect(src).toContain('historicoPedido.current = true')
-  })
-
-  it('el guard del remount no puede depender de resueltosAntes (viene vacío al remontar)', () => {
-    // Este fue un bug real: el guard era `colaboradores.some(c =>
-    // resueltosAntes.has(c.dni))`, que al remontar es siempre falso porque el mapa
-    // arranca vacío. La consulta no se llegaba a hacer nunca y los ocultos
-    // reaparecían al volver al ítem.
-    const src = fuente('./ItemRenderer.tsx')
-    const guard = src.slice(src.indexOf('const ocultarAunSinCargar'), src.indexOf('// Al volver al ítem'))
-    // Los tres cortes van en una sola línea: si falta cualquiera de los tres se
-    // consulta al server por nada (o se espera un dato que no existe).
-    expect(guard).toContain('if (historicoPedido.current || !puedeConsultarHistorial || !colaboradores.length) return')
-    expect(guard).not.toMatch(/resueltosAntes\.has/)
-  })
-
-  it('la carga marca el historial como pedido, y limpiarlo lo libera', () => {
-    // Si `cargar` no marcara el ref, el efecto de remount haría la misma consulta
-    // otra vez apenas se aplicara la lista.
-    const src = fuente('./ItemRenderer.tsx')
-    const cargar = src.slice(src.indexOf('const cargar = async () => {'), src.indexOf('const marcarAplica'))
-    expect(cargar).toContain('historicoPedido.current = true')
-    const limpiar = src.slice(src.indexOf('const limpiar = () => {'), src.indexOf('const ocultarResueltos'))
-    expect(limpiar).toContain('historicoPedido.current = false')
+    const limpiar = src.slice(src.indexOf('const limpiar = () => {'), src.indexOf('const aplicarListaCombinada'))
+    expect(limpiar).toContain('actualizar([])')
+    expect(limpiar).not.toMatch(/historial|resueltosAntes|historicoPedido/i)
   })
 
   it('EvaluarSucursal pasa la sucursal y la fecha en los dos lugares', () => {
