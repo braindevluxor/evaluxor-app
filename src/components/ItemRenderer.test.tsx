@@ -781,3 +781,37 @@ describe('ItemRenderer · la consulta del historial', () => {
     expect(src.match(/return vacio/g)?.length).toBeGreaterThan(2)
   })
 })
+
+function itemCumple(): Item {
+  return {
+    id: 'it-3',
+    modulo_id: 'm1',
+    tipo: 'CUMPLE_NO_CUMPLE',
+    texto: 'Senialistica completa',
+    opciones: [],
+    orden: 0,
+    requerido: true,
+    activo: true,
+    puntaje: 10,
+    created_at: ''
+  }
+}
+
+describe('ItemRenderer · filas heredadas de la nube (sin campos nuevos)', () => {
+  // Al reabrir una evaluación desde la nube, la evidencia de CUMPLE llega con
+  // `paths` y sin `photoIds` (ver EvidenciaCumple en scoring.ts). El editor no
+  // puede romper la pantalla por eso: fue el crash "reading 'length'" en móvil.
+  it('una evidencia con paths y sin photoIds no revienta el render', () => {
+    const valor = { value: true, evidencias: [{ paths: ['ev/a.jpg'], comentario: 'Foto' }] }
+    expect(() =>
+      renderToStaticMarkup(<ItemRenderer item={itemCumple()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    ).not.toThrow()
+  })
+
+  it('una unidad de UNIDAD_CHECKLIST sin `selected` no revienta el render', () => {
+    const valor = { unidades: [{ codigo: 'PATIO-01' }] }
+    expect(() =>
+      renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis')} valor={valor} index={0} total={1} onChange={() => {}} />)
+    ).not.toThrow()
+  })
+})

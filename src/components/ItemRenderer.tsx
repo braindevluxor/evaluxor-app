@@ -1686,7 +1686,8 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
   const toggleCheck = (idx: number, opcionId: string) => {
     actualizar(unidades.map((u, i) => {
       if (i !== idx) return u
-      const sel = u.selected.includes(opcionId) ? u.selected.filter((x) => x !== opcionId) : [...u.selected, opcionId]
+      const sel0 = u.selected ?? []
+      const sel = sel0.includes(opcionId) ? sel0.filter((x) => x !== opcionId) : [...sel0, opcionId]
       return { ...u, selected: sel }
     }))
   }
@@ -1725,7 +1726,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                   <div className="flex items-center gap-2 px-3 py-2.5">
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">{u.codigo}</span>
                     <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
-                      {cumple ? 'Completo' : `${u.selected.length}/${opts.length}`}
+                      {cumple ? 'Completo' : `${(u.selected ?? []).length}/${opts.length}`}
                     </span>
                     <button
                       type="button"
@@ -1838,7 +1839,10 @@ function EvidenciasEditor({ evidencias, onChange }: { evidencias: EvidenciaCumpl
   // nunca se borran. Solo las filas sin ninguna foto — ni local (photoIds) ni de
   // la nube (paths, fila reabierta sin rehidratar) — se pueden limpiar.
   const quitar = (i: number) => onChange(evidencias.filter((_, idx) => idx !== i))
-  const tieneFotos = (ev: EvidenciaCumple) => ev.photoIds.length > 0 || (ev.paths?.length ?? 0) > 0
+  // `photoIds` también puede faltar: la fila bajada de la nube trae `paths` y sin
+  // `photoIds` (ver EvidenciaCumple), igual que `paths`. Sin esto, al reabrir una
+  // evaluación con evidencias subidas la pantalla revienta con "reading 'length'".
+  const tieneFotos = (ev: EvidenciaCumple) => (ev.photoIds?.length ?? 0) > 0 || (ev.paths?.length ?? 0) > 0
   const actualizar = (i: number, patch: Partial<EvidenciaCumple>) =>
     onChange(evidencias.map((e, idx) => (idx === i ? { ...e, ...patch } : e)))
 
@@ -1866,11 +1870,11 @@ function EvidenciasEditor({ evidencias, onChange }: { evidencias: EvidenciaCumpl
               </button>
             ) : null}
           </div>
-          <PhotoCapture photoIds={ev.photoIds} onChange={(photoIds) => actualizar(i, { photoIds })} />
+          <PhotoCapture photoIds={ev.photoIds ?? []} onChange={(photoIds) => actualizar(i, { photoIds })} />
           <Textarea
             rows={2}
             placeholder="Comentario de la evidencia…"
-            value={ev.comentario}
+            value={ev.comentario ?? ''}
             onChange={(e) => actualizar(i, { comentario: e.target.value })}
           />
         </div>
