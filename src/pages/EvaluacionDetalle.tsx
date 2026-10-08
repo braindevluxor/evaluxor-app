@@ -471,10 +471,20 @@ export function ValorRespuesta({
                         </td>
                         <td className="break-words px-1.5 py-2 text-slate-600 sm:px-2">
                           {p.nombre || '—'}
-                          {/* El id del producto en la API, en gris y abajo como la
-                              sync: es el dato con el que se lo cruza contra el
-                              sistema (el sku es el código escaneado). */}
-                          {p.apiId != null ? <span className="block text-[11px] text-slate-400">ID {p.apiId}</span> : null}
+                          {/* El id del producto en la API y quién lo midió primero:
+                              los dos datos con los que se cruza la fila contra el
+                              sistema y contra quien la contó (el sku es solo el
+                              código escaneado). */}
+                          {p.apiId != null || p.escaneadoPor ? (
+                            <span className="block text-[11px] text-slate-400">
+                              {[
+                                p.apiId != null ? `ID ${p.apiId}` : null,
+                                p.escaneadoPor ? `Contado por ${p.escaneadoPor}` : null
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </span>
+                          ) : null}
                         </td>
                         <td className="break-all px-1.5 py-2 text-right tabular-nums text-slate-700 sm:px-2">
                           {esPrecio ? formatearPrecioBase(teorica) : (teorica ?? '—')}

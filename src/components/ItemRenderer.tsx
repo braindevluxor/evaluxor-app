@@ -35,6 +35,12 @@ interface Props {
    */
   sucursalId?: string
   fechaEvaluacion?: string
+  /**
+   * Nombre del evaluador de este dispositivo. Lo usa la conciliación para no
+   * marcar como "ya lo contó otro" lo que escaneó el propio evaluador, y para
+   * rotular en quién contó cada producto.
+   */
+  evaluador?: string | null
 }
 
 /** Responsables elegibles para un check: los configurados en el check; si el check no tiene, los del ítem. */
@@ -65,7 +71,7 @@ function checkIncumplido(item: Item, o: Opcion, valor: unknown): boolean {
   return false
 }
 
-export function ItemRenderer({ item, valor, onChange, index, total, shopId, branchId, gerente, sucursalId, fechaEvaluacion }: Props) {
+export function ItemRenderer({ item, valor, onChange, index, total, shopId, branchId, gerente, sucursalId, fechaEvaluacion, evaluador }: Props) {
   const preg = `${index + 1}. ${item.texto}` + (item.requerido ? ' *' : '')
   const tipoColor =
     item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'CHECKLIST' ? 5 : item.tipo === 'LISTA_COLABORADORES' || item.tipo === 'UNIDAD_CHECKLIST' ? 1 : item.tipo === 'PLANO_XY' ? 2 : 4
@@ -76,7 +82,7 @@ export function ItemRenderer({ item, valor, onChange, index, total, shopId, bran
         <p className="font-semibold text-slate-800">{preg}</p>
         <Badge color={tipoColor}>{etiquetaTipo(item.tipo)}</Badge>
       </div>
-      <Contenido item={item} valor={valor} onChange={onChange} shopId={shopId} branchId={branchId} gerente={gerente} sucursalId={sucursalId} fechaEvaluacion={fechaEvaluacion} />
+      <Contenido item={item} valor={valor} onChange={onChange} shopId={shopId} branchId={branchId} gerente={gerente} sucursalId={sucursalId} fechaEvaluacion={fechaEvaluacion} evaluador={evaluador} />
       {item.requerido && estaVacioItem(item, valor) ? (
         <p className="mt-2 text-xs font-medium text-red-600">Obligatorio para enviar la evaluación.</p>
       ) : null}
@@ -85,7 +91,7 @@ export function ItemRenderer({ item, valor, onChange, index, total, shopId, bran
   )
 }
 
-function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalId, fechaEvaluacion }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; branchId?: string | null; gerente?: string | null; sucursalId?: string; fechaEvaluacion?: string }) {
+function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalId, fechaEvaluacion, evaluador }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; branchId?: string | null; gerente?: string | null; sucursalId?: string; fechaEvaluacion?: string; evaluador?: string | null }) {
   // Hornea el gerente como destino por defecto de los puntos incumplidos cuando
   // el ítem tiene responsables configurables (a nivel del ítem o por check) y el
   // valor es un objeto: sin selección de la falla → gerente.
@@ -303,7 +309,7 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
     )
     }
     case 'CONCILIACION':
-      return <ConciliacionEditor valor={valor} onChange={guardar} shopId={shopId} item={item} gerente={gerente} />
+      return <ConciliacionEditor valor={valor} onChange={guardar} shopId={shopId} item={item} gerente={gerente} evaluador={evaluador} />
     case 'LISTA_COLABORADORES':
       return <ColaboradoresEditor item={item} valor={valor} onChange={guardar} shopId={shopId} branchId={branchId} gerente={gerente} sucursalId={sucursalId} fechaEvaluacion={fechaEvaluacion} />
     case 'UNIDAD_CHECKLIST':
@@ -406,7 +412,7 @@ function VisorEvidencia({ producto }: { producto: ProductoConciliacion }) {
   )
 }
 
-export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; item?: Item; gerente?: string | null }) {
+export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, evaluador }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; item?: Item; gerente?: string | null; evaluador?: string | null }) {
   const [escaneando, setEscaneando] = useState(false)
   const [consultando, setConsultando] = useState(false)
   const [info, setInfo] = useState('')
@@ -519,6 +525,9 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                   teorica: borrador.teorica ?? p.teorica,
                   fisica: null,
                   apiId: borrador.apiId ?? p.apiId,
+                  // Quien lo contó primero sigue siendo quien lo contó: si el
+                  // producto vino de la nube no se reclama, se suma la cantidad.
+                  escaneadoPor: p.escaneadoPor ?? evaluador ?? null,
                   soh: borrador.soh ?? p.soh,
                   lastSync: borrador.lastSync ?? p.lastSync,
                   finalBase: borrador.finalBase ?? p.finalBase,
@@ -550,6 +559,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                 teorica: borrador.teorica,
                 fisica: total,
                 apiId: borrador.apiId ?? p.apiId,
+                escaneadoPor: p.escaneadoPor ?? evaluador ?? null,
                 soh: borrador.soh ?? p.soh,
                 lastSync: borrador.lastSync ?? p.lastSync,
                 finalBase: borrador.finalBase ?? p.finalBase,
@@ -572,6 +582,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
           teorica: borrador.teorica,
           fisica: sinHablador ? null : borrador.fisica,
           apiId: borrador.apiId,
+          escaneadoPor: evaluador || null,
           soh: borrador.soh,
           lastSync: borrador.lastSync,
           finalBase: borrador.finalBase,
@@ -592,6 +603,11 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
   const pctBorrador = conciliacionPorcentaje({ teorica: borrador.teorica, fisica: fisicaResultante })
   const borradorSinHablador = borrador.sinHablador === true
   const borradorCompleto = !!borrador.sku.trim() && (borradorSinHablador || (borrador.teorica != null && borrador.fisica != null))
+  // El producto lo registró otra persona: es la señal de "ya lo contó alguien más"
+  // que se muestra en la fila y al re-escanear el código. Sin el nombre de este
+  // evaluador no se puede saber si lo escaneó él, y no se reclama nada.
+  const loContoOtro = (p: ProductoConciliacion): string | null =>
+    p.escaneadoPor && evaluador && p.escaneadoPor !== evaluador ? p.escaneadoPor : null
 
   return (
     <div className="space-y-3">
@@ -661,6 +677,12 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
               Código ya escaneado · {existente.sku}
               {existente.nombre ? ` · ${existente.nombre}` : ''}
             </p>
+            {/* La persona que lo midió primero no es la que está escaneando ahora:
+                se dice aparte y en color de alerta, que es justo el dato que hace
+                falta antes de sumar otra vez la cantidad. */}
+            {loContoOtro(existente) ? (
+              <p className="mt-0.5 font-bold text-amber-700">Ya lo contó {loContoOtro(existente)}</p>
+            ) : null}
             <p className="mt-0.5 text-primary-700">
               Teórica: {borrador.teorica ?? '—'} · Físico previo (FP): <strong>{existente.fisica ?? 0}</strong>
             </p>
@@ -765,6 +787,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                     const [paraMirar] = productosParaConciliar([p], contraDato)
                     const pct = conciliacionPorcentaje(paraMirar)
                     const fotosProducto = (p.photoIds?.length ?? 0) + (p.paths?.length ?? 0)
+                    const contoOtro = loContoOtro(p)
                     if (editando === i) {
                       return (
                         <li key={i} className="space-y-2 rounded-xl border-2 border-primary bg-white px-3 py-2">
@@ -875,15 +898,28 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                                 {esSinHablador(p) ? 'No Match' : pct != null ? `${pct}%` : '—'}
                               </span>
                             </div>
-                            {tieneInfoSistema(p) ? (
+                            {tieneInfoSistema(p) || contoOtro ? (
                               <p className="mt-0.5 text-[10px] leading-tight text-slate-400">
-                                {p.apiId != null ? (
+                                {/* El aviso de que otra persona ya midió este
+                                    producto va primero: es lo que hace falta ver
+                                    antes de contarlo de nuevo. */}
+                                {contoOtro ? (
                                   <>
-                                    <strong className="font-semibold text-slate-500">ID: {p.apiId}</strong> ·{' '}
+                                    <strong className="font-bold text-amber-600">Ya lo contó {contoOtro}</strong>
+                                    {tieneInfoSistema(p) ? ' · ' : ''}
                                   </>
                                 ) : null}
-                                SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · Precio: {formatearPrecioBase(precioVenta(p))}
-                                {p.departamento ? <> · {p.departamento}</> : null}
+                                {tieneInfoSistema(p) ? (
+                                  <>
+                                    {p.apiId != null ? (
+                                      <>
+                                        <strong className="font-semibold text-slate-500">ID: {p.apiId}</strong> ·{' '}
+                                      </>
+                                    ) : null}
+                                    SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · Precio: {formatearPrecioBase(precioVenta(p))}
+                                    {p.departamento ? <> · {p.departamento}</> : null}
+                                  </>
+                                ) : null}
                               </p>
                             ) : null}
                           </div>

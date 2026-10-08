@@ -258,7 +258,7 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
       {
         productos: [
           { sku: 'SKU-OK', nombre: 'Producto conciliado', teorica: 10, fisica: 10 },
-          { sku: 'SKU-ERROR', nombre: 'Producto descuadrado', teorica: 10, fisica: 7, finalBase: 25, perdidaEstimada: 37.5, apiId: 100006130 },
+          { sku: 'SKU-ERROR', nombre: 'Producto descuadrado', teorica: 10, fisica: 7, finalBase: 25, perdidaEstimada: 37.5, apiId: 100006130, escaneadoPor: 'María' },
           { sku: 'SKU-SOBRANTE', nombre: 'Producto con sobrante', teorica: 0, fisica: 3 },
           { sku: 'SKU-FALTA-UNO', nombre: 'Producto con una unidad faltante', teorica: 4, fisica: 3 },
           { sku: 'SKU-SOBRA-UNO', nombre: 'Producto con una unidad sobrante', teorica: 3, fisica: 4 }
@@ -272,6 +272,7 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
     // en gris como la sync: es el dato con el que se lo cruza contra el sistema
     // (el sku es solo el código escaneado).
     expect(html).toContain('ID 100006130')
+    expect(html).toContain('Contado por María')
     expect(html).toContain('bg-amber-50/70')
     expect(html).toContain('bg-amber-100 text-amber-800')
     expect(html).toContain('bg-red-50/50')

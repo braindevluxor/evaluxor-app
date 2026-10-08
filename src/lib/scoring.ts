@@ -72,6 +72,13 @@ export interface ProductoConciliacion {
    * antes de guardar este dato llegan sin él.
    */
   apiId?: number | null
+  /**
+   * Quién registró este producto por primera vez (nombre del evaluador). Queda en
+   * la fila para poder avisar, al re-escanearlo o al mirar la lista, que el
+   * producto ya lo contó otra persona en vez de contarlo de nuevo. Opcional: los
+   * productos escaneados antes de guardar este dato llegan sin él.
+   */
+  escaneadoPor?: string | null
   /** Cantidad teórica (soh) reportada por el sistema al escanear. */
   soh?: number | null
   /** Última sincronización del producto reportada por el sistema. */

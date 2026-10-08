@@ -216,6 +216,28 @@ describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
     expect(html).toContain('Sync:')
   })
 
+  it('avisa en la fila y al re-escanear cuando el producto ya lo contó otra persona', () => {
+    const valor = {
+      productos: [{ sku: 'SKU-1', nombre: 'Pan', teorica: 2, fisica: 1, escaneadoPor: 'María' }]
+    }
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemConciliacion()} valor={valor} index={0} total={1} onChange={() => {}} evaluador="José" />
+    )
+    // El producto llegó de la nube (lo escaneó el otro evaluador): hay que decirlo,
+    // porque es lo que hace falta ver antes de contarlo de nuevo.
+    expect(html).toContain('Ya lo contó María')
+  })
+
+  it('no reclama el producto que escaneó el propio evaluador', () => {
+    const valor = {
+      productos: [{ sku: 'SKU-1', nombre: 'Pan', teorica: 2, fisica: 2, escaneadoPor: 'María' }]
+    }
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemConciliacion()} valor={valor} index={0} total={1} onChange={() => {}} evaluador="María" />
+    )
+    expect(html).not.toContain('Ya lo contó')
+  })
+
   it('la lista de productos arranca abierta y la fila muestra cómo va la evidencia de ese SKU', () => {
     const valor = { productos: [{ sku: 'SKU-1', nombre: 'Pan', teorica: 2, fisica: 1 }] }
     const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={valor} index={0} total={1} onChange={() => {}} />)

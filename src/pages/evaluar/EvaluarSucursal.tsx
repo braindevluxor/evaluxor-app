@@ -18,6 +18,7 @@ import {
 } from '../../lib/offline/db'
 import { guardarBorradorNube, instanciasDeDraft, respuestasConInstancia, type Descarte } from '../../lib/offline/sync'
 import { listarEvaluacionesActivas, listarRespuestasEvaluacion, listarInstanciasEvaluacion } from '../../lib/data/indicadores'
+import { fusionarRespuestasNube } from '../../lib/offline/fusion'
 import { apiDisponible, esColorHex, etiquetaDeCampo, formatearValorConsulta, seleccionarValores } from '../../lib/data/apis'
 import { supabase } from '../../lib/supabase'
 import { ItemRenderer } from '../../components/ItemRenderer'
@@ -103,6 +104,10 @@ export function EvaluarSucursal() {
   const ultimaSubidaNubeRef = useRef<{ evaluacionId: string; draft: DraftEval; descarte: Descarte } | null>(null)
   const lecturaNubeRef = useRef<Promise<boolean> | null>(null)
   const lecturaNubePendienteRef = useRef(false)
+  // Última `sincronizar` (bajada de lo del otro evaluador). Se guarda en un ref
+  // para poder pedirla desde callbacks que se declaran antes que ella, sin
+  // depender de su identidad en cada efecto.
+  const sincronizarRef = useRef<() => Promise<boolean>>(() => Promise.resolve(false))
   // Fallo de la última subida, con su causa real (`sin_conexion`, `rechazada` por
   // RLS, `servidor`...). Antes era un booleano que siempre terminaba diciendo
   // "revisá tu conexión", con reintento cada 12 s pase lo que pase.
@@ -179,6 +184,11 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
         .then((r) => {
           setFallaSubida(null)
           setDescarte(r)
+          // Tras cada subida se baja lo que hay en la nube: al subir, el servidor
+          // fusiona lo mío con lo del otro evaluador, así que la lista recién ahí
+          // tiene los productos que escaneó el otro (y el realtime solo avisa, no
+          // garantiza que el canal esté vivo).
+          void sincronizarRef.current()
         })
         .catch((e: unknown) => setFallaSubida({ causa: causaSubida(e), detalle: detalleTecnico(e) }))
     }, 800)
@@ -230,6 +240,10 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       .then((r) => {
         setFallaSubida(null)
         setDescarte(r)
+        // Vuelve la conexión: además de subir lo que quedó guardado, hay que bajar
+        // lo que escaneó el otro mientras no había señal (el realtime no repite los
+        // eventos que se perdió).
+        void sincronizarRef.current()
       })
       .catch((e: unknown) => setFallaSubida({ causa: causaSubida(e), detalle: detalleTecnico(e) }))
   }, [online])
@@ -370,11 +384,14 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
   }, [sucursalId, profile])
 
   // Colaboración en vivo: cuando otro evaluador guarda respuestas o registros para
-  // la misma evaluación, se fusionan aquí marcadas `por: 'otros'` para que ambos
-  // vean el avance del otro y no hagan el mismo trabajo. Solo se visualizan:
-  // `respuestasConInstancia` las excluye al sincronizar/envíar. Instancias nuevas
-  // se suman (add-only) y se actualizan vía realtime, un barrido de respaldo o
-  // el botón de sincronización.
+  // la misma evaluación, se fusionan aquí para que los dos vean todos los productos
+  // escaneados y no hagan el mismo trabajo. Lo que viene de la nube queda marcado
+  // `por: 'otros'` (solo se visualiza: `respuestasConInstancia` lo excluye al
+  // sincronizar/enviar) y ahora se **refresca** en cada bajada, no solo se agrega
+  // la primera vez — ver `lib/offline/fusion.ts`, que también decide cuándo una
+  // respuesta propia puede pisarse con la de la nube (solo en conciliación y como
+  // unión por SKU). Se actualiza con el realtime, con un barrido de respaldo (60 s),
+  // tras cada subida y con el botón de sincronización.
   const sincronizar = useCallback(async (): Promise<boolean> => {
     if (lecturaNubeRef.current) {
       lecturaNubePendienteRef.current = true
@@ -394,18 +411,22 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       if (!vivoRef.current) return false
       const actual2 = draftRef.current
       if (!actual2) return false
-      const respuestas: DraftEval['respuestas'] = { ...actual2.respuestas }
-      let cambio = false
-      for (const r of enNube) {
-        if (r.respondido_por === miId) continue
-        // Solo módulos compartido participan de la colaboración en vivo.
-        if (!itemsCompartidos.has(r.item_id)) continue
-        const key = claveRespuesta(r.item_id, r.instancia_id)
-        if (!respuestas[key]) {
-          respuestas[key] = { valor: r.valor, por: 'otros' }
-          cambio = true
-        }
-      }
+      // Mi borrador completo ya está en la nube: la fila de la nube me trae lo
+      // mío fusionado con lo del otro (el servidor une la conciliación por SKU al
+      // subir), así que recién ahí puede prevalecer sin perder nada. Con cambios
+      // sin subir, manda lo local y de la nube solo se suman productos nuevos.
+      const subido =
+        ultimaSubidaNubeRef.current?.evaluacionId === evId &&
+        ultimaSubidaNubeRef.current.draft === actual2
+      const fusion = fusionarRespuestasNube({
+        local: actual2.respuestas,
+        nube: enNube,
+        miId,
+        compartidos: itemsCompartidos,
+        subido
+      })
+      const respuestas = fusion.respuestas
+      let cambio = fusion.cambio
       const instancias: Record<string, DraftInstancia[]> = structuredClone(actual2.instancias ?? {})
       for (const ins of instanciasNube) {
         if (!itemsCompartidos.has(ins.item_id)) continue
@@ -443,6 +464,12 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       }
     }
   }, [profile?.id, itemsCompartidos])
+
+  // Quien pidió una bajada antes de que existiera `sincronizar` (el primer push
+  // diferido) usa este ref: siempre queda apuntando a la última versión.
+  useEffect(() => {
+    sincronizarRef.current = sincronizar
+  }, [sincronizar])
 
   useEffect(() => {
     vivoRef.current = true
@@ -941,6 +968,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
               shopId={sucursal?.shop_id}
               branchId={sucursal?.branch_id}
               gerente={sucursal?.gerente?.nombre ?? null}
+              evaluador={profile?.nombre || null}
               sucursalId={sucursalId}
               fechaEvaluacion={actual.fecha}
               onChange={(v) => cambiarValor(hijoActual.id, registro.instanciaId, v)}
@@ -1160,6 +1188,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
               shopId={sucursal?.shop_id}
               branchId={sucursal?.branch_id}
               gerente={sucursal?.gerente?.nombre ?? null}
+              evaluador={profile?.nombre || null}
               sucursalId={sucursalId}
               fechaEvaluacion={actual.fecha}
               onChange={(v) => cambiarValor(paso.id, null, v)}
