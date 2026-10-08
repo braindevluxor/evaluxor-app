@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, Fragment, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, ChevronRight, FileDown, FolderOpen, RefreshCw, Tag, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, FileDown, FolderOpen, Pencil, RefreshCw, Tag, X } from 'lucide-react'
 import { useOffline } from '../context/OfflineContext'
+import { useAuth } from '../context/AuthContext'
 import { obtenerEvaluacion, resumirEvaluacion, puntajeModuloDeRespuestas, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { cargosDelCentro, centroDisponible, separacionDisponible, useCargosPorCentro, type CatalogosCentro, type CentroOperaciones } from '../lib/data/cargosCentro'
 import { descargarInformePdf } from '../lib/pdf'
@@ -730,6 +731,9 @@ export function EvaluacionDetalle() {
    */
   const [filtro, setFiltro] = useState<'ambos' | 'cumple' | 'no-cumple'>('ambos')
   const { online, pendientes, sync } = useOffline()
+  /** Solo el Líder puede editar (y por lo tanto borrar) productos de conciliación:
+   *  es el mismo filtro que ejerce la ruta `/conciliacion` con `SoloLider`. */
+  const { profile } = useAuth()
   /**
    * Incidencias: una sola consulta para el botón con el total, el modal de todas
    * y el modal de cada cargo. Va acá arriba y no junto a los cálculos porque los
@@ -862,6 +866,13 @@ export function EvaluacionDetalle() {
   }
 
   const { evaluacion, respuestas, items, modulos, fotos, sucursalOpciones, instancias } = detalle
+  // ¿Hay productos escaneados en algún ítem de conciliación? El detalle es de solo
+  // lectura, pero el Líder puede entrar a la vista de edición (que ya sabe borrar
+  // con confirmación) si es que hay algo que editar.
+  const hayConciliacion = respuestas.some((r) => {
+    const item = items.find((i) => i.id === r.item_id)
+    return item?.tipo === 'CONCILIACION' && ((r.valor as ValorConciliacion | null)?.productos?.length ?? 0) > 0
+  })
   const { puntaje, itemsBinarios, itemsBinariosOk } = resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones)
   const est = estadoBadge(puntaje)
   const aplicaOpciones = opcionesQueAplican(evaluacion.sucursal_id, sucursalOpciones)
@@ -1010,6 +1021,20 @@ export function EvaluacionDetalle() {
                 </span>
               ) : null}
             </button>
+            {/* Solo para Líder y solo cuando hay productos escaneados: el detalle es
+                de solo lectura, y este botón lleva a la vista de edición —que ya sabe
+                borrar un producto con confirmación— sin duplicar esa lógica acá. */}
+            {profile?.rol === 'LIDER' && hayConciliacion ? (
+              <Button
+                variant="ghost"
+                className="min-h-0 gap-1.5 bg-white/10 px-3 py-1.5 text-white hover:bg-white/20"
+                onClick={() => navigate(`/evaluaciones/${evaluacion.id}/conciliacion`)}
+                title="Agregar o quitar productos escaneados"
+              >
+                <Pencil className="h-4 w-4" />
+                <span className="hidden sm:inline">Editar productos</span>
+              </Button>
+            ) : null}
             {/* Va "ghost" y no "secondary": el secondary trae `border border-primary-200`
                 y sobre el fondo de color del encabezado ese borde se ve como un
                 contorno alrededor del botón. El fondo translúcido lo define el className. */}
