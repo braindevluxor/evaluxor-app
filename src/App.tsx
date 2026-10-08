@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { Rol } from './lib/types'
 import { AuthProvider } from './context/AuthContext'
 import { CatalogProvider } from './context/CatalogContext'
@@ -17,6 +17,7 @@ import { EvaluarSucursal } from './pages/evaluar/EvaluarSucursal'
 import { EvaluacionDetalle, SkeletonEvaluacionDetalle } from './pages/EvaluacionDetalle'
 import { EditarConciliacion } from './pages/EditarConciliacion'
 import { SkeletonPantalla } from './components/ui'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 const EvaluarResumen = lazy(() => import('./pages/evaluar/EvaluarResumen').then((m) => ({ default: m.EvaluarResumen })))
 const MisEvaluaciones = lazy(() => import('./pages/evaluar/MisEvaluaciones').then((m) => ({ default: m.MisEvaluaciones })))
@@ -40,21 +41,15 @@ function Susp() {
   return <SkeletonPantalla />
 }
 
-export default function App() {
+/** Envuelve las rutas en un error boundary que se limpia al navegar: si algo
+ *  lanza durante el render de una pantalla, se muestra el fallback en vez de
+ *  dejar la app en blanco, y cambiar de ruta reintenta solo. */
+function Rutas() {
+  const location = useLocation()
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <OfflineProvider>
-          <CatalogProvider>
-            {/* Presencia: quién tiene la app abierta y en qué pantalla está.
-                Necesita la sesión (identidad) y el catálogo (nombres de sucursal
-                y módulo), por eso va dentro de ambos. */}
-            <PresenciaProvider>
-              {/* Versión: avisa (o actualiza sola) cuando hay una build nueva en
-                  el servidor, sin cortar a quien está evaluando. */}
-              <VersionProvider>
-                <Suspense fallback={<Susp />}>
-                  <Routes>
+    <ErrorBoundary resetKey={location.pathname}>
+      <Suspense fallback={<Susp />}>
+        <Routes>
                     <Route path="/" element={<HomeRedirect />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/registro" element={<RegisterPage />} />
@@ -183,7 +178,25 @@ export default function App() {
 
                     <Route path="*" element={<HomeRedirect />} />
                   </Routes>
-                </Suspense>
+      </Suspense>
+    </ErrorBoundary>
+  )
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <OfflineProvider>
+          <CatalogProvider>
+            {/* Presencia: quién tiene la app abierta y en qué pantalla está.
+                Necesita la sesión (identidad) y el catálogo (nombres de sucursal
+                y módulo), por eso va dentro de ambos. */}
+            <PresenciaProvider>
+              {/* Versión: avisa (o actualiza sola) cuando hay una build nueva en
+                  el servidor, sin cortar a quien está evaluando. */}
+              <VersionProvider>
+                <Rutas />
               </VersionProvider>
             </PresenciaProvider>
           </CatalogProvider>
