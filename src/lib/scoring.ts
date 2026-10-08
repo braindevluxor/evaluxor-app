@@ -58,10 +58,6 @@ export interface ValorConciliacion {
   responsables?: string[]
   /** Nombre del gerente de la sucursal (horneado al responder): destino por defecto de los puntos incumplidos. */
   responsablesGerente?: string | null
-  /** Fotos de evidencia de la conciliación (cámara o galería): ids de la base local, pendientes de subir. */
-  photoIds?: string[]
-  /** En el valor sincronizado: rutas del bucket (definitivas). Al reabrir desde la nube llega con `paths` y sin `photoIds`. */
-  paths?: string[]
 }
 export interface ProductoConciliacion {
   sku: string
@@ -94,6 +90,16 @@ export interface ProductoConciliacion {
    * (contra dato FINAL_BASE), que es donde existe el hablador.
    */
   sinHablador?: boolean
+  /**
+   * Evidencia fotográfica de **este producto** (cámara o galería): ids de la base
+   * local, pendientes de subir. Cada foto queda casada con el SKU al que pertenece.
+   */
+  photoIds?: string[]
+  /**
+   * En el valor sincronizado: rutas del bucket de **este producto** (definitivas).
+   * Al reabrir desde la nube la fila llega con `paths` y sin `photoIds`.
+   */
+  paths?: string[]
 }
 
 /** ¿El producto quedó marcado como "sin hablador"? No hay precio en la góndola que comparar. */

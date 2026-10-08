@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple } from '../lib/evidencias'
+import { pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple, pathsEvidenciaProducto } from '../lib/evidencias'
 import { FiltroCumplimiento, ValorRespuesta } from './EvaluacionDetalle'
 import type { VeredictoItem } from '../lib/scoring'
 import type { Item } from '../lib/types'
@@ -229,17 +229,26 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
       expect(pathsEvidenciaCumple({ value: false, evidencias: 'sin arreglo' })).toEqual([])
     })
 
-    it('recupera y desduplica las rutas de evidencia de una conciliación (viven arriba del valor)', () => {
+    it('recupera y desduplica las rutas de evidencia de cada producto de la conciliación', () => {
       expect(
         pathsEvidenciaConciliacion({
-          productos: [{ sku: 'SKU-1', teorica: 1, fisica: 1 }],
-          paths: ['ev/eval/item/f1.jpg', 'ev/eval/item/f1.jpg']
+          productos: [
+            { sku: 'SKU-1', nombre: 'Pan', paths: ['ev/eval/item/f1.jpg', 'ev/eval/item/f2.jpg'] },
+            { sku: 'SKU-2', nombre: 'Queso', paths: ['ev/eval/item/f1.jpg'] }
+          ]
         })
-      ).toEqual(['ev/eval/item/f1.jpg'])
-      // Fotos locales todavía sin subir no son rutas del bucket.
-      expect(pathsEvidenciaConciliacion({ productos: [], photoIds: ['local-1'] })).toEqual([])
+      ).toEqual(['ev/eval/item/f1.jpg', 'ev/eval/item/f2.jpg'])
+      // Un producto puede no tener fotos.
+      expect(pathsEvidenciaConciliacion({ productos: [{ sku: 'SKU-3' }] })).toEqual([])
       expect(pathsEvidenciaConciliacion({ value: true })).toEqual([])
       expect(pathsEvidenciaConciliacion(null)).toEqual([])
+    })
+
+    it('la evidencia de un producto sale de sus paths y nunca de sus photoIds locales', () => {
+      expect(pathsEvidenciaProducto({ sku: 'A', paths: ['ev/e/i/f1.jpg'] })).toEqual(['ev/e/i/f1.jpg'])
+      expect(pathsEvidenciaProducto({ sku: 'A', paths: ['ev/e/i/f1.jpg'], photoIds: ['local-1'] })).toEqual(['ev/e/i/f1.jpg'])
+      expect(pathsEvidenciaProducto({ sku: 'A', photoIds: ['local-1'] })).toEqual([])
+      expect(pathsEvidenciaProducto(null)).toEqual([])
     })
   })
 
@@ -286,16 +295,21 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
     expect(html).toContain('table-fixed')
   })
 
-  it('la conciliación muestra su evidencia fotográfica cuando ya hay fotos en la nube', () => {
+  it('la conciliación rotula la evidencia con el producto al que pertenece', () => {
     const html = renderRespuesta(
       itemBase('CONCILIACION'),
       {
-        productos: [{ sku: 'SKU-1', nombre: 'Pan', teorica: 10, fisica: 7 }],
-        paths: ['ev/eval/item/foto.jpg']
+        productos: [
+          { sku: 'SKU-1', nombre: 'Pan', teorica: 10, fisica: 7, paths: ['ev/eval/item/foto.jpg'] },
+          { sku: 'SKU-2', nombre: 'Queso', teorica: 5, fisica: 5 }
+        ]
       }
     )
     expect(html).toContain('Evidencia fotográfica')
-    // Sin fotos, la sección no aparece.
+    // La foto queda casada a su SKU: se rótula en lugar de un bloque general.
+    expect(html).toContain('Evidencia fotográfica · SKU-1 · Pan')
+    expect(html).not.toContain('Evidencia fotográfica · SKU-2')
+    // Sin fotos en ningún producto, la sección no aparece.
     const sinFotos = renderRespuesta(itemBase('CONCILIACION'), {
       productos: [{ sku: 'SKU-1', nombre: 'Pan', teorica: 10, fisica: 7 }]
     })

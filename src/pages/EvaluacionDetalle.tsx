@@ -19,7 +19,7 @@ import { IncidenciasEvaluacion, ListaIncidencias, incidenciaEsDeCargo, useIncide
 import { SelectorPdf } from '../components/SelectorPdf'
 import { Fotogaleria, FotogaleriaRutas } from '../components/dashboard/Fotogaleria'
 import { PlanoLectura } from '../components/PlanoEditor'
-import { pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple, pathsEvidenciaOpcion } from '../lib/evidencias'
+import { pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple, pathsEvidenciaOpcion, pathsEvidenciaProducto } from '../lib/evidencias'
 import { IconoModulo } from '../components/IconoModulo'
 import { ordenarTrabajadores } from '../lib/data/colaboradores'
 
@@ -395,17 +395,16 @@ export function ValorRespuesta({
       const skuSobrantes = filas.filter((f) => f.variacion?.signo === '+').length
       const pctFaltantes = filas.length ? Math.round((skuFaltantes / filas.length) * 100) : 0
       const pctSobrantes = filas.length ? Math.round((skuSobrantes / filas.length) * 100) : 0
-      const fotosConciliacion = pathsEvidenciaConciliacion(v)
+      // Las fotos de evidencia están casadas a cada producto escaneado: la lista
+      // es por SKU, no un bloque general donde no se sabría de qué evidencia se
+      // trata. Solo las que se subieron (paths del bucket).
+      const evidencias = ps
+        .map((producto) => ({ producto, paths: pathsEvidenciaProducto(producto) }))
+        .filter((e) => e.paths.length > 0)
       return (
         <div className="space-y-3">
           {v?.informativo ? (
             <p className="text-xs font-bold text-amber-700">No aplica · se excluye del puntaje</p>
-          ) : null}
-          {fotosConciliacion.length ? (
-            <div className="space-y-1">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Evidencia fotográfica</p>
-              <FotogaleriaRutas paths={fotosConciliacion} compacta />
-            </div>
           ) : null}
           <div className="rounded-xl border border-slate-200">
             <table className="w-full table-fixed text-xs sm:text-sm">
@@ -522,6 +521,17 @@ export function ValorRespuesta({
               </tbody>
             </table>
           </div>
+          {/* La evidencia va después de la tabla, rotulada con su SKU: así se ve
+              de qué producto es cada foto. */}
+          {evidencias.map(({ producto, paths }) => (
+            <div key={producto.sku} className="space-y-1">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                Evidencia fotográfica · {producto.sku}
+                {producto.nombre ? ` · ${producto.nombre}` : ''}
+              </p>
+              <FotogaleriaRutas paths={paths} compacta />
+            </div>
+          ))}
           {esPrecio ? (
             <p className="text-sm text-slate-600">
               {soloIncumplimientos ? `${descuadrados} producto(s) con descuadre` : `${filas.length} producto(s) escaneado(s) · `}

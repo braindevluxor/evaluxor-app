@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { Ban, Camera, Check, ChevronDown, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
+import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
 import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
@@ -336,6 +336,21 @@ function tieneInfoSistema(p: { soh?: number | null; lastSync?: string | null; fi
   return !!(p && (p.soh != null || p.lastSync || p.finalBase != null || p.departamento))
 }
 
+/**
+ * Evidencia fotográfica de UN producto de la conciliación. Las fotos están
+ * casadas al SKU: cámara o galería para agregar, miniaturas de las locales (se
+ * pueden quitar) y en galería las que ya están en la nube (solo consulta).
+ */
+export function EvidenciaProducto({ sku, photoIds, paths, onChange }: { sku: string; photoIds: string[]; paths: string[]; onChange: (ids: string[]) => void }) {
+  return (
+    <div className="space-y-1.5 rounded-lg bg-slate-50 p-2">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Evidencia fotográfica · {sku}</p>
+      <PhotoCapture photoIds={photoIds} onChange={onChange} />
+      <FotogaleriaRutas paths={paths} compacta />
+    </div>
+  )
+}
+
 export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; item?: Item; gerente?: string | null }) {
   const [escaneando, setEscaneando] = useState(false)
   const [consultando, setConsultando] = useState(false)
@@ -667,6 +682,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                     // el número de lo que acaba de teclear lo pelearía con el teclado.
                     const [paraMirar] = productosParaConciliar([p], contraDato)
                     const pct = conciliacionPorcentaje(paraMirar)
+                    const fotosProducto = (p.photoIds?.length ?? 0) + (p.paths?.length ?? 0)
                     if (editando === i) {
                       return (
                         <li key={i} className="space-y-2 rounded-xl border-2 border-primary bg-white px-3 py-2">
@@ -692,6 +708,15 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                               No tiene hablador · se registra sin precio y cuenta como No Match
                             </label>
                           ) : null}
+                          {/* La evidencia queda casada a este SKU: se guarda apenas se
+                              toma, sin esperar a Confirmar, para que un Cancelar no tire
+                              la foto. */}
+                          <EvidenciaProducto
+                            sku={p.sku}
+                            photoIds={p.photoIds ?? []}
+                            paths={p.paths ?? []}
+                            onChange={(photoIds) => actualizarProducto(i, { photoIds })}
+                          />
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" onClick={() => setEditando(null)}>Cancelar</Button>
                             <Button variant="success" onClick={() => {
@@ -710,7 +735,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                     }
                     const eliminar = () => setAEliminar({ producto: p, index: i })
                     return (
-                      <li key={i}>
+                      <li key={i} className="overflow-hidden rounded-xl">
                         <SwipeAcciones
                           acciones={[
                             {
@@ -776,6 +801,20 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                             ) : null}
                           </div>
                         </SwipeAcciones>
+                        {/* La evidencia va fuera del área de deslizar: si los botones de
+                            cámara/galería quedaran adentro, el pointer capture del gesto
+                            se los comería. Cada foto queda casada a este SKU. */}
+                        <div className="flex items-center justify-between gap-2 rounded-b-xl bg-white px-3 py-1.5">
+                          <span className="text-[10px] font-medium text-slate-400">
+                            {fotosProducto > 0
+                              ? `${fotosProducto} foto${fotosProducto === 1 ? '' : 's'} de evidencia`
+                              : 'Sin evidencia fotográfica'}
+                          </span>
+                          <FotoOpcion
+                            photoIds={p.photoIds ?? []}
+                            onChange={(ids) => actualizarProducto(i, { photoIds: ids })}
+                          />
+                        </div>
                       </li>
                     )
                   })}
@@ -787,17 +826,6 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
       ) : (
         <p className="text-sm text-slate-400">Aún no hay productos agregados. Escanea el primer código para comenzar.</p>
       )}
-
-      {/* Evidencia fotográfica de la conciliación: cámara o galería. Las fotos ya
-          subidas (paths) quedan como consulta; las locales todavía se pueden quitar. */}
-      <div className="space-y-2 rounded-xl bg-white p-3">
-        <p className="text-xs font-bold uppercase text-slate-500">Evidencia fotográfica</p>
-        <p className="text-[11px] leading-tight text-slate-400">
-          Toma una foto o adjunta una desde la galería para respaldar el conteo de esta conciliación.
-        </p>
-        <PhotoCapture photoIds={v.photoIds ?? []} onChange={(photoIds) => onChange({ ...v, photoIds })} />
-        <FotogaleriaRutas paths={v.paths ?? []} compacta />
-      </div>
 
       {escaneando ? (
         <BarcodeScanner
@@ -1769,10 +1797,19 @@ function CampoConciliacion({ etiqueta, valor, onChange, disabled }: { etiqueta: 
 
 function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids: string[]) => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const galeriaRef = useRef<HTMLInputElement>(null)
   const [subiendo, setSubiendo] = useState(false)
 
+  async function agregar(input: HTMLInputElement) {
+    setSubiendo(true)
+    const nuevos = await guardarFotosDe(input.files)
+    setSubiendo(false)
+    if (nuevos.length) onChange([...photoIds, ...nuevos])
+    input.value = ''
+  }
+
   return (
-    <>
+    <div className="flex shrink-0 items-center gap-1.5">
       <input
         ref={inputRef}
         type="file"
@@ -1780,15 +1817,15 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
         capture="environment"
         multiple
         className="hidden"
-        onChange={(e) => {
-          void (async () => {
-            setSubiendo(true)
-            const nuevos = await guardarFotosDe(e.target.files)
-            setSubiendo(false)
-            if (nuevos.length) onChange([...photoIds, ...nuevos])
-          })()
-          e.target.value = ''
-        }}
+        onChange={(e) => void agregar(e.target)}
+      />
+      <input
+        ref={galeriaRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => void agregar(e.target)}
       />
       <button
         type="button"
@@ -1799,7 +1836,16 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
       >
         {subiendo ? <Spinner size={16} light /> : <Camera className="h-4 w-4" />}
       </button>
-    </>
+      <button
+        type="button"
+        onClick={() => galeriaRef.current?.click()}
+        disabled={subiendo}
+        aria-label="Adjuntar foto de evidencia desde la galería"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-full border-2 border-primary bg-white text-primary transition-colors hover:bg-primary-50 disabled:opacity-50"
+      >
+        <ImageIcon className="h-4 w-4" />
+      </button>
+    </div>
   )
 }
 

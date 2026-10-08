@@ -3,10 +3,10 @@ export function photoPath(evaluacionId: string, itemId: string, photoId: string)
 }
 
 /**
- * CONCILIACIÓN: las fotos de evidencia viven arriba del valor (`photoIds` locales
- * o `paths` ya subidos). Se identifica ANTES que los demás formatos porque un
- * valor de conciliación con `photoIds` también encajaría en `isFotoValor` y ahí
- * se perderían los productos.
+ * CONCILIACIÓN: las fotos de evidencia están **casadas a cada producto**
+ * (`productos[i].photoIds` locales o `productos[i].paths` ya subidos). Se
+ * identifica ANTES que los demás formatos porque un valor de conciliación también
+ * encajaría en `isFotoValor` y ahí se perderían los productos.
  */
 function isConciliacionValor(valor: unknown): { productos: unknown[] } | null {
   if (!valor || typeof valor !== 'object' || Array.isArray(valor)) return null
@@ -16,6 +16,20 @@ function isConciliacionValor(valor: unknown): { productos: unknown[] } | null {
 
 function idsStrings(x: unknown): string[] {
   return Array.isArray(x) ? (x.filter((v) => typeof v === 'string') as string[]) : []
+}
+
+function esObjeto(x: unknown): x is Record<string, unknown> {
+  return !!x && typeof x === 'object' && !Array.isArray(x)
+}
+
+/** Recorre los productos de una conciliación devolviendo copias editables. */
+function mapearProductos(conciliacion: { productos: unknown[] }, fn: (p: Record<string, unknown>) => Record<string, unknown>): unknown[] {
+  return conciliacion.productos.map((raw) => (esObjeto(raw) ? fn({ ...raw }) : raw))
+}
+
+/** Fotografías de evidencia de un producto de conciliación (ya subidas o locales). */
+function fotosDeProducto(p: Record<string, unknown>): { viejas: string[]; locales: string[] } {
+  return { viejas: idsStrings(p.paths), locales: idsStrings(p.photoIds) }
 }
 
 function isFotoValor(valor: unknown): string[] | null {
@@ -58,6 +72,11 @@ export function valorSinFotos(valor: unknown): unknown {
     const out: Record<string, unknown> = { ...conciliacion }
     delete out.photoIds
     delete out.paths
+    out.productos = mapearProductos(conciliacion, (p) => {
+      delete p.photoIds
+      delete p.paths
+      return p
+    })
     return out
   }
   const plano = isPlanoValor(valor)
@@ -93,7 +112,13 @@ export function valorSinFotos(valor: unknown): unknown {
 
 export function extraerPhotoIds(valor: unknown): string[] {
   const conciliacion = isConciliacionValor(valor)
-  if (conciliacion) return idsStrings((conciliacion as { photoIds?: unknown }).photoIds)
+  if (conciliacion) {
+    // Las fotos pendientes de subir están casadas al producto; arriba solo puede
+    // quedar alguna de una versión vieja del valor.
+    const legacy = idsStrings((conciliacion as { photoIds?: unknown }).photoIds)
+    const porProducto = conciliacion.productos.flatMap((raw) => (esObjeto(raw) ? idsStrings(raw.photoIds) : []))
+    return Array.from(new Set([...legacy, ...porProducto]))
+  }
   const plano = isPlanoValor(valor)
   if (plano) return plano.planos.flatMap((p) => (Array.isArray(p.photoIds) ? p.photoIds.filter((x) => typeof x === 'string') : []))
   const directos = isFotoValor(valor)
@@ -114,14 +139,27 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
   const conciliacion = isConciliacionValor(valor)
   if (conciliacion) {
     const out: Record<string, unknown> = { ...conciliacion }
-    // Las fotos ya subidas (paths) se conservan: solo se agregan y nunca se
-    // borran, así una fila reabierta desde la nube no pierde sus evidencias.
-    const pathsViejos = idsStrings(out.paths)
-    const locales = idsStrings(out.photoIds).map((id) => map.get(id) ?? `.local/${id}`)
-    const paths = Array.from(new Set([...pathsViejos, ...locales]))
+    // Fotos de nivel valor heredadas de una versión vieja del formato: se unen
+    // igual que las del producto para que no se pierdan.
+    const pathsTop = Array.from(new Set([
+      ...idsStrings(out.paths),
+      ...idsStrings(out.photoIds).map((id) => map.get(id) ?? `.local/${id}`)
+    ]))
     delete out.photoIds
-    if (paths.length) out.paths = paths
+    if (pathsTop.length) out.paths = pathsTop
     else delete out.paths
+
+    // Las fotos de cada producto también solo se agregan: las ya subidas (paths)
+    // se conservan y se suman las locales nuevas, así una fila reabierta desde la
+    // nube no pierde la evidencia de ese SKU.
+    out.productos = mapearProductos(conciliacion, (p) => {
+      const { viejas, locales } = fotosDeProducto(p)
+      const paths = Array.from(new Set([...viejas, ...locales.map((id) => map.get(id) ?? `.local/${id}`)]))
+      delete p.photoIds
+      if (paths.length) p.paths = paths
+      else delete p.paths
+      return p
+    })
     return out
   }
   const plano = isPlanoValor(valor)

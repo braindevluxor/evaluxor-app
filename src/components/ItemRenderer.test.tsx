@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { ItemRenderer } from './ItemRenderer'
+import { EvidenciaProducto, ItemRenderer } from './ItemRenderer'
 import { ProgressBar } from './ui'
 import type { Item } from '../lib/types'
 
@@ -195,9 +195,16 @@ describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
     expect(html).toMatch(/>1<\/p><p[^>]*>No Match<\/p>/)
   })
 
-  it('ofrece evidencia fotográfica: cámara y galería', () => {
+  it('no ofrece evidencia general: la evidencia de la conciliación es por producto', () => {
     const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={undefined} index={0} total={1} onChange={() => {}} />)
-    expect(html).toContain('Evidencia fotográfica')
+    expect(html).not.toContain('Evidencia fotográfica')
+  })
+
+  it('la evidencia de un producto ofrece cámara y galería, rotulada con su SKU', () => {
+    const html = renderToStaticMarkup(
+      <EvidenciaProducto sku="SKU-1" photoIds={[]} paths={[]} onChange={() => {}} />
+    )
+    expect(html).toContain('Evidencia fotográfica · SKU-1')
     expect(html).toContain('aria-label="Tomar foto"')
     expect(html).toContain('aria-label="Adjuntar foto desde la galería"')
   })

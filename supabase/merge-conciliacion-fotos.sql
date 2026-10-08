@@ -4,16 +4,19 @@
 --
 -- Problema: en produccion `upsert_respuestas` fusiona dos escrituras de la misma
 -- conciliacion con `mergear_conciliacion`, y esa funcion arrancaba desde el valor
--- entrante (`coalesce(entrante, '{}'::jsonb)`). Si el que subia no traia `paths`
--- (otro telefono, o una re-sincronizacion), las fotos que ya estaban en la nube
--- se pisaban: el merge de conciliacion era el unico tipo al que NO se le aplicaba
--- `fusionar_fotos`. Las fotos en la conciliacion podian vaciarse.
+-- entrante (`coalesce(entrante, '{}'::jsonb)`). Si el que subia no traia las
+-- fotos (otro telefono, o una re-sincronizacion), la evidencia que ya estaba en
+-- la nube se pisaba: el merge de conciliacion era el unico tipo al que NO se le
+-- aplicaba `fusionar_fotos`.
 --
--- Arreglo (misma filosofia que para el resto de tipos: las fotos solo se agregan,
--- nunca se borran):
+-- La evidencia de la conciliacion no es general: esta casada a cada producto
+-- escaneado (`productos[i].paths`, el sku es la llave del merge). Arreglo
+-- (misma filosofia que para el resto de tipos: las fotos solo se agregan, nunca
+-- se borran):
 --   * base del valor = `previo || entrante`: lo que sube manda por clave y lo que
---     solo estaba en la nube se conserva (fotos, responsables, informativo...).
---   * `paths` final = union de las de la nube con las que suben, sin repetir.
+--     solo estaba en la nube se conserva (responsables, informativo, ...).
+--   * por cada sku, `paths` final = union de las de la nube con las que suben,
+--     sin repetir.
 --   * `photoIds` (ids locales de un telefono) se descartan: no son rutas del
 --     bucket y guardarlos a medias deja ids huerfanos en el valor.
 --   * `productos` sigue fusionandose por sku y `responsablesGerente` sigue
@@ -55,6 +58,18 @@ as $$
     union all
     select p, sku, 'v' from viejos
   ),
+  -- Evidencia por producto: la union de las `paths` de la nube con las que suben,
+  -- casada al sku. Solo strings (un valor viejo con algo raro se ignora).
+  fotos_por_sku as (
+    select u.sku,
+           coalesce(jsonb_agg(distinct t.e order by t.e), '[]'::jsonb) as arr
+    from unidos u
+    left join lateral jsonb_array_elements(
+      case when jsonb_typeof(u.p -> 'paths') = 'array' then u.p -> 'paths' else '[]'::jsonb end
+    ) as t(e) on true
+    where t.e is null or jsonb_typeof(t.e) = 'string'
+    group by u.sku
+  ),
   por_sku as (
     select sku,
       coalesce(max(p->>'nombre')       filter (where o = 'n'), max(p->>'nombre')       filter (where o = 'v')) as nombre,
@@ -76,28 +91,32 @@ as $$
   ),
   lista as (
     select coalesce(jsonb_agg(jsonb_build_object(
-      'sku', sku,
-      'nombre', nombre,
-      'teorica', teorica::numeric,
-      'fisica', fisica_efectiva,
-      'soh', soh::numeric,
-      'lastSync', lastSync,
-      'finalBase', finalBase::numeric,
-      'finalTax', finalTax::numeric,
-      'departamento', departamento,
-      'sinHablador', (sinHablador = 'true'),
+      'sku', a.sku,
+      'nombre', a.nombre,
+      'teorica', a.teorica::numeric,
+      'fisica', a.fisica_efectiva,
+      'soh', a.soh::numeric,
+      'lastSync', a.lastSync,
+      'finalBase', a.finalBase::numeric,
+      'finalTax', a.finalTax::numeric,
+      'departamento', a.departamento,
+      'sinHablador', (a.sinHablador = 'true'),
+      -- Evidencia del producto: unida por sku y sin photoIds (jsonb_build_object
+      -- solo toma los campos de abajo, asi que cualquier id local se cae solo).
+      'paths', coalesce(fp.arr, '[]'::jsonb),
       'perdidaEstimada',
         case
           when contra_dato = 'SOH'
-           and teorica::numeric is not null
-           and fisica_efectiva is not null
-           and finalBase::numeric is not null
-          then greatest(0::numeric, teorica::numeric - fisica_efectiva)
-               * (finalBase::numeric + coalesce(finalTax::numeric, 0))
+           and a.teorica::numeric is not null
+           and a.fisica_efectiva is not null
+           and a.finalBase::numeric is not null
+          then greatest(0::numeric, a.teorica::numeric - a.fisica_efectiva)
+               * (a.finalBase::numeric + coalesce(a.finalTax::numeric, 0))
           else null
         end
-    ) order by sku), '[]'::jsonb) as arr
-    from ajustados
+    ) order by a.sku), '[]'::jsonb) as arr
+    from ajustados a
+    left join fotos_por_sku fp on fp.sku = a.sku
   ),
   con_productos as (
     select jsonb_set(base.v, '{productos}', (select arr from lista), true) as v
@@ -112,8 +131,8 @@ as $$
     ) as v
     from con_productos
   ),
-  -- Evidencia: union de las `paths` de la nube con las que suben, sin repetir y
-  -- sin depender de otros helpers (si este archivo se corre suelto, funciona).
+  -- Hereda de una version vieja del formato, donde las `paths` estaban arriba del
+  -- valor y no dentro del producto: se unen igual para no perderlas.
   fotos as (
     select distinct e
     from (
@@ -146,15 +165,25 @@ grant  execute on function public.mergear_conciliacion(jsonb, jsonb, text) to au
 -- ============================================================================
 -- Verificacion (opcional): correr despues del parche.
 -- ============================================================================
+-- Las fotos estan casadas al producto: se prueban dentro de `productos`.
+--
 -- select public.mergear_conciliacion(
---   '{"productos":[{"sku":"A","teorica":2,"fisica":1}],"paths":["ev/e/i/f1.jpg"]}'::jsonb,
---   '{"productos":[{"sku":"A","teorica":2,"fisica":1}],"informativo":false}'::jsonb,
+--   '{"productos":[{"sku":"A","teorica":2,"fisica":1,"paths":["ev/e/i/f1.jpg"]}]}'::jsonb,
+--   '{"productos":[{"sku":"A","teorica":2,"fisica":1,"informativo":false}]}'::jsonb,
 --   'SOH'
 -- );
--- Esperado: paths = ["ev/e/i/f1.jpg"] (la foto de la nube no desaparece).
+-- Esperado: el producto A conserva paths = ["ev/e/i/f1.jpg"] (la foto de la nube
+-- no desaparece aunque el que subio no traiga ninguna).
+--
+-- select public.mergear_conciliacion(
+--   '{"productos":[{"sku":"A","paths":["ev/e/i/f1.jpg"]},{"sku":"B"}]}'::jsonb,
+--   '{"productos":[{"sku":"A","paths":["ev/e/i/f2.jpg","ev/e/i/f1.jpg"]},{"sku":"B","paths":["ev/e/i/b.jpg"]}]}'::jsonb
+-- );
+-- Esperado: A con ["ev/e/i/f1.jpg","ev/e/i/f2.jpg"] (union, sin repetir) y B con
+-- ["ev/e/i/b.jpg"].
 --
 -- select public.mergear_conciliacion(
 --   null,
---   '{"productos":[],"photoIds":["local-1"],"paths":["ev/e/i/f2.jpg"]}'::jsonb
+--   '{"productos":[{"sku":"A","photoIds":["local-1"],"paths":["ev/e/i/f2.jpg"]}]}'::jsonb
 -- );
--- Esperado: paths = ["ev/e/i/f2.jpg"] y sin photoIds.
+-- Esperado: el producto queda con paths = ["ev/e/i/f2.jpg"] y sin photoIds.
