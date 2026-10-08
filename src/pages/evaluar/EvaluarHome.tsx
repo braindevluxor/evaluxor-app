@@ -65,7 +65,7 @@ export function EvaluarHome() {
           <p className="text-sm text-slate-500">Selecciona la sucursal con evaluación abierta por el Líder.</p>
         </div>
 
-        {sucursales.length === 0 ? (
+        {sucursales.length === 0 && Object.keys(activas).length === 0 ? (
           <EmptyState
             title="No hay sucursales activas"
             subtitle="El Líder debe crear sucursales para poder evaluar."
