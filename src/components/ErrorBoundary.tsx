@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { versionCorta } from '../lib/version'
 
 interface Props {
   children: ReactNode
@@ -69,6 +70,11 @@ export class ErrorBoundary extends Component<Props, State> {
           <pre className="mt-4 max-h-40 overflow-auto rounded-xl bg-slate-100 p-3 text-left text-xs text-slate-500">
             {error.message || String(error)}
           </pre>
+          {/* Ruta y build en el momento del fallo: un pantallazo alcanza para saber
+              en qué pantalla y con qué versión se cayó — sin abrir la consola. */}
+          <p className="mt-2 break-all text-[11px] text-slate-400">
+            {window.location.pathname} · {versionCorta()}
+          </p>
           {/*
             Colapsado a propósito: para el usuario es ruido, y para quien depura es
             lo único que dice EN QUÉ componente se cayó — en un teléfono la consola
