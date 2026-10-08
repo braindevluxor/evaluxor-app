@@ -334,6 +334,56 @@ function trabajador(dni: number, name: string, lastname: string, extra: Partial<
   }
 }
 
+/**
+ * El re-escaneo de un producto que ya está en la conciliación.
+ *
+ * Hubo un atajo que, ante un SKU ya agregado, reutilizaba la fila guardada sin
+ * volver a consultar la API. Ahorraba requests, pero congelaba el `lastSync` (y
+ * el SOH, y el precio) en el valor del primer escaneo: el evaluador re-escaneaba
+ * a horas de distancia y seguía viendo la fecha vieja mientras la API directa
+ * ya reportaba otra. Se verifica sobre el fuente porque el atajo es una
+ * cuestión de control de flujo, invisible en el markup del primer render.
+ */
+describe('ItemRenderer · re-escaneo: la fila guardada no reemplaza la consulta', () => {
+  const fuente = (rel: string): string =>
+    readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+  it('el atajo que congelaba los datos del sistema no existe más', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    // Si reaparece cualquier rama que haga `return` antes de consultar porque el
+    // producto ya estaba en la lista, la fecha de sync vuelve a quedar vieja.
+    expect(src).not.toMatch(/ya && ya\.departamento && ya\.apiId != null/)
+    expect(src).not.toMatch(/sin volver a pegarle a la API/)
+  })
+
+  it('los dos caminos (campo de código y lector de barras) consultan la API', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    // Uno para Enter/Botón "Buscar", otro para el scanner. Con uno solo faltando,
+    // escanear con la cámara seguiría mostrando el lastSync guardado.
+    expect(src.match(/await buscarProducto\(codigo, shopId\)/g)).toHaveLength(2)
+  })
+
+  it('la respuesta fresca pisa los datos del sistema, pero solo si la API respondió', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    // Sin nombre, el borrador se conserva intacto: es lo que mantiene usable la
+    // conciliación sin conexión, donde re-escanear no puede refrescar nada.
+    expect(src).toMatch(/if \(r\.nombre\) \{\s*\n\s*setBorrador\(\(b\) => aplicarResultadoScan\(b, r, contraDato\)\)\s*\n\s*\} else \{\s*\n\s*setInfo\(r\.mensaje/)
+    expect(src).toMatch(/soh: r\.soh,\s*\n\s*lastSync: r\.lastSync/)
+  })
+
+  it('la fila guardada recién se actualiza al pulsar Agregar', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    // El re-escaneo refresca el borrador (lo que se ve al escanear); la lista
+    // solo cambia cuando se registra la cantidad. Ninguna consulta debe llamar a
+    // `actualizar` por su cuenta.
+    const desde = src.indexOf('const aplicarCodigo = async () => {')
+    const hasta = src.indexOf('const agregar = () => {')
+    expect(desde).toBeGreaterThan(-1)
+    expect(hasta).toBeGreaterThan(desde)
+    expect(src.slice(desde, hasta)).not.toContain('actualizar(')
+  })
+})
+
 describe('ItemRenderer · limpiar lista de trabajadores', () => {
   it('ofrece el botón «Limpiar lista» cuando hay trabajadores cargados', () => {
     const valor = {

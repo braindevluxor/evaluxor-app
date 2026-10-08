@@ -40,7 +40,15 @@ export async function buscarProducto(barcode: string, shopId: string): Promise<R
 
   let res: Response
   try {
+    // `no-store` es a propósito: es un GET de datos vivos (SOH, precio, última
+    // sincronización) y el navegador puede cachearlo por su cuenta si el backend
+    // no manda cache-control (en dev el proxy de Vite reenvía los headers que
+    // mande deliveryluxor.store). Si se cachea, re-escanear devuelve la misma
+    // fecha vieja aunque la API ya tenga otra, que es exactamente el síntoma que
+    // motivó este fix. En Vercel el edge function ya responde `no-store`; acá se
+    // pide del lado cliente para que el resultado no dependa de quien sirve.
     res = await fetch(url.toString(), {
+      cache: 'no-store',
       headers: {
         Accept: 'application/json',
         ...(keyLocal ? { API_KEY: keyLocal } : {})

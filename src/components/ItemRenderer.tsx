@@ -470,24 +470,15 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
     setInfo('')
     setExito('')
     if (!codigo) return
-    const ya = productos.find((p) => p.sku === codigo)
-    // Ya fue escaneado en esta evaluación con todos los datos que usa la
-    // conciliación: se reutiliza la teórica y solo se carga el nuevo conteo, sin
-    // volver a pegarle a la API.
+    // Se consulta SIEMPRE, también cuando el SKU ya está en la lista. Antes había
+    // un atajo que reutilizaba la fila guardada para evitar consultas repetidas,
+    // y el efecto secundario era que el `lastSync` (y el SOH, y el precio, y la
+    // teórica) quedaba congelado en el valor del primer escaneo: a horas de
+    // distancia seguía mostrando la fecha vieja mientras la API ya traía otra.
     //
-    // El departamento es la excepción. Es un campo que se agregó después, así que
-    // un producto guardado antes de que existiera lo tiene en `undefined`: si el
-    // atajo saltara, re-escanearlo no volvería a consultar la API y el producto
-    // se quedaría para siempre en el grupo "Sin departamento". Por eso, si le
-    // falta, se cae al camino normal de abajo y la API lo rellena.
-    //
-    // Igual con el `id` de la API (apiId): los productos escaneados antes de
-    // guardarlo llegan sin ese dato y re-escanear es la única forma de que lo
-    // traiga.
-    if (ya && ya.departamento && ya.apiId != null) {
-      setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, apiId: ya.apiId, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax, departamento: ya.departamento, sinHablador: ya.sinHablador })
-      return
-    }
+    // La fila guardada sigue siendo el respaldo: si la API no responde (sin
+    // conexión), el borrador conserva lo que ya tenía —lo puso el prellenado del
+    // campo al detectar el código— y solo se avisa del error arriba.
     if (!shopId) {
       setInfo('Nº tienda (shop_id) no configurado en la sucursal.')
       return
@@ -969,16 +960,12 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
             setInfo('')
             setExito('')
             const ya = productos.find((p) => p.sku === codigo)
-            // Mismo criterio que en el campo de código: solo se reutiliza el
-            // producto guardado si tiene departamento **y** el id de la API. Si le
-            // falta alguno de los dos (fue escaneado antes de que existieran), se
-            // sigue abajo a consultar la API para rellenarlo, porque re-escanear
-            // no debe dejar el producto atrapado en "Sin departamento" ni sin su
-            // ID.
-            if (ya && ya.departamento && ya.apiId != null) {
-              setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, apiId: ya.apiId, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax, departamento: ya.departamento, sinHablador: ya.sinHablador })
-              return
-            }
+            // Igual que en el campo de código: se consulta siempre, aunque el SKU
+            // ya esté en la fila. El producto guardado solo siembra el borrador
+            // como respaldo por si la API no responde, nunca reemplaza la
+            // consulta — si no, el `lastSync` quedaría clavado en el primer
+            // escaneo y re-escanear mostraría una fecha que la API ya dejó de
+            // reportar.
             const mismo = borrador.sku.trim() === codigo
             // Arranca con lo que ya se sabe del producto (igual que hace el campo
             // de código): si la API responde, esos datos se sobrescriben con los

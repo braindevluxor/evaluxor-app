@@ -44,6 +44,19 @@ describe('buscarProducto', () => {
   expect(headers.get('API_KEY')).toBe('clave-local')
   })
 
+  it('le pide al navegador que no cachee la consulta, para que el lastSync nunca envejezca', async () => {
+    // Es un GET de datos vivos. Sin `no-store`, el navegador puede responder del
+    // caché si el backend no manda cache-control (en dev el proxy de Vite
+    // reenvía lo que mande deliveryluxor.store) y el escaneo posterior devolvería
+    // el mismo lastSync de antes aunque la API ya tenga otro.
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ product: 'P' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await buscarProducto('7790001', '198')
+
+    expect(fetchMock.mock.calls[0]?.[1]?.cache).toBe('no-store')
+  })
+
   it('trae el `id` del producto en la API, que no es el código escaneado', async () => {
     // Respuesta real del scan. El `id` (100006130) es el identificador del
     // producto en el sistema; el código escaneado va en `barcode` y se guarda
