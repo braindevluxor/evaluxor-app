@@ -11,6 +11,7 @@ import { formatearValorConsulta } from '../lib/data/apis'
 import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar, ProgressBar } from './ui'
 import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
+import { FotogaleriaRutas } from './dashboard/Fotogaleria'
 import { BarcodeScanner } from './BarcodeScanner'
 import { BotonNoAplica, SelectorResponsables } from './WidgetsEvaluacion'
 import { PlanoEditor } from './PlanoEditor'
@@ -786,6 +787,17 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
       ) : (
         <p className="text-sm text-slate-400">Aún no hay productos agregados. Escanea el primer código para comenzar.</p>
       )}
+
+      {/* Evidencia fotográfica de la conciliación: cámara o galería. Las fotos ya
+          subidas (paths) quedan como consulta; las locales todavía se pueden quitar. */}
+      <div className="space-y-2 rounded-xl bg-white p-3">
+        <p className="text-xs font-bold uppercase text-slate-500">Evidencia fotográfica</p>
+        <p className="text-[11px] leading-tight text-slate-400">
+          Toma una foto o adjunta una desde la galería para respaldar el conteo de esta conciliación.
+        </p>
+        <PhotoCapture photoIds={v.photoIds ?? []} onChange={(photoIds) => onChange({ ...v, photoIds })} />
+        <FotogaleriaRutas paths={v.paths ?? []} compacta />
+      </div>
 
       {escaneando ? (
         <BarcodeScanner

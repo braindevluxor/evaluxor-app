@@ -2,6 +2,22 @@ export function photoPath(evaluacionId: string, itemId: string, photoId: string)
   return `ev/${evaluacionId}/${itemId}/${photoId}.jpg`
 }
 
+/**
+ * CONCILIACIÓN: las fotos de evidencia viven arriba del valor (`photoIds` locales
+ * o `paths` ya subidos). Se identifica ANTES que los demás formatos porque un
+ * valor de conciliación con `photoIds` también encajaría en `isFotoValor` y ahí
+ * se perderían los productos.
+ */
+function isConciliacionValor(valor: unknown): { productos: unknown[] } | null {
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor)) return null
+  const v = valor as { productos?: unknown }
+  return Array.isArray(v.productos) ? (v as { productos: unknown[] }) : null
+}
+
+function idsStrings(x: unknown): string[] {
+  return Array.isArray(x) ? (x.filter((v) => typeof v === 'string') as string[]) : []
+}
+
 function isFotoValor(valor: unknown): string[] | null {
   if (Array.isArray(valor)) return valor.filter((v) => typeof v === 'string') as string[]
   const v = valor as { photoIds?: string[] } | null
@@ -37,6 +53,13 @@ function isChecklistValor(valor: unknown): Record<string, string[]> | null {
 // Proyección sin IDs de fotos locales, para consumidores que explícitamente no
 // deban incluir evidencias. El auto-guardado normal las sube y guarda sus rutas.
 export function valorSinFotos(valor: unknown): unknown {
+  const conciliacion = isConciliacionValor(valor)
+  if (conciliacion) {
+    const out: Record<string, unknown> = { ...conciliacion }
+    delete out.photoIds
+    delete out.paths
+    return out
+  }
   const plano = isPlanoValor(valor)
   if (plano) {
     const v = valor as { planos: { id: string; nombre: string; photoIds?: string[] }[]; puntos?: unknown; informativo?: boolean }
@@ -69,6 +92,8 @@ export function valorSinFotos(valor: unknown): unknown {
 }
 
 export function extraerPhotoIds(valor: unknown): string[] {
+  const conciliacion = isConciliacionValor(valor)
+  if (conciliacion) return idsStrings((conciliacion as { photoIds?: unknown }).photoIds)
   const plano = isPlanoValor(valor)
   if (plano) return plano.planos.flatMap((p) => (Array.isArray(p.photoIds) ? p.photoIds.filter((x) => typeof x === 'string') : []))
   const directos = isFotoValor(valor)
@@ -86,6 +111,19 @@ export function idsFotosRespuesta(
 }
 
 export function convertirValor(valor: unknown, map: Map<string, string>): unknown {
+  const conciliacion = isConciliacionValor(valor)
+  if (conciliacion) {
+    const out: Record<string, unknown> = { ...conciliacion }
+    // Las fotos ya subidas (paths) se conservan: solo se agregan y nunca se
+    // borran, así una fila reabierta desde la nube no pierde sus evidencias.
+    const pathsViejos = idsStrings(out.paths)
+    const locales = idsStrings(out.photoIds).map((id) => map.get(id) ?? `.local/${id}`)
+    const paths = Array.from(new Set([...pathsViejos, ...locales]))
+    delete out.photoIds
+    if (paths.length) out.paths = paths
+    else delete out.paths
+    return out
+  }
   const plano = isPlanoValor(valor)
   if (plano) {
     const v = valor as { planos: { id: string; nombre: string; photoIds?: string[] }[]; puntos?: unknown; informativo?: boolean; responsables?: string[]; responsablesGerente?: string | null }

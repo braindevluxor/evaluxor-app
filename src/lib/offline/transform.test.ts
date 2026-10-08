@@ -225,3 +225,36 @@ describe('convertirValor', () => {
     expect(convertirValor(5, map)).toBe(5)
   })
 })
+
+describe('conciliación con evidencia fotográfica', () => {
+  const productos = [{ sku: 'SKU-1', nombre: 'Pan', teorica: 2, fisica: 1 }]
+  const base = { productos }
+
+  it('extrae los photoIds locales sin tocar los productos', () => {
+    expect(extraerPhotoIds({ ...base, photoIds: ['a', 'b'] })).toEqual(['a', 'b'])
+    expect(extraerPhotoIds(base)).toEqual([])
+    // Un valor con fotos también encajaría en el formato "foto directo": los
+    // productos tienen que ganar, si no, la subida los perdería.
+    expect(extraerPhotoIds({ productos, photoIds: ['x'] })).toEqual(['x'])
+  })
+
+  it('al convertir conserva los productos y une las paths de la nube con las locales', () => {
+    const map = new Map([['nueva', 'ev/x/y/nueva.jpg']])
+    const out = convertirValor({ ...base, paths: ['ev/x/y/vieja.jpg'], photoIds: ['nueva'] }, map) as Record<string, unknown>
+    expect(out.productos).toEqual(productos)
+    expect(out.paths).toEqual(['ev/x/y/vieja.jpg', 'ev/x/y/nueva.jpg'])
+    expect(out.photoIds).toBeUndefined()
+  })
+
+  it('sin fotos locales sube los productos intactos', () => {
+    expect(convertirValor(base, new Map())).toEqual({ productos })
+  })
+
+  it('valorSinFotos deja los productos y quita las fotos', () => {
+    expect(valorSinFotos({ ...base, photoIds: ['a'], paths: ['p'] })).toEqual({ productos })
+  })
+
+  it('idsFotosRespuesta incluye las fotos de la conciliación', () => {
+    expect(idsFotosRespuesta([{ valor: { ...base, photoIds: ['foto-conc'] } }])).toEqual(['foto-conc'])
+  })
+})

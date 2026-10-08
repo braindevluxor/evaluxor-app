@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Camera, X } from 'lucide-react'
+import { Camera, Image as ImageIcon, X } from 'lucide-react'
 import { addPhoto, deletePhoto, getPhotos } from '../lib/offline/db'
 import { comprimirFoto } from '../lib/fotos'
 import { Spinner } from './ui'
@@ -78,11 +78,20 @@ export function MinaFotos({ photoIds, onQuitar }: { photoIds: string[]; onQuitar
 
 export function PhotoCapture({ photoIds, onChange }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const galeriaRef = useRef<HTMLInputElement>(null)
   const [subiendo, setSubiendo] = useState(false)
 
   function quitar(id: string) {
     void deletePhoto(id)
     onChange(photoIds.filter((x) => x !== id))
+  }
+
+  async function agregar(input: HTMLInputElement) {
+    setSubiendo(true)
+    const nuevos = await guardarFotosDe(input.files)
+    setSubiendo(false)
+    if (nuevos.length) onChange([...photoIds, ...nuevos])
+    input.value = ''
   }
 
   return (
@@ -102,25 +111,36 @@ export function PhotoCapture({ photoIds, onChange }: Props) {
         capture="environment"
         multiple
         className="hidden"
-        onChange={(e) => {
-          void (async () => {
-            setSubiendo(true)
-            const nuevos = await guardarFotosDe(e.target.files)
-            setSubiendo(false)
-            if (nuevos.length) onChange([...photoIds, ...nuevos])
-          })()
-          e.target.value = ''
-        }}
+        onChange={(e) => void agregar(e.target)}
       />
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={subiendo}
-        aria-label="Tomar / agregar foto"
-        className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
-      >
-        <Camera className="h-5 w-5" />
-      </button>
+      <input
+        ref={galeriaRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => void agregar(e.target)}
+      />
+      <div className="flex shrink-0 flex-col gap-2">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={subiendo}
+          aria-label="Tomar foto"
+          className="grid h-12 w-12 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
+        >
+          <Camera className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => galeriaRef.current?.click()}
+          disabled={subiendo}
+          aria-label="Adjuntar foto desde la galería"
+          className="grid h-12 w-12 place-items-center rounded-full border-2 border-primary bg-white text-primary transition-colors hover:bg-primary-50 disabled:opacity-50"
+        >
+          <ImageIcon className="h-5 w-5" />
+        </button>
+      </div>
     </div>
   )
 }

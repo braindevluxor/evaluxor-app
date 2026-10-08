@@ -19,7 +19,7 @@ import { IncidenciasEvaluacion, ListaIncidencias, incidenciaEsDeCargo, useIncide
 import { SelectorPdf } from '../components/SelectorPdf'
 import { Fotogaleria, FotogaleriaRutas } from '../components/dashboard/Fotogaleria'
 import { PlanoLectura } from '../components/PlanoEditor'
-import { pathsEvidenciaChecklist, pathsEvidenciaCumple, pathsEvidenciaOpcion } from '../lib/evidencias'
+import { pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple, pathsEvidenciaOpcion } from '../lib/evidencias'
 import { IconoModulo } from '../components/IconoModulo'
 import { ordenarTrabajadores } from '../lib/data/colaboradores'
 
@@ -395,10 +395,17 @@ export function ValorRespuesta({
       const skuSobrantes = filas.filter((f) => f.variacion?.signo === '+').length
       const pctFaltantes = filas.length ? Math.round((skuFaltantes / filas.length) * 100) : 0
       const pctSobrantes = filas.length ? Math.round((skuSobrantes / filas.length) * 100) : 0
+      const fotosConciliacion = pathsEvidenciaConciliacion(v)
       return (
         <div className="space-y-3">
           {v?.informativo ? (
             <p className="text-xs font-bold text-amber-700">No aplica · se excluye del puntaje</p>
+          ) : null}
+          {fotosConciliacion.length ? (
+            <div className="space-y-1">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Evidencia fotográfica</p>
+              <FotogaleriaRutas paths={fotosConciliacion} compacta />
+            </div>
           ) : null}
           <div className="rounded-xl border border-slate-200">
             <table className="w-full table-fixed text-xs sm:text-sm">
@@ -1429,7 +1436,9 @@ export function EvaluacionDetalle() {
                 ? pathsEvidenciaCumple(res.valor)
                 : item.tipo === 'CHECKLIST'
                   ? pathsEvidenciaChecklist(res.valor)
-                  : []
+                  : item.tipo === 'CONCILIACION'
+                    ? pathsEvidenciaConciliacion(res.valor)
+                    : []
               const fotosDeValor: Foto[] = pathsGuardados
                 .map((path) => ({
                     id: path,

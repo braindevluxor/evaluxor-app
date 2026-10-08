@@ -194,6 +194,13 @@ describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
     expect(html).toMatch(/>1<\/p><p[^>]*>Match<\/p>/)
     expect(html).toMatch(/>1<\/p><p[^>]*>No Match<\/p>/)
   })
+
+  it('ofrece evidencia fotográfica: cámara y galería', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Evidencia fotográfica')
+    expect(html).toContain('aria-label="Tomar foto"')
+    expect(html).toContain('aria-label="Adjuntar foto desde la galería"')
+  })
 })
 
 function itemColaboradores(): Item {

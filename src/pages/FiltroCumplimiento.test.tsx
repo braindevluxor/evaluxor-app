@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { pathsEvidenciaChecklist, pathsEvidenciaCumple } from '../lib/evidencias'
+import { pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple } from '../lib/evidencias'
 import { FiltroCumplimiento, ValorRespuesta } from './EvaluacionDetalle'
 import type { VeredictoItem } from '../lib/scoring'
 import type { Item } from '../lib/types'
@@ -228,6 +228,19 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
       expect(pathsEvidenciaCumple(null)).toEqual([])
       expect(pathsEvidenciaCumple({ value: false, evidencias: 'sin arreglo' })).toEqual([])
     })
+
+    it('recupera y desduplica las rutas de evidencia de una conciliación (viven arriba del valor)', () => {
+      expect(
+        pathsEvidenciaConciliacion({
+          productos: [{ sku: 'SKU-1', teorica: 1, fisica: 1 }],
+          paths: ['ev/eval/item/f1.jpg', 'ev/eval/item/f1.jpg']
+        })
+      ).toEqual(['ev/eval/item/f1.jpg'])
+      // Fotos locales todavía sin subir no son rutas del bucket.
+      expect(pathsEvidenciaConciliacion({ productos: [], photoIds: ['local-1'] })).toEqual([])
+      expect(pathsEvidenciaConciliacion({ value: true })).toEqual([])
+      expect(pathsEvidenciaConciliacion(null)).toEqual([])
+    })
   })
 
   it('la conciliación solo presenta productos con descuadre y no fuerza scroll horizontal', () => {
@@ -271,6 +284,22 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
     expect(html).not.toContain('overflow-x-auto')
     expect(html).not.toContain('min-w-[620px]')
     expect(html).toContain('table-fixed')
+  })
+
+  it('la conciliación muestra su evidencia fotográfica cuando ya hay fotos en la nube', () => {
+    const html = renderRespuesta(
+      itemBase('CONCILIACION'),
+      {
+        productos: [{ sku: 'SKU-1', nombre: 'Pan', teorica: 10, fisica: 7 }],
+        paths: ['ev/eval/item/foto.jpg']
+      }
+    )
+    expect(html).toContain('Evidencia fotográfica')
+    // Sin fotos, la sección no aparece.
+    const sinFotos = renderRespuesta(itemBase('CONCILIACION'), {
+      productos: [{ sku: 'SKU-1', nombre: 'Pan', teorica: 10, fisica: 7 }]
+    })
+    expect(sinFotos).not.toContain('Evidencia fotográfica')
   })
 
   it('en la conciliación de precio el estado lleva el signo de plata y los montos van con $', () => {

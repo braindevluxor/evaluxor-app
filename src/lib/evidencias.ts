@@ -15,3 +15,11 @@ export function pathsEvidenciaChecklist(valor: unknown): string[] {
   if (!evidencias || typeof evidencias !== 'object' || Array.isArray(evidencias)) return []
   return Array.from(new Set(Object.values(evidencias).flatMap(pathsEvidenciaOpcion)))
 }
+
+/** Evidencia de una CONCILIACIÓN: las fotos viven arriba del valor, no por opción. Solo las ya subidas (paths del bucket). */
+export function pathsEvidenciaConciliacion(valor: unknown): string[] {
+  const v = valor as { productos?: unknown; paths?: unknown } | null
+  if (!v || typeof v !== 'object' || !Array.isArray(v.productos)) return []
+  if (!Array.isArray(v.paths)) return []
+  return Array.from(new Set(v.paths.filter((p): p is string => typeof p === 'string')))
+}
