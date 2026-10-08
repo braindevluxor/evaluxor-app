@@ -195,6 +195,23 @@ describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
     expect(html).toMatch(/>1<\/p><p[^>]*>No Match<\/p>/)
   })
 
+  it('la lista de productos arranca abierta y la fila muestra cómo va la evidencia de ese SKU', () => {
+    const valor = { productos: [{ sku: 'SKU-1', nombre: 'Pan', teorica: 2, fisica: 1 }] }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Sin evidencia fotográfica')
+    expect(html).toContain('aria-label="Tomar foto de evidencia"')
+    expect(html).toContain('aria-label="Adjuntar foto de evidencia desde la galería"')
+  })
+
+  it('cuando el producto ya tiene fotos, la fila las abre en el visor', () => {
+    const valor = {
+      productos: [{ sku: 'SKU-1', nombre: 'Pan', teorica: 2, fisica: 1, paths: ['ev/eval/item/f1.jpg'] }]
+    }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('aria-label="Ver evidencia de SKU-1"')
+    expect(html).toContain('1 foto de evidencia')
+  })
+
   it('no ofrece evidencia general: la evidencia de la conciliación es por producto', () => {
     const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={undefined} index={0} total={1} onChange={() => {}} />)
     expect(html).not.toContain('Evidencia fotográfica')

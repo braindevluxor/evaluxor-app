@@ -8,7 +8,7 @@ import { combinarPorDni, aplicarHistorial } from '../lib/data/colaboradoresEstad
 import { estadosDeEvaluacionesAnteriores } from '../lib/data/colaboradoresHistorico'
 import { useProgresoCarga } from '../lib/progresoCarga'
 import { formatearValorConsulta } from '../lib/data/apis'
-import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar, ProgressBar } from './ui'
+import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar, Modal, ProgressBar } from './ui'
 import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
 import { FotogaleriaRutas } from './dashboard/Fotogaleria'
@@ -351,12 +351,45 @@ export function EvidenciaProducto({ sku, photoIds, paths, onChange }: { sku: str
   )
 }
 
+/**
+ * Visor de la evidencia de UN producto mientras se evalúa: lo que ya está en la
+ * nube y lo que todavía está en el dispositivo. Solo lectura: quitar fotos se
+ * hace desde el modo editar de la fila.
+ */
+function VisorEvidencia({ producto }: { producto: ProductoConciliacion }) {
+  const nube = producto.paths ?? []
+  const locales = producto.photoIds ?? []
+  if (!nube.length && !locales.length) {
+    return <p className="text-sm text-slate-400">Este producto todavía no tiene evidencia fotográfica.</p>
+  }
+  return (
+    <div className="space-y-3">
+      {nube.length ? (
+        <div className="space-y-1">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Sincronizadas · {nube.length}</p>
+          <FotogaleriaRutas paths={nube} />
+        </div>
+      ) : null}
+      {locales.length ? (
+        <div className="space-y-1">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">En este dispositivo · pendientes de subir · {locales.length}</p>
+          <MinaFotos photoIds={locales} />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; item?: Item; gerente?: string | null }) {
   const [escaneando, setEscaneando] = useState(false)
   const [consultando, setConsultando] = useState(false)
   const [info, setInfo] = useState('')
   const [exito, setExito] = useState('')
-  const [verLista, setVerLista] = useState(false)
+  // La lista arranca abierta si ya hay productos: es donde está la evidencia de
+  // cada uno (contador, cámara y visor), y volver a una conciliación en curso sin
+  // verla obligaba a entrar a editar cada fila para comprobar sus fotos.
+  const [verLista, setVerLista] = useState(() => ((valor as ValorConciliacion | null)?.productos?.length ?? 0) > 0)
+  const [fotosDe, setFotosDe] = useState<string | null>(null)
   const [aEliminar, setAEliminar] = useState<{ producto: ProductoConciliacion; index: number } | null>(null)
   const [editando, setEditando] = useState<number | null>(null)
   const [edicion, setEdicion] = useState<{ teorica: number | null; fisica: number | null; sinHablador: boolean }>({ teorica: null, fisica: null, sinHablador: false })
@@ -372,6 +405,9 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
   // La conciliación no cumple cuando hay productos escaneados, todos con ambas
   // cantidades, y al menos uno no coincide: ahí aparece el selector de responsables.
   const noCumple = item ? valorBinario({ tipo: item.tipo, opciones: item.opciones ?? null }, valor) === false : false
+  // Producto cuya evidencia se está mirando (se busca por SKU: si se borra una
+  // fila, el índice se corrige solo y no se queda mirando la de al lado).
+  const productoFotos = fotosDe ? productos.find((p) => p.sku === fotosDe) ?? null : null
 
   const actualizar = (items: ProductoConciliacion[]) =>
     onChange({
@@ -512,6 +548,9 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
         }
       ])
       setExito('')
+      // Al primer producto la lista se abre sola: ahí quedan el contador de
+      // evidencia y los botones de cámara/galería de esa fila.
+      setVerLista(true)
     }
     setBorrador({ sku: '', nombre: null, teorica: null, fisica: null, soh: null, lastSync: null, finalBase: null, finalTax: null })
     setInfo('')
@@ -805,11 +844,21 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                             cámara/galería quedaran adentro, el pointer capture del gesto
                             se los comería. Cada foto queda casada a este SKU. */}
                         <div className="flex items-center justify-between gap-2 rounded-b-xl bg-white px-3 py-1.5">
-                          <span className="text-[10px] font-medium text-slate-400">
-                            {fotosProducto > 0
-                              ? `${fotosProducto} foto${fotosProducto === 1 ? '' : 's'} de evidencia`
-                              : 'Sin evidencia fotográfica'}
-                          </span>
+                          {fotosProducto > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => setFotosDe(p.sku)}
+                              aria-label={`Ver evidencia de ${p.sku}`}
+                              className="flex min-w-0 items-center gap-1.5 text-left text-[10px] font-semibold text-primary-700 hover:text-primary-900"
+                            >
+                              <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                              <span className="truncate">
+                                {fotosProducto} foto{fotosProducto === 1 ? '' : 's'} de evidencia · tocar para ver
+                              </span>
+                            </button>
+                          ) : (
+                            <span className="text-[10px] font-medium text-slate-400">Sin evidencia fotográfica</span>
+                          )}
                           <FotoOpcion
                             photoIds={p.photoIds ?? []}
                             onChange={(ids) => actualizarProducto(i, { photoIds: ids })}
@@ -867,6 +916,11 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
         />
       ) : null}
 
+      {productoFotos ? (
+        <Modal open title={`Evidencia fotográfica · ${productoFotos.sku}`} onClose={() => setFotosDe(null)}>
+          <VisorEvidencia producto={productoFotos} />
+        </Modal>
+      ) : null}
       {aEliminar ? (
         <Confirmar
           open
