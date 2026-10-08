@@ -130,13 +130,22 @@ interface EvaluxorDB extends DBSchema {
 }
 
 const DB_NAME = 'evaluxor-db'
-const DB_VERSION = 5
+const DB_VERSION = 6
+/** Stores que la app necesita para funcionar. */
+const STORES = ['cache', 'drafts', 'photos', 'queue', 'incidentes'] as const
 
 let dbPromise: Promise<IDBPDatabase<EvaluxorDB>> | null = null
 
-export function getDB(): Promise<IDBPDatabase<EvaluxorDB>> {
-  if (!dbPromise) {
-    dbPromise = openDB<EvaluxorDB>(DB_NAME, DB_VERSION, {
+/**
+ * Abre la base. Si el navegador ya tiene una versión MÁS nueva que la del
+ * código (otra pestaña con un build distinto o un rollback), IndexedDB lanza
+ * `VersionError` y toda la app se quedaba sin catálogo ni cola. En ese caso se
+ * abre la versión que ya existe y, si le faltara algún store, se sube un punto
+ * para crearlo — sin tocar los datos existentes.
+ */
+async function abrirDB(version: number): Promise<IDBPDatabase<EvaluxorDB>> {
+  try {
+    return await openDB<EvaluxorDB>(DB_NAME, version, {
       upgrade(db, oldVersion) {
         if (!db.objectStoreNames.contains('cache')) db.createObjectStore('cache')
         if (!db.objectStoreNames.contains('drafts')) db.createObjectStore('drafts')
@@ -153,6 +162,27 @@ export function getDB(): Promise<IDBPDatabase<EvaluxorDB>> {
         }
       }
     })
+  } catch (err) {
+    if ((err as DOMException | undefined)?.name !== 'VersionError') throw err
+    // La base local es más nueva que el código: ábrela tal cual…
+    const db = await openDB<EvaluxorDB>(DB_NAME)
+    const faltan = STORES.filter((s) => !db.objectStoreNames.contains(s))
+    if (!faltan.length) return db
+    // …y si le falta algún store, sube la versión para crearlo.
+    const siguiente = Math.max(db.version, version) + 1
+    db.close()
+    return abrirDB(siguiente)
+  }
+}
+
+export function getDB(): Promise<IDBPDatabase<EvaluxorDB>> {
+  if (!dbPromise) {
+    const p = abrirDB(DB_VERSION)
+    // Si falla, no dejamos la promesa rechazada cacheada para siempre.
+    p.catch(() => {
+      if (dbPromise === p) dbPromise = null
+    })
+    dbPromise = p
   }
   return dbPromise
 }

@@ -47,17 +47,21 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       setCacheFecha(data.updated_at)
       setCargado(true)
     } catch {
-      const local = await obtenerCacheLocal()
-      if (local) {
-        setModulos(local.modulos)
-        setItems(local.items)
-        setSucursales(local.sucursales)
-        setAsignaciones(local.asignaciones)
-        setAsignacionesModulos(local.asignacionesModulos ?? [])
-        setSucursalModulos(local.sucursalModulos ?? [])
-        setSucursalItems(local.sucursalItems ?? [])
-        setSucursalOpciones(local.sucursalOpciones ?? [])
-        setCacheFecha(local.updated_at)
+      try {
+        const local = await obtenerCacheLocal()
+        if (local) {
+          setModulos(local.modulos)
+          setItems(local.items)
+          setSucursales(local.sucursales)
+          setAsignaciones(local.asignaciones)
+          setAsignacionesModulos(local.asignacionesModulos ?? [])
+          setSucursalModulos(local.sucursalModulos ?? [])
+          setSucursalItems(local.sucursalItems ?? [])
+          setSucursalOpciones(local.sucursalOpciones ?? [])
+          setCacheFecha(local.updated_at)
+        }
+      } catch {
+        // Sin cache legible: la app sigue con listas vacías hasta la próxima.
       }
       setCargado(true)
     }
@@ -66,18 +70,23 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!profile) return
     void (async () => {
-      const local = await obtenerCacheLocal()
-      if (local) {
-        setModulos(local.modulos)
-        setItems(local.items)
-        setSucursales(local.sucursales)
-        setAsignaciones(local.asignaciones)
-        setAsignacionesModulos(local.asignacionesModulos ?? [])
-        setSucursalModulos(local.sucursalModulos ?? [])
-        setSucursalItems(local.sucursalItems ?? [])
-        setSucursalOpciones(local.sucursalOpciones ?? [])
-        setCacheFecha(local.updated_at)
-        setCargado(true)
+      try {
+        const local = await obtenerCacheLocal()
+        if (local) {
+          setModulos(local.modulos)
+          setItems(local.items)
+          setSucursales(local.sucursales)
+          setAsignaciones(local.asignaciones)
+          setAsignacionesModulos(local.asignacionesModulos ?? [])
+          setSucursalModulos(local.sucursalModulos ?? [])
+          setSucursalItems(local.sucursalItems ?? [])
+          setSucursalOpciones(local.sucursalOpciones ?? [])
+          setCacheFecha(local.updated_at)
+          setCargado(true)
+        }
+      } catch {
+        // Cache ilegible (p. ej. VersionError de IndexedDB): no bloquea la app;
+        // seguimos y baja el catálogo del servidor.
       }
       void refresh()
     })()

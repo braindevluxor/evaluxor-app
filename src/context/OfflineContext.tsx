@@ -35,9 +35,13 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   const [descartes, setDescartes] = useState<string[]>([])
 
   const contar = useCallback(async () => {
-    const [jobs, incs] = await Promise.all([listQueue(), incidentesPendientes()])
-    setPendientes(jobs.length)
-    setIncidentes(incs.length)
+    try {
+      const [jobs, incs] = await Promise.all([listQueue(), incidentesPendientes()])
+      setPendientes(jobs.length)
+      setIncidentes(incs.length)
+    } catch {
+      // Base local no abierta todavía (p. ej. VersionError): se reintenta en el próximo tick.
+    }
   }, [])
 
   useEffect(() => {
