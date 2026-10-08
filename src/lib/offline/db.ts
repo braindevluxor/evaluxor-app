@@ -218,7 +218,45 @@ export async function resumenAlmacenamiento(): Promise<{ borradores: number; col
 
 export async function getCache(): Promise<CacheData | undefined> {
   const db = await getDB()
-  return db.get('cache', 'data')
+  const bruto: unknown = await db.get('cache', 'data')
+  if (!bruto) return undefined
+  // El disco no miente pero sí envejece: lo que hay guardado lo escribió la
+  // versión de la app que corrió la última vez, que puede no ser esta.
+  return normalizarCache(bruto)
+}
+
+function oLista<T>(valor: T[] | undefined | null): T[] {
+  return Array.isArray(valor) ? valor : []
+}
+
+/**
+ * Caché leída → `CacheData` completo, sin importar lo que traiga el registro.
+ *
+ * POR QUÉ EXISTE
+ * --------------
+ * Un registro escrito por una versión vieja de la app (o dañado) puede venir sin
+ * campos. `CatalogContext` hace `setSucursales(local.sucursales)` y el estado
+ * quedaba `undefined` — algo que el tipo dice que no puede pasar—, y la primera
+ * pantalla que leyera `.length` sobre esa lista se caía con
+ * "Cannot read properties of undefined (reading 'length')". Pasó en la lista de
+ * sucursales (`EvaluarHome`), donde el array entra en las dependencias de un
+ * efecto y se evalúa en cada render.
+ *
+ * Con esto, cualquier consumidor puede confiar en el contrato `CacheData`.
+ */
+export function normalizarCache(bruto: unknown): CacheData {
+  const c = (typeof bruto === 'object' && bruto !== null ? bruto : {}) as Partial<CacheData>
+  return {
+    modulos: oLista(c.modulos),
+    items: oLista(c.items),
+    sucursales: oLista(c.sucursales),
+    asignaciones: oLista(c.asignaciones),
+    asignacionesModulos: oLista(c.asignacionesModulos),
+    sucursalModulos: oLista(c.sucursalModulos),
+    sucursalItems: oLista(c.sucursalItems),
+    sucursalOpciones: oLista(c.sucursalOpciones),
+    updated_at: typeof c.updated_at === 'number' ? c.updated_at : 0
+  }
 }
 
 export async function putCache(data: CacheData): Promise<void> {
