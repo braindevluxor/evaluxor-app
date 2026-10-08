@@ -384,6 +384,42 @@ describe('ItemRenderer · re-escaneo: la fila guardada no reemplaza la consulta'
   })
 })
 
+/**
+ * El título de cada opción de checklist ("Permiso de Bomberos") vive en una fila
+ * `flex-wrap` junto a badges y botones `shrink-0`. Con `flex-1` (= `flex: 1 1 0%`)
+ * el hypothetical main size del texto es 0, así que el line breaking lo mete en
+ * la línea 1 con todo lo demás y se queda con el residuo: en una fila de 340px
+ * medido 17px de ancho, 13 líneas, ~2 letras por línea.
+ *
+ * Con `flex-auto` el ancho de contenido entra en el cálculo de línea: si no cabe
+ * junto a los badges, ellos bajan y el título se lee en horizontal. Se verifica
+ * sobre el fuente porque es una cuestión de clases, no de comportamiento.
+ */
+describe('ItemRenderer · el título de la opción no se parte letra por letra', () => {
+  const fuente = (rel: string): string =>
+    readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+  it('ningún título de opción usa flex-1 (basis 0) en fila con flex-wrap', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    // Los cuatro títulos de opción. Los `flex-1` que quedan en el archivo están
+    // en filas sin `flex-wrap` (donde sí corresponde) o con `truncate`.
+    expect(src).not.toMatch(/min-w-0 flex-1 break-words/)
+  })
+
+  it('los cuatro títulos usan flex-auto', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src.match(/min-w-0 flex-auto break-words/g)).toHaveLength(4)
+  })
+
+  it('el label que envuelve el título de colaborador también usa flex-auto', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    // El label es el hijo directo de la fila: con basis 0 el ancho del texto no
+    // llega nunca al line breaking, aunque el span interno esté bien.
+    expect(src).not.toMatch(/flex min-w-0 flex-1 cursor-pointer items-center gap-2/)
+    expect(src).toMatch(/flex min-w-0 flex-auto cursor-pointer items-center gap-2/)
+  })
+})
+
 describe('ItemRenderer · limpiar lista de trabajadores', () => {
   it('ofrece el botón «Limpiar lista» cuando hay trabajadores cargados', () => {
     const valor = {

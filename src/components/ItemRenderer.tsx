@@ -198,7 +198,13 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                 )}
               >
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
-                  <span className="min-w-0 flex-1 break-words text-sm text-slate-700">{o.etiqueta}</span>
+                  {/* `flex-auto` y no `flex-1`: con basis 0 el hypothetical main size del
+                      título es 0, así que el line breaking de `flex-wrap` mete los badges y
+                      botones (shrink-0) en la misma línea y el texto se queda con el resto
+                      → partía "Permiso de Bomberos" letra por letra. Con basis = contenido
+                      el ancho del texto entra en el cálculo de línea: si no cabe junto a los
+                      badges, ellos bajan y el título lee completo. */}
+                  <span className="min-w-0 flex-auto break-words text-sm text-slate-700">{o.etiqueta}</span>
                   {esRango ? (
                     <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
                       Valor (mín. {o.minimo ?? '—'}{o.unidad ? ` ${o.unidad}` : ''})
@@ -1429,7 +1435,11 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                               )}
                             >
                               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
-                                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+                                {/* `flex-auto` en el label, no `flex-1`: con basis 0 el ancho
+                                    del texto no entra en el line breaking de `flex-wrap` y los
+                                    badges/botones shrink-0 comprimían el título a una letra
+                                    por línea. */}
+                                <label className="flex min-w-0 flex-auto cursor-pointer items-center gap-2">
                                   <input
                                     type="checkbox"
                                     className={cn('h-4 w-4 shrink-0', esta ? 'accent-green-600' : 'accent-primary')}
@@ -1437,7 +1447,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                                     disabled={noAplica}
                                     onChange={() => toggleCheck(c.dni, o.id)}
                                   />
-                                  <span className={cn('min-w-0 flex-1 break-words text-sm', noAplica ? 'text-slate-400' : 'text-slate-700')}>{o.etiqueta}</span>
+                                  <span className={cn('min-w-0 flex-auto break-words text-sm', noAplica ? 'text-slate-400' : 'text-slate-700')}>{o.etiqueta}</span>
                                 </label>
                                 {o.puntos != null && o.puntos > 0 ? (
                                   <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
@@ -1586,7 +1596,10 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                   )}
                 >
                   <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
-                    <span className="min-w-0 flex-1 break-words text-sm text-slate-700">{o.etiqueta}</span>
+                    {/* `flex-auto` y no `flex-1`: el ancho del texto tiene que entrar en el
+                        line breaking de `flex-wrap`, si no los badges shrink-0 lo dejan a
+                        una letra por línea. */}
+                    <span className="min-w-0 flex-auto break-words text-sm text-slate-700">{o.etiqueta}</span>
                     {o.puntos != null && o.puntos > 0 ? (
                       <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
                     ) : null}
@@ -1746,7 +1759,10 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                             )}
                           >
                             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
-                              <span className="min-w-0 flex-1 break-words text-sm text-slate-700">{o.etiqueta}</span>
+                              {/* `flex-auto` y no `flex-1`: el ancho del texto tiene que entrar
+                                  en el line breaking de `flex-wrap`, si no los badges
+                                  shrink-0 lo dejan a una letra por línea. */}
+                              <span className="min-w-0 flex-auto break-words text-sm text-slate-700">{o.etiqueta}</span>
                               {o.puntos != null && o.puntos > 0 ? (
                                 <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
                               ) : null}
