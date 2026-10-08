@@ -9,6 +9,10 @@ interface Props {
 
 interface State {
   error: Error | null
+  /** Árbol de componentes que estaba montado cuando cayó el error. Se muestra
+   *  colapsado en el fallback: en un teléfono no hay consola que leer, y sin esto
+   *  un error remoto es imposible de ubicar (no se sabe ni qué pantalla era). */
+  pila: string | null
 }
 
 /**
@@ -24,30 +28,34 @@ interface State {
  * pero cualquier falla futura e imprevista deja de ser fatal para el usuario.
  */
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null }
+  state: State = { error: null, pila: null }
 
   static getDerivedStateFromError(error: Error): State {
-    return { error }
+    // `pila` se limpia acá y la vuelve a llenar `componentDidCatch` apenas React
+    // le pase el árbol: si no, se mostraría la pila del error anterior.
+    return { error, pila: null }
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // El detalle va al console para depurar; el usuario ve el fallback de arriba.
+    // El detalle va al console para depurar; el usuario ve el fallback de arriba,
+    // que además muestra la pila de componentes colapsada para poder reportarla.
     console.error('ErrorBoundary capturó:', error, info.componentStack)
+    this.setState({ pila: (info.componentStack ?? '').trim() || null })
   }
 
   componentDidUpdate(prevProps: Props) {
     // Al cambiar `resetKey` (p. ej. nueva ruta) se limpia el error y se reintenta.
     if (this.state.error && prevProps.resetKey !== this.props.resetKey) {
-      this.setState({ error: null })
+      this.setState({ error: null, pila: null })
     }
   }
 
   private reintentar = () => {
-    this.setState({ error: null })
+    this.setState({ error: null, pila: null })
   }
 
   render() {
-    const { error } = this.state
+    const { error, pila } = this.state
     if (!error) return this.props.children
 
     return (
@@ -61,6 +69,21 @@ export class ErrorBoundary extends Component<Props, State> {
           <pre className="mt-4 max-h-40 overflow-auto rounded-xl bg-slate-100 p-3 text-left text-xs text-slate-500">
             {error.message || String(error)}
           </pre>
+          {/*
+            Colapsado a propósito: para el usuario es ruido, y para quien depura es
+            lo único que dice EN QUÉ componente se cayó — en un teléfono la consola
+            no está a mano.
+          */}
+          {pila ? (
+            <details className="mt-3 text-left">
+              <summary className="cursor-pointer text-xs font-semibold text-slate-500">
+                Detalle técnico (para reportar el fallo)
+              </summary>
+              <pre className="mt-2 max-h-40 overflow-auto rounded-xl bg-slate-100 p-3 text-left text-[11px] leading-snug text-slate-500">
+                {pila.split('\n').slice(0, 8).join('\n')}
+              </pre>
+            </details>
+          ) : null}
           <div className="mt-5 flex justify-center gap-2">
             <button
               type="button"
