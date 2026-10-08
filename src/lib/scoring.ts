@@ -64,6 +64,14 @@ export interface ProductoConciliacion {
   nombre: string | null
   teorica: number | null
   fisica: number | null
+  /**
+   * `id` del producto en la API de precios (`"id": 100006130` del JSON del scan):
+   * el identificador del producto en el sistema. El `sku` es el código que se
+   * escanea (barcode); no son lo mismo y hace falta el de la API para cruzar el
+   * producto contra el sistema. Es opcional porque los productos escaneados
+   * antes de guardar este dato llegan sin él.
+   */
+  apiId?: number | null
   /** Cantidad teórica (soh) reportada por el sistema al escanear. */
   soh?: number | null
   /** Última sincronización del producto reportada por el sistema. */

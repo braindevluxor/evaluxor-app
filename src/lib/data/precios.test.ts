@@ -44,6 +44,36 @@ describe('buscarProducto', () => {
   expect(headers.get('API_KEY')).toBe('clave-local')
   })
 
+  it('trae el `id` del producto en la API, que no es el código escaneado', async () => {
+    // Respuesta real del scan. El `id` (100006130) es el identificador del
+    // producto en el sistema; el código escaneado va en `barcode` y se guarda
+    // como sku, así que son dos cosas distintas.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      id: 100006130,
+      name: 'Harina De Maiz Pan 1 Kg',
+      barcode: '7591002000011',
+      soh: 0,
+      lastSync: '2026-10-07 22:55:04',
+      pricing: { finalBase: 1.69, finalTax: 0 },
+      department: { id: 6, name: 'PRIMERA NECESIDAD' }
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+
+    const resultado = await buscarProducto('7591002000011', '1')
+
+    expect(resultado.id).toBe(100006130)
+    expect(resultado.nombre).toBe('Harina De Maiz Pan 1 Kg')
+    expect(resultado.departamento).toBe('PRIMERA NECESIDAD')
+  })
+
+  it('un `id` que no sea número se descarta en vez de guardarse raro', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      id: 'mil',
+      name: 'Producto raro'
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+
+    expect((await buscarProducto('7790001', '1')).id).toBeUndefined()
+  })
+
   it('trae el nombre del departamento, no solo su id', async () => {
     // El id (17) no sirve para mostrar ni para ordenar; el rótulo de góndola sí.
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({

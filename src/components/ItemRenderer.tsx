@@ -321,6 +321,9 @@ function aplicarResultadoScan(b: ProductoConciliacion, r: ResultadoScan, contraD
     ...b,
     nombre: r.nombre ?? b.nombre,
     teorica: referenciaConciliacion(r, contraDato) ?? b.teorica,
+    // El id del producto en la API. Si la consulta no lo trajo se respeta el que
+    // ya tenía la fila: un escaneo fallido no debe borrar el dato.
+    apiId: r.id ?? b.apiId,
     soh: r.soh,
     lastSync: r.lastSync,
     finalBase: r.finalBase,
@@ -329,11 +332,12 @@ function aplicarResultadoScan(b: ProductoConciliacion, r: ResultadoScan, contraD
   }
 }
 
-/** ¿El borrador tiene info consultada del sistema (SOH / última sync / precio) para mostrar? */
-function tieneInfoSistema(p: { soh?: number | null; lastSync?: string | null; finalBase?: number | null; departamento?: string | null } | null | undefined): boolean {
-  // El departamento por sí solo cuenta como info consultada: si la API solo manda
-  // eso, hay que mostrar la línea para que el evaluador sepa que síConsultó.
-  return !!(p && (p.soh != null || p.lastSync || p.finalBase != null || p.departamento))
+/** ¿El borrador tiene info consultada del sistema (id / SOH / última sync / precio) para mostrar? */
+function tieneInfoSistema(p: { soh?: number | null; lastSync?: string | null; finalBase?: number | null; departamento?: string | null; apiId?: number | null } | null | undefined): boolean {
+  // El id de la API y el departamento por sí solos cuentan como info consultada:
+  // si la API solo manda eso, hay que mostrar la línea para que el evaluador sepa
+  // que sí consultó.
+  return !!(p && (p.soh != null || p.lastSync || p.finalBase != null || p.departamento || p.apiId != null))
 }
 
 /**
@@ -364,7 +368,7 @@ function VisorEvidencia({ producto }: { producto: ProductoConciliacion }) {
   const datos = (
     <div className="space-y-0.5 rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] leading-relaxed text-slate-500">
       <p className="font-bold text-slate-700">
-        ID: {producto.sku}
+        {producto.apiId != null ? `ID: ${producto.apiId}` : `SKU: ${producto.sku}`}
         {producto.nombre ? ` · ${producto.nombre}` : ''}
       </p>
       {tieneInfoSistema(producto) ? (
@@ -470,8 +474,12 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
     // atajo saltara, re-escanearlo no volvería a consultar la API y el producto
     // se quedaría para siempre en el grupo "Sin departamento". Por eso, si le
     // falta, se cae al camino normal de abajo y la API lo rellena.
-    if (ya && ya.departamento) {
-      setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax, departamento: ya.departamento, sinHablador: ya.sinHablador })
+    //
+    // Igual con el `id` de la API (apiId): los productos escaneados antes de
+    // guardarlo llegan sin ese dato y re-escanear es la única forma de que lo
+    // traiga.
+    if (ya && ya.departamento && ya.apiId != null) {
+      setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, apiId: ya.apiId, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax, departamento: ya.departamento, sinHablador: ya.sinHablador })
       return
     }
     if (!shopId) {
@@ -510,6 +518,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                   nombre: borrador.nombre ?? p.nombre,
                   teorica: borrador.teorica ?? p.teorica,
                   fisica: null,
+                  apiId: borrador.apiId ?? p.apiId,
                   soh: borrador.soh ?? p.soh,
                   lastSync: borrador.lastSync ?? p.lastSync,
                   finalBase: borrador.finalBase ?? p.finalBase,
@@ -521,7 +530,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
           )
         )
         setExito(`${sku} · marcado sin hablador · cuenta como No Match.`)
-        setBorrador({ sku: '', nombre: null, teorica: null, fisica: null })
+        setBorrador({ sku: '', nombre: null, teorica: null, fisica: null, apiId: null })
         setInfo('')
         return
       }
@@ -540,6 +549,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                 nombre: borrador.nombre ?? p.nombre,
                 teorica: borrador.teorica,
                 fisica: total,
+                apiId: borrador.apiId ?? p.apiId,
                 soh: borrador.soh ?? p.soh,
                 lastSync: borrador.lastSync ?? p.lastSync,
                 finalBase: borrador.finalBase ?? p.finalBase,
@@ -561,6 +571,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
           nombre: borrador.nombre,
           teorica: borrador.teorica,
           fisica: sinHablador ? null : borrador.fisica,
+          apiId: borrador.apiId,
           soh: borrador.soh,
           lastSync: borrador.lastSync,
           finalBase: borrador.finalBase,
@@ -574,7 +585,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
       // evidencia y los botones de cámara/galería de esa fila.
       setVerLista(true)
     }
-    setBorrador({ sku: '', nombre: null, teorica: null, fisica: null, soh: null, lastSync: null, finalBase: null, finalTax: null })
+    setBorrador({ sku: '', nombre: null, teorica: null, fisica: null, apiId: null, soh: null, lastSync: null, finalBase: null, finalTax: null })
     setInfo('')
   }
 
@@ -604,8 +615,8 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
               setExito('')
               setBorrador(
                 ya
-                  ? { sku, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax, departamento: ya.departamento, sinHablador: ya.sinHablador }
-                  : { sku, nombre: null, teorica: null, fisica: null }
+                  ? { sku, nombre: ya.nombre, teorica: ya.teorica, fisica: null, apiId: ya.apiId, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax, departamento: ya.departamento, sinHablador: ya.sinHablador }
+                  : { sku, nombre: null, teorica: null, fisica: null, apiId: null }
               )
             }}
             onKeyDown={(e) => { if (e.key === 'Enter') void aplicarCodigo() }}
@@ -629,10 +640,14 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
         ) : null}
         {tieneInfoSistema(borrador) ? (
           <p className="text-[11px] leading-relaxed text-slate-400">
-            {/* El ID del producto escaneado, junto al resto de sus datos: la
+            {/* El ID del producto en la API, junto al resto de sus datos: la
                 descripción sola no alcanza para confirmar cuál se escaneó. */}
-            <strong className="text-slate-700">ID: {codigoActual || borrador.sku || '—'}</strong> · SOH (sistema):{' '}
-            <strong className="text-slate-600">{borrador.soh ?? '—'}</strong> · Últ. sync:{' '}
+            {borrador.apiId != null ? (
+              <>
+                <strong className="text-slate-700">ID: {borrador.apiId}</strong> ·{' '}
+              </>
+            ) : null}
+            SOH (sistema): <strong className="text-slate-600">{borrador.soh ?? '—'}</strong> · Últ. sync:{' '}
             {formatearLastSync(borrador.lastSync)} · Precio: {formatearPrecioBase(precioVenta(borrador))}
             {/* El departamento no se muestra solo si vino: sin él, el producto cae en
                 el grupo "Sin departamento" del informe y no hay forma de saber que
@@ -862,7 +877,12 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                             </div>
                             {tieneInfoSistema(p) ? (
                               <p className="mt-0.5 text-[10px] leading-tight text-slate-400">
-                                <strong className="font-semibold text-slate-500">ID: {p.sku}</strong> · SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · Precio: {formatearPrecioBase(precioVenta(p))}
+                                {p.apiId != null ? (
+                                  <>
+                                    <strong className="font-semibold text-slate-500">ID: {p.apiId}</strong> ·{' '}
+                                  </>
+                                ) : null}
+                                SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · Precio: {formatearPrecioBase(precioVenta(p))}
                                 {p.departamento ? <> · {p.departamento}</> : null}
                               </p>
                             ) : null}
@@ -914,17 +934,36 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
             setExito('')
             const ya = productos.find((p) => p.sku === codigo)
             // Mismo criterio que en el campo de código: solo se reutiliza el
-            // producto guardado si tiene departamento. Si le falta (fue escaneado
-            // antes de que el campo existiera), se sigue abajo a consultar la API
-            // para rellenarlo, porque re-escanear no debe dejar el producto
-            // atrapado en "Sin departamento".
-            if (ya && ya.departamento) {
-              setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax, departamento: ya.departamento, sinHablador: ya.sinHablador })
+            // producto guardado si tiene departamento **y** el id de la API. Si le
+            // falta alguno de los dos (fue escaneado antes de que existieran), se
+            // sigue abajo a consultar la API para rellenarlo, porque re-escanear
+            // no debe dejar el producto atrapado en "Sin departamento" ni sin su
+            // ID.
+            if (ya && ya.departamento && ya.apiId != null) {
+              setBorrador({ sku: codigo, nombre: ya.nombre, teorica: ya.teorica, fisica: null, apiId: ya.apiId, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax, departamento: ya.departamento, sinHablador: ya.sinHablador })
               return
             }
             const mismo = borrador.sku.trim() === codigo
+            // Arranca con lo que ya se sabe del producto (igual que hace el campo
+            // de código): si la API responde, esos datos se sobrescriben con los
+            // frescos; si falla, el evaluador no pierde la teórica ni la
+            // descripción que la fila ya tenía.
             setBorrador(
-              mismo ? (b) => b : { sku: codigo, nombre: null, teorica: null, fisica: null, sinHablador: ya?.sinHablador }
+              mismo
+                ? (b) => b
+                : {
+                    sku: codigo,
+                    nombre: ya?.nombre ?? null,
+                    teorica: ya?.teorica ?? null,
+                    fisica: null,
+                    apiId: ya?.apiId ?? null,
+                    soh: ya?.soh,
+                    lastSync: ya?.lastSync,
+                    finalBase: ya?.finalBase,
+                    finalTax: ya?.finalTax,
+                    departamento: ya?.departamento,
+                    sinHablador: ya?.sinHablador
+                  }
             )
             void (async () => {
               if (!shopId) {

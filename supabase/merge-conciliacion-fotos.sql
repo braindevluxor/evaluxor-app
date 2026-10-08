@@ -20,10 +20,16 @@
 --   * `photoIds` (ids locales de un telefono) se descartan: no son rutas del
 --     bucket y guardarlos a medias deja ids huerfanos en el valor.
 --   * `productos` sigue fusionandose por sku y `responsablesGerente` sigue
---     prefiriendo el previo, tal cual como hasta ahora.
+--     prefiriendo el previo, tal cual como hasta ahora. En esa fusion por sku
+--     tambien se conserva ahora `apiId`, el "id" del producto en la API
+--     ("id": 100006130): `jsonb_build_object` solo deja pasar los campos que
+--     listan, asi que sin agregarlo el merge lo tiraba y la fila quedaba sin el
+--     ID con el que se cruza el producto contra el sistema.
 --
 -- Como correrlo: pegar tal cual en el SQL Editor de Supabase y ejecutar. Es
--- idempotente (create or replace), se puede correr mas de una vez.
+-- idempotente (create or replace), se puede correr mas de una vez: si ya se
+-- corrio una version anterior de este parche, hay que volver a correrlo para
+-- que tome el `apiId`.
 --
 -- Firmas y privilegios intactos: `upsert_respuestas` es security invoker y la
 -- llama con los permisos de quien sube, asi que se le devuelve el execute a
@@ -80,6 +86,7 @@ as $$
       coalesce(max(p->>'finalBase')    filter (where o = 'n'), max(p->>'finalBase')    filter (where o = 'v')) as finalBase,
       coalesce(max(p->>'finalTax')     filter (where o = 'n'), max(p->>'finalTax')     filter (where o = 'v')) as finalTax,
       coalesce(max(p->>'departamento') filter (where o = 'n'), max(p->>'departamento') filter (where o = 'v')) as departamento,
+      coalesce(max(p->>'apiId')        filter (where o = 'n'), max(p->>'apiId')        filter (where o = 'v')) as api_id,
       coalesce(max(p->>'sinHablador')  filter (where o = 'n'), max(p->>'sinHablador')  filter (where o = 'v')) as sinHablador
     from unidos
     group by sku
@@ -92,6 +99,12 @@ as $$
   lista as (
     select coalesce(jsonb_agg(jsonb_build_object(
       'sku', a.sku,
+      -- El id del producto en la API ("id": 100006130). Sin esta linea lo mismo
+      -- pasa con jsonb_build_object: solo deja pasar los campos de abajo, asi
+      -- que el merge tiraba el ID y la fila quedaba para siempre sin el dato con
+      -- el que se cruza contra el sistema. Solo digitos: cualquier otra cosa se
+      -- guarda como null y no como un string disfrazado.
+      'apiId', case when a.api_id ~ '^[0-9]+$' then a.api_id::bigint else null end,
       'nombre', a.nombre,
       'teorica', a.teorica::numeric,
       'fisica', a.fisica_efectiva,
@@ -187,3 +200,10 @@ grant  execute on function public.mergear_conciliacion(jsonb, jsonb, text) to au
 --   '{"productos":[{"sku":"A","photoIds":["local-1"],"paths":["ev/e/i/f2.jpg"]}]}'::jsonb
 -- );
 -- Esperado: el producto queda con paths = ["ev/e/i/f2.jpg"] y sin photoIds.
+--
+-- select public.mergear_conciliacion(
+--   '{"productos":[{"sku":"A","nombre":"Pan","apiId":100006130}]}'::jsonb,
+--   '{"productos":[{"sku":"A","teorica":2,"fisica":2}]}'::jsonb,
+--   'SOH'
+-- );
+-- Esperado: el producto A conserva apiId = 100006130 (numero, no texto).

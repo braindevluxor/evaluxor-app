@@ -6,6 +6,12 @@ const BASE_URL = '/api/pricing/samir/scan'
 export interface ResultadoScan {
   nombre: string | null
   mensaje: string | null
+  /**
+   * `id` del producto en la API (`"id": 100006130`): el identificador del
+   * producto en el sistema. NO es el código escaneado (viene en `barcode`), por
+   * eso se guarda aparte del `sku`.
+   */
+  id?: number
   /** Cantidad teórica en sistema (soh). */
   soh?: number
   /** Última sincronización del producto reportada por la API. */
@@ -51,6 +57,7 @@ export async function buscarProducto(barcode: string, shopId: string): Promise<R
     producto?: string
     name?: string
     nombre?: string
+    id?: number
     data?: unknown
     soh?: number
     lastSync?: string
@@ -65,6 +72,7 @@ export async function buscarProducto(barcode: string, shopId: string): Promise<R
       producto?: string
       name?: string
       nombre?: string
+      id?: number
       data?: unknown
       soh?: number
       lastSync?: string
@@ -85,13 +93,21 @@ export async function buscarProducto(barcode: string, shopId: string): Promise<R
       typeof n === 'number' && Number.isFinite(n) ? n : undefined
     const finalBase = numero(body?.pricing?.finalBase)
     const finalTax = numero(body?.pricing?.finalTax)
+    // El `id` del producto en el sistema (100006130). Casi siempre viene arriba del
+    // todo; si el backend lo envuelve en `data`, se busca también ahí. Un id que
+    // no sea número no sirve para nada y se descarta en vez de guardarse raro.
+    const id = numero(body?.id) ?? (
+      data && typeof data === 'object' && !Array.isArray(data)
+        ? numero((data as Record<string, unknown>).id)
+        : undefined
+    )
     // El departamento viene anidado y en mayúsculas ("LIMPIEZA"). Se deja tal cual
     // salvo espacios de los bordes: es un rótulo de góndola, no un dato a calcular,
     // y recortarlo más allá sería inventar formato.
     const departamento = typeof body?.department?.name === 'string' && body.department.name.trim()
       ? body.department.name.trim()
       : undefined
-    if (nombre) return { nombre, mensaje: null, soh, lastSync, finalBase, finalTax, departamento }
+    if (nombre) return { nombre, mensaje: null, id, soh, lastSync, finalBase, finalTax, departamento }
     return { nombre: null, mensaje: body?.message ?? null }
   }
 

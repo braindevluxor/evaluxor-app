@@ -399,6 +399,29 @@ describe('informe imprimible de resultados', () => {
     expect(output).not.toContain('ID 5')
   })
 
+  it('el ID del producto en la API viaja en la fila de conciliación del PDF', () => {
+    const detalleConId: DetalleEvaluacion = {
+      ...detalle,
+      respuestas: detalle.respuestas.map((respuesta) =>
+        respuesta.item_id === 'it-co1'
+          ? {
+              ...respuesta,
+              valor: {
+                productos: [
+                  { sku: 'SKU0901', nombre: 'Cloro', teorica: 4, fisica: 1, apiId: 100006130, finalBase: 2 }
+                ]
+              }
+            }
+          : respuesta
+      )
+    }
+    const output = buildPdfDocument(detalleConId).output()
+    // En papel no hay badge ni detalle donde buscarlo: el id de la API se imprime
+    // junto al código escaneado para poder cruzar el producto contra el sistema.
+    expect(output).toContain('SKU0901')
+    expect(output).toContain('100006130')
+  })
+
   it.each(['ambos', 'cumple', 'no-cumple'] as const)('filtra las respuestas del PDF según el selector %s', (filtro) => {
     const resultado = filtrarDetallePdf(detalle, filtro)
     const veredictos = resultado.respuestas.map((respuesta) => {

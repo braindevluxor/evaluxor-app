@@ -583,7 +583,10 @@ export function buildPdfDocument(
               esSinHablador(product)
                 ? 'Sin hablador'
                 : precio ? formatearPrecioBase(product.fisica) : texto(product.fisica ?? '—'),
-              product.sku || '—',
+              // El id del producto en la API viaja junto al código escaneado: en
+              // papel no hay badge ni detalle donde buscarlo y es con lo que se
+              // cruza el producto contra el sistema.
+              product.apiId != null ? `${product.sku || '—'} · ID ${product.apiId}` : product.sku || '—',
               product.nombre || '—',
               porcentaje == null ? etiquetaEstado : `${etiquetaEstado} · ${fmt(porcentaje)}%`,
               ...(!precio
