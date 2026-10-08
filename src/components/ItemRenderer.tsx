@@ -359,11 +359,33 @@ export function EvidenciaProducto({ sku, photoIds, paths, onChange }: { sku: str
 function VisorEvidencia({ producto }: { producto: ProductoConciliacion }) {
   const nube = producto.paths ?? []
   const locales = producto.photoIds ?? []
+  // Los datos del producto escaneado, con el ID a la vista: sin él no se puede
+  // confirmar contra el sistema de qué producto son estas fotos.
+  const datos = (
+    <div className="space-y-0.5 rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] leading-relaxed text-slate-500">
+      <p className="font-bold text-slate-700">
+        ID: {producto.sku}
+        {producto.nombre ? ` · ${producto.nombre}` : ''}
+      </p>
+      {tieneInfoSistema(producto) ? (
+        <p>
+          SOH: {producto.soh ?? '—'} · Sync: {formatearLastSync(producto.lastSync)} · Precio: {formatearPrecioBase(precioVenta(producto))}
+          {producto.departamento ? <> · {producto.departamento}</> : null}
+        </p>
+      ) : null}
+    </div>
+  )
   if (!nube.length && !locales.length) {
-    return <p className="text-sm text-slate-400">Este producto todavía no tiene evidencia fotográfica.</p>
+    return (
+      <div className="space-y-3">
+        {datos}
+        <p className="text-sm text-slate-400">Este producto todavía no tiene evidencia fotográfica.</p>
+      </div>
+    )
   }
   return (
     <div className="space-y-3">
+      {datos}
       {nube.length ? (
         <div className="space-y-1">
           <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Sincronizadas · {nube.length}</p>
@@ -498,7 +520,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
               : p
           )
         )
-        setExito('Marcado sin hablador · cuenta como No Match.')
+        setExito(`${sku} · marcado sin hablador · cuenta como No Match.`)
         setBorrador({ sku: '', nombre: null, teorica: null, fisica: null })
         setInfo('')
         return
@@ -530,7 +552,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
             : p
         )
       )
-      setExito(`Sumado: FP ${previo} + ${fisicaNueva} = ${total}`)
+      setExito(`Sumado ${sku}: FP ${previo} + ${fisicaNueva} = ${total}`)
     } else {
       actualizar([
         ...productos,
@@ -607,7 +629,10 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
         ) : null}
         {tieneInfoSistema(borrador) ? (
           <p className="text-[11px] leading-relaxed text-slate-400">
-            SOH (sistema): <strong className="text-slate-600">{borrador.soh ?? '—'}</strong> · Últ. sync:{' '}
+            {/* El ID del producto escaneado, junto al resto de sus datos: la
+                descripción sola no alcanza para confirmar cuál se escaneó. */}
+            <strong className="text-slate-700">ID: {codigoActual || borrador.sku || '—'}</strong> · SOH (sistema):{' '}
+            <strong className="text-slate-600">{borrador.soh ?? '—'}</strong> · Últ. sync:{' '}
             {formatearLastSync(borrador.lastSync)} · Precio: {formatearPrecioBase(precioVenta(borrador))}
             {/* El departamento no se muestra solo si vino: sin él, el producto cae en
                 el grupo "Sin departamento" del informe y no hay forma de saber que
@@ -617,7 +642,10 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
         ) : null}
         {existente ? (
           <div className="rounded-xl border border-primary-200 bg-primary-50 p-2.5 text-xs leading-relaxed">
-            <p className="font-bold text-primary-900">Código ya escaneado · {existente.nombre ?? existente.sku}</p>
+            <p className="font-bold text-primary-900">
+              Código ya escaneado · {existente.sku}
+              {existente.nombre ? ` · ${existente.nombre}` : ''}
+            </p>
             <p className="mt-0.5 text-primary-700">
               Teórica: {borrador.teorica ?? '—'} · Físico previo (FP): <strong>{existente.fisica ?? 0}</strong>
             </p>
@@ -834,7 +862,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente }: {
                             </div>
                             {tieneInfoSistema(p) ? (
                               <p className="mt-0.5 text-[10px] leading-tight text-slate-400">
-                                SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · Precio: {formatearPrecioBase(precioVenta(p))}
+                                <strong className="font-semibold text-slate-500">ID: {p.sku}</strong> · SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · Precio: {formatearPrecioBase(precioVenta(p))}
                                 {p.departamento ? <> · {p.departamento}</> : null}
                               </p>
                             ) : null}

@@ -195,6 +195,16 @@ describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
     expect(html).toMatch(/>1<\/p><p[^>]*>No Match<\/p>/)
   })
 
+  it('los datos del producto escaneado muestran el ID junto al resto (sync/SOH/precio)', () => {
+    const valor = {
+      productos: [{ sku: 'SKU-1', nombre: 'Pan', teorica: 2, fisica: 1, soh: 3, lastSync: '2026-10-01T10:00:00' }]
+    }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('ID: SKU-1')
+    expect(html).toContain('Sync:')
+    expect(html).toContain('SOH:')
+  })
+
   it('la lista de productos arranca abierta y la fila muestra cómo va la evidencia de ese SKU', () => {
     const valor = { productos: [{ sku: 'SKU-1', nombre: 'Pan', teorica: 2, fisica: 1 }] }
     const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={valor} index={0} total={1} onChange={() => {}} />)
