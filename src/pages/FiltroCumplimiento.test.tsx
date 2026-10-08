@@ -264,10 +264,9 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
     // El cierre separa el sobrante (buscar mercadería) de la pérdida (plata), y
     // solo la segunda va en rojo.
     expect(html).toContain('unidades sobrantes')
-    expect(html).toContain('|')
     expect(html).toContain('unidades faltantes con un valor estimado de USD37,50')
     expect(html).toContain('text-red-700')
-    expect(html).toMatch(/text-red-700[^>]*>\s*4 unidades faltantes con un valor estimado/)
+    expect(html).toMatch(/text-red-700[^>]*>\s*4 unidades faltantes/)
     expect(html).not.toContain('Producto conciliado')
     expect(html).not.toContain('overflow-x-auto')
     expect(html).not.toContain('min-w-[620px]')
@@ -349,6 +348,29 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
 
     expect(html).toContain('USD5,52')
     expect(html).not.toContain('USD4,77')
+  })
+
+  it('muestra la pérdida de los sobrantes y suma real + sobrantes en la absoluta', () => {
+    const html = renderRespuesta(
+      itemBase('CONCILIACION'),
+      {
+        productos: [
+          { sku: 'SKU-FALTA', nombre: 'Faltan unidades', teorica: 10, fisica: 7, finalBase: 12.5 },
+          { sku: 'SKU-SOBRA', nombre: 'Sobran unidades', teorica: 2, fisica: 5, finalBase: 2 }
+        ]
+      }
+    )
+
+    // Faltantes: 3 × 12,5 = 37,5 (pérdida real). Sobrantes: 3 × 2 = 6. La suma
+    // de ambos es la pérdida absoluta: 43,50. El resumen etiquetado pone el
+    // monto en un <span> aparte, así que se verifica en tramos contiguos.
+    expect(html).toContain('3 unidades sobrantes')
+    expect(html).toContain('3 unidades faltantes')
+    // En la fila: el faltante conserva su "Pérdida:" y el sobrante ahora muestra
+    // su valor en ámbar, con el mismo formato de precio ($).
+    expect(html).toContain('Pérdida: $37,50')
+    expect(html).toContain('Sobrante: $6,00')
+    expect(html).toContain('Pérdida absoluta: USD43,50')
   })
 
   it('los productos salen agrupados por departamento', () => {

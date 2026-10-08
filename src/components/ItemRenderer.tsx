@@ -12,7 +12,6 @@ import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar, ProgressBar } f
 import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
 import { BarcodeScanner } from './BarcodeScanner'
-import { deletePhoto } from '../lib/offline/db'
 import { BotonNoAplica, SelectorResponsables } from './WidgetsEvaluacion'
 import { PlanoEditor } from './PlanoEditor'
 
@@ -163,10 +162,6 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
       const setEvidencia = (id: string, photoIds: string[]) => {
         guardar({ ...value, evidencias: { ...evidencias, [id]: { photoIds } } })
       }
-      const quitarEvidencia = (id: string, photoId: string) => {
-        void deletePhoto(photoId)
-        setEvidencia(id, (evidencias[id]?.photoIds ?? []).filter((x) => x !== photoId))
-      }
       return (
         <>
         <div className="space-y-2">
@@ -238,7 +233,7 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                 ) : null}
                 {idsEv.length > 0 ? (
                   <div className="px-3 pb-3">
-                    <MinaFotos photoIds={idsEv} onQuitar={(fid) => quitarEvidencia(o.id, fid)} />
+                    <MinaFotos photoIds={idsEv} />
                   </div>
                 ) : null}
                 {!esNoAplica ? (
@@ -1009,7 +1004,9 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         admission_date: c.admission_date ?? null,
         active: c.active !== false,
         aplica: true,
-        selected: []
+        selected: [],
+        noAplica: [],
+        responsablesPorOpcion: {}
       }))
     if (!nuevos.length) {
       setInfo(`No hay trabajadores para el filtro configurado (${etiquetaFiltro}).`)
@@ -1033,17 +1030,15 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
   }
 
   const marcarAplica = (dni: number) => {
-    // Con la casilla deshabilitada no se llega acá, pero el guard está igual: si
-    // nada del checklist del trabajador está tildado, su check general tiene que
-    // estar apagado, y no hay clic que pueda encenderlo.
-    actualizar(colaboradores.map((c) => (c.dni === dni && esColaboradorRevisado(c) ? { ...c, aplica: !c.aplica } : c)))
+    const revisado = colaboradores.find((c) => c.dni === dni) ? esColaboradorRevisado(colaboradores.find((c) => c.dni === dni)!) : false
+    actualizar(colaboradores.map((c) => (c.dni === dni && revisado ? { ...c, aplica: !c.aplica } : c)))
   }
 
   const toggleCheck = (dni: number, opcionId: string) => {
     actualizar(colaboradores.map((c) => {
       if (c.dni !== dni) return c
       const sel = c.selected.includes(opcionId) ? c.selected.filter((x) => x !== opcionId) : [...c.selected, opcionId]
-      return { ...c, selected: sel }
+      return { ...c, selected: sel, aplica: true }
     }))
   }
 
@@ -1058,13 +1053,14 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         ...c,
         noAplica: marcar ? [...noAplica, opcionId] : noAplica.filter((id) => id !== opcionId),
         selected: marcar ? c.selected.filter((id) => id !== opcionId) : c.selected,
+        aplica: true,
         responsablesPorOpcion
       }
     }))
   }
 
   const marcarResponsables = (dni: number, opcionId: string, rs: string[]) => {
-    actualizar(colaboradores.map((c) => (c.dni === dni ? { ...c, responsablesPorOpcion: { ...(c.responsablesPorOpcion ?? {}), [opcionId]: rs } } : c)))
+    actualizar(colaboradores.map((c) => (c.dni === dni ? { ...c, responsablesPorOpcion: { ...(c.responsablesPorOpcion ?? {}), [opcionId]: rs }, aplica: true, selected: Array.from(new Set([...(c.selected ?? []), opcionId])) } : c)))
   }
 
   const enCuenta = colaboradores.filter((c) => c.aplica)
@@ -1638,7 +1634,11 @@ function ResumenConciliacion({ etiqueta, valor, color }: { etiqueta: string; val
 
 function EvidenciasEditor({ evidencias, onChange }: { evidencias: EvidenciaCumple[]; onChange: (evs: EvidenciaCumple[]) => void }) {
   const agregar = () => onChange([...evidencias, { photoIds: [], comentario: '' }])
+  // Una evidencia CON fotos no se puede quitar: las fotos solo se agregan y
+  // nunca se borran. Solo las filas sin ninguna foto — ni local (photoIds) ni de
+  // la nube (paths, fila reabierta sin rehidratar) — se pueden limpiar.
   const quitar = (i: number) => onChange(evidencias.filter((_, idx) => idx !== i))
+  const tieneFotos = (ev: EvidenciaCumple) => ev.photoIds.length > 0 || (ev.paths?.length ?? 0) > 0
   const actualizar = (i: number, patch: Partial<EvidenciaCumple>) =>
     onChange(evidencias.map((e, idx) => (idx === i ? { ...e, ...patch } : e)))
 
@@ -1656,13 +1656,15 @@ function EvidenciasEditor({ evidencias, onChange }: { evidencias: EvidenciaCumpl
         <div key={i} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold uppercase text-slate-500">Evidencia {i + 1}</p>
-            <button
-              type="button"
-              onClick={() => quitar(i)}
-              className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-slate-400 hover:bg-red-50 hover:text-red-500"
-            >
-              <X className="h-3.5 w-3.5" /> Quitar
-            </button>
+            {!tieneFotos(ev) ? (
+              <button
+                type="button"
+                onClick={() => quitar(i)}
+                className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-slate-400 hover:bg-red-50 hover:text-red-500"
+              >
+                <X className="h-3.5 w-3.5" /> Quitar
+              </button>
+            ) : null}
           </div>
           <PhotoCapture photoIds={ev.photoIds} onChange={(photoIds) => actualizar(i, { photoIds })} />
           <Textarea

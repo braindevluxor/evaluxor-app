@@ -343,6 +343,15 @@ describe('informe imprimible de resultados', () => {
     // El cierre nombra la plata con la sigla de la moneda: en el PDF lo lee gente
     // de otras áreas y un "$" suelto se confunde con pesos de otro país.
     expect(output).toContain('unidades faltantes con un valor estimado de USD')
+    expect(output).toContain('5 SKU escaneados')
+    expect(output).toContain('2 SKU con faltante')
+    expect(output).toContain('1 SKU con sobrante')
+    expect(output).toContain('5 unidades sobrantes con un valor estimado de USD10,00')
+    expect(output).toContain('4 unidades faltantes con un valor estimado de USD18,70')
+    expect(output).toContain('Pérdida absoluta: USD28,70')
+    // La fila del sobrante lleva su valor en la columna "Pérdida estimada",
+    // rotulado por el texto para que no se lea como pérdida perdida.
+    expect(output).toContain('Sobrante $10,00')
   })
 
   it('el encabezado de departamento lleva la pérdida de ese pasillo', () => {

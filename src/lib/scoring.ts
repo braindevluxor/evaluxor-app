@@ -29,6 +29,9 @@ export interface ValorChecklist {
 }
 export interface EvidenciaCumple {
   photoIds: string[]
+  /** En el valor sincronizado: rutas del bucket (definitivas). Al reabrir una
+   * evaluación desde la nube la fila llega con `paths` y sin `photoIds`. */
+  paths?: string[]
   comentario: string
 }
 export interface ValorCumple {
@@ -158,6 +161,26 @@ export function montoPerdidaConciliacion(
   return Math.max(0, p.teorica - p.fisica) * precio
 }
 
+/**
+ * Valor del sobrante de unidades (física > teórica), valorado al PVP del sistema:
+ * la misma cuenta que la pérdida, pero del lado de lo que sobra. No es plata que
+ * se perdió en góndola, es mercadería que está de más; se valora igual para poder
+ * sumar ambos lados en la pérdida absoluta.
+ */
+export function montoSobranteConciliacion(
+  p: Pick<ProductoConciliacion, 'teorica' | 'fisica' | 'finalBase' | 'finalTax'> | null | undefined,
+  contraDato: ContraDatoConciliacion = 'SOH'
+): number | null {
+  if (
+    contraDato !== 'SOH' ||
+    typeof p?.teorica !== 'number' || !Number.isFinite(p.teorica) ||
+    typeof p.fisica !== 'number' || !Number.isFinite(p.fisica)
+  ) return null
+  const precio = precioVenta(p)
+  if (precio == null || precio < 0) return null
+  return Math.max(0, p.fisica - p.teorica) * precio
+}
+
 export function perdidaGuardadaConciliacion(
   p: Pick<ProductoConciliacion, 'teorica' | 'fisica' | 'finalBase' | 'finalTax' | 'perdidaEstimada'> | null | undefined,
   contraDato: ContraDatoConciliacion = 'SOH'
@@ -179,9 +202,14 @@ export function guardarPerdidaConciliacion<T extends Pick<ProductoConciliacion, 
 }
 
 export interface ResumenPerdidaConciliacion {
+  /** Pérdida real: solo los faltantes, valorados al PVP. */
   monto: number
   faltantesConPrecio: number
   faltantesSinPrecio: number
+  /** Valor de los sobrantes (unidades de más), también al PVP: lo que se suma a la pérdida absoluta. */
+  montoSobrantes: number
+  sobrantesConPrecio: number
+  sobrantesSinPrecio: number
 }
 
 export function resumenPerdidaConciliacion(
@@ -189,8 +217,18 @@ export function resumenPerdidaConciliacion(
   contraDato: ContraDatoConciliacion = 'SOH'
 ): ResumenPerdidaConciliacion {
   return productos.reduce<ResumenPerdidaConciliacion>((resumen, producto) => {
-    if (typeof producto.teorica !== 'number' || typeof producto.fisica !== 'number' ||
-        producto.teorica <= producto.fisica) return resumen
+    if (typeof producto.teorica !== 'number' || typeof producto.fisica !== 'number') return resumen
+    if (producto.fisica > producto.teorica) {
+      const monto = montoSobranteConciliacion(producto, contraDato)
+      if (monto == null) {
+        if (contraDato === 'SOH') resumen.sobrantesSinPrecio += 1
+        return resumen
+      }
+      resumen.montoSobrantes += monto
+      resumen.sobrantesConPrecio += 1
+      return resumen
+    }
+    if (producto.fisica === producto.teorica) return resumen
     const perdida = perdidaGuardadaConciliacion(producto, contraDato)
     if (perdida == null) {
       if (contraDato === 'SOH') resumen.faltantesSinPrecio += 1
@@ -199,7 +237,10 @@ export function resumenPerdidaConciliacion(
     resumen.monto += perdida
     resumen.faltantesConPrecio += 1
     return resumen
-  }, { monto: 0, faltantesConPrecio: 0, faltantesSinPrecio: 0 })
+  }, {
+    monto: 0, faltantesConPrecio: 0, faltantesSinPrecio: 0,
+    montoSobrantes: 0, sobrantesConPrecio: 0, sobrantesSinPrecio: 0
+  })
 }
 
 /** Referencia contra la que se compara la física: el contra dato elegido (soh → stock, finalBase → precio de venta) o, si falta, la teórica ya cargada. */

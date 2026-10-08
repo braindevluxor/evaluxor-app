@@ -26,7 +26,7 @@ export async function guardarFotosDe(files: FileList | null): Promise<string[]> 
   return ids
 }
 
-export function MinaFotos({ photoIds, onQuitar }: { photoIds: string[]; onQuitar: (id: string) => void }) {
+export function MinaFotos({ photoIds, onQuitar }: { photoIds: string[]; onQuitar?: (id: string) => void }) {
   const [previews, setPreviews] = useState<Preview[]>([])
   const [imagenAbierta, setImagenAbierta] = useState<string | null>(null)
   const keyRef = useRef(0)
@@ -59,7 +59,7 @@ export function MinaFotos({ photoIds, onQuitar }: { photoIds: string[]; onQuitar
           </button>
           <button
             type="button"
-            onClick={() => onQuitar(p.id)}
+            onClick={() => onQuitar?.(p.id)}
             className="absolute right-1 top-1 grid h-7 w-7 place-items-center rounded-full bg-slate-900/70 text-white"
             aria-label="Quitar foto"
           >

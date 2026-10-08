@@ -441,7 +441,7 @@ describe('ItemRenderer · la lista se pinta depurada desde el primer render', ()
     // Y el chequeo del propio botón: nada revisado, nada que tocar.
     expect(src).toContain('checked={c.aplica && revisado}')
     expect(src).toContain('disabled={!revisado}')
-    expect(src).toContain('c.dni === dni && esColaboradorRevisado(c)')
+    expect(src).toContain('c.dni === dni && revisado ? { ...c, aplica: !c.aplica } : c')
   })
 
   it('buscar por cédula o nombre revela a los que estaban completos', () => {

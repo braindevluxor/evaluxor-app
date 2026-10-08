@@ -10,7 +10,7 @@ import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
 import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
-import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionComparable, agruparPorDepartamento, esSinHablador, productosParaConciliar, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
+import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionComparable, agruparPorDepartamento, esSinHablador, productosParaConciliar, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, montoSobranteConciliacion, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Foto, Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, Button, Card, InfoTooltip, Modal, ProgressBar, Skeleton, cn, colorFondoBadge } from '../components/ui'
@@ -351,6 +351,7 @@ export function ValorRespuesta({
         const comparable = conciliacionComparable(p)
         const sinHablador = esSinHablador(p)
         const perdida = perdidaGuardadaConciliacion(p, contraDato)
+        const montoSobrante = montoSobranteConciliacion(p, contraDato)
         const variacion = comparable
           ? {
               cantidad: Math.abs(p.fisica - p.teorica),
@@ -360,7 +361,7 @@ export function ValorRespuesta({
               signo: p.fisica > p.teorica ? '+' : '-'
             }
           : null
-        return { p, indice: i, teorica, fisica, comparable, sinHablador, variacion, perdida, descuadra: sinHablador || (comparable && p.fisica !== p.teorica) }
+        return { p, indice: i, teorica, fisica, comparable, sinHablador, variacion, perdida, montoSobrante, descuadra: sinHablador || (comparable && p.fisica !== p.teorica) }
       })
       const descuadrados = filas.filter((f) => f.descuadra).length
       const filaDe = new Map(ps.map((p, i) => [p, filas[i]]))
@@ -386,6 +387,14 @@ export function ValorRespuesta({
         .filter((grupo) => grupo.filas.length)
       const resumenPerdida = resumenPerdidaConciliacion(ps, contraDato)
       const totales = totalesConciliacion(ps)
+      // Desglose por SKU para la vista completa: cuántos escaneados, cuántos con
+      // faltante y cuántos con sobrante. El porcentaje va sobre el total escaneado
+      // (igual que la tasa de descuadre a la que reemplaza): faltantes + sobrantes
+      // cuadran con los descuadrados salvo los marcados "sin hablador".
+      const skuFaltantes = filas.filter((f) => f.variacion?.signo === '-').length
+      const skuSobrantes = filas.filter((f) => f.variacion?.signo === '+').length
+      const pctFaltantes = filas.length ? Math.round((skuFaltantes / filas.length) * 100) : 0
+      const pctSobrantes = filas.length ? Math.round((skuSobrantes / filas.length) * 100) : 0
       return (
         <div className="space-y-3">
           {v?.informativo ? (
@@ -441,7 +450,7 @@ export function ValorRespuesta({
                         </td>
                       </tr>
                     ) : null}
-                    {grupo.filas.map(({ p, indice, teorica, fisica, comparable, sinHablador, variacion, perdida, descuadra }) => (
+                    {grupo.filas.map(({ p, indice, teorica, fisica, comparable, sinHablador, variacion, perdida, montoSobrante, descuadra }) => (
                       <tr
                         key={`${p.sku}-${indice}`}
                         className={cn(
@@ -493,6 +502,10 @@ export function ValorRespuesta({
                             <span className="mt-1 block text-[11px] font-semibold text-red-700">
                               Pérdida: {perdida == null ? 'sin precio base' : formatearPrecioBase(perdida)}
                             </span>
+                          ) : !esPrecio && descuadra && variacion?.signo === '+' ? (
+                            <span className="mt-1 block text-[11px] font-semibold text-amber-700">
+                              Sobrante: {montoSobrante == null ? 'sin precio base' : formatearPrecioBase(montoSobrante)}
+                            </span>
                           ) : null}
                         </td>
                       </tr>
@@ -502,35 +515,63 @@ export function ValorRespuesta({
               </tbody>
             </table>
           </div>
-          <p className="text-sm text-slate-600">
-            {soloIncumplimientos ? `${descuadrados} producto(s) con descuadre` : `${filas.length} producto(s) escaneado(s) · `}
-            {!soloIncumplimientos && (descuadrados ? `${descuadrados} con descuadre` : 'todos concilian')}
-            {total != null ? ` · tasa de descuadre ${total}%` : ''}
-          </p>
-          {/* Una sola línea con las dos mitades separadas por "|": lo que sobra a la
-            izquierda, que es mercadería a buscar y no es pérdida, y lo que falta a
-            derecha en rojo, que es plata que se está perdiendo. El rojo se queda
-            solo con la pérdida para que el ojo vaya directo a lo que cuesta. */}
-          {!esPrecio && (resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0 || totales.unidadesFaltantes > 0 || totales.unidadesSobrantes > 0) ? (
-            <p className="text-sm text-slate-700">
-              {totales.unidadesSobrantes > 0 ? `${fmt(totales.unidadesSobrantes)} unidades sobrantes` : null}
-              {totales.unidadesSobrantes > 0 && (totales.unidadesFaltantes > 0 || resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0)
-                ? ' | '
-                : null}
-              {totales.unidadesFaltantes > 0 ? (
-                <span className="font-semibold text-red-700">
-                  {totales.unidadesFaltantes} unidades faltantes con un valor estimado de{' '}
-                  {formatearMontoPerdida(resumenPerdida.monto)}
-                </span>
-              ) : resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0 ? (
-                <span className="font-semibold text-red-700">
-                  Pérdida estimada {formatearMontoPerdida(resumenPerdida.monto)}
-                </span>
-              ) : null}
-              {resumenPerdida.faltantesSinPrecio > 0
-                ? ` · ${resumenPerdida.faltantesSinPrecio} producto(s) sin precio base`
-                : ''}
+          {esPrecio ? (
+            <p className="text-sm text-slate-600">
+              {soloIncumplimientos ? `${descuadrados} producto(s) con descuadre` : `${filas.length} producto(s) escaneado(s) · `}
+              {!soloIncumplimientos && (descuadrados ? `${descuadrados} con descuadre` : 'todos concilian')}
+              {total != null ? ` · tasa de descuadre ${total}%` : ''}
             </p>
+          ) : descuadrados > 0 ? (
+            <p className="text-sm text-slate-600">
+              {filas.length} SKU escaneados | {skuFaltantes} SKU con faltante ({pctFaltantes}%) | {skuSobrantes} SKU con sobrante ({pctSobrantes}%)
+            </p>
+          ) : soloIncumplimientos ? (
+            <p className="text-sm text-slate-600">
+              {soloIncumplimientos ? `${descuadrados} producto(s) con descuadre` : `${filas.length} producto(s) escaneado(s) · `}
+              {!soloIncumplimientos && (descuadrados ? `${descuadrados} con descuadre` : 'todos concilian')}
+              {total != null ? ` · tasa de descuadre ${total}%` : ''}
+            </p>
+          ) : (
+            <p className="text-sm text-slate-600">{filas.length} SKU escaneados · todos concilian</p>
+          )}
+          {/* Cierre de la conciliación: cada lado en su propia línea, como en el
+            PDF. El sobrante va primero, porque es mercadería a buscar y se valora
+            al PVP solo para poder sumarla; lo que falta con su plata en rojo; y al
+            final la pérdida absoluta (faltantes + sobrantes). El "sin precio base"
+            baja aparte, para no romper la cuenta. */}
+          {!esPrecio && (resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0 || totales.unidadesFaltantes > 0 || totales.unidadesSobrantes > 0) ? (
+            <div className="space-y-1.5">
+              {totales.unidadesSobrantes > 0 ? (
+                <p className="text-sm font-semibold text-amber-700">
+                  {fmt(totales.unidadesSobrantes)} unidades sobrantes
+                  {resumenPerdida.sobrantesConPrecio > 0
+                    ? ` con un valor estimado de ${formatearMontoPerdida(resumenPerdida.montoSobrantes)}`
+                    : ''}
+                </p>
+              ) : null}
+              {totales.unidadesFaltantes > 0 ? (
+                <p className="text-sm font-semibold text-red-700">
+                  {fmt(totales.unidadesFaltantes)} unidades faltantes
+                  {resumenPerdida.monto > 0
+                    ? ` con un valor estimado de ${formatearMontoPerdida(resumenPerdida.monto)}`
+                    : ''}
+                </p>
+              ) : resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0 ? (
+                <p className="text-sm font-semibold text-red-700">
+                  Pérdida estimada {formatearMontoPerdida(resumenPerdida.monto)}
+                </p>
+              ) : null}
+              {resumenPerdida.monto > 0 || resumenPerdida.montoSobrantes > 0 ? (
+                <p className="text-sm font-semibold text-red-700">
+                  Pérdida absoluta: {formatearMontoPerdida(resumenPerdida.monto + resumenPerdida.montoSobrantes)}
+                </p>
+              ) : null}
+              {resumenPerdida.faltantesSinPrecio + resumenPerdida.sobrantesSinPrecio > 0 ? (
+                <p className="text-xs text-slate-400">
+                  {resumenPerdida.faltantesSinPrecio + resumenPerdida.sobrantesSinPrecio} producto(s) sin precio base
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </div>
       )

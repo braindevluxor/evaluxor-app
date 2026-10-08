@@ -12,6 +12,7 @@ import {
   totalesConciliacion,
   formatearMontoPerdida,
   formatearPrecioBase,
+  montoSobranteConciliacion,
   perdidaGuardadaConciliacion,
   resumenPerdidaConciliacion,
   conSeccionesPonderadas,
@@ -586,7 +587,18 @@ export function buildPdfDocument(
               product.nombre || '—',
               porcentaje == null ? etiquetaEstado : `${etiquetaEstado} · ${fmt(porcentaje)}%`,
               ...(!precio
-                ? [estado === 'falta' && perdida != null ? formatearPrecioBase(perdida) : '—']
+                ? [
+                    estado === 'falta' && perdida != null
+                      ? formatearPrecioBase(perdida)
+                      : estado === 'sobra'
+                        ? (() => {
+                            const sobrante = montoSobranteConciliacion(product, contraDato)
+                            return sobrante == null
+                              ? 'Sobrante sin precio'
+                              : `Sobrante ${formatearPrecioBase(sobrante)}`
+                          })()
+                        : '—'
+                  ]
                 : [])
             ]
           }))
@@ -607,24 +619,43 @@ export function buildPdfDocument(
           const totales = totalesConciliacion(v?.productos ?? [])
           const hayPerdida = resumenPerdida.faltantesConPrecio + resumenPerdida.faltantesSinPrecio > 0
           if (hayPerdida || totales.unidadesFaltantes || totales.unidadesSobrantes) {
-            // Mismo corte que la pantalla: el sobrante a la izquierda, que es
-            // mercadería a buscar y no plata perdida, y la pérdida a la derecha en
-            // rojo. El PDF es monocromo, así que el rojo es el único acento.
-            const cierre: { texto: string; color?: [number, number, number] }[] = []
-            if (totales.unidadesSobrantes) cierre.push({ texto: `${fmt(totales.unidadesSobrantes)} unidades sobrantes` })
-            if (totales.unidadesSobrantes && (totales.unidadesFaltantes || hayPerdida)) cierre.push({ texto: '|' })
+            // Mismo corte que la pantalla: el desglose de SKU arriba y después cada
+            // lado en su propia línea, sobrante y faltante con su plata, cerrando
+            // con la pérdida absoluta. El sobrante no es plata perdida: se valora
+            // al PVP solo para poder sumarlo, y el rojo queda para la pérdida.
+            const linea = (texto: string, color?: [number, number, number]) => textoLineaTrozos([{ texto, color }], { bold: true })
+            const conFaltante = productos.filter((product) => estadoConciliacion(product) === 'falta').length
+            const conSobrante = productos.filter((product) => estadoConciliacion(product) === 'sobra').length
+            if (productos.length) {
+              linea([
+                `${productos.length} SKU escaneados`,
+                `${conFaltante} SKU con faltante (${Math.round((conFaltante / productos.length) * 100)}%)`,
+                `${conSobrante} SKU con sobrante (${Math.round((conSobrante / productos.length) * 100)}%)`
+              ].join(' | '))
+            }
+            if (totales.unidadesSobrantes) {
+              linea(
+                resumenPerdida.sobrantesConPrecio > 0
+                  ? `${fmt(totales.unidadesSobrantes)} unidades sobrantes con un valor estimado de ${formatearMontoPerdida(resumenPerdida.montoSobrantes)}`
+                  : `${fmt(totales.unidadesSobrantes)} unidades sobrantes`
+              )
+            }
             if (totales.unidadesFaltantes) {
-              cierre.push({
-                texto: `${fmt(totales.unidadesFaltantes)} unidades faltantes con un valor estimado de ${formatearMontoPerdida(resumenPerdida.monto)}`,
-                color: ROJO_PERDIDA
-              })
+              linea(
+                resumenPerdida.monto > 0
+                  ? `${fmt(totales.unidadesFaltantes)} unidades faltantes con un valor estimado de ${formatearMontoPerdida(resumenPerdida.monto)}`
+                  : `${fmt(totales.unidadesFaltantes)} unidades faltantes`,
+                ROJO_PERDIDA
+              )
             } else if (hayPerdida) {
-              cierre.push({ texto: `Pérdida estimada ${formatearMontoPerdida(resumenPerdida.monto)}`, color: ROJO_PERDIDA })
+              linea(`Pérdida estimada ${formatearMontoPerdida(resumenPerdida.monto)}`, ROJO_PERDIDA)
             }
-            if (resumenPerdida.faltantesSinPrecio) {
-              cierre.push({ texto: `${resumenPerdida.faltantesSinPrecio} producto(s) sin precio base` })
+            if (resumenPerdida.monto > 0 || resumenPerdida.montoSobrantes > 0) {
+              linea(`Pérdida absoluta: ${formatearMontoPerdida(resumenPerdida.monto + resumenPerdida.montoSobrantes)}`, ROJO_PERDIDA)
             }
-            textoLineaTrozos(cierre, { bold: true })
+            if (resumenPerdida.faltantesSinPrecio + resumenPerdida.sobrantesSinPrecio) {
+              linea(`${resumenPerdida.faltantesSinPrecio + resumenPerdida.sobrantesSinPrecio} producto(s) sin precio base`)
+            }
           }
         }
         break

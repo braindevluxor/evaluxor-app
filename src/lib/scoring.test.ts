@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, esSinHablador, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion, agruparPorDepartamento, precioVenta, productosParaConciliar, truncarDecimales, formatearPrecioBase, formatearMontoPerdida, promedioPuntajesModulos } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, esSinHablador, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, montoSobranteConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion, agruparPorDepartamento, precioVenta, productosParaConciliar, truncarDecimales, formatearPrecioBase, formatearMontoPerdida, promedioPuntajesModulos } from './scoring'
 
 describe('orden de lectura de una conciliación', () => {
   const prod = (sku: string, teorica: number | null, fisica: number | null, finalBase?: number | null) => ({
@@ -248,13 +248,19 @@ describe('contra dato de conciliación', () => {
       { sku: 'A', nombre: null, teorica: 10, fisica: 7, finalBase: 12.5 },
       { sku: 'B', nombre: null, teorica: 4, fisica: 3, finalBase: null },
       { sku: 'C', nombre: null, teorica: 2, fisica: 4, finalBase: 3 }
-    ])).toEqual({ monto: 37.5, faltantesConPrecio: 1, faltantesSinPrecio: 1 })
+    ])).toEqual({
+      monto: 37.5, faltantesConPrecio: 1, faltantesSinPrecio: 1,
+      montoSobrantes: 6, sobrantesConPrecio: 1, sobrantesSinPrecio: 0
+    })
   })
 
   it('el resumen respeta importes congelados de la respuesta', () => {
     expect(resumenPerdidaConciliacion([
       { sku: 'A', nombre: null, teorica: 10, fisica: 7, finalBase: 25, perdidaEstimada: 37.5 }
-    ])).toEqual({ monto: 37.5, faltantesConPrecio: 1, faltantesSinPrecio: 0 })
+    ])).toEqual({
+      monto: 37.5, faltantesConPrecio: 1, faltantesSinPrecio: 0,
+      montoSobrantes: 0, sobrantesConPrecio: 0, sobrantesSinPrecio: 0
+    })
   })
 
   it('referenciaConciliacion usa soh por defecto y finalBase en modo precio', () => {
@@ -427,6 +433,28 @@ describe('el precio contra el que se concilia: base más impuesto', () => {
       { sku: 'A', nombre: null, teorica: 10, fisica: 7, finalBase: 1.59, finalTax: 0.25 },
       { sku: 'B', nombre: null, teorica: 4, fisica: 3, finalBase: 10 }
     ]).monto).toBeCloseTo(15.52, 10)
+  })
+
+  it('calcula el valor de los sobrantes al precio de venta', () => {
+    expect(montoSobranteConciliacion({ teorica: 3, fisica: 5, finalBase: 12.5 })).toBe(25)
+    expect(montoSobranteConciliacion({ teorica: 5, fisica: 3, finalBase: 12.5 })).toBe(0)
+    expect(montoSobranteConciliacion({ teorica: 0, fisica: 3 })).toBeNull()
+    expect(montoSobranteConciliacion({ teorica: 3, fisica: 5, finalBase: 12.5 }, 'FINAL_BASE')).toBeNull()
+  })
+
+  it('el resumen separa la pérdida real de los sobrantes y su suma da la absoluta', () => {
+    const resumen = resumenPerdidaConciliacion([
+      { sku: 'A', nombre: null, teorica: 10, fisica: 7, finalBase: 12.5 },
+      { sku: 'B', nombre: null, teorica: 4, fisica: 7, finalBase: 2 },
+      { sku: 'C', nombre: null, teorica: 2, fisica: 4, finalBase: null },
+      { sku: 'D', nombre: null, teorica: 6, fisica: 6, finalBase: 9 }
+    ])
+    // Faltantes: 3 × 12,5 = 37,5 (pérdida real). Sobrantes: 3 × 2 = 6.
+    expect(resumen).toEqual({
+      monto: 37.5, faltantesConPrecio: 1, faltantesSinPrecio: 0,
+      montoSobrantes: 6, sobrantesConPrecio: 1, sobrantesSinPrecio: 1
+    })
+    expect(resumen.monto + resumen.montoSobrantes).toBe(43.5)
   })
 })
 
