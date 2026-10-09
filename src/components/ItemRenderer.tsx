@@ -1,10 +1,20 @@
-import { useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple } from '../lib/scoring'
-import { buscarProducto } from '../lib/data/precios'
-import { Badge, cn, Input, Textarea, Button, Spinner } from './ui'
-import { PhotoCapture } from './PhotoCapture'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
+import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
+import { listarColaboradores, ordenarTrabajadores } from '../lib/data/colaboradores'
+import { combinarPorDni, aplicarHistorial } from '../lib/data/colaboradoresEstado'
+import { estadosDeEvaluacionesAnteriores } from '../lib/data/colaboradoresHistorico'
+import { useProgresoCarga } from '../lib/progresoCarga'
+import { formatearValorConsulta } from '../lib/data/apis'
+import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar, Modal, ProgressBar } from './ui'
+import { SwipeAcciones } from './SwipeAcciones'
+import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
+import { FotogaleriaRutas } from './dashboard/Fotogaleria'
 import { BarcodeScanner } from './BarcodeScanner'
+import { BotonNoAplica, SelectorResponsables } from './WidgetsEvaluacion'
+import { PlanoEditor } from './PlanoEditor'
 
 interface Props {
   item: Item
@@ -13,12 +23,58 @@ interface Props {
   index: number
   total: number
   shopId?: string | null
+  branchId?: string | null
+  /** Nombre del gerente de la sucursal: destino por defecto de cada punto cuando el evaluador no elige responsables. */
+  gerente?: string | null
+  /**
+   * Sucursal y fecha de la evaluación en curso. Solo las usa LISTA_COLABORADORES,
+   * para traer con qué estado quedó cada trabajador en las evaluaciones
+   * anteriores de la misma tienda: los completos no vuelven a aparecer y los
+   * incompletos vuelven con lo que ya estaba tildado. Sin estos dos props el
+   * listado funciona igual: se ve entero, arrancando de cero.
+   */
+  sucursalId?: string
+  fechaEvaluacion?: string
+  /**
+   * Nombre del evaluador de este dispositivo. Lo usa la conciliación para no
+   * marcar como "ya lo contó otro" lo que escaneó el propio evaluador, y para
+   * rotular en quién contó cada producto.
+   */
+  evaluador?: string | null
 }
 
-export function ItemRenderer({ item, valor, onChange, index, total, shopId }: Props) {
+/** Responsables elegibles para un check: los configurados en el check; si el check no tiene, los del ítem. */
+function responsablesDeCheck(item: { responsables?: string[] | null }, o: Opcion): string[] {
+  const deOpcion = responsablesDeOpcion(o)
+  return deOpcion.length ? deOpcion : (item.responsables ?? [])
+}
+
+/** ¿Un check NO está cumplido (punto incumplido)? CHECKLIST: no marcado o rango bajo el mínimo. LISTA/UNIDAD: no todas las filas lo tienen. Sin filas puntuables → false. */
+function checkIncumplido(item: Item, o: Opcion, valor: unknown): boolean {
+  if (item.tipo === 'CHECKLIST') {
+    const v = valor as ValorChecklist | null
+    if ((v?.informativos ?? []).includes(o.id)) return false
+    return !opcionCumplida(o, v, o.id)
+  }
+  if (item.tipo === 'LISTA_COLABORADORES') {
+    const v = valor as ValorListaColaboradores | null
+    const aplican = colaboradoresQueCuentan(v?.colaboradores)
+    if (!aplican.length) return false
+    return !aplican.every((c) => (c.selected ?? []).includes(o.id))
+  }
+  if (item.tipo === 'UNIDAD_CHECKLIST') {
+    const v = valor as ValorUnidadChecklist | null
+    const unids = v?.unidades ?? []
+    if (!unids.length) return false
+    return !unids.every((u) => (u.selected ?? []).includes(o.id))
+  }
+  return false
+}
+
+export function ItemRenderer({ item, valor, onChange, index, total, shopId, branchId, gerente, sucursalId, fechaEvaluacion, evaluador }: Props) {
   const preg = `${index + 1}. ${item.texto}` + (item.requerido ? ' *' : '')
   const tipoColor =
-    item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'FOTO' ? 0 : item.tipo === 'CHECKLIST' ? 5 : 4
+    item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'CHECKLIST' ? 5 : item.tipo === 'LISTA_COLABORADORES' || item.tipo === 'UNIDAD_CHECKLIST' ? 1 : item.tipo === 'PLANO_XY' ? 2 : 4
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -26,257 +82,1855 @@ export function ItemRenderer({ item, valor, onChange, index, total, shopId }: Pr
         <p className="font-semibold text-slate-800">{preg}</p>
         <Badge color={tipoColor}>{etiquetaTipo(item.tipo)}</Badge>
       </div>
-      <Contenido item={item} valor={valor} onChange={onChange} shopId={shopId} />
-      {item.requerido && estaVacio(item, valor) ? (
+      <Contenido item={item} valor={valor} onChange={onChange} shopId={shopId} branchId={branchId} gerente={gerente} sucursalId={sucursalId} fechaEvaluacion={fechaEvaluacion} evaluador={evaluador} />
+      {item.requerido && estaVacioItem(item, valor) ? (
         <p className="mt-2 text-xs font-medium text-red-600">Obligatorio para enviar la evaluación.</p>
       ) : null}
-      <p className="mt-2 text-[11px] text-slate-400">Pregunta {index + 1} de {total}</p>
+      <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Pregunta {index + 1} de {total}</p>
     </section>
   )
 }
 
-function estaVacio(item: Item, valor: unknown): boolean {
-  switch (item.tipo) {
-    case 'CUMPLE_NO_CUMPLE':
-      return (valor as ValorCumple | null)?.value !== true && (valor as ValorCumple | null)?.value !== false
-    case 'CHECKLIST':
-      return !((valor as { selected?: string[] } | null)?.selected?.length)
-    case 'COMENTARIO':
-    case 'DESCRIPCION':
-      return !(typeof valor === 'string' && valor.trim())
-    case 'CANTIDAD':
-      return !(typeof valor === 'number')
-    case 'CONCILIACION': {
-      const ps = (valor as ValorConciliacion | null)?.productos ?? []
-      return ps.length === 0 || ps.some((p) => !p.sku.trim() || p.teorica == null || p.fisica == null)
+function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalId, fechaEvaluacion, evaluador }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; branchId?: string | null; gerente?: string | null; sucursalId?: string; fechaEvaluacion?: string; evaluador?: string | null }) {
+  // Hornea el gerente como destino por defecto de los puntos incumplidos cuando
+  // el ítem tiene responsables configurables (a nivel del ítem o por check) y el
+  // valor es un objeto: sin selección de la falla → gerente.
+  const tieneRespConfig = (item.responsables?.length ?? 0) > 0 || (item.opciones ?? []).some((o) => responsablesDeOpcion(o).length)
+  const guardar = (v: unknown) => {
+    const esObjeto = !!v && typeof v === 'object' && !Array.isArray(v)
+    if (item.tipo !== 'CONTENEDOR' && tieneRespConfig && esObjeto) {
+      onChange({ ...(v as object), responsablesGerente: gerente ?? null })
+    } else {
+      onChange(v)
     }
-    case 'FOTO':
-      return !((valor as { photoIds?: string[] } | null)?.photoIds?.length)
-    default:
-      return false
   }
-}
-
-function Contenido({ item, valor, onChange, shopId }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
   switch (item.tipo) {
     case 'CUMPLE_NO_CUMPLE': {
       const v = (valor as ValorCumple | null) ?? { value: null, evidencias: [] }
       const value = v.value ?? null
       const evidencias = v.evidencias ?? []
-      const setValue = (valor2: boolean) => onChange({ ...v, value: valor2 })
-      const setEvidencias = (evs: EvidenciaCumple[]) => onChange({ ...v, evidencias: evs })
+      const noAplica = v.informativo ?? false
+      const setValue = (valor2: boolean) => guardar({ ...v, value: valor2 })
+      const setEvidencias = (evs: EvidenciaCumple[]) => guardar({ ...v, evidencias: evs })
+      const setNoAplica = (b: boolean) => guardar({ ...v, informativo: b })
       return (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <BotonCumple activo={value === true} onPick={() => setValue(true)} />
             <BotonNoCumple activo={value === false} onPick={() => setValue(false)} />
           </div>
+          <BotonNoAplica activo={noAplica} onClick={() => setNoAplica(!noAplica)}>
+            No aplica · se excluye del puntaje
+          </BotonNoAplica>
           <EvidenciasEditor evidencias={evidencias} onChange={setEvidencias} />
+          {value === false ? (
+            <div className="rounded-xl border border-red-100 bg-red-50/60 p-2.5">
+              <SelectorResponsables
+                etiqueta="Responsable de que no cumpla"
+                responsables={item.responsables ?? []}
+                seleccion={v.responsables ?? []}
+                gerente={gerente}
+                onChange={(sel) => guardar({ ...v, responsables: sel })}
+              />
+            </div>
+          ) : null}
         </div>
       )
     }
     case 'CHECKLIST': {
-      const seleccion = (valor as { selected?: string[] } | null)?.selected ?? []
+      const value = ((valor as ValorChecklist | null) ?? { selected: [], informativos: [], evidencias: {} })
+      const seleccion = value.selected ?? []
+      const noAplican = value.informativos ?? []
+      const evidencias = value.evidencias ?? {}
       const opts = (item.opciones ?? []) as Opcion[]
       if (!opts.length) return <p className="text-sm text-slate-400">Sin opciones definidas.</p>
+      const conPuntos = opts.length > 0 && opts.every((o) => typeof o.puntos === 'number' && o.puntos > 0)
       const toggle = (id: string) => {
         const existe = seleccion.includes(id)
-        onChange({ selected: existe ? seleccion.filter((x) => x !== id) : [...seleccion, id] })
+        if (existe) {
+          const valores2 = { ...(value.valores ?? {}) }
+          delete valores2[id]
+          guardar({ ...value, selected: seleccion.filter((x) => x !== id), valores: valores2 })
+        } else {
+          guardar({ ...value, selected: [...seleccion, id] })
+        }
+      }
+      const setValorRango = (id: string, n: number) => {
+        guardar({
+          ...value,
+          selected: seleccion.includes(id) ? seleccion : [...seleccion, id],
+          valores: { ...(value.valores ?? {}), [id]: n }
+        })
+      }
+      const toggleNoAplica = (id: string) => {
+        const existe = noAplican.includes(id)
+        guardar({ ...value, informativos: existe ? noAplican.filter((x) => x !== id) : [...noAplican, id] })
+      }
+      const setEvidencia = (id: string, photoIds: string[]) => {
+        guardar({ ...value, evidencias: { ...evidencias, [id]: { photoIds } } })
       }
       return (
+        <>
         <div className="space-y-2">
-          {opts.map((o) => (
-            <label
-              key={o.id}
-              className={cn(
-                'flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 transition-colors',
-                seleccion.includes(o.id) ? 'border-primary bg-primary-50' : 'border-slate-200 bg-white'
-              )}
-            >
-              <input
-                type="checkbox"
-                className="h-5 w-5 accent-primary"
-                checked={seleccion.includes(o.id)}
-                onChange={() => toggle(o.id)}
-              />
-              <span className="text-sm text-slate-700">{o.etiqueta}</span>
-            </label>
-          ))}
+          <p className="text-xs text-slate-400">
+            {conPuntos
+              ? 'El ítem otorga los puntos de las opciones validadas. Marca “No aplica” en las opciones que no corresponden; se excluyen del puntaje.'
+              : 'Marca “No aplica” en las opciones que no corresponden; se excluyen del puntaje.'}
+          </p>
+          {opts.map((o) => {
+            const activo = seleccion.includes(o.id)
+            const esNoAplica = noAplican.includes(o.id)
+            const idsEv = evidencias[o.id]?.photoIds ?? []
+            const esRango = o.tipo_respuesta === 'RANGO'
+            const valorRango = esRango ? (value.valores?.[o.id] ?? null) : null
+            const cumpleOpcion = opcionCumplida(o, value, o.id)
+            const respFallidos = responsablesDeCheck(item, o).length > 0
+            return (
+              <div
+                key={o.id}
+                className={cn(
+                  'min-w-0 overflow-hidden rounded-xl border transition-colors',
+                  esNoAplica
+                    ? 'border-amber-200 bg-amber-50'
+                    : cumpleOpcion
+                      ? 'border-slate-200 bg-white'
+                      : 'border-red-300 bg-red-50'
+                )}
+              >
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
+                  {/* `flex-auto` y no `flex-1`: con basis 0 el hypothetical main size del
+                      título es 0, así que el line breaking de `flex-wrap` mete los badges y
+                      botones (shrink-0) en la misma línea y el texto se queda con el resto
+                      → partía "Permiso de Bomberos" letra por letra. Con basis = contenido
+                      el ancho del texto entra en el cálculo de línea: si no cabe junto a los
+                      badges, ellos bajan y el título lee completo. */}
+                  <span className="min-w-0 flex-auto break-words text-sm text-slate-700">{o.etiqueta}</span>
+                  {esRango ? (
+                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                      Valor (mín. {o.minimo ?? '—'}{o.unidad ? ` ${o.unidad}` : ''})
+                    </span>
+                  ) : null}
+                  {o.puntos != null && o.puntos > 0 ? (
+                    <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => toggleNoAplica(o.id)}
+                    title="No aplica: se excluye del puntaje"
+                    className={cn(
+                      'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors',
+                      esNoAplica ? 'bg-amber-100 text-amber-800' : 'text-slate-400 hover:bg-amber-50 hover:text-amber-600'
+                    )}
+                  >
+                    <Info className="h-3 w-3" />
+                    {esNoAplica ? 'No aplica' : 'Marcar no aplica'}
+                  </button>
+                  {/* La foto se puede adjuntar en cualquier estado: el punto puede estar
+                      validado (cumple) o sin cumplir, y en los dos casos sirve de evidencia. */}
+                  <FotoOpcion
+                    photoIds={idsEv}
+                    onChange={(ids) => setEvidencia(o.id, ids)}
+                  />
+                </div>
+                {esRango ? (
+                  <div className="space-y-2 px-3 pb-3 pt-1">
+                    <BarraRango
+                      etiqueta={o.etiqueta}
+                      minimo={o.minimo}
+                      maximo={o.maximo}
+                      unidad={o.unidad}
+                      valor={typeof valorRango === 'number' ? valorRango : null}
+                      onChange={(n) => setValorRango(o.id, n)}
+                    />
+                  </div>
+                ) : null}
+                {idsEv.length > 0 ? (
+                  <div className="px-3 pb-3">
+                    <MinaFotos photoIds={idsEv} />
+                  </div>
+                ) : null}
+                {!esNoAplica ? (
+                  cumpleOpcion ? (
+                    // Estado neutro (validado): sin alerta roja y sin responsables.
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2.5">
+                      {esRango ? (
+                        <span className="text-xs font-semibold text-green-700">
+                          Punto validado <span className="font-normal text-slate-400">· valor {valorRango ?? '—'}{o.unidad ? ` ${o.unidad}` : ''}</span>
+                        </span>
+                      ) : (
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 shrink-0 accent-green-600"
+                            checked={activo}
+                            onChange={() => toggle(o.id)}
+                          />
+                          <span className="text-xs font-semibold text-green-700">Punto validado</span>
+                        </label>
+                      )}
+                    </div>
+                  ) : (
+                    // Estado de error (sin cumplir): validar el punto + responsables de la falla.
+                    <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
+                      {esRango ? (
+                        <>
+                          <p className="mb-1 text-xs font-semibold text-slate-600">
+                            Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
+                          </p>
+                          <p className="mb-2 text-[10px] text-slate-400">
+                            Ingresa un valor mayor o igual a {o.minimo ?? '—'}{o.unidad ? ` ${o.unidad}` : ''} para validar el punto.
+                          </p>
+                        </>
+                      ) : (
+                        <label className="mb-2 flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 shrink-0 accent-primary"
+                            checked={activo}
+                            onChange={() => toggle(o.id)}
+                          />
+                          <span className="text-xs font-bold text-slate-600">
+                            Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
+                          </span>
+                        </label>
+                      )}
+                      {respFallidos ? (
+                        <SelectorResponsables
+                          responsables={responsablesDeCheck(item, o)}
+                          seleccion={value.responsablesPorOpcion?.[o.id] ?? []}
+                          gerente={gerente}
+                          onChange={(sel) =>
+                            guardar({ ...value, responsablesPorOpcion: { ...(value.responsablesPorOpcion ?? {}), [o.id]: sel } })
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  )
+                ) : null}
+              </div>
+            )
+          })}
         </div>
-      )
+      </>
+    )
     }
-    case 'COMENTARIO':
-      return (
-        <Textarea
-          rows={3}
-          placeholder="Escribe un comentario…"
-          value={typeof valor === 'string' ? valor : ''}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )
-    case 'DESCRIPCION':
-      return (
-        <Textarea
-          rows={4}
-          placeholder="Describe la situación…"
-          value={typeof valor === 'string' ? valor : ''}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )
-    case 'CANTIDAD':
-      return (
-        <Input
-          type="number"
-          inputMode="decimal"
-          min={0}
-          placeholder="0"
-          value={typeof valor === 'number' ? valor : ''}
-          onChange={(e) => {
-            const n = Number(e.target.value)
-            onChange(Number.isFinite(n) && e.target.value !== '' ? n : null)
-          }}
-        />
-      )
     case 'CONCILIACION':
-      return <ConciliacionEditor valor={valor} onChange={onChange} shopId={shopId} />
-    case 'FOTO': {
-      const ids = (valor as { photoIds?: string[] } | null)?.photoIds ?? []
-      return <PhotoCapture photoIds={ids} onChange={(photoIds) => onChange({ photoIds })} />
-    }
+      return <ConciliacionEditor valor={valor} onChange={guardar} shopId={shopId} item={item} gerente={gerente} evaluador={evaluador} />
+    case 'LISTA_COLABORADORES':
+      return <ColaboradoresEditor item={item} valor={valor} onChange={guardar} shopId={shopId} branchId={branchId} gerente={gerente} sucursalId={sucursalId} fechaEvaluacion={fechaEvaluacion} />
+    case 'UNIDAD_CHECKLIST':
+      return <UnidadesEditor item={item} valor={valor} onChange={guardar} gerente={gerente} />
+    case 'PLANO_XY':
+      return <PlanoEditor item={item} valor={valor} onChange={guardar} gerente={gerente} />
     default:
       return null
   }
 }
 
-function ConciliacionEditor({ valor, onChange, shopId }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null }) {
-  const [escaneandoIndice, setEscaneandoIndice] = useState<number | null>(null)
-  const [consultando, setConsultando] = useState<Record<number, boolean>>({})
-  const [info, setInfo] = useState<Record<number, string>>({})
+/** Aplica el resultado del escaneo al borrador: autocompleta la Teórica (sistema) con el contra dato elegido (SOH o PVP) y conserva la info consultada. */
+function aplicarResultadoScan(b: ProductoConciliacion, r: ResultadoScan, contraDato: ContraDatoConciliacion): ProductoConciliacion {
+  return {
+    ...b,
+    nombre: r.nombre ?? b.nombre,
+    teorica: referenciaConciliacion(r, contraDato) ?? b.teorica,
+    // El id del producto en la API. Si la consulta no lo trajo se respeta el que
+    // ya tenía la fila: un escaneo fallido no debe borrar el dato.
+    apiId: r.id ?? b.apiId,
+    soh: r.soh,
+    lastSync: r.lastSync,
+    finalBase: r.finalBase,
+    finalTax: r.finalTax,
+    departamento: r.departamento
+  }
+}
+
+/** ¿El borrador tiene info consultada del sistema (id / SOH / última sync / precio) para mostrar? */
+function tieneInfoSistema(p: { soh?: number | null; lastSync?: string | null; finalBase?: number | null; departamento?: string | null; apiId?: number | null } | null | undefined): boolean {
+  // El id de la API y el departamento por sí solos cuentan como info consultada:
+  // si la API solo manda eso, hay que mostrar la línea para que el evaluador sepa
+  // que sí consultó.
+  return !!(p && (p.soh != null || p.lastSync || p.finalBase != null || p.departamento || p.apiId != null))
+}
+
+/**
+ * Evidencia fotográfica de UN producto de la conciliación. Las fotos están
+ * casadas al SKU: cámara o galería para agregar, miniaturas de las locales (se
+ * pueden quitar) y en galería las que ya están en la nube (solo consulta).
+ */
+export function EvidenciaProducto({ sku, photoIds, paths, onChange }: { sku: string; photoIds: string[]; paths: string[]; onChange: (ids: string[]) => void }) {
+  return (
+    <div className="space-y-1.5 rounded-lg bg-slate-50 p-2">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Evidencia fotográfica · {sku}</p>
+      <PhotoCapture photoIds={photoIds} onChange={onChange} />
+      <FotogaleriaRutas paths={paths} compacta />
+    </div>
+  )
+}
+
+/**
+ * Visor de la evidencia de UN producto mientras se evalúa: lo que ya está en la
+ * nube y lo que todavía está en el dispositivo. Solo lectura: quitar fotos se
+ * hace desde el modo editar de la fila.
+ */
+function VisorEvidencia({ producto }: { producto: ProductoConciliacion }) {
+  const nube = producto.paths ?? []
+  const locales = producto.photoIds ?? []
+  // Los datos del producto escaneado, con el ID a la vista: sin él no se puede
+  // confirmar contra el sistema de qué producto son estas fotos.
+  const datos = (
+    <div className="space-y-0.5 rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] leading-relaxed text-slate-500">
+      <p className="font-bold text-slate-700">
+        {producto.apiId != null ? `ID: ${producto.apiId}` : `SKU: ${producto.sku}`}
+        {producto.nombre ? ` · ${producto.nombre}` : ''}
+      </p>
+      {tieneInfoSistema(producto) ? (
+        <p>
+          SOH: {producto.soh ?? '—'} · Sync: {formatearLastSync(producto.lastSync)} · Precio: {formatearPrecioBase(precioVenta(producto))}
+          {producto.departamento ? <> · {producto.departamento}</> : null}
+        </p>
+      ) : null}
+    </div>
+  )
+  if (!nube.length && !locales.length) {
+    return (
+      <div className="space-y-3">
+        {datos}
+        <p className="text-sm text-slate-400">Este producto todavía no tiene evidencia fotográfica.</p>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-3">
+      {datos}
+      {nube.length ? (
+        <div className="space-y-1">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Sincronizadas · {nube.length}</p>
+          <FotogaleriaRutas paths={nube} />
+        </div>
+      ) : null}
+      {locales.length ? (
+        <div className="space-y-1">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">En este dispositivo · pendientes de subir · {locales.length}</p>
+          <MinaFotos photoIds={locales} />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, evaluador }: { valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; item?: Item; gerente?: string | null; evaluador?: string | null }) {
+  const [escaneando, setEscaneando] = useState(false)
+  const [consultando, setConsultando] = useState(false)
+  const [info, setInfo] = useState('')
+  const [exito, setExito] = useState('')
+  // La lista arranca abierta si ya hay productos: es donde está la evidencia de
+  // cada uno (contador, cámara y visor), y volver a una conciliación en curso sin
+  // verla obligaba a entrar a editar cada fila para comprobar sus fotos.
+  const [verLista, setVerLista] = useState(() => ((valor as ValorConciliacion | null)?.productos?.length ?? 0) > 0)
+  const [fotosDe, setFotosDe] = useState<string | null>(null)
+  const [aEliminar, setAEliminar] = useState<{ producto: ProductoConciliacion; index: number } | null>(null)
+  const [editando, setEditando] = useState<number | null>(null)
+  const [edicion, setEdicion] = useState<{ teorica: number | null; fisica: number | null; sinHablador: boolean }>({ teorica: null, fisica: null, sinHablador: false })
+  const [borrador, setBorrador] = useState<ProductoConciliacion>({ sku: '', nombre: null, teorica: null, fisica: null, soh: null, lastSync: null, finalBase: null, finalTax: null })
+  const skuInputRef = useRef<HTMLInputElement>(null)
+  const fisicaInputRef = useRef<HTMLInputElement>(null)
+
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
   const productos = v.productos ?? []
+  const noAplica = v.informativo ?? false
+  // El contra dato (SOH o precio base) se elige al crear el ítem en Config: aquí
+  // solo se usa para autocompletar la teórica al escanear o consultar un producto.
+  const contraDato = item?.contra_dato ?? 'SOH'
 
-  const actualizar = (items: ProductoConciliacion[]) => onChange({ productos: items })
-  const actualizarUno = (i: number, patch: Partial<ProductoConciliacion>) =>
+  // La conciliación no cumple cuando hay productos escaneados, todos con ambas
+  // cantidades, y al menos uno no coincide: ahí aparece el selector de responsables.
+  const noCumple = item ? valorBinario({ tipo: item.tipo, opciones: item.opciones ?? null }, valor) === false : false
+  // Producto cuya evidencia se está mirando (se busca por SKU: si se borra una
+  // fila, el índice se corrige solo y no se queda mirando la de al lado).
+  const productoFotos = fotosDe ? productos.find((p) => p.sku === fotosDe) ?? null : null
+
+  const actualizar = (items: ProductoConciliacion[]) =>
+    onChange({
+      ...v,
+      productos: items.map((producto) => guardarPerdidaConciliacion(producto, contraDato))
+    })
+  const actualizarProducto = (i: number, patch: Partial<ProductoConciliacion>) =>
     actualizar(productos.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))
-  const total = conciliacionTotal(v)
+  const promedio = conciliacionTotal(v)
 
-  const aplicarCodigo = async (i: number, codigo: string) => {
-    const p = productos[i]
-    actualizarUno(i, { sku: codigo, nombre: null })
-    setInfo((old) => ({ ...old, [i]: '' }))
+  const conciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && p.fisica === p.teorica).length
+  // Los sin hablador son No Match aunque no tengan precio físico que comparar:
+  // contar solo las filas con las dos cantidades los dejaba fuera del resumen.
+  const desconciliadas = productos.filter((p) => esSinHablador(p) || (p.teorica != null && p.fisica != null && p.fisica !== p.teorica)).length
+
+  const codigoActual = borrador.sku.trim()
+  const existenteIdx = codigoActual ? productos.findIndex((p) => p.sku === codigoActual) : -1
+  const existente = existenteIdx >= 0 ? productos[existenteIdx] : null
+  const fisicaResultante =
+    borrador.fisica == null
+      ? null
+      : existente
+        ? (existente.fisica ?? 0) + borrador.fisica
+        : borrador.fisica
+
+  const aplicarCodigo = async (codigoForzado?: string) => {
+    const raw = codigoForzado ?? borrador.sku
+    const codigo = raw.trim()
+    setInfo('')
+    setExito('')
+    if (!codigo) return
+    if (consultando) return
+
+    const ya = productos.find((p) => p.sku === codigo)
+    setBorrador((b) => ({
+      ...b,
+      sku: raw,
+      ...(ya
+        ? {
+            nombre: ya.nombre,
+            teorica: ya.teorica,
+            fisica: null,
+            apiId: ya.apiId,
+            soh: ya.soh,
+            lastSync: ya.lastSync,
+            finalBase: ya.finalBase,
+            finalTax: ya.finalTax,
+            departamento: ya.departamento,
+            sinHablador: ya.sinHablador
+          }
+        : {})
+    }))
+
+    // Se consulta SIEMPRE, también cuando el SKU ya está en la lista. Antes había
+    // un atajo que reutilizaba la fila guardada para evitar consultas repetidas,
+    // y el efecto secundario era que el `lastSync` (y el SOH, y el precio, y la
+    // teórica) quedaba congelado en el valor del primer escaneo: a horas de
+    // distancia seguía mostrando la fecha vieja mientras la API ya traía otra.
+    //
+    // La fila guardada sigue siendo el respaldo: si la API no responde (sin
+    // conexión), el borrador conserva lo que ya tenía —lo puso el prellenado del
+    // campo al detectar el código— y solo se avisa del error arriba.
     if (!shopId) {
-      setInfo((old) => ({ ...old, [i]: 'Nº tienda (shop_id) no configurado en la sucursal.' }))
+      setInfo('Nº tienda (shop_id) no configurado en la sucursal.')
       return
     }
-    if (p?.nombre && p.nombre !== '') return
-    setConsultando((old) => ({ ...old, [i]: true }))
-    const r = await buscarProducto(codigo, shopId)
-    setConsultando((old) => ({ ...old, [i]: false }))
-    if (r.nombre) {
-      actualizarUno(i, { sku: codigo, nombre: r.nombre })
-      setInfo((old) => ({ ...old, [i]: '' }))
-    } else {
-      setInfo((old) => ({ ...old, [i]: r.mensaje ?? 'Producto no encontrado.' }))
+    setConsultando(true)
+    let r: ResultadoScan
+    try {
+      r = await buscarProducto(codigo, shopId)
+    } catch {
+      r = { nombre: null, mensaje: 'Error al consultar producto.' }
+    } finally {
+      setConsultando(false)
     }
+    if (r.nombre) {
+      setBorrador((b) => aplicarResultadoScan(b, r, contraDato))
+      setTimeout(() => fisicaInputRef.current?.focus(), 50)
+    } else {
+      setInfo(r.mensaje ?? 'Producto no encontrado.')
+      setTimeout(() => skuInputRef.current?.focus(), 50)
+    }
+  }
+
+  const agregar = () => {
+    const sku = borrador.sku.trim()
+    const sinHablador = borrador.sinHablador === true
+    // Sin hablador no hay precio físico que leer, así que la física no se puede
+    // pedir: lo único indispensable es el SKU. La teórica la manda el sistema al
+    // escanear y se guarda si vino, pero no bloquea registrar la fila.
+    if (!sku || (!sinHablador && (borrador.teorica == null || borrador.fisica == null))) {
+      setInfo(sinHablador ? 'Agrega el SKU para registrar el producto sin hablador.' : 'Completa el SKU y ambas cantidades para agregar.')
+      return
+    }
+    if (existente) {
+      if (sinHablador) {
+        // Re-escaneo de un producto que ahora está sin hablador: no hay precio
+        // físico que sumar al previo, la fila queda marcada y sin precio.
+        actualizar(
+          productos.map((p, idx) =>
+            idx === existenteIdx
+              ? {
+                  ...p,
+                  nombre: borrador.nombre ?? p.nombre,
+                  teorica: borrador.teorica ?? p.teorica,
+                  fisica: null,
+                  apiId: borrador.apiId ?? p.apiId,
+                  // Quien lo contó primero sigue siendo quien lo contó: si el
+                  // producto vino de la nube no se reclama, se suma la cantidad.
+                  escaneadoPor: p.escaneadoPor ?? evaluador ?? null,
+                  soh: borrador.soh ?? p.soh,
+                  lastSync: borrador.lastSync ?? p.lastSync,
+                  finalBase: borrador.finalBase ?? p.finalBase,
+                  finalTax: borrador.finalTax ?? p.finalTax,
+                  departamento: borrador.departamento ?? p.departamento,
+                  sinHablador: true
+                }
+              : p
+          )
+        )
+        setExito(`${sku} · marcado sin hablador · cuenta como No Match.`)
+        setBorrador({ sku: '', nombre: null, teorica: null, fisica: null, apiId: null })
+        setInfo('')
+        setTimeout(() => skuInputRef.current?.focus(), 50)
+        return
+      }
+      // Re-escaneo: el físico nuevo se suma al previo en lugar de duplicar el producto.
+      // La validación de arriba exige la física cuando no hay sin hablador, pero
+      // eso lo garantiza un booleano alias y TypeScript no lo puede seguir: el
+      // `?? 0` es solo para calmar al compilador, no se usa.
+      const previo = existente.fisica ?? 0
+      const fisicaNueva = borrador.fisica ?? 0
+      const total = previo + fisicaNueva
+      actualizar(
+        productos.map((p, idx) =>
+          idx === existenteIdx
+            ? {
+                ...p,
+                nombre: borrador.nombre ?? p.nombre,
+                teorica: borrador.teorica,
+                fisica: total,
+                apiId: borrador.apiId ?? p.apiId,
+                escaneadoPor: p.escaneadoPor ?? evaluador ?? null,
+                soh: borrador.soh ?? p.soh,
+                lastSync: borrador.lastSync ?? p.lastSync,
+                finalBase: borrador.finalBase ?? p.finalBase,
+                finalTax: borrador.finalTax ?? p.finalTax,
+                departamento: borrador.departamento ?? p.departamento,
+                // El re-escaneo trae precio nuevo: si la fila estaba sin hablador
+                // y el evaluador ya no la tiene tildada, vuelve a ser comparable.
+                sinHablador: false
+              }
+            : p
+        )
+      )
+      setExito(`Sumado ${sku}: FP ${previo} + ${fisicaNueva} = ${total}`)
+    } else {
+      actualizar([
+        ...productos,
+        {
+          sku,
+          nombre: borrador.nombre,
+          teorica: borrador.teorica,
+          fisica: sinHablador ? null : borrador.fisica,
+          apiId: borrador.apiId,
+          escaneadoPor: evaluador || null,
+          soh: borrador.soh,
+          lastSync: borrador.lastSync,
+          finalBase: borrador.finalBase,
+          finalTax: borrador.finalTax,
+          departamento: borrador.departamento,
+          sinHablador
+        }
+      ])
+      setExito('')
+      // Al primer producto la lista se abre sola: ahí quedan el contador de
+      // evidencia y los botones de cámara/galería de esa fila.
+      setVerLista(true)
+    }
+    setBorrador({ sku: '', nombre: null, teorica: null, fisica: null, apiId: null, soh: null, lastSync: null, finalBase: null, finalTax: null })
+    setInfo('')
+    setTimeout(() => skuInputRef.current?.focus(), 50)
+  }
+
+  const pctBorrador = conciliacionPorcentaje({ teorica: borrador.teorica, fisica: fisicaResultante })
+  const borradorSinHablador = borrador.sinHablador === true
+  const borradorCompleto = !!borrador.sku.trim() && (borradorSinHablador || (borrador.teorica != null && borrador.fisica != null))
+  // El producto lo registró otra persona: es la señal de "ya lo contó alguien más"
+  // que se muestra en la fila y al re-escanear el código. Sin el nombre de este
+  // evaluador no se puede saber si lo escaneó él, y no se reclama nada.
+  const loContoOtro = (p: ProductoConciliacion): string | null =>
+    p.escaneadoPor && evaluador && p.escaneadoPor !== evaluador ? p.escaneadoPor : null
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <BotonNoAplica activo={noAplica} onClick={() => onChange({ ...v, informativo: !noAplica })}>
+          No aplica · se excluye del puntaje
+        </BotonNoAplica>
+      </div>
+
+      <div className="space-y-2 rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Escanea y agrega un producto</p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            const valor = (skuInputRef.current?.value || borrador.sku).replace(/[\r\n\t]/g, '').trim()
+            if (valor) void aplicarCodigo(valor)
+          }}
+          className="relative w-full"
+        >
+          <Input
+            ref={skuInputRef}
+            type="search"
+            inputMode="search"
+            enterKeyHint="search"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            placeholder="SKU / código interno del producto"
+            value={borrador.sku}
+            className="pr-11"
+            onChange={(e) => {
+              const raw = e.target.value
+              // Detección directa de sufijos de escáneres handheld (Enter/Tab inyectados como caracteres \n, \r o \t)
+              if (raw.includes('\n') || raw.includes('\r') || raw.includes('\t')) {
+                const limpio = raw.replace(/[\r\n\t]/g, '').trim()
+                if (limpio) {
+                  setBorrador((b) => ({ ...b, sku: limpio }))
+                  void aplicarCodigo(limpio)
+                  return
+                }
+              }
+              const sku = raw
+              const codigo = sku.trim()
+              const ya = codigo ? productos.find((p) => p.sku === codigo) : undefined
+              setInfo('')
+              setExito('')
+              setBorrador(
+                ya
+                  ? { sku, nombre: ya.nombre, teorica: ya.teorica, fisica: null, apiId: ya.apiId, soh: ya.soh, lastSync: ya.lastSync, finalBase: ya.finalBase, finalTax: ya.finalTax, departamento: ya.departamento, sinHablador: ya.sinHablador }
+                  : { sku, nombre: null, teorica: null, fisica: null, apiId: null }
+              )
+            }}
+            onKeyDown={(e) => {
+              if (
+                e.key === 'Enter' ||
+                e.keyCode === 13 ||
+                e.key === 'Tab' ||
+                e.keyCode === 9 ||
+                e.which === 13 ||
+                e.which === 9
+              ) {
+                e.preventDefault()
+                e.stopPropagation()
+                const valor = (e.currentTarget.value || borrador.sku).replace(/[\r\n\t]/g, '').trim()
+                if (valor) void aplicarCodigo(valor)
+              }
+            }}
+            onKeyUp={(e) => {
+              if (e.key === 'Enter' || e.keyCode === 13 || e.which === 13) {
+                e.preventDefault()
+                e.stopPropagation()
+                const valor = (e.currentTarget.value || borrador.sku).replace(/[\r\n\t]/g, '').trim()
+                if (valor) void aplicarCodigo(valor)
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => setEscaneando(true)}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary"
+            title="Escanear código de barras con la cámara"
+            aria-label="Escanear código de barras"
+          >
+            <ScanLine className="h-5 w-5" />
+          </button>
+        </form>
+        {consultando ? (
+          <p className="flex items-center gap-2 text-xs text-slate-500"><Spinner /> Consultando producto…</p>
+        ) : info ? (
+          <p className="text-xs font-medium text-amber-600">{info}</p>
+        ) : null}
+        {tieneInfoSistema(borrador) ? (
+          <p className="text-[11px] leading-relaxed text-slate-400">
+            {/* El ID del producto en la API, junto al resto de sus datos: la
+                descripción sola no alcanza para confirmar cuál se escaneó. */}
+            {borrador.apiId != null ? (
+              <>
+                <strong className="text-slate-700">ID: {borrador.apiId}</strong> ·{' '}
+              </>
+            ) : null}
+            SOH (sistema): <strong className="text-slate-600">{borrador.soh ?? '—'}</strong> · Últ. sync:{' '}
+            {formatearLastSync(borrador.lastSync)} · Precio: {formatearPrecioBase(precioVenta(borrador))}
+            {/* El departamento no se muestra solo si vino: sin él, el producto cae en
+                el grupo "Sin departamento" del informe y no hay forma de saber que
+                fue la API la que no lo mandó. */}
+            {borrador.departamento ? <> · Dep: {borrador.departamento}</> : null}
+          </p>
+        ) : null}
+        {existente ? (
+          <div className="rounded-xl border border-primary-200 bg-primary-50 p-2.5 text-xs leading-relaxed">
+            <p className="font-bold text-primary-900">
+              Código ya escaneado · {existente.sku}
+              {existente.nombre ? ` · ${existente.nombre}` : ''}
+            </p>
+            {/* La persona que lo midió primero no es la que está escaneando ahora:
+                se dice aparte y en color de alerta, que es justo el dato que hace
+                falta antes de sumar otra vez la cantidad. */}
+            {loContoOtro(existente) ? (
+              <p className="mt-0.5 font-bold text-amber-700">Ya lo contó {loContoOtro(existente)}</p>
+            ) : null}
+            <p className="mt-0.5 text-primary-700">
+              Teórica: {borrador.teorica ?? '—'} · Físico previo (FP): <strong>{existente.fisica ?? 0}</strong>
+            </p>
+            <p className="mt-0.5 font-semibold text-primary-900">
+              {borradorSinHablador
+                ? 'Al guardar: la fila queda marcada sin hablador y cuenta como No Match.'
+                : borrador.fisica != null && fisicaResultante != null
+                  ? `Al guardar: ${existente.fisica ?? 0} + ${borrador.fisica} = ${fisicaResultante}`
+                  : 'Ingresa la nueva cantidad física; al guardar se sumará al previo.'}
+            </p>
+          </div>
+        ) : null}
+        <Input
+          placeholder="Nombre del producto (se autocompleta al buscar)"
+          tabIndex={-1}
+          value={borrador.nombre ?? ''}
+          onChange={(e) => setBorrador((b) => ({ ...b, nombre: e.target.value }))}
+        />
+        <div className="flex flex-wrap items-end gap-2">
+          <CampoConciliacion
+            tabIndex={-1}
+            etiqueta={contraDato === 'FINAL_BASE' ? 'Teórica (precio)' : 'Teórica (SOH)'}
+            valor={borrador.teorica}
+            onChange={(n) => setBorrador((b) => ({ ...b, teorica: n }))}
+          />
+          <CampoConciliacion
+            inputRef={fisicaInputRef}
+            etiqueta={existente ? 'Física nueva (suma al previo)' : 'Física (contada)'}
+            valor={borrador.fisica}
+            disabled={borrador.sinHablador === true}
+            onChange={(n) => setBorrador((b) => ({ ...b, fisica: n }))}
+            onEnter={() => {
+              if (borradorCompleto) agregar()
+            }}
+          />
+        </div>
+        {/* Solo en conciliación por precio: el hablador es la etiqueta con el precio
+            de venta, así que en modo stock no existe que marcar. */}
+        {contraDato === 'FINAL_BASE' ? (
+          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0 accent-red-600"
+              checked={borrador.sinHablador === true}
+              onChange={(e) => {
+                const marcado = e.target.checked
+                setBorrador((b) => ({ ...b, sinHablador: marcado, fisica: marcado ? null : b.fisica }))
+                setInfo('')
+                setExito('')
+              }}
+            />
+            No tiene hablador · se registra sin precio y cuenta como No Match
+          </label>
+        ) : null}
+        <div className="flex items-center justify-between gap-2">
+          {exito ? (
+            <p className="text-xs font-bold text-green-600">{exito}</p>
+          ) : borradorSinHablador ? (
+            <p className="text-xs font-bold text-red-600">Sin hablador · cuenta como No Match</p>
+          ) : pctBorrador != null ? (
+            <p className={cn('text-sm font-bold', pctBorrador === 100 ? 'text-green-600' : 'text-red-600')}>
+              Conciliación: {pctBorrador}%
+            </p>
+          ) : (
+            <p className="text-xs text-slate-400">Ingresa ambas cantidades para ver el %.</p>
+          )}
+          <Button
+            type="button"
+            variant="primary"
+            className="shrink-0 min-h-0 px-4 py-2"
+            disabled={!borradorCompleto}
+            onClick={agregar}
+          >
+            <Check className="h-4 w-4" /> Agregar
+          </Button>
+        </div>
+      </div>
+
+      {productos.length > 0 ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <ResumenConciliacion etiqueta="SKU agregados" valor={String(productos.length)} color="text-primary-900" />
+            <ResumenConciliacion etiqueta="Match" valor={String(conciliadas)} color="text-green-600" />
+            <ResumenConciliacion etiqueta="No Match" valor={String(desconciliadas)} color={desconciliadas > 0 ? 'text-red-600' : 'text-slate-400'} />
+            <ResumenConciliacion etiqueta="Prom. conciliación" valor={promedio != null ? `${promedio}%` : '—'} color={promedio != null ? (promedio === 0 ? 'text-green-600' : 'text-red-600') : 'text-slate-400'} />
+          </div>
+
+          <div className="rounded-xl bg-white">
+            <button
+              type="button"
+              onClick={() => setVerLista((x) => !x)}
+              className="flex w-full items-center justify-between gap-2 px-4 py-3 text-sm font-bold text-primary-900"
+            >
+              <span>Productos agregados ({productos.length})</span>
+              <ChevronDown className={cn('h-4 w-4 transition-transform', verLista ? 'rotate-180' : '')} />
+            </button>
+            {verLista ? (
+              <>
+                <p className="border-t border-slate-100 px-3 pt-2 text-[11px] font-medium text-slate-400">
+                  Desliza un producto: derecha para editar · izquierda para eliminar.
+                </p>
+                <ul className="space-y-2 p-3">
+                  {productos.map((p, i) => {
+                    // Lo que se compara y lo que se muestra es el número con dos
+                    // decimales, el mismo que va a ver el detalle. Lo que se guarda
+                    // queda entero: acá el evaluador está escribiendo y recortarle
+                    // el número de lo que acaba de teclear lo pelearía con el teclado.
+                    const [paraMirar] = productosParaConciliar([p], contraDato)
+                    const pct = conciliacionPorcentaje(paraMirar)
+                    const fotosProducto = (p.photoIds?.length ?? 0) + (p.paths?.length ?? 0)
+                    const contoOtro = loContoOtro(p)
+                    if (editando === i) {
+                      return (
+                        <li key={i} className="space-y-2 rounded-xl border-2 border-primary bg-white px-3 py-2">
+                          <p className="flex items-center gap-2 text-sm">
+                            <span className="max-w-[55%] overflow-x-auto whitespace-nowrap text-[10px] font-semibold leading-none text-slate-800" title={p.sku}>{p.sku}</span>
+                            {p.nombre ? <span className="min-w-0 flex-1 truncate text-slate-500">{p.nombre}</span> : <span className="flex-1" />}
+                          </p>
+                          <div className="flex flex-wrap items-end gap-2">
+                            <CampoConciliacion etiqueta="T · Teórica" valor={edicion.teorica} onChange={(n) => setEdicion((d) => ({ ...d, teorica: n }))} />
+                            <CampoConciliacion etiqueta="F · Física" valor={edicion.fisica} disabled={edicion.sinHablador} onChange={(n) => setEdicion((d) => ({ ...d, fisica: n }))} />
+                          </div>
+                          {contraDato === 'FINAL_BASE' ? (
+                            <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 shrink-0 accent-red-600"
+                                checked={edicion.sinHablador}
+                                onChange={(e) => {
+                                  const marcado = e.target.checked
+                                  setEdicion((d) => ({ ...d, sinHablador: marcado, fisica: marcado ? null : d.fisica }))
+                                }}
+                              />
+                              No tiene hablador · se registra sin precio y cuenta como No Match
+                            </label>
+                          ) : null}
+                          {/* La evidencia queda casada a este SKU: se guarda apenas se
+                              toma, sin esperar a Confirmar, para que un Cancelar no tire
+                              la foto. */}
+                          <EvidenciaProducto
+                            sku={p.sku}
+                            photoIds={p.photoIds ?? []}
+                            paths={p.paths ?? []}
+                            onChange={(photoIds) => actualizarProducto(i, { photoIds })}
+                          />
+                          <div className="flex justify-end gap-2">
+                            <Button variant="ghost" onClick={() => setEditando(null)}>Cancelar</Button>
+                            <Button variant="success" onClick={() => {
+                              actualizarProducto(i, { teorica: edicion.teorica, fisica: edicion.sinHablador ? null : edicion.fisica, sinHablador: edicion.sinHablador })
+                              setEditando(null)
+                            }}>
+                              <Check className="h-4 w-4" /> Confirmar
+                            </Button>
+                          </div>
+                        </li>
+                      )
+                    }
+                    const editar = () => {
+                      setEdicion({ teorica: p.teorica, fisica: p.fisica, sinHablador: p.sinHablador === true })
+                      setEditando(i)
+                    }
+                    const eliminar = () => setAEliminar({ producto: p, index: i })
+                    return (
+                      <li key={i} className="overflow-hidden rounded-xl">
+                        <SwipeAcciones
+                          acciones={[
+                            {
+                              lado: 'izq',
+                              onDisparar: editar,
+                              contenido: (
+                                <button
+                                  type="button"
+                                  onClick={editar}
+                                  title="Editar"
+                                  aria-label="Editar"
+                                  className="flex w-full items-center justify-center rounded-full border-0 bg-primary text-white"
+                                >
+                                  <Pencil className="h-5 w-5" />
+                                </button>
+                              )
+                            },
+                            {
+                              lado: 'der',
+                              onDisparar: eliminar,
+                              contenido: (
+                                <button
+                                  type="button"
+                                  onClick={eliminar}
+                                  title="Eliminar"
+                                  aria-label="Eliminar"
+                                  className="flex w-full items-center justify-center rounded-full border-0 bg-red-600 text-white"
+                                >
+                                  <Trash2 className="h-5 w-5" />
+                                </button>
+                              )
+                            }
+                          ]}
+                        >
+                          <div className="bg-white px-3 py-1.5 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-tight text-slate-800">
+                                {p.nombre ?? p.sku}
+                              </span>
+                              <span
+                                className="max-w-[48%] shrink-0 overflow-x-auto whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold tabular-nums leading-none text-slate-500"
+                                title={p.sku}
+                              >
+                                {p.sku}
+                              </span>
+                            </div>
+                            <div className="mt-0.5 flex items-center justify-between gap-2">
+                              <span className="text-xs leading-tight text-slate-500">
+                                Teórica: {contraDato === 'FINAL_BASE' ? formatearPrecioBase(paraMirar?.teorica) : (p.teorica ?? '—')} · Física:{' '}
+                                {esSinHablador(p) ? (
+                                  <span className="font-bold text-red-600">sin hablador</span>
+                                ) : contraDato === 'FINAL_BASE' ? formatearPrecioBase(paraMirar?.fisica) : (p.fisica ?? '—')}
+                              </span>
+                              <span className={cn('text-xs font-bold leading-tight', !esSinHablador(p) && pct != null && pct === 100 ? 'text-green-600' : 'text-red-600')}>
+                                {esSinHablador(p) ? 'No Match' : pct != null ? `${pct}%` : '—'}
+                              </span>
+                            </div>
+                            {tieneInfoSistema(p) || contoOtro ? (
+                              <p className="mt-0.5 text-[10px] leading-tight text-slate-400">
+                                {/* El aviso de que otra persona ya midió este
+                                    producto va primero: es lo que hace falta ver
+                                    antes de contarlo de nuevo. */}
+                                {contoOtro ? (
+                                  <>
+                                    <strong className="font-bold text-amber-600">Ya lo contó {contoOtro}</strong>
+                                    {tieneInfoSistema(p) ? ' · ' : ''}
+                                  </>
+                                ) : null}
+                                {tieneInfoSistema(p) ? (
+                                  <>
+                                    {p.apiId != null ? (
+                                      <>
+                                        <strong className="font-semibold text-slate-500">ID: {p.apiId}</strong> ·{' '}
+                                      </>
+                                    ) : null}
+                                    SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · Precio: {formatearPrecioBase(precioVenta(p))}
+                                    {p.departamento ? <> · {p.departamento}</> : null}
+                                  </>
+                                ) : null}
+                              </p>
+                            ) : null}
+                          </div>
+                        </SwipeAcciones>
+                        {/* La evidencia va fuera del área de deslizar: si los botones de
+                            cámara/galería quedaran adentro, el pointer capture del gesto
+                            se los comería. Cada foto queda casada a este SKU. */}
+                        <div className="flex items-center justify-between gap-2 rounded-b-xl bg-white px-3 py-1.5">
+                          {fotosProducto > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => setFotosDe(p.sku)}
+                              aria-label={`Ver evidencia de ${p.sku}`}
+                              className="flex min-w-0 items-center gap-1.5 text-left text-[10px] font-semibold text-primary-700 hover:text-primary-900"
+                            >
+                              <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                              <span className="truncate">
+                                {fotosProducto} foto{fotosProducto === 1 ? '' : 's'} de evidencia · tocar para ver
+                              </span>
+                            </button>
+                          ) : (
+                            <span className="text-[10px] font-medium text-slate-400">Sin evidencia fotográfica</span>
+                          )}
+                          <FotoOpcion
+                            photoIds={p.photoIds ?? []}
+                            onChange={(ids) => actualizarProducto(i, { photoIds: ids })}
+                          />
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </>
+            ) : null}
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-slate-400">Aún no hay productos agregados. Escanea el primer código para comenzar.</p>
+      )}
+
+      {escaneando ? (
+        <BarcodeScanner
+          open={escaneando}
+          onClose={() => setEscaneando(false)}
+          onDetect={(codigo) => {
+            setEscaneando(false)
+            setInfo('')
+            setExito('')
+            const ya = productos.find((p) => p.sku === codigo)
+            // Igual que en el campo de código: se consulta siempre, aunque el SKU
+            // ya esté en la fila. El producto guardado solo siembra el borrador
+            // como respaldo por si la API no responde, nunca reemplaza la
+            // consulta — si no, el `lastSync` quedaría clavado en el primer
+            // escaneo y re-escanear mostraría una fecha que la API ya dejó de
+            // reportar.
+            const mismo = borrador.sku.trim() === codigo
+            // Arranca con lo que ya se sabe del producto (igual que hace el campo
+            // de código): si la API responde, esos datos se sobrescriben con los
+            // frescos; si falla, el evaluador no pierde la teórica ni la
+            // descripción que la fila ya tenía.
+            setBorrador(
+              mismo
+                ? (b) => b
+                : {
+                    sku: codigo,
+                    nombre: ya?.nombre ?? null,
+                    teorica: ya?.teorica ?? null,
+                    fisica: null,
+                    apiId: ya?.apiId ?? null,
+                    soh: ya?.soh,
+                    lastSync: ya?.lastSync,
+                    finalBase: ya?.finalBase,
+                    finalTax: ya?.finalTax,
+                    departamento: ya?.departamento,
+                    sinHablador: ya?.sinHablador
+                  }
+            )
+            void (async () => {
+              if (!shopId) {
+                setInfo('Nº tienda (shop_id) no configurado en la sucursal.')
+                return
+              }
+              setConsultando(true)
+              const r = await buscarProducto(codigo, shopId)
+              setConsultando(false)
+              if (r.nombre) {
+                setBorrador((b) => aplicarResultadoScan(b, r, contraDato))
+              } else {
+                setInfo(r.mensaje ?? 'Producto no encontrado.')
+              }
+            })()
+          }}
+        />
+      ) : null}
+
+      {productoFotos ? (
+        <Modal open title={`Evidencia fotográfica · ${productoFotos.sku}`} onClose={() => setFotosDe(null)}>
+          <VisorEvidencia producto={productoFotos} />
+        </Modal>
+      ) : null}
+      {aEliminar ? (
+        <Confirmar
+          open
+          texto={`¿Quitar el producto ${aEliminar.producto.sku}${aEliminar.producto.nombre ? ` (${aEliminar.producto.nombre})` : ''}? El cambio se guardará en la nube.`}
+          onConfirm={() => {
+            actualizar(productos.filter((_, idx) => idx !== aEliminar.index))
+            setAEliminar(null)
+          }}
+          onCancel={() => setAEliminar(null)}
+        />
+      ) : null}
+      {noCumple ? (
+        <div className="rounded-xl border border-red-100 bg-red-50/60 p-2.5">
+          <SelectorResponsables
+            etiqueta="Responsable de que no concilie"
+            responsables={item?.responsables ?? []}
+            seleccion={v.responsables ?? []}
+            gerente={gerente}
+            onChange={(sel) => onChange({ ...v, responsables: sel })}
+          />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente, sucursalId, fechaEvaluacion }: { item: Item; valor: unknown; onChange: (v: unknown) => void; shopId?: string | null; branchId?: string | null; gerente?: string | null; sucursalId?: string; fechaEvaluacion?: string }) {
+  const [cargando, setCargando] = useState(false)
+  const [info, setInfo] = useState('')
+  const [abiertoDni, setAbiertoDni] = useState<number | null>(null)
+  const [busqueda, setBusqueda] = useState('')
+  const [confirmarLimpiar, setConfirmarLimpiar] = useState(false)
+  /**
+   * La combinación esperando confirmación: la lista nueva ya combinada y a quién
+   * se le está por perder el trabajo. Se guarda entera y no solo los nombres
+   * porque al confirmar hay que aplicar la misma lista que se iba a aplicar, no
+   * una segunda versión recalculada.
+   */
+  const [pendienteCombinacion, setPendienteCombinacion] = useState<{ colaboradores: ColaboradorItem[]; perdidos: ColaboradorItem[] } | null>(null)
+
+  const v = (valor as ValorListaColaboradores | null) ?? { colaboradores: [] }
+  const colaboradores = ordenarTrabajadores(v.colaboradores ?? [])
+  const opts = useMemo(() => (item.opciones ?? []) as Opcion[], [item.opciones])
+  // Solo los ids, y en un useMemo, porque es lo único que la consulta del
+  // historial necesita. Depende de `opts` y no de `item.opciones` porque cuando
+  // el ítem no tiene checklist `(item.opciones ?? [])` devuelve un `[]` nuevo en
+  // cada render y el arreglo no se podría comparar.
+  const idsChecks = useMemo(() => opts.map((o) => o.id), [opts])
+  /**
+   * Los que ya tienen la lista completa: no queda nada que verificar en ellos,
+   * así que se dejan de mostrar.
+   *
+   * Se filtran acá, al pintar, y no al guardar: el valor guardado los conserva
+   * (con su estado) para que el tablero y el puntaje sigan contando a toda la
+   * plantilla. Si se sacaran guardándolos fuera, el porcentaje del ítem se
+   * deformaría y la tienda mejorada parecería peor.
+   *
+   * Sale del valor y no de una consulta al servidor a propósito: lo que decide
+   * si alguien está completo es lo que hay guardado, así que con volver al ítem
+   * desde otro paso ya se sabe. Ninguna barra que esperar, ningún flash de la
+   * lista entera que después se acorta. Si lo buscás por cédula o nombre, sigue
+   * apareciendo igual: eso permite volver a revisarlo si querés.
+   */
+  const hayBusqueda = busqueda.trim().length > 0
+  const ocultos = new Set<number>()
+  for (const c of colaboradores) {
+    // El excluido a propósito tampoco se esconde: la pantalla es el único lugar
+    // desde el cual se lo puede volver a incluir.
+    if (!c.aplica) continue
+    if (opcionesAplicablesColaborador(c, opts).length === 0) continue
+    if (colaboradorCumple(c, opts)) ocultos.add(c.dni)
+  }
+  const colaboradoresFiltrados = colaboradores.filter((c) => {
+    const q = busqueda.trim().toLowerCase()
+    if (!q) return true
+    const documento = String(c.dni ?? '').toLowerCase()
+    const nombre = `${c.name ?? ''} ${c.lastname ?? ''}`.toLowerCase()
+    return documento.includes(q) || (c.name ?? '').toLowerCase().includes(q) || (c.lastname ?? '').toLowerCase().includes(q) || nombre.includes(q)
+  })
+  const colaboradoresVisibles = colaboradoresFiltrados.filter((c) => {
+    if (!ocultos.has(c.dni)) return true
+    return hayBusqueda
+  })
+  const ocultosVisibles = colaboradoresFiltrados.length - colaboradoresVisibles.length
+  const filtro = item.colaboradores_filtro ?? 'ACTIVOS'
+  const etiquetaFiltro = filtro === 'TODOS' ? 'activos e inactivos' : filtro === 'ACTIVOS' ? 'solo activos' : 'solo inactivos'
+  // La API de trabajadores usa un ID de sucursal propio (branch_id) que puede
+  // diferir del shop_id (productos). Si no está configurado, cae al shop_id.
+  const idTrabajadores = branchId ?? shopId
+
+  /**
+   * El único conducto por el que pasa cualquier cambio de la lista, y por eso es
+   * el lugar donde se mantiene coherente el check general de cada trabajador.
+   *
+   * "Cuenta para el puntaje" no significa nada sobre alguien a quien no se le
+   * tildó ni se le marcó nada: si el evaluador le desmarcó todo, la exclusión ya
+   * no tiene a quién aplicarse y se borra sola. Así el primer punto que tilde
+   * vuelve a encender el check, como manda la regla de que sin nada tildado el
+   * check general está apagado.
+   */
+  const actualizar = (cols: ColaboradorItem[]) =>
+    onChange({ ...v, colaboradores: cols.map((c) => (esColaboradorRevisado(c) || c.aplica !== false ? c : { ...c, aplica: true })) })
+  const limpiar = () => {
+    setConfirmarLimpiar(false)
+    setPendienteCombinacion(null)
+    setBusqueda('')
+    setAbiertoDni(null)
+    setInfo('')
+    actualizar([])
+  }
+  const aplicarListaCombinada = (lista: ColaboradorItem[]) => {
+    setPendienteCombinacion(null)
+    actualizar(lista)
+    setAbiertoDni(null)
+  }
+  const hayAlgoQueEsperar = cargando
+
+  /**
+   * El avance de la barra. Los tres mensajes van marcando por dónde va la
+   * carga, para que la espera se vea como avance y no como app clavada.
+   *
+   * Un texto fijo no decía nada, y arrancar la barra en 40% se leía como que ya
+   * algo había pasado. Arranca en 14% y se frena al acercarse: el techo es 88, no
+   * 100, así que mientras hay trabajo en vuelo el automático no puede declarar
+   * "listo". Cuando la consulta responde, la barra salta a 100 y se queda llena
+   * un instante antes de que entre la lista.
+   *
+   * El gate del render es `visible`, no `hayAlgoQueEsperar`: cuando el trabajo
+   * terminó, `hayAlgoQueEsperar` ya es falso pero la barra sigue visible un
+   * instante, y si el gate fuera el otro la lista entraría tapando el final de
+   * la barra.
+   */
+  const { avance, visible: barraVisible, mensaje } = useProgresoCarga(hayAlgoQueEsperar)
+
+  const toggleAbierto = (dni: number) => {
+    setAbiertoDni((prev) => (prev === dni ? null : dni))
+  }
+
+  const cargar = async () => {
+    setInfo('')
+    if (!idTrabajadores) {
+      setInfo('No está configurado el ID de trabajadores (branch_id) ni el Nº tienda (shop_id) en la sucursal.')
+      return
+    }
+    if (!opts.length) {
+      setInfo('Este ítem no tiene checklist definido. El Líder debe configurarlo desde Ítems de evaluación.')
+      return
+    }
+    setCargando(true)
+    // El historial va en paralelo con el listado: los dos necesitan red y el
+    // segundo nunca tira (devuelve el mapa vacío si algo falla), así que no
+    // puede dejar sin resultado al primero.
+    const [r, historial] = await Promise.all([
+      listarColaboradores(idTrabajadores),
+      sucursalId && fechaEvaluacion
+        ? estadosDeEvaluacionesAnteriores(sucursalId, item.id, fechaEvaluacion, idsChecks)
+        : Promise.resolve(new Map<number, ColaboradorItem>())
+    ])
+    setCargando(false)
+    if (r.mensaje) {
+      setInfo(r.mensaje)
+      return
+    }
+    const nuevos: ColaboradorItem[] = r.colaboradores
+      .filter((c) => filtro === 'TODOS' || c.active === (filtro === 'ACTIVOS'))
+      .map((c) => ({
+        dni: typeof c.dni === 'number' ? c.dni : Number(c.dni ?? 0),
+        nationality: c.nationality,
+        name: c.name ?? '',
+        lastname: c.lastname ?? '',
+        role_id: c.role_id,
+        role_name: c.role_name ?? '',
+        branch_id: c.branch_id,
+        branch_name: c.branch_name ?? '',
+        admission_date: c.admission_date ?? null,
+        active: c.active !== false,
+        aplica: true,
+        selected: [],
+        noAplica: [],
+        responsablesPorOpcion: {}
+      }))
+    if (!nuevos.length) {
+      setInfo(`No hay trabajadores para el filtro configurado (${etiquetaFiltro}).`)
+    }
+    // A cada trabajador se le carga el estado con el que quedó en la evaluación
+    // anterior: los 25 puntos que ya estaban tildados y los que seguían
+    // pendientes. Sin esto el avance se perdía cada vez que se abría una
+    // evaluación nueva, y los que ya estaban completos volvían a contar como
+    // incumplidos solo por estar ocultos.
+    const conHistorial = aplicarHistorial(nuevos, historial)
+    const { colaboradores: combinados, perdidos } = combinarPorDni(colaboradores, conHistorial)
+
+    if (perdidos.length) {
+      // Hay trabajo humano que la API ya no trae. No se descarta solo: se pregunta.
+      setPendienteCombinacion({ colaboradores: combinados, perdidos })
+      return
+    }
+    setPendienteCombinacion(null)
+    actualizar(combinados)
+    setAbiertoDni(null)
+  }
+
+  const marcarAplica = (dni: number) => {
+    const revisado = colaboradores.find((c) => c.dni === dni) ? esColaboradorRevisado(colaboradores.find((c) => c.dni === dni)!) : false
+    actualizar(colaboradores.map((c) => (c.dni === dni && revisado ? { ...c, aplica: !c.aplica } : c)))
+  }
+
+  const toggleCheck = (dni: number, opcionId: string) => {
+    actualizar(colaboradores.map((c) => {
+      if (c.dni !== dni) return c
+      const sel = c.selected.includes(opcionId) ? c.selected.filter((x) => x !== opcionId) : [...c.selected, opcionId]
+      return { ...c, selected: sel, aplica: true }
+    }))
+  }
+
+  const marcarNoAplica = (dni: number, opcionId: string) => {
+    actualizar(colaboradores.map((c) => {
+      if (c.dni !== dni) return c
+      const noAplica = c.noAplica ?? []
+      const marcar = !noAplica.includes(opcionId)
+      const responsablesPorOpcion = { ...(c.responsablesPorOpcion ?? {}) }
+      if (marcar) delete responsablesPorOpcion[opcionId]
+      return {
+        ...c,
+        noAplica: marcar ? [...noAplica, opcionId] : noAplica.filter((id) => id !== opcionId),
+        selected: marcar ? c.selected.filter((id) => id !== opcionId) : c.selected,
+        aplica: true,
+        responsablesPorOpcion
+      }
+    }))
+  }
+
+  const marcarResponsables = (dni: number, opcionId: string, rs: string[]) => {
+    actualizar(colaboradores.map((c) => (c.dni === dni ? { ...c, responsablesPorOpcion: { ...(c.responsablesPorOpcion ?? {}), [opcionId]: rs }, aplica: true, selected: Array.from(new Set([...(c.selected ?? []), opcionId])) } : c)))
+  }
+
+  const enCuenta = colaboradores.filter((c) => c.aplica)
+  // Los que el evaluador no llegó a tocar NO entran en el puntaje. Se cuentan
+  // aparte para que la diferencia sea explícita y nadie lea "sin marcar" como
+  // "reprobado": la lista entera arranca destildada y no revisar es una decisión
+  // legítima cuando el tiempo no alcanza.
+  const aplicando = colaboradoresQueCuentan(colaboradores)
+  const conChecksAplicables = aplicando.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
+  const cumplidos = conChecksAplicables.filter((c) => colaboradorCumple(c, opts)).length
+  const sinRevisar = enCuenta.length - aplicando.length
+  const totalAplicables = conChecksAplicables.length
+
+  if (!opts.length) {
+    return <p className="text-sm text-slate-400">Sin checklist definido para cada trabajador. El Líder debe configurarlo al crear el ítem.</p>
   }
 
   return (
     <div className="space-y-3">
-      {productos.length === 0 ? (
-        <p className="text-sm text-slate-400">Agrega productos para conciliar (escanea o escribe el código).</p>
-      ) : (
-        productos.map((p, i) => {
-          const pct = conciliacionPorcentaje(p)
-          return (
-            <div key={i} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center gap-2">
-                <Input
-                  placeholder="SKU / código interno del producto"
-                  value={p.sku}
-                  onChange={(e) => actualizarUno(i, { sku: e.target.value })}
-                  onBlur={() => {
-                    const codigo = p.sku.trim()
-                    if (codigo && codigo !== p.nombre) void aplicarCodigo(i, codigo)
-                  }}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setEscaneandoIndice(i)}
-                  className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-200 text-lg hover:bg-slate-300"
-                  title="Escanear código de barras"
-                >
-                  🔍
-                </button>
-                <button
-                  type="button"
-                  onClick={() => actualizar(productos.filter((_, idx) => idx !== i))}
-                  className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-500"
-                  title="Quitar producto"
-                >
-                  ✕
-                </button>
-              </div>
-              {p.nombre ? (
-                <p className="text-sm font-medium text-primary-900">{p.nombre}</p>
-              ) : consultando[i] ? (
-                <p className="flex items-center gap-2 text-xs text-slate-500"><Spinner /> Consultando producto…</p>
-              ) : info[i] ? (
-                <p className="text-xs font-medium text-amber-600">{info[i]}</p>
+      <div className="rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Trabajadores de la tienda</p>
+        {colaboradores.length ? (
+          <>
+            <p className="mt-1 text-sm text-slate-600">
+              {aplicando.length} trabajadores en cuenta ({etiquetaFiltro})
+              {totalAplicables > 0 ? (
+                <>
+                  {' · '}
+                  {totalAplicables - cumplidos} incompletos · {cumplidos} completos
+                </>
+              ) : enCuenta.length > aplicando.length ? (
+                ` · ${enCuenta.length - aplicando.length} sin puntos aplicables`
               ) : null}
-              <div className="flex gap-2">
-                <CampoConciliacion
-                  etiqueta="Teórica (sistema)"
-                  valor={p.teorica}
-                  onChange={(n) => actualizarUno(i, { teorica: n })}
-                />
-                <CampoConciliacion
-                  etiqueta="Física (contada)"
-                  valor={p.fisica}
-                  onChange={(n) => actualizarUno(i, { fisica: n })}
-                />
-              </div>
-              {pct != null ? (
-                <p className={cn('text-sm font-bold', pct >= 100 ? 'text-green-600' : 'text-red-600')}>
-                  Conciliación: {pct}%
-                </p>
-              ) : (
-                <p className="text-xs text-slate-400">Ingresa ambas cantidades.</p>
-              )}
-            </div>
-          )
-        })
-      )}
+            </p>
+            {/* El aviso que evita el error de lectura: "Sin marcar" no es "reprobado". */}
+            {sinRevisar > 0 ? (
+              <p className="mt-1 text-xs text-slate-500">
+                {sinRevisar} trabajador{sinRevisar === 1 ? '' : 'es'} sin revisar: su checklist está destildado y
+                <span className="font-semibold text-slate-700"> no entran en el puntaje</span>. Revisalos si necesitás
+                contarlos.
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <p className="mt-1 text-xs text-slate-500">
+            El ítem se puntúa por trabajador: cada revisado completo vale su parte, y los que quedan destildados sin tocar todavía no cuentan ({etiquetaFiltro}).
+          </p>
+        )}
+        <div className="mt-3 flex items-center gap-2">
+          <Button type="button" variant="secondary" className="shrink-0 min-h-0 px-3 py-2" disabled={cargando} onClick={() => void cargar()} title="Trae los cambios de la API sin perder lo que ya revisaste">
+            {colaboradores.length ? <RefreshCw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+            {cargando ? 'Cargando…' : colaboradores.length ? 'Actualizar listado' : 'Cargar trabajadores'}
+          </Button>
+          {colaboradores.length ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="shrink-0 min-h-0 px-3 py-2 text-red-600 hover:bg-red-50 hover:text-red-700"
+              onClick={() => setConfirmarLimpiar(true)}
+            >
+              <Trash2 className="h-4 w-4" />
+              Limpiar lista
+            </Button>
+          ) : null}
+        </div>
+        {cargando ? null : info ? (
+          <p className="mt-2 text-xs font-medium text-amber-600">{info}</p>
+        ) : null}
+      </div>
 
-      <Button type="button" variant="secondary" className="w-full" onClick={() => actualizar([...productos, { sku: '', nombre: null, teorica: null, fisica: null }])}>
-        + Agregar producto
-      </Button>
+      {/*
+        La barra va arriba de la lista y no adentro, porque mientras `cargar()`
+        está corriendo no hay lista que mirar: los nombres que había vienen de
+        una consulta que se está reemplazando, y con el historial recién
+        sembrado varios van a dejar de aparecer. Mostrarlos y sacarlos después se
+        lee como que la app cambió de opinión. También reemplaza al spinner del
+        header, que decía lo mismo en otra parte y dejaba dos indicadores para
+        una sola espera.
 
-      {total != null ? (
-        <div className="flex items-center justify-between rounded-xl border px-4 py-3">
-          <span className="text-sm text-slate-500">Conciliación total</span>
-          <span className={cn('text-lg font-extrabold', total >= 100 ? 'text-green-600' : 'text-red-600')}>{total}%</span>
+        El número del relleno es de adorno (`valorAprox`, no `value`): por eso no
+        se anuncia. Lo que anuncia el avance es el mensaje, que sí va cambiando.
+
+        La barra se queda llena un instante después de que la consulta respondió
+        (`mensaje` pasa a `null`), y recién ahí entra la lista. Sin esa pausa el
+        salto al 100% no se ve: la lista taparía el final de la barra.
+
+        Al volver al ítem desde otro paso no hay barra: el valor guardado ya
+        trae a quién estaba completo, así que la lista se pinta depurada en el
+        primer render y la única espera es la del "Actualizar listado".
+      */}
+      {barraVisible ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <ProgressBar valorAprox={avance} />
+          {mensaje ? <p className="mt-2 text-xs text-slate-500">{mensaje}</p> : null}
         </div>
       ) : null}
 
-      {escaneandoIndice != null ? (
-        <BarcodeScanner
-          open={escaneandoIndice != null}
-          onClose={() => setEscaneandoIndice(null)}
-          onDetect={(codigo) => {
-            const i = escaneandoIndice
-            setEscaneandoIndice(null)
-            if (i != null) void aplicarCodigo(i, codigo)
-          }}
-        />
+      {!barraVisible && colaboradores.length ? (
+        <div className="space-y-3">
+          {/* Buscador fijo: no se pierde al hacer scroll en listas largas. Se pega
+              debajo de la cabecera sticky del layout (top-16 = 64px) y -mx-4/px-4
+              lo estira hasta los bordes de la tarjeta blanca que lo contiene. */}
+          <div className="sticky top-16 z-20 -mx-4 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+            <Input
+              type="text"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por documento, nombre o apellido"
+              className="w-full"
+            />
+          </div>
+
+          {colaboradoresVisibles.length ? (
+            <div className="space-y-2">
+              {colaboradoresVisibles.map((c) => {
+                const abierto = abiertoDni === c.dni
+                const checksAplicables = opcionesAplicablesColaborador(c, opts)
+                const todosNoAplican = checksAplicables.length === 0
+                const cumple = !todosNoAplican && colaboradorCumple(c, opts)
+                // Si el trabajador todavía no tiene nada registrado no entró en la
+                // evaluación, y su check general tiene que estar apagado. Tildarle
+                // el primer documento es lo que lo enciende, no apretarlo a mano.
+                const revisado = esColaboradorRevisado(c)
+                // Sin nada registrado la fila dice "Sin revisar", no "Incompleto":
+                // no es un incumplimiento, es un trabajador que todavía no entró
+                // en la evaluación.
+                const estado = todosNoAplican ? 'No aplica' : cumple ? 'Completo' : revisado ? 'Incompleto' : 'Sin revisar'
+                const estadoClass = todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : revisado ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'
+                return (
+                  <div key={c.dni} className={cn('rounded-xl border transition-colors', c.aplica ? (cumple ? 'border-green-200 bg-white' : 'border-slate-200 bg-white') : 'border-slate-100 bg-slate-50')}>
+                    <div className="flex items-center gap-2 px-3 py-2.5">
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                        <input
+                          type="checkbox"
+                          className="h-5 w-5 shrink-0 accent-primary"
+                          checked={c.aplica && revisado}
+                          disabled={!revisado}
+                          onChange={() => marcarAplica(c.dni)}
+                          title={revisado ? 'Cuenta para el puntaje' : 'Sin nada tildado todavía: tildá al menos un punto del checklist'}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block whitespace-normal break-words text-sm font-semibold leading-snug text-slate-800">{c.lastname} {c.name}</span>
+                          <span className="block text-[11px] text-slate-500">
+                            C.I. {c.nationality ?? ''}{c.dni} · {c.role_name || 'Sin rol'}
+                            <span className={cn('ml-1.5 font-semibold', c.active ? 'text-green-600' : 'text-slate-400')}>{c.active ? '· Activo' : '· Inactivo'}</span>
+                          </span>
+                          {c.admission_date ? (
+                            <>
+                              <span className="mt-0.5 block text-[11px] text-slate-500">Ingreso: {formatearValorConsulta(c.admission_date)}</span>
+                              {c.active && requisitoContrato(c.admission_date) ? <span className="block text-[11px] font-semibold text-primary-700">{requisitoContrato(c.admission_date)}</span> : null}
+                            </>
+                          ) : null}
+                        </span>
+                      </label>
+                      <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', estadoClass)}>
+                        {estado}
+                      </span>
+                      <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : revisado ? 'bg-slate-100 text-slate-500' : 'bg-slate-100 text-slate-400')}>
+                        {todosNoAplican ? 'No aplica' : cumple ? `${checksAplicables.length}/${checksAplicables.length}` : revisado ? `${c.selected.filter((id) => checksAplicables.some((o) => o.id === id)).length}/${checksAplicables.length}` : `0/${checksAplicables.length} · sin revisar`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => toggleAbierto(c.dni)}
+                        className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 hover:bg-slate-100"
+                        title={abierto ? 'Cerrar checklist' : 'Abrir checklist'}
+                      >
+                        <ChevronDown className={cn('h-4 w-4 transition-transform', abierto ? 'rotate-180' : '')} />
+                      </button>
+                    </div>
+                    {abierto ? (
+                      <div className="space-y-1 border-t border-slate-100 px-3 pb-3 pt-2">
+                        {opts.map((o) => {
+                          const esta = c.selected.includes(o.id)
+                          const noAplica = (c.noAplica ?? []).includes(o.id)
+                          const respFallidos = responsablesDeCheck(item, o).length > 0
+                          return (
+                            <div
+                              key={o.id}
+                              className={cn(
+                                'min-w-0 overflow-hidden rounded-xl border transition-colors',
+                                noAplica ? 'border-slate-200 bg-slate-50' : esta ? 'border-slate-200 bg-white' : 'border-red-300 bg-red-50'
+                              )}
+                            >
+                              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
+                                {/* `flex-auto` en el label, no `flex-1`: con basis 0 el ancho
+                                    del texto no entra en el line breaking de `flex-wrap` y los
+                                    badges/botones shrink-0 comprimían el título a una letra
+                                    por línea. */}
+                                <label className="flex min-w-0 flex-auto cursor-pointer items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    className={cn('h-4 w-4 shrink-0', esta ? 'accent-green-600' : 'accent-primary')}
+                                    checked={esta && !noAplica}
+                                    disabled={noAplica}
+                                    onChange={() => toggleCheck(c.dni, o.id)}
+                                  />
+                                  <span className={cn('min-w-0 flex-auto break-words text-sm', noAplica ? 'text-slate-400' : 'text-slate-700')}>{o.etiqueta}</span>
+                                </label>
+                                {o.puntos != null && o.puntos > 0 ? (
+                                  <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  aria-pressed={noAplica}
+                                  onClick={() => marcarNoAplica(c.dni, o.id)}
+                                  className={cn(
+                                    'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors',
+                                    noAplica ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
+                                  )}
+                                  title={noAplica ? 'Quitar marca de no aplica' : 'Este punto no aplica a este trabajador'}
+                                >
+                                  <Ban className="h-3.5 w-3.5" />
+                                  No aplica
+                                </button>
+                              </div>
+                              {noAplica ? (
+                                <p className="border-t border-slate-200 px-3 py-2 text-xs font-medium text-slate-500">Este punto no se evalúa para este trabajador.</p>
+                              ) : !esta ? (
+                                // Punto sin marcar de ESTE trabajador: responsables de la falla junto al punto, como en CHECKLIST/UNIDAD.
+                                <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
+                                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                    Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
+                                  </p>
+                                  {respFallidos ? (
+                                    <SelectorResponsables
+                                      responsables={responsablesDeCheck(item, o)}
+                                      seleccion={c.responsablesPorOpcion?.[o.id] ?? []}
+                                      gerente={gerente}
+                                      onChange={(sel) => marcarResponsables(c.dni, o.id, sel)}
+                                    />
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          ) : ocultosVisibles > 0 ? (
+            // Todo lo que quedaba en pantalla está completo. No es un error ni una
+            // búsqueda sin resultados: es que ya no hay nada por revisar acá.
+            <p className="rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+              No queda nadie por revisar: {ocultosVisibles} de la lista {ocultosVisibles === 1 ? 'ya tiene' : 'ya tienen'} el checklist completo.
+            </p>
+          ) : (
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+              No se encontraron trabajadores con “{busqueda}”.
+            </p>
+          )}
+        </div>
+      ) : !barraVisible ? (
+        <p className="text-sm text-slate-400">Aún no hay trabajadores cargados. Pulsa “Cargar trabajadores” para traerlos de la tienda.</p>
       ) : null}
+      <Confirmar
+        open={confirmarLimpiar}
+        texto="¿Querés vaciar la lista de trabajadores? Se quitarán todos y se descartan los avances del checklist. Después podés volver a cargarla desde la tienda con «Cargar trabajadores»."
+        textoConfirmar="Vaciar lista"
+        onConfirm={limpiar}
+        onCancel={() => setConfirmarLimpiar(false)}
+      />
+      {/*
+        Descartar a alguien que ya no trabaja en la tienda es otra cosa que vaciar
+        la lista: acá se va trabajo ya revisado y no se puede recuperar. Por eso
+        `Confirmar` muestra el texto pero el botón va en color normal, no en rojo
+        de "se va a borrar": lo que se está por hacer es aplicar la lista nueva.
+      */}
+      <Confirmar
+        open={!!pendienteCombinacion}
+        texto={
+          pendienteCombinacion
+            ? `Estos trabajadores ya no están en la tienda y sus respuestas se van a descartar: ${pendienteCombinacion.perdidos
+                .slice(0, 6)
+                .map((c) => `${c.lastname} ${c.name}`.trim())
+                .join(', ')}${pendienteCombinacion.perdidos.length > 6 ? ` y ${pendienteCombinacion.perdidos.length - 6} más` : ''}. Si solo se inactivaron, se los quita de la lista, no de la API.`
+            : ''
+        }
+        textoConfirmar="Actualizar igual"
+        variant="secondary"
+        onConfirm={() => {
+          if (pendienteCombinacion) aplicarListaCombinada(pendienteCombinacion.colaboradores)
+        }}
+        onCancel={() => setPendienteCombinacion(null)}
+      />
+    </div>
+  )
+}
+
+function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor: unknown; onChange: (v: unknown) => void; gerente?: string | null }) {
+  const [info, setInfo] = useState('')
+  const [codigo, setCodigo] = useState('')
+  const [abiertoIdx, setAbiertoIdx] = useState<number | null>(null)
+
+  const v = (valor as ValorUnidadChecklist | null) ?? { unidades: [] }
+  const unidades = v.unidades ?? []
+  const opts = (item.opciones ?? []) as Opcion[]
+
+  const actualizar = (unids: UnidadChecklist[]) => onChange({ ...v, unidades: unids })
+
+  // Carga única (repetible = false): el checklist se marca una sola vez.
+  if (item.repetible === false) {
+    const unica = unidades[0] ?? { codigo: 'Única', selected: [] }
+    const marcadas = unica.selected ?? []
+    const completas = unidadCumple(unica, opts)
+    const toggleCheck = (opcionId: string) => {
+      const sel = marcadas.includes(opcionId) ? marcadas.filter((x) => x !== opcionId) : [...marcadas, opcionId]
+      actualizar([{ ...unica, selected: sel }])
+    }
+    const setCodigoUnica = (codigo: string) => {
+      actualizar([{ ...unica, codigo }])
+    }
+    const codigoVisible = unica.codigo && unica.codigo !== 'Única' ? unica.codigo : ''
+    return (
+      <div className="space-y-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Checklist (una sola carga)</p>
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-slate-500">Identificador (ej. Nº de serie)</p>
+          <Input
+            placeholder="Ej. serial de la impresora fiscal"
+            value={codigoVisible}
+            onChange={(e) => setCodigoUnica(e.target.value)}
+          />
+          <p className="mt-1.5 text-[10px] text-slate-400">
+            Identifica a qué elemento corresponde este checklist (impresora fiscal, caja registradora, etc.).
+          </p>
+        </div>
+        {!opts.length ? (
+          <p className="text-xs font-medium text-amber-600">Este ítem no tiene checklist definido. El Líder debe configurarlo desde Ítems de evaluación.</p>
+        ) : (
+          <div className="space-y-2">
+            {opts.map((o) => {
+              const esta = marcadas.includes(o.id)
+              const respFallidos = responsablesDeCheck(item, o).length > 0
+              return (
+                <div
+                  key={o.id}
+                  className={cn(
+                    'min-w-0 overflow-hidden rounded-xl border transition-colors',
+                    esta ? 'border-slate-200 bg-white' : 'border-red-300 bg-red-50'
+                  )}
+                >
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
+                    {/* `flex-auto` y no `flex-1`: el ancho del texto tiene que entrar en el
+                        line breaking de `flex-wrap`, si no los badges shrink-0 lo dejan a
+                        una letra por línea. */}
+                    <span className="min-w-0 flex-auto break-words text-sm text-slate-700">{o.etiqueta}</span>
+                    {o.puntos != null && o.puntos > 0 ? (
+                      <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
+                    ) : null}
+                  </div>
+                  {esta ? (
+                    // Estado neutro (validado): sin alerta roja ni responsables.
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2.5">
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 shrink-0 accent-green-600"
+                          checked={esta}
+                          onChange={() => toggleCheck(o.id)}
+                        />
+                        <span className="text-xs font-semibold text-green-700">Punto validado</span>
+                      </label>
+                    </div>
+                  ) : (
+                    // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
+                    <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
+                      <label className="mb-2 flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 shrink-0 accent-primary"
+                          checked={esta}
+                          onChange={() => toggleCheck(o.id)}
+                        />
+                        <span className="text-xs font-bold text-slate-600">
+                          Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
+                        </span>
+                      </label>
+                      {respFallidos ? (
+                        <SelectorResponsables
+                          responsables={responsablesDeCheck(item, o)}
+                          seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
+                          gerente={gerente}
+                          onChange={(sel) =>
+                            onChange({ ...v, responsablesPorOpcion: { ...(v.responsablesPorOpcion ?? {}), [o.id]: sel } })
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {marcadas.length ? (
+          <p className="text-sm text-slate-600">
+            {codigoVisible ? <span className="font-semibold text-slate-700">{codigoVisible} · </span> : null}
+            {marcadas.length}/{opts.length} requerimientos · {completas ? 'Completo' : 'Incompleto'}
+          </p>
+        ) : null}
+      </div>
+    )
+  }
+
+  const agregar = () => {
+    const c = codigo.trim()
+    setInfo('')
+    if (!c) {
+      setInfo('Escribe un valor para la unidad.')
+      return
+    }
+    if (unidades.some((u) => u.codigo.toLowerCase() === c.toLowerCase())) {
+      setInfo(`La unidad "${c}" ya está agregada.`)
+      return
+    }
+    if (!opts.length) {
+      setInfo('Este ítem no tiene checklist definido. El Líder debe configurarlo desde Ítems de evaluación.')
+      return
+    }
+    actualizar([...unidades, { codigo: c, selected: [] }])
+    setCodigo('')
+    setAbiertoIdx(unidades.length)
+  }
+
+  const quitar = (idx: number) => {
+    actualizar(unidades.filter((_, i) => i !== idx))
+    setAbiertoIdx(null)
+  }
+
+  const toggleCheck = (idx: number, opcionId: string) => {
+    actualizar(unidades.map((u, i) => {
+      if (i !== idx) return u
+      const sel0 = u.selected ?? []
+      const sel = sel0.includes(opcionId) ? sel0.filter((x) => x !== opcionId) : [...sel0, opcionId]
+      return { ...u, selected: sel }
+    }))
+  }
+
+  const cumplidos = unidades.filter((u) => unidadCumple(u, opts)).length
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Agregar unidad</p>
+        <div className="mt-2 flex items-center gap-2">
+          <Input
+            placeholder="Valor alfanumérico (ej. PATIO-01)"
+            value={codigo}
+            onChange={(e) => setCodigo(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregar() } }}
+          />
+          <Button type="button" variant="primary" className="shrink-0 min-h-0 px-3 py-2" disabled={!codigo.trim()} onClick={agregar}>
+            Agregar
+          </Button>
+        </div>
+        {info ? <p className="mt-2 text-xs font-medium text-amber-600">{info}</p> : null}
+      </div>
+
+      {unidades.length ? (
+        <>
+          <p className="text-sm text-slate-600">
+            {unidades.length} unidades en cuenta · {cumplidos}/{unidades.length} con checklist completo
+          </p>
+          <div className="space-y-2">
+            {unidades.map((u, i) => {
+              const abierto = abiertoIdx === i
+              const cumple = unidadCumple(u, opts)
+              return (
+                <div key={`${u.codigo}-${i}`} className="rounded-xl border border-slate-200 bg-white">
+                  <div className="flex items-center gap-2 px-3 py-2.5">
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">{u.codigo}</span>
+                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
+                      {cumple ? 'Completo' : `${(u.selected ?? []).length}/${opts.length}`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { setAbiertoIdx(abierto ? null : i) }}
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 hover:bg-slate-100"
+                      title={abierto ? 'Cerrar checklist' : 'Abrir checklist'}
+                    >
+                      <ChevronDown className={cn('h-4 w-4 transition-transform', abierto ? 'rotate-180' : '')} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => quitar(i)}
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-red-400 hover:bg-red-50 hover:text-red-500"
+                      title="Quitar unidad"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {abierto ? (
+                    <div className="space-y-2 border-t border-slate-100 px-3 pb-3 pt-2">
+                      {opts.map((o) => {
+                        const esta = u.selected.includes(o.id)
+                        const incumple = checkIncumplido(item, o, v)
+                        const respFallidos = responsablesDeCheck(item, o).length > 0
+                        return (
+                          <div
+                            key={o.id}
+                            className={cn(
+                              'min-w-0 overflow-hidden rounded-xl border transition-colors',
+                              incumple ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white'
+                            )}
+                          >
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
+                              {/* `flex-auto` y no `flex-1`: el ancho del texto tiene que entrar
+                                  en el line breaking de `flex-wrap`, si no los badges
+                                  shrink-0 lo dejan a una letra por línea. */}
+                              <span className="min-w-0 flex-auto break-words text-sm text-slate-700">{o.etiqueta}</span>
+                              {o.puntos != null && o.puntos > 0 ? (
+                                <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
+                              ) : null}
+                            </div>
+                            {incumple ? (
+                              // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
+                              <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
+                                <label className="mb-2 flex cursor-pointer items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 shrink-0 accent-primary"
+                                    checked={esta}
+                                    onChange={() => toggleCheck(i, o.id)}
+                                  />
+                                  <span className="text-xs font-bold text-slate-600">
+                                    Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
+                                  </span>
+                                </label>
+                                {respFallidos ? (
+                                  <SelectorResponsables
+                                    responsables={responsablesDeCheck(item, o)}
+                                    seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
+                                    gerente={gerente}
+                                    onChange={(sel) =>
+                                      onChange({ ...v, responsablesPorOpcion: { ...(v.responsablesPorOpcion ?? {}), [o.id]: sel } })
+                                    }
+                                  />
+                                ) : null}
+                              </div>
+                            ) : (
+                              // Estado neutro (validado): sin alerta roja ni responsables.
+                              <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2.5">
+                                <label className="flex cursor-pointer items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 shrink-0 accent-green-600"
+                                    checked={esta}
+                                    onChange={() => toggleCheck(i, o.id)}
+                                  />
+                                  <span className="text-xs font-semibold text-green-700">Punto validado</span>
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-slate-400">Aún no hay unidades. Agrega la primera para comenzar.</p>
+      )}
+    </div>
+  )
+}
+
+function ResumenConciliacion({ etiqueta, valor, color }: { etiqueta: string; valor: string; color: string }) {
+  return (
+    <div className="rounded-xl bg-white px-3 py-2.5 text-center">
+      <p className={cn('text-lg font-extrabold tabular-nums', color)}>{valor}</p>
+      <p className="mt-0.5 break-words text-[11px] font-medium leading-tight text-slate-500">{etiqueta}</p>
     </div>
   )
 }
 
 function EvidenciasEditor({ evidencias, onChange }: { evidencias: EvidenciaCumple[]; onChange: (evs: EvidenciaCumple[]) => void }) {
   const agregar = () => onChange([...evidencias, { photoIds: [], comentario: '' }])
+  // Una evidencia CON fotos no se puede quitar: las fotos solo se agregan y
+  // nunca se borran. Solo las filas sin ninguna foto — ni local (photoIds) ni de
+  // la nube (paths, fila reabierta sin rehidratar) — se pueden limpiar.
   const quitar = (i: number) => onChange(evidencias.filter((_, idx) => idx !== i))
+  // `photoIds` también puede faltar: la fila bajada de la nube trae `paths` y sin
+  // `photoIds` (ver EvidenciaCumple), igual que `paths`. Sin esto, al reabrir una
+  // evaluación con evidencias subidas la pantalla revienta con "reading 'length'".
+  const tieneFotos = (ev: EvidenciaCumple) => (ev.photoIds?.length ?? 0) > 0 || (ev.paths?.length ?? 0) > 0
   const actualizar = (i: number, patch: Partial<EvidenciaCumple>) =>
     onChange(evidencias.map((e, idx) => (idx === i ? { ...e, ...patch } : e)))
 
@@ -294,19 +1948,21 @@ function EvidenciasEditor({ evidencias, onChange }: { evidencias: EvidenciaCumpl
         <div key={i} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold uppercase text-slate-500">Evidencia {i + 1}</p>
-            <button
-              type="button"
-              onClick={() => quitar(i)}
-              className="rounded-lg px-2 py-1 text-xs font-medium text-slate-400 hover:bg-red-50 hover:text-red-500"
-            >
-              ✕ Quitar
-            </button>
+            {!tieneFotos(ev) ? (
+              <button
+                type="button"
+                onClick={() => quitar(i)}
+                className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-slate-400 hover:bg-red-50 hover:text-red-500"
+              >
+                <X className="h-3.5 w-3.5" /> Quitar
+              </button>
+            ) : null}
           </div>
-          <PhotoCapture photoIds={ev.photoIds} onChange={(photoIds) => actualizar(i, { photoIds })} />
+          <PhotoCapture photoIds={ev.photoIds ?? []} onChange={(photoIds) => actualizar(i, { photoIds })} />
           <Textarea
             rows={2}
             placeholder="Comentario de la evidencia…"
-            value={ev.comentario}
+            value={ev.comentario ?? ''}
             onChange={(e) => actualizar(i, { comentario: e.target.value })}
           />
         </div>
@@ -318,17 +1974,36 @@ function EvidenciasEditor({ evidencias, onChange }: { evidencias: EvidenciaCumpl
   )
 }
 
+function diasDesdeIngreso(fecha: string): number | null {
+  const fechaBase = /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? `${fecha}T00:00:00` : fecha
+  const ingreso = new Date(fechaBase)
+  if (Number.isNaN(ingreso.getTime())) return null
+  const hoy = new Date()
+  ingreso.setHours(0, 0, 0, 0)
+  hoy.setHours(0, 0, 0, 0)
+  const dias = Math.floor((hoy.getTime() - ingreso.getTime()) / 86400000)
+  return dias >= 0 ? dias : null
+}
+
+function requisitoContrato(fecha: string): string | null {
+  const dias = diasDesdeIngreso(fecha)
+  if (dias == null) return null
+  if (dias < 30) return 'Requiere contrato 1'
+  if (dias < 90) return 'Requiere contratos 1, 2 y 3'
+  return 'Requiere contrato fijo en el expediente'
+}
+
 function BotonCumple({ activo, onPick }: { activo: boolean; onPick: () => void }) {
   return (
     <button
       type="button"
       onClick={onPick}
       className={cn(
-        'flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-xl border-2 px-3 py-3 transition-colors',
+        'flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-full border-2 px-3 py-3 transition-colors',
         activo ? 'border-green-600 bg-green-50 text-green-800' : 'border-slate-200 bg-white text-slate-500'
       )}
     >
-      <span className="text-xl">✓</span>
+      <Check className="text-2xl" strokeWidth={2.5} />
       <span className="text-sm font-bold">Cumple</span>
     </button>
   )
@@ -340,32 +2015,174 @@ function BotonNoCumple({ activo, onPick }: { activo: boolean; onPick: () => void
       type="button"
       onClick={onPick}
       className={cn(
-        'flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-xl border-2 px-3 py-3 transition-colors',
+        'flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-full border-2 px-3 py-3 transition-colors',
         activo ? 'border-red-600 bg-red-50 text-red-700' : 'border-slate-200 bg-white text-slate-500'
       )}
     >
-      <span className="text-xl">✗</span>
+      <X className="text-2xl" strokeWidth={2.5} />
       <span className="text-sm font-bold">No cumple</span>
     </button>
   )
 }
 
-function CampoConciliacion({ etiqueta, valor, onChange }: { etiqueta: string; valor: number | null; onChange: (n: number | null) => void }) {
+function CampoConciliacion({
+  etiqueta,
+  valor,
+  onChange,
+  onEnter,
+  disabled,
+  inputRef,
+  tabIndex
+}: {
+  etiqueta: string
+  valor: number | null
+  onChange: (n: number | null) => void
+  onEnter?: () => void
+  disabled?: boolean
+  inputRef?: React.Ref<HTMLInputElement>
+  tabIndex?: number
+}) {
   return (
-    <div className="flex items-center gap-3">
-      <label className="min-w-0 flex-1 text-xs font-medium text-slate-500">{etiqueta}</label>
-      <Input
-        className="w-32"
-        type="number"
-        inputMode="decimal"
-        min={0}
-        placeholder="0"
-        value={valor ?? ''}
-        onChange={(e) => {
-          const n = Number(e.target.value)
-          onChange(Number.isFinite(n) && e.target.value !== '' ? n : null)
-        }}
-      />
+    <div className="min-w-0 flex-1">
+      <label className="mb-1 block text-xs font-medium text-slate-500">{etiqueta}</label>
+      <div className="w-full">
+        <Input
+          ref={inputRef}
+          type="number"
+          inputMode="decimal"
+          min={0}
+          placeholder={disabled ? '—' : '0'}
+          disabled={disabled}
+          tabIndex={tabIndex}
+          value={valor ?? ''}
+          onChange={(e) => {
+            const n = Number(e.target.value)
+            onChange(Number.isFinite(n) && e.target.value !== '' ? n : null)
+          }}
+          onKeyDown={(e) => {
+            if ((e.key === 'Enter' || e.keyCode === 13) && onEnter) {
+              e.preventDefault()
+              onEnter()
+            }
+          }}
+        />
+      </div>
     </div>
+  )
+}
+
+function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids: string[]) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const galeriaRef = useRef<HTMLInputElement>(null)
+  const [subiendo, setSubiendo] = useState(false)
+
+  async function agregar(input: HTMLInputElement) {
+    setSubiendo(true)
+    const nuevos = await guardarFotosDe(input.files)
+    setSubiendo(false)
+    if (nuevos.length) onChange([...photoIds, ...nuevos])
+    input.value = ''
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-1.5">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        multiple
+        className="hidden"
+        onChange={(e) => void agregar(e.target)}
+      />
+      <input
+        ref={galeriaRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => void agregar(e.target)}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={subiendo}
+        aria-label="Tomar foto de evidencia"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
+      >
+        {subiendo ? <Spinner size={16} light /> : <Camera className="h-4 w-4" />}
+      </button>
+      <button
+        type="button"
+        onClick={() => galeriaRef.current?.click()}
+        disabled={subiendo}
+        aria-label="Adjuntar foto de evidencia desde la galería"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-full border-2 border-primary bg-white text-primary transition-colors hover:bg-primary-50 disabled:opacity-50"
+      >
+        <ImageIcon className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
+/** Deslizador horizontal con degradado difuminado rojo → amarillo → verde.
+ *  El tope derecho es `maximo` (o un máximo derivado); el color del pulgar y el
+ *  veredicto dependen del `minimo` configurado. */
+function BarraRango({ etiqueta, minimo, maximo, unidad, valor, onChange }: { etiqueta: string; minimo?: number; maximo?: number; unidad?: string; valor: number | null; onChange: (n: number) => void }) {
+  const min = typeof minimo === 'number' && minimo >= 0 ? minimo : 0
+  // Máximo: el configurado si supera al mínimo; si no, un tope derivado sensible.
+  const max = typeof maximo === 'number' && maximo > min ? maximo : Math.max(100, min * 2, min + 1)
+  // Posición del mínimo sobre la barra (allí empieza a "teñirse" de verde).
+  const pctMin = Math.max(8, Math.min(90, (min / max) * 100))
+  const gradiente = `linear-gradient(90deg, #dc2626 0%, #f59e0b ${pctMin}%, #22c55e 100%)`
+  const fmt = (n: number) => `${Math.round(n * 10) / 10}`
+  const cumple = valor != null && min > 0 ? valor >= min : valor != null
+  const colorThumb = valor == null ? '#64748b' : cumple ? '#16a34a' : '#dc2626'
+  const sufijo = unidad ? ` ${unidad}` : ''
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold text-slate-500">Indicá el valor sobre la barra</p>
+        <span
+          className={cn(
+            'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold',
+            valor == null ? 'bg-slate-100 text-slate-500' : cumple ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+          )}
+        >
+          {valor == null ? 'Sin valor' : cumple ? 'Cumple' : 'No alcanza el mínimo'}
+        </span>
+      </div>
+
+      <div className="relative flex h-7 items-center">
+        <div className="absolute inset-x-0 top-1/2 h-3.5 -translate-y-1/2 rounded-full" style={{ background: gradiente }} aria-hidden />
+        <div
+          className="absolute top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-white shadow ring-1 ring-slate-800/30"
+          style={{ left: `calc(${pctMin}% - 1px)` }}
+          title={min > 0 ? `Mínimo: ${fmt(min)}${sufijo}` : 'Valor mínimo: 0'}
+          aria-hidden
+        />
+        <input
+          type="range"
+          className="barra-rango relative"
+          min={0}
+          max={max}
+          step="any"
+          value={valor ?? 0}
+          onChange={(e) => onChange(Number(e.target.value))}
+          aria-label={`Valor de ${etiqueta}`}
+          style={{ '--barra-thumb': colorThumb } as React.CSSProperties}
+        />
+      </div>
+
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[11px] text-slate-400">
+          Mín. aceptable: {fmt(min)}{sufijo} · escala 0–{fmt(max)}{sufijo}
+        </span>
+        <span className="text-sm font-extrabold tabular-nums text-slate-800">
+          {valor != null ? `${fmt(valor)}${sufijo}` : '—'}
+        </span>
+      </div>
+    </>
   )
 }

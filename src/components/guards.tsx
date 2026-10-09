@@ -2,20 +2,25 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth, tieneRol } from '../context/AuthContext'
 import { homePorRol } from '../lib/roles'
 import type { Rol } from '../lib/types'
-import { Spinner } from './ui'
+import { SkeletonPantalla } from './ui'
 
-export function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { session, profile, loading } = useAuth()
+export function RequireAuth({
+  children,
+  loadingFallback
+}: {
+  children: React.ReactNode
+  loadingFallback?: React.ReactNode
+}) {
+  const { session, profile, loading, perfilListo, totpPendiente } = useAuth()
   const location = useLocation()
 
-  if (loading) {
-    return (
-      <div className="grid min-h-screen place-items-center">
-        <Spinner className="h-8 w-8" />
-      </div>
-    )
+  // `loading` es la restauración de sesión (local) y `perfilListo` el momento en
+  // que ya se sabe el rol y si hay que pedir TOTP. Se muestran los dos: hace
+  // falta el segundo para no pintar la app con la sesión a medias.
+  if (loading || !perfilListo) {
+    return <>{loadingFallback ?? <SkeletonPantalla completa />}</>
   }
-  if (!session) return <Navigate to="/login" state={{ from: location }} replace />
+  if (totpPendiente || !session) return <Navigate to="/login" state={{ from: location }} replace />
   if (profile?.rol === 'SIN_ROL') return <Navigate to="/pendiente" replace />
   return <>{children}</>
 }
@@ -29,8 +34,8 @@ export function RequireRol({ roles, children }: { roles: Rol[]; children: React.
 }
 
 export function RequireSesion({ children }: { children: React.ReactNode }) {
-  const { session } = useAuth()
-  if (!session) return <Navigate to="/login" replace />
+  const { session, totpPendiente } = useAuth()
+  if (totpPendiente || !session) return <Navigate to="/login" replace />
   return <>{children}</>
 }
 

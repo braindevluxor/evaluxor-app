@@ -1,8 +1,11 @@
+import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
+import { AlertTriangle, CheckCheck, History, LogOut, Menu, Settings, Check, ClipboardCheck, LayoutDashboard, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useOffline } from '../../context/OfflineContext'
+import { useVersion } from '../../context/VersionContext'
+import { versionCorta } from '../../lib/version'
 import { cn, Spinner } from '../ui'
-import { useState } from 'react'
 
 export function SyncBanner() {
   const { online, pendientes, sincronizando, ultimoResultado, sync } = useOffline()
@@ -21,11 +24,14 @@ export function SyncBanner() {
         <span>Sin conexión. Los cambios se guardarán en el dispositivo.</span>
       ) : pendientes > 0 ? (
         <>
-          {sincronizando ? <Spinner className="h-4 w-4 border-white border-t-transparent" /> : null}
+          {sincronizando ? <Spinner size={16} light /> : null}
           {pendientes} evaluación(es) pendiente(s) de sincronizar
         </>
       ) : (
-        <span>{ultimoResultado?.fail ? 'Hubo errores al sincronizar.' : 'Todo sincronizado ✅'}</span>
+        <span className="inline-flex items-center gap-1.5">
+          <CheckCheck className="h-4 w-4" />
+          {ultimoResultado?.fail ? 'Hubo errores al sincronizar.' : 'Todo sincronizado'}
+        </span>
       )}
       {online && pendientes > 0 ? (
         <button
@@ -36,33 +42,65 @@ export function SyncBanner() {
             })()
           }}
           disabled={sincronizando}
-          className="ml-auto rounded-md bg-white/20 px-2 py-1 font-bold hover:bg-white/30 disabled:opacity-50"
+          className="ml-auto rounded-full bg-white/20 px-2 py-1 font-bold hover:bg-white/30 disabled:opacity-50"
         >
           {msg || 'Sincronizar'}
         </button>
+      ) : null}
+      {online && ultimoResultado?.fail && ultimoResultado.error ? (
+        // El motivo va escrito; la interna del servidor queda en el title, a un
+        // toque de distancia para el que tiene que pasarlo al Líder.
+        <span
+          className="basis-full break-words text-[11px] leading-snug text-amber-200"
+          title={ultimoResultado.detalle}
+        >
+          {ultimoResultado.error}
+        </span>
       ) : null}
     </div>
   )
 }
 
-export function HeaderMini({ titulo, subtitulo }: { titulo: string; subtitulo?: string }) {
-  const { profile, signOut } = useAuth()
+export function HeaderMini({
+  titulo,
+  subtitulo,
+  onClickMenu,
+  extra
+}: {
+  titulo: string
+  subtitulo?: string
+  onClickMenu?: () => void
+  extra?: React.ReactNode
+}) {
+  const { profile } = useAuth()
   return (
-    <header className="sticky top-0 z-30 bg-primary text-white shadow-md">
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="min-w-0">
-          <h1 className="truncate text-base font-extrabold">{titulo}</h1>
-          {subtitulo ? <p className="truncate text-xs text-primary-200">{subtitulo}</p> : null}
+    <header className="sticky top-0 z-30 bg-primary text-white shadow-sm">
+      <div className="flex items-center justify-between gap-2 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          {onClickMenu ? (
+            <button
+              onClick={onClickMenu}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 hover:bg-white/20"
+              aria-label="Abrir menú"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+          ) : null}
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-extrabold">{titulo}</h1>
+            {subtitulo ? <p className="truncate text-xs text-primary-100/90">{subtitulo}</p> : null}
+          </div>
         </div>
         <div className="flex items-center gap-2">
+          {extra}
           <span className="hidden max-w-[140px] truncate text-xs text-primary-200 sm:block">{profile?.nombre}</span>
-          <button
-            onClick={() => void signOut()}
-            className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-sm hover:bg-white/20"
-            title="Cerrar sesión"
+          <NavLink
+            to="/dashboard"
+            className="grid h-9 w-9 place-items-center rounded-full bg-white/10 hover:bg-white/20"
+            title="Ir al dashboard"
           >
-            ⎋
-          </button>
+            <LayoutDashboard className="h-4 w-4" />
+          </NavLink>
         </div>
       </div>
     </header>
@@ -72,49 +110,129 @@ export function HeaderMini({ titulo, subtitulo }: { titulo: string; subtitulo?: 
 export function MobileLayout({
   children,
   titulo,
-  subtitulo
+  subtitulo,
+  extra
 }: {
   children: React.ReactNode
   titulo?: string
   subtitulo?: string
+  extra?: React.ReactNode
 }) {
   const { profile, signOut } = useAuth()
+  const [menuAbierto, setMenuAbierto] = useState(false)
+  const cerrar = () => setMenuAbierto(false)
+  useEffect(() => {
+    if (!menuAbierto) return
+    const manejar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') cerrar()
+    }
+    window.addEventListener('keydown', manejar)
+    return () => window.removeEventListener('keydown', manejar)
+  }, [menuAbierto])
   return (
-    <div className="min-h-screen bg-slate-50 pb-16">
-      <HeaderMini titulo={titulo ?? 'EvaLuxor'} subtitulo={subtitulo} />
+    <div className="min-h-screen bg-slate-100 pb-6">
+      <HeaderMini titulo={titulo ?? 'EvaLuxor'} subtitulo={subtitulo} onClickMenu={() => setMenuAbierto(true)} extra={extra} />
       <SyncBanner />
-      <main className="mx-auto w-full max-w-md px-4 py-4">{children}</main>
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white shadow-lg">
-        <div className="mx-auto flex max-w-md items-stretch">
-          <NavItem to="/evaluar" label="Evaluar" icon="✓" />
-          <NavItem to="/evaluar/historial" label="Historial" icon="≡" />
-          <NavItem to="/perfil" label="Perfil" icon="⚙" />
-          <button
-            onClick={() => void signOut()}
-            className="flex w-full flex-col items-center justify-center gap-0.5 py-2.5 text-slate-500"
-          >
-            <span className="text-lg leading-none">⎋</span>
-            <span className="text-[11px] font-medium">{profile?.nombre?.split(' ')[0] || 'Salir'}</span>
-          </button>
+      <main className="mx-auto w-full max-w-lg px-4 py-5">{children}</main>
+
+      {menuAbierto ? (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" aria-hidden />
+          <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85%] flex-col bg-white">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <span className="text-lg font-extrabold text-primary">EvaLuxor</span>
+              <button
+                onClick={cerrar}
+                className="grid h-9 w-9 place-items-center rounded-full text-slate-400 hover:bg-slate-100"
+                aria-label="Cerrar menú"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <nav className="flex-1 space-y-1 overflow-y-auto p-3">
+              <ItemLateral to="/evaluar" label="Evaluar" icon={<Check className="h-5 w-5" />} onClick={cerrar} />
+              <ItemLateral to="/evaluar/historial" label="Historial" icon={<History className="h-5 w-5" />} onClick={cerrar} />
+              {profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER' ? (
+                <ItemLateral to="/evaluar/incidencias" label="Incidencias" icon={<AlertTriangle className="h-5 w-5" />} onClick={cerrar} />
+              ) : null}
+              {profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER' ? (
+                <ItemLateral
+                  to="/herramientas/revision-pre-entrega"
+                  label="Revisión Pre-Entrega"
+                  icon={<ClipboardCheck className="h-5 w-5" />}
+                  onClick={cerrar}
+                />
+              ) : null}
+              <ItemLateral to="/perfil" label="Perfil" icon={<Settings className="h-5 w-5" />} onClick={cerrar} />
+            </nav>
+            <div className="border-t border-slate-100 p-3">
+              <p className="px-3 pb-2 text-sm font-semibold text-slate-800">{profile?.nombre || 'Usuario'}</p>
+              <VersionEnMenu />
+              <button
+                onClick={() => void signOut()}
+                className="flex w-full items-center gap-3 rounded-full px-3 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50"
+              >
+                <LogOut className="h-5 w-5" />
+                Cerrar sesión
+              </button>
+            </div>
+          </aside>
         </div>
-      </nav>
+      ) : null}
     </div>
   )
 }
 
-function NavItem({ to, label, icon }: { to: string; label: string; icon: string }) {
+/**
+ * Versión de la app en el menú lateral. El evaluador no va a Perfil a buscarla:
+ * si hay una versión nueva aparece acá mismo, con el botón para tomarla (o se
+ * actualiza sola cuando no tiene nada pendiente de subir).
+ */
+export function VersionEnMenu() {
+  const { hayActualizacion, versionRemota, actualizando, actualizarAhora } = useVersion()
+  return (
+    <div className="mb-1 px-3">
+      <p className="font-mono text-[11px] leading-tight text-slate-400" title="Con qué versión de la app estás trabajando">
+        {versionCorta()}
+      </p>
+      {hayActualizacion ? (
+        <button
+          type="button"
+          onClick={() => void actualizarAhora()}
+          disabled={actualizando}
+          className="mt-1.5 w-full rounded-full bg-blue-50 px-2 py-1.5 text-[11px] font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-60"
+        >
+          {actualizando ? 'Actualizando…' : `Actualizar a ${versionRemota?.version ?? 'la nueva versión'}`}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function ItemLateral({
+  to,
+  label,
+  icon,
+  onClick
+}: {
+  to: string
+  label: string
+  icon: React.ReactNode
+  onClick: () => void
+}) {
   return (
     <NavLink
       to={to}
+      onClick={onClick}
       className={({ isActive }) =>
         cn(
-          'flex w-full flex-col items-center justify-center gap-0.5 py-2.5',
-          isActive ? 'text-primary' : 'text-slate-500'
+          'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium',
+          isActive ? 'bg-primary-50 text-primary' : 'text-slate-700 hover:bg-slate-50'
         )
       }
     >
-      <span className="text-lg leading-none">{icon}</span>
-      <span className="text-[11px] font-medium">{label}</span>
+      {icon}
+      {label}
     </NavLink>
   )
 }
