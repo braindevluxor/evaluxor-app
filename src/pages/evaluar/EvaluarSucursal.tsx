@@ -23,7 +23,7 @@ import { apiDisponible, esColorHex, etiquetaDeCampo, formatearValorConsulta, sel
 import { supabase } from '../../lib/supabase'
 import { ItemRenderer } from '../../components/ItemRenderer'
 import { ReportarIncidencia } from '../../components/ReportarIncidencia'
-import { Button, EmptyState, Modal, Spinner, cn } from '../../components/ui'
+import { Button, EmptyState, Modal, cn } from '../../components/ui'
 import { BarcodeScanner } from '../../components/BarcodeScanner'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import { yaExisteRegistroConEtiqueta } from '../../lib/registro'
