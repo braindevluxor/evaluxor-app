@@ -8,8 +8,12 @@ import { EditorResponsablesIncidencia } from './EditorResponsablesIncidencia'
 import { normalizarResponsables, type ResponsableIncidencia } from '../lib/data/responsablesIncidencia'
 
 interface Props {
-  /** Sucursal y fecha de la evaluación en curso: sin esto el reporte no tiene a qué asociarse. */
+  /**
+   * Unidad de la evaluación en curso: la sucursal **o** el departamento al que
+   * pertenece. Sin uno de los dos el reporte no tiene a qué asociarse.
+   */
   sucursalId: string
+  departamentoId?: string | null
   fecha: string
   moduloId: string | null
   moduloNombre: string | null
@@ -32,8 +36,12 @@ interface Props {
  * El reporte NO es un ítem del cuestionario, así que va aparte: se guarda en el
  * teléfono y sube con el resto del avance (ver supabase/schema.sql).
  */
-export function ReportarIncidencia({ sucursalId, fecha, moduloId, moduloNombre, evaluadorId }: Props) {
+export function ReportarIncidencia({ sucursalId, departamentoId, fecha, moduloId, moduloNombre, evaluadorId }: Props) {
   const { online, incidentesPendientes, sync } = useOffline()
+  // La unidad de la evaluación: la incidencia se le cuelga a ella (una sucursal
+  // o un departamento centralizado) y así la cola sabe a qué tabla subirla. Va
+  // con `||` y no con `??`: en la ruta de sucursal el departamento llega en ''.
+  const unidadId = departamentoId || sucursalId
   const [abierto, setAbierto] = useState(false)
   const [descripcion, setDescripcion] = useState('')
   const [photoIds, setPhotoIds] = useState<string[]>([])
@@ -60,12 +68,13 @@ export function ReportarIncidencia({ sucursalId, fecha, moduloId, moduloNombre, 
 
   async function guardar() {
     const texto = descripcion.trim()
-    if (!texto || guardando) return
+    if (!texto || guardando || !unidadId) return
     setGuardando(true)
     try {
       await addIncidente({
         evaluador_id: evaluadorId,
-        sucursal_id: sucursalId,
+        unidad_id: unidadId,
+        departamento_id: departamentoId || null,
         fecha,
         modulo_id: moduloId,
         descripcion: texto,
@@ -140,6 +149,8 @@ export function ReportarIncidencia({ sucursalId, fecha, moduloId, moduloNombre, 
           {/* Va después del texto y antes de las fotos: primero qué pasó, después
               a quién le corresponde, y las fotos al final porque son las que más
               pesan en el modal. */}
+          {/* Sin sucursal (incidencia de un departamento) el catálogo de cargos
+              no aplica: el editor queda en modo texto libre. */}
           <EditorResponsablesIncidencia
             valor={responsables}
             onChange={setResponsables}

@@ -405,11 +405,18 @@ export function buildPdfDocument(
 
   if (conPortada) {
     tituloSeccion('Datos de la tienda')
+    // Una evaluación mide una sola unidad: sucursal o departamento. Si es de
+    // departamento no hay código de tienda ni dirección que imprimir.
+    const filasUnidad: string[][] = ev.departamento
+      ? [['Departamento', texto(ev.departamento.nombre ?? '—')]]
+      : [
+          ['Sucursal', texto(ev.sucursal?.nombre ?? '—')],
+          ['Código de tienda', texto(ev.sucursal?.shop_id ?? '—')],
+          ['Dirección', texto(ev.sucursal?.direccion ?? '—')]
+        ]
     tabla(['Dato de la tienda', 'Información'], [
       ['Código de evaluación', ocultarCentroCodigoEvaluacion(ev.id)],
-      ['Sucursal', texto(ev.sucursal?.nombre ?? '—')],
-      ['Código de tienda', texto(ev.sucursal?.shop_id ?? '—')],
-      ['Dirección', texto(ev.sucursal?.direccion ?? '—')],
+      ...filasUnidad,
       ['Fecha de evaluación', fecha],
       ...(filtro ? [['Filtro del informe', nombreDelFiltro]] : [])
     ])
@@ -777,7 +784,7 @@ export function buildPdfDocument(
    * igual en cualquier impresora.
    */
   const pieEnTodasLasHojas = () => {
-    const pie = `${ev.sucursal?.nombre ?? 'Sucursal'} | ${fecha}`
+    const pie = `${ev.departamento?.nombre ?? ev.sucursal?.nombre ?? 'Sucursal'} | ${fecha}`
     for (let hoja = 1; hoja <= pdf.getNumberOfPages(); hoja++) {
       pdf.setPage(hoja)
       pdf.setFont('helvetica', 'normal')

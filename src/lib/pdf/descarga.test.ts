@@ -51,6 +51,7 @@ const detalle: DetalleEvaluacion = {
   evaluacion: {
     id: '12345678-1234-1234-1234-123456789abc',
     sucursal_id: 's1',
+    departamento_id: null,
     fecha: '2026-09-10',
     estado: 'CERRADA',
     puntuacion: 76,

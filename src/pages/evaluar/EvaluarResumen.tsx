@@ -11,9 +11,14 @@ import { Button, Puntaje, cn } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 
 export function EvaluarResumen() {
-  const { sucursalId = '' } = useParams()
+  // Dos rutas posibles: /evaluar/:sucursalId/resumen y
+  // /evaluar/departamento/:departamentoId/resumen.
+  const { sucursalId = '', departamentoId = '' } = useParams()
+  /** Unidad evaluada: sucursal o departamento (la clave del borrador). */
+  const unidadId = sucursalId || departamentoId
+  const rutaBase = departamentoId ? `/evaluar/departamento/${departamentoId}` : `/evaluar/${sucursalId}`
   const { profile } = useAuth()
-  const { modulosActivos, itemsDe } = useModulosActivos(sucursalId)
+  const { modulosActivos, itemsDe } = useModulosActivos(sucursalId, departamentoId)
   const navigate = useNavigate()
 
   const [draft, setDraft] = useState<DraftEval | null>(null)
@@ -21,12 +26,12 @@ export function EvaluarResumen() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    void getDraft(sucursalId).then((d) => {
+    void getDraft(unidadId).then((d) => {
       if (d) setDraft(d)
-      else navigate(`/evaluar/${sucursalId}`, { replace: true })
+      else navigate(rutaBase, { replace: true })
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sucursalId])
+  }, [unidadId])
 
   const modulos = useMemo(
     () => modulosActivos.filter((m) => itemsDe(m).some((i) => i.tipo !== 'CONTENEDOR')),
@@ -59,7 +64,7 @@ export function EvaluarResumen() {
     }
     setEnviando(true)
     await encolarRespuestas(draft)
-    sessionStorage.removeItem(`evx:${sucursalId}:mod`)
+    sessionStorage.removeItem(`evx:${unidadId}:mod`)
     sessionStorage.setItem('evx:ok', '1')
     navigate('/evaluar', { replace: true })
   }
@@ -101,13 +106,15 @@ export function EvaluarResumen() {
         </div>
 
         <p className="text-center text-xs text-slate-400">
-          Mientras respondes, tus avances se suben automáticamente y el Líder los ve en vivo dentro de la evaluación abierta para esta sucursal. Las fotos de evidencia se sincronizan al enviar.
+          {departamentoId
+            ? 'Mientras respondes, tus avances se suben automáticamente y el Líder los ve en vivo dentro de la evaluación abierta de este departamento. Las fotos de evidencia se sincronizan al enviar.'
+            : 'Mientras respondes, tus avances se suben automáticamente y el Líder los ve en vivo dentro de la evaluación abierta para esta sucursal. Las fotos de evidencia se sincronizan al enviar.'}
         </p>
 
         {error ? <div className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-600">{error}</div> : null}
 
         <div className="flex gap-3">
-          <Button variant="secondary" className="flex-1" onClick={() => navigate(`/evaluar/${sucursalId}`)}>
+          <Button variant="secondary" className="flex-1" onClick={() => navigate(rutaBase)}>
             <ArrowLeft className="h-4 w-4" /> Editar
           </Button>
           <Button variant="success" className="flex-1" disabled={enviando} onClick={() => void enviar()}>

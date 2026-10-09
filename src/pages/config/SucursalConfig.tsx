@@ -1,16 +1,47 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { listarModulosAdmin, listarSucursalConfigAdmin, configurarSucursalModulos, configurarSucursalItems, configurarSucursalOpciones } from '../../lib/data/catalog'
-import type { Sucursal, Modulo, Item } from '../../lib/types'
+import {
+  listarDepartamentoConfigAdmin,
+  configurarDepartamentoModulos,
+  configurarDepartamentoItems,
+  configurarDepartamentoOpciones
+} from '../../lib/data/departamentos'
+import type { Sucursal, Departamento, Modulo, Item } from '../../lib/types'
 import { Button, Modal, Skeleton, cn } from '../../components/ui'
 
+/** Lo que se guarda en la configuración de una unidad (sucursal o departamento). */
+export interface ConfUnidad {
+  modulos: string[]
+  items: string[]
+  opciones: { item_id: string; opcion_id: string }[]
+}
+
 interface Props {
-  sucursal: Sucursal | null
+  /** La unidad que se configura; null = modal cerrado. */
+  unidad: { id: string; nombre: string } | null
+  /** "sucursal" | "departamento": de acá salen los rótulos del modal. */
+  rotulo: string
+  /** "esta sucursal" | "este departamento": demostrativo de los textos de ayuda. */
+  demo: string
+  /** De dónde se leen sus módulos/ítems/puntos marcados. */
+  cargar: (id: string) => Promise<ConfUnidad>
+  /** A dónde se guardan los tres grupos. */
+  guardar: (id: string, conf: ConfUnidad) => Promise<void>
   onClose: () => void
   onGuardado: () => void
 }
 
-export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
+/**
+ * Configuración de una unidad: módulos, ítems y puntos que aplican.
+ *
+ * Es la misma pantalla para sucursales y para departamentos. Lo único que
+ * cambia entre una y otra es de dónde se leen y a dónde se guardan las tres
+ * listas (`cargar`/`guardar`) y el nombre con que se le habla (`rotulo`/`demo`);
+ * todo lo demás —semántica de "sin selección aplica todo", despliegue de
+ * ítems, puntos de los checklists— es una sola copia acá.
+ */
+export function ConfigUnidadModal({ unidad, rotulo, demo, cargar, guardar, onClose, onGuardado }: Props) {
   const [modulos, setModulos] = useState<(Modulo & { _items: Item[] })[]>([])
   const [selModulos, setSelModulos] = useState<Set<string>>(new Set())
   const [selItems, setSelItems] = useState<Set<string>>(new Set())
@@ -21,10 +52,14 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
-    if (!sucursal) return
+    if (!unidad) return
+    let activo = true
     void (async () => {
-      const [mods, conf] = await Promise.all([listarModulosAdmin(), listarSucursalConfigAdmin(sucursal.id)])
-      setModulos(mods)
+      const [mods, conf] = await Promise.all([listarModulosAdmin(), cargar(unidad.id)])
+      if (!activo) return
+      // Los módulos-herramienta (Revisión Pre-Entrega) no se asignan por unidad:
+      // no forman parte de la evaluación de la tienda ni del área.
+      setModulos(mods.filter((m) => !m.herramienta))
       setSelModulos(new Set(conf.modulos))
       const itemsSeleccionados = new Set(conf.items)
       setSelItems(itemsSeleccionados)
@@ -40,7 +75,8 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
       setMsg('')
       setCargando(false)
     })()
-  }, [sucursal])
+    return () => { activo = false }
+  }, [unidad, cargar])
 
   /** Un módulo aplica si está marcado, o (canónicamente) si no se marcó ninguno. */
   const aplica = (m: Modulo) => selModulos.size === 0 || selModulos.has(m.id)
@@ -129,17 +165,15 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
     })
   }
 
-  async function guardar() {
-    if (!sucursal) return
+  async function guardarConf() {
+    if (!unidad) return
     setGuardando(true)
     setMsg('')
     try {
-      await configurarSucursalModulos(sucursal.id, [...selModulos])
-      await configurarSucursalItems(sucursal.id, [...selItems])
       const opciones = Array.from(selOpciones.entries()).flatMap(([itemId, ids]) =>
         Array.from(ids).map((opcion_id) => ({ item_id: itemId, opcion_id }))
       )
-      await configurarSucursalOpciones(sucursal.id, opciones)
+      await guardar(unidad.id, { modulos: [...selModulos], items: [...selItems], opciones })
       setMsg('Configuración guardada. Los evaluadores verán los cambios al sincronizar el catálogo.')
       onGuardado()
     } finally {
@@ -149,15 +183,15 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
 
   return (
     <Modal
-      open={sucursal != null}
+      open={unidad != null}
       onClose={onClose}
-      title={`Configurar sucursal${sucursal ? ` · ${sucursal.nombre}` : ''}`}
+      title={`Configurar ${rotulo}${unidad ? ` · ${unidad.nombre}` : ''}`}
       wide
       footer={
         !cargando ? (
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={onClose}>Cerrar</Button>
-            <Button className="flex-1" disabled={guardando} onClick={() => void guardar()}>
+            <Button className="flex-1" disabled={guardando} onClick={() => void guardarConf()}>
               {guardando ? 'Guardando…' : 'Guardar configuración'}
             </Button>
           </div>
@@ -180,7 +214,7 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
       ) : (
         <div className="space-y-6">
           <p className="rounded-xl bg-primary-50 px-3 py-2 text-[11px] leading-relaxed text-primary-700">
-            Marca con el check los módulos que aplican a esta sucursal: al marcarlos se despliegan sus ítems para ajustar cuáles aplican.
+            Marca con el check los módulos que aplican a {demo}: al marcarlos se despliegan sus ítems para ajustar cuáles aplican.
             Si no marcas ninguno, aplican todos los módulos activos. Si no marcas ítems de un módulo, aplican todos sus ítems.
             En un ítem tipo check list puedes marcar qué puntos aplican; si no marcas ninguno, aplican todos sus puntos.
           </p>
@@ -202,7 +236,7 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
                       <div className="flex items-center gap-1.5 px-2 py-1.5">
                         <label
                           className="flex shrink-0 select-none items-center gap-1.5 rounded-lg px-1 py-1.5 transition-colors hover:bg-slate-50"
-                          title={on ? 'Quitar el check: el módulo deja de aplicar a esta sucursal' : 'Poner el check: el módulo aplica a esta sucursal y se despliegan sus ítems'}
+                          title={on ? `Quitar el check: el módulo deja de aplicar a ${demo}` : `Poner el check: el módulo aplica a ${demo} y se despliegan sus ítems`}
                         >
                           <input
                             type="checkbox"
@@ -267,7 +301,7 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
                                       </label>
                                       {esChecklist && sel ? (
                                         <div className="ml-7 rounded-xl bg-white p-2 ring-1 ring-slate-100">
-                                          <p className="mb-1 px-1 text-[11px] font-semibold text-slate-500">Puntos que aplican a esta sucursal</p>
+                                          <p className="mb-1 px-1 text-[11px] font-semibold text-slate-500">Puntos que aplican a {demo}</p>
                                           {i.opciones!.map((o) => {
                                             const marcada = selOpciones.get(i.id)?.has(o.id) ?? false
                                             return (
@@ -309,5 +343,65 @@ export function SucursalConfigModal({ sucursal, onClose, onGuardado }: Props) {
         </div>
       )}
     </Modal>
+  )
+}
+
+/**
+ * Configurar una sucursal: la misma pantalla, leyendo y escribiendo en las
+ * tablas `sucursal_*`.
+ */
+export function SucursalConfigModal({
+  sucursal,
+  onClose,
+  onGuardado
+}: {
+  sucursal: Sucursal | null
+  onClose: () => void
+  onGuardado: () => void
+}) {
+  return (
+    <ConfigUnidadModal
+      unidad={sucursal}
+      rotulo="sucursal"
+      demo="esta sucursal"
+      cargar={listarSucursalConfigAdmin}
+      guardar={async (id, conf) => {
+        await configurarSucursalModulos(id, conf.modulos)
+        await configurarSucursalItems(id, conf.items)
+        await configurarSucursalOpciones(id, conf.opciones)
+      }}
+      onClose={onClose}
+      onGuardado={onGuardado}
+    />
+  )
+}
+
+/**
+ * Configurar un departamento: la misma pantalla, leyendo y escribiendo en las
+ * tablas `departamento_*`.
+ */
+export function DepartamentoConfigModal({
+  departamento,
+  onClose,
+  onGuardado
+}: {
+  departamento: Departamento | null
+  onClose: () => void
+  onGuardado: () => void
+}) {
+  return (
+    <ConfigUnidadModal
+      unidad={departamento}
+      rotulo="departamento"
+      demo="este departamento"
+      cargar={listarDepartamentoConfigAdmin}
+      guardar={async (id, conf) => {
+        await configurarDepartamentoModulos(id, conf.modulos)
+        await configurarDepartamentoItems(id, conf.items)
+        await configurarDepartamentoOpciones(id, conf.opciones)
+      }}
+      onClose={onClose}
+      onGuardado={onGuardado}
+    />
   )
 }

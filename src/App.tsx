@@ -27,6 +27,7 @@ const Historial = lazy(() => import('./pages/dashboard/Historial').then((m) => (
 const Comparativas = lazy(() => import('./pages/dashboard/Comparativas').then((m) => ({ default: m.Comparativas })))
 const ModuloDashboard = lazy(() => import('./pages/dashboard/ModuloDashboard').then((m) => ({ default: m.ModuloDashboard })))
 const SucursalesPage = lazy(() => import('./pages/config/Sucursales').then((m) => ({ default: m.SucursalesPage })))
+const DepartamentosPage = lazy(() => import('./pages/config/Departamentos').then((m) => ({ default: m.DepartamentosPage })))
 const ModulosPage = lazy(() => import('./pages/config/Modulos').then((m) => ({ default: m.ModulosPage })))
 const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ default: m.ItemsPage })))
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
@@ -34,6 +35,7 @@ const BibliotecaPage = lazy(() => import('./pages/biblioteca/BibliotecaPage').th
 const ProyectosHome = lazy(() => import('./pages/proyectos/ProyectosHome').then((m) => ({ default: m.ProyectosHome })))
 const BiometricoProyecto = lazy(() => import('./pages/proyectos/BiometricoProyecto').then((m) => ({ default: m.BiometricoProyecto })))
 const ProyectoDetalle = lazy(() => import('./pages/proyectos/ProyectoDetalle').then((m) => ({ default: m.ProyectoDetalle })))
+const RevisionPreEntregaPage = lazy(() => import('./pages/herramientas/RevisionPreEntrega'))
 
 const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH', 'EVALUADOR']
 
@@ -106,6 +108,39 @@ function Rutas() {
                         </RequireAuth>
                       }
                     />
+
+                    <Route
+                      path="/herramientas/revision-pre-entrega"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <RevisionPreEntregaPage />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    {/* El mismo flujo de evaluación, pero sobre un departamento
+                        centralizado: la unidad se lee de la ruta. */}
+                    <Route
+                      path="/evaluar/departamento/:departamentoId"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <EvaluarSucursal />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/evaluar/departamento/:departamentoId/resumen"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <EvaluarResumen />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
                     <Route
                       path="/evaluar/:sucursalId"
                       element={
@@ -167,6 +202,7 @@ function Rutas() {
                         }
                       />
                       <Route path="/config/sucursales" element={<SoloLider><SucursalesPage /></SoloLider>} />
+                      <Route path="/config/departamentos" element={<SoloLider><DepartamentosPage /></SoloLider>} />
                       <Route path="/config/modulos" element={<SoloLider><ModulosPage /></SoloLider>} />
                       <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
                       <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />

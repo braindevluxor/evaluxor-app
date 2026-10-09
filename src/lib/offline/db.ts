@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Modulo, Item, Sucursal, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem, SucursalOpcion } from '../types'
+import type { Modulo, Item, Sucursal, Departamento, DepartamentoModulo, DepartamentoItem, DepartamentoOpcion, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem, SucursalOpcion } from '../types'
 import { claveRespuesta, type InstanciaPlana } from '../pasos'
 import { normalizarResponsables, type ResponsableIncidencia } from '../data/responsablesIncidencia'
 
@@ -22,7 +22,14 @@ export interface DraftInstancia {
 }
 
 export interface DraftEval {
-  sucursal_id: string
+  /**
+   * Clave del borrador: id de la UNIDAD a la que pertenece, que puede ser una
+   * sucursal o un departamento centralizado. Es también la clave del store
+   * `drafts`, así que nunca conviven dos borradores de la misma unidad.
+   */
+  unidad_id: string
+  /** Seteado cuando el borrador es de un departamento (su id va en `unidad_id`). */
+  departamento_id?: string | null
   evaluador_id: string
   fecha: string
   comentario_general: string
@@ -80,7 +87,10 @@ export interface PhotoRecord {
 export interface IncidenteRecord {
   id: string
   evaluador_id: string
-  sucursal_id: string
+  /** Unidad de la evaluación: sucursal o departamento (heredada de la evaluación). */
+  unidad_id: string
+  /** Seteado cuando la incidencia es de una evaluación de departamento. */
+  departamento_id?: string | null
   fecha: string
   modulo_id: string | null
   descripcion: string
@@ -95,9 +105,34 @@ export interface IncidenteRecord {
   sync: 'pendiente' | 'enviado'
 }
 
+export interface PreEntregaRecord {
+  id: string
+  evaluador_id: string
+  sucursal_id: string
+  modulo_id: string | null
+  placa: string
+  vehiculo: Record<string, unknown>
+  chofer: Record<string, unknown>
+  chofer_firma: string | null
+  observaciones: string
+  /** Respuestas del check list: `{ [item_id]: <valor de ItemRenderer> }`. */
+  respuestas: Record<string, unknown>
+  estado: 'BORRADOR' | 'FINALIZADA'
+  /** Fecha calendario (YYYY-MM-DD) de la entrega. */
+  fecha: string
+  /** Fotos de las respuestas que aún no llegaron al bucket. */
+  photoIds: string[]
+  created_at: number
+  updated_at: number
+  sync: 'pendiente' | 'enviado'
+}
+
 export interface SyncJob {
   id: string
-  sucursal_id: string
+  /** Unidad de la evaluación: sucursal o departamento. */
+  unidad_id: string
+  /** Seteado cuando la evaluación es de departamento (su id va en `unidad_id`). */
+  departamento_id?: string | null
   evaluador_id: string
   fecha: string
   instancias: { id: string; item_id: string; etiqueta: string; orden: number; api_id?: string; datos?: Record<string, unknown> }[]
@@ -113,6 +148,16 @@ export interface CacheData {
   modulos: Modulo[]
   items: Item[]
   sucursales: Sucursal[]
+  /**
+   * Departamentos centralizados y su configuración. Van en el mismo cache que
+   * la de sucursales porque aplican la misma regla (sin filas activas aplica
+   * todo). Son opcionales: los caches escritos por versiones anteriores no los
+   * traen, y `normalizarCache` los completa con listas vacías.
+   */
+  departamentos?: Departamento[]
+  departamentoModulos?: DepartamentoModulo[]
+  departamentoItems?: DepartamentoItem[]
+  departamentoOpciones?: DepartamentoOpcion[]
   asignaciones: Asignacion[]
   asignacionesModulos: AsignacionModulo[]
   sucursalModulos: SucursalModulo[]
@@ -127,12 +172,16 @@ interface EvaluxorDB extends DBSchema {
   photos: { key: string; value: PhotoRecord }
   queue: { key: string; value: SyncJob }
   incidentes: { key: string; value: IncidenteRecord }
+  /** Revisión Pre-Entrega armada en el dispositivo (borrador o pendiente de subir). */
+  preentrega: { key: string; value: PreEntregaRecord }
 }
 
 const DB_NAME = 'evaluxor-db'
-const DB_VERSION = 6
+// 7: el store `preentrega` puede faltar en dispositivos que ya abrieron la base
+// como v6 con un build sin la herramienta; subir un punto lo crea sin tocar datos.
+const DB_VERSION = 7
 /** Stores que la app necesita para funcionar. */
-const STORES = ['cache', 'drafts', 'photos', 'queue', 'incidentes'] as const
+const STORES = ['cache', 'drafts', 'photos', 'queue', 'incidentes', 'preentrega'] as const
 
 let dbPromise: Promise<IDBPDatabase<EvaluxorDB>> | null = null
 
@@ -152,6 +201,7 @@ async function abrirDB(version: number): Promise<IDBPDatabase<EvaluxorDB>> {
         if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos')
         if (!db.objectStoreNames.contains('queue')) db.createObjectStore('queue')
         if (!db.objectStoreNames.contains('incidentes')) db.createObjectStore('incidentes')
+        if (!db.objectStoreNames.contains('preentrega')) db.createObjectStore('preentrega')
         if (oldVersion > 0 && oldVersion < 4) {
           // Solo se renueva el catálogo cacheado, que es lo único que puede quedar
           // incompatible con el código nuevo. La cola y los borradores son trabajo
@@ -206,13 +256,25 @@ export async function limpiarCacheCatalogo(): Promise<void> {
 }
 
 /** Qué hay guardado en el dispositivo, para poder avisar antes de borrar. */
-export async function resumenAlmacenamiento(): Promise<{ borradores: number; cola: number; fotos: number; incidentes: number }> {
+export async function resumenAlmacenamiento(): Promise<{
+  borradores: number
+  cola: number
+  fotos: number
+  incidentes: number
+  preentregas: number
+}> {
   try {
     const db = await getDB()
-    const [borradores, cola, fotos, incidentes] = await Promise.all([db.count('drafts'), db.count('queue'), db.count('photos'), db.count('incidentes')])
-    return { borradores, cola, fotos, incidentes }
+    const [borradores, cola, fotos, incidentes, preentregas] = await Promise.all([
+      db.count('drafts'),
+      db.count('queue'),
+      db.count('photos'),
+      db.count('incidentes'),
+      db.count('preentrega')
+    ])
+    return { borradores, cola, fotos, incidentes, preentregas }
   } catch {
-    return { borradores: 0, cola: 0, fotos: 0, incidentes: 0 }
+    return { borradores: 0, cola: 0, fotos: 0, incidentes: 0, preentregas: 0 }
   }
 }
 
@@ -250,6 +312,10 @@ export function normalizarCache(bruto: unknown): CacheData {
     modulos: oLista(c.modulos),
     items: oLista(c.items),
     sucursales: oLista(c.sucursales),
+    departamentos: oLista(c.departamentos),
+    departamentoModulos: oLista(c.departamentoModulos),
+    departamentoItems: oLista(c.departamentoItems),
+    departamentoOpciones: oLista(c.departamentoOpciones),
     asignaciones: oLista(c.asignaciones),
     asignacionesModulos: oLista(c.asignacionesModulos),
     sucursalModulos: oLista(c.sucursalModulos),
@@ -264,19 +330,19 @@ export async function putCache(data: CacheData): Promise<void> {
   await db.put('cache', { ...data, updated_at: Date.now() }, 'data')
 }
 
-export async function getDraft(sucursalId: string): Promise<DraftEval | undefined> {
+export async function getDraft(unidadId: string): Promise<DraftEval | undefined> {
   const db = await getDB()
-  return db.get('drafts', sucursalId)
+  return db.get('drafts', unidadId)
 }
 
 export async function putDraft(draft: DraftEval): Promise<void> {
   const db = await getDB()
-  await db.put('drafts', { ...draft, updated_at: Date.now() }, draft.sucursal_id)
+  await db.put('drafts', { ...draft, updated_at: Date.now() }, draft.unidad_id)
 }
 
-export async function deleteDraft(sucursalId: string): Promise<void> {
+export async function deleteDraft(unidadId: string): Promise<void> {
   const db = await getDB()
-  await db.delete('drafts', sucursalId)
+  await db.delete('drafts', unidadId)
 }
 
 export async function addPhoto(blob: Blob, mime: string): Promise<string> {
@@ -341,9 +407,9 @@ export async function listIncidentes(): Promise<IncidenteRecord[]> {
     .sort((a, b) => a.created_at - b.created_at)
 }
 
-export async function listIncidentesEvaluacion(sucursalId: string, fecha: string, evaluadorId: string): Promise<IncidenteRecord[]> {
+export async function listIncidentesEvaluacion(unidadId: string, fecha: string, evaluadorId: string): Promise<IncidenteRecord[]> {
   return (await listIncidentes()).filter(
-    (incidente) => incidente.sucursal_id === sucursalId && incidente.fecha === fecha && incidente.evaluador_id === evaluadorId
+    (incidente) => incidente.unidad_id === unidadId && incidente.fecha === fecha && incidente.evaluador_id === evaluadorId
   )
 }
 
@@ -357,4 +423,47 @@ export async function incidentesPendientes(): Promise<IncidenteRecord[]> {
 export async function eliminarIncidente(id: string): Promise<void> {
   const db = await getDB()
   await db.delete('incidentes', id)
+}
+
+/* --- Revisión Pre-Entrega ---------------------------------------------------- */
+
+/** Guarda (o reemplaza) la revisión que se está armando en el dispositivo. */
+export async function putPreEntrega(registro: PreEntregaRecord): Promise<void> {
+  const db = await getDB()
+  await db.put('preentrega', { ...registro, updated_at: Date.now() }, registro.id)
+}
+
+/**
+ * Solo se retoma una `BORRADOR`; una `FINALIZADA` que quedó sin confirmar es
+ * cosa de la cola de subida, no del formulario.
+ */
+export async function getPreEntregaAbierta(evaluadorId: string): Promise<PreEntregaRecord | undefined> {
+  const todas = await listPreEntregas()
+  const abiertas = todas.filter((r) => r.evaluador_id === evaluadorId && r.estado === 'BORRADOR')
+  return abiertas[abiertas.length - 1]
+}
+
+async function listPreEntregas(): Promise<PreEntregaRecord[]> {
+  const db = await getDB()
+  const all = await db.getAll('preentrega')
+  return all.sort((a, b) => a.created_at - b.created_at)
+}
+
+/** Las que todavía no llegaron al servidor (para la subida y los avisos). */
+export async function preEntregasPendientes(): Promise<PreEntregaRecord[]> {
+  return (await listPreEntregas()).filter((r) => r.sync === 'pendiente')
+}
+
+/** El borrador subió bien: queda en el dispositivo como `enviado` (se sigue editando). */
+export async function marcarPreEntregaEnviada(id: string): Promise<void> {
+  const db = await getDB()
+  const actual = await db.get('preentrega', id)
+  if (!actual) return
+  await db.put('preentrega', { ...actual, sync: 'enviado', updated_at: Date.now() }, id)
+}
+
+/** La revisión finalizada llegó al servidor: sale de local con sus fotos. */
+export async function eliminarPreEntrega(id: string): Promise<void> {
+  const db = await getDB()
+  await db.delete('preentrega', id)
 }

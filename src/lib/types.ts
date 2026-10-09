@@ -26,6 +26,18 @@ export interface Sucursal {
   gerente?: { id?: string; nombre: string } | null
 }
 
+/**
+ * Departamento/área de la organización (Mercadeo, Taller, Talento Humano,
+ * Administración...). Es la unidad que se evalúa en la oficina: NO es una
+ * sucursal, por eso vive en su tabla y no en `sucursales`.
+ */
+export interface Departamento {
+  id: string
+  nombre: string
+  activa: boolean
+  created_at: string
+}
+
 export interface Profile {
   id: string
   email: string
@@ -97,6 +109,34 @@ export interface SucursalOpcion {
   created_at: string
 }
 
+// Los tres gemelos de la configuración por sucursal, para la configuración de
+// un DEPARTAMENTO centralizado. Misma semántica en los tres: sin filas activas
+// aplica todo; con filas, solo lo marcado.
+export interface DepartamentoModulo {
+  id: string
+  departamento_id: string
+  modulo_id: string
+  activa: boolean
+  created_at: string
+}
+
+export interface DepartamentoItem {
+  id: string
+  departamento_id: string
+  item_id: string
+  activa: boolean
+  created_at: string
+}
+
+export interface DepartamentoOpcion {
+  id: string
+  departamento_id: string
+  item_id: string
+  opcion_id: string
+  activa: boolean
+  created_at: string
+}
+
 export interface Modulo {
   id: string
   nombre: string
@@ -107,6 +147,12 @@ export interface Modulo {
   activo: boolean
   /** Compartido: varios evaluadores pueden llenarlo a la vez (colaboración en vivo). No compartido = un solo evaluador. */
   compartido?: boolean
+  /**
+   * Marca de módulo-herramienta externa (ej. 'REVISION_PRE_ENTREGA'). NULL o
+   * ausente = módulo normal de evaluación. Las herramientas no entran en la
+   * puntuación ni en la lista de /evaluar; sí se configuran en Ítems de evaluación.
+   */
+  herramienta?: string | null
   created_at: string
 }
 
@@ -162,7 +208,10 @@ export type EstadoEvaluacion = 'PROGRAMADA' | 'ACTIVA' | 'CERRADA'
 export interface Evaluacion {
   id: string
   offline_uuid: string
-  sucursal_id: string
+  /** Unidad de la evaluación: una sucursal O un departamento centralizado. */
+  sucursal_id: string | null
+  /** Idem, cuando la evaluación es de departamento (exactamente una de las dos). */
+  departamento_id: string | null
   aperturada_por: string
   fecha: string
   estado: EstadoEvaluacion
@@ -210,5 +259,36 @@ export interface Foto {
 
 export type VistaEvaluacion = Evaluacion & {
   sucursal?: Pick<Sucursal, 'id' | 'nombre' | 'shop_id' | 'branch_id' | 'direccion'> | null
+  departamento?: Pick<Departamento, 'id' | 'nombre'> | null
   aperturador?: Pick<Profile, 'id' | 'nombre'> | null
+}
+
+/**
+ * Revisión Pre-Entrega (herramienta): check list de entrega de vehículo, fuera
+ * del flujo de `evaluaciones`. Vive en su propia tabla `revision_pre_entrega`.
+ *
+ * En el dispositivo se guarda como `PreEntregaRecord` (`offline/db.ts`), que es
+ * esta misma fila pero con `created_at`/`updated_at` en milisegundos, más
+ * `photoIds` (fotos aún sin subir) y `sync` (pendiente de subir).
+ */
+export interface RevisionPreEntrega {
+  id: string
+  evaluador_id: string
+  sucursal_id: string
+  modulo_id: string | null
+  placa: string
+  /** Datos del vehículo traídos de la API de flota (o capturados a mano). */
+  vehiculo: Record<string, unknown>
+  /** Datos del chofer: los de la API de trabajadores o los capturados a mano. */
+  chofer: Record<string, unknown>
+  /** Firma del chofer como data URL (la imprime el PDF). */
+  chofer_firma: string | null
+  observaciones: string | null
+  /** Respuestas del check list: `{ [item_id]: <valor de ItemRenderer> }`. */
+  respuestas: Record<string, unknown>
+  estado: 'BORRADOR' | 'FINALIZADA'
+  /** Fecha calendario (YYYY-MM-DD) de la entrega. */
+  fecha: string
+  created_at: string
+  updated_at: string
 }

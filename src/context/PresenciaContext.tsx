@@ -33,7 +33,7 @@ const PresenciaContext = createContext<PresenciaContextValue | null>(null)
 export function PresenciaProvider({ children }: { children: ReactNode }) {
   const { profile } = useAuth()
   const { pathname } = useLocation()
-  const { sucursales, modulos } = useCatalog()
+  const { sucursales, departamentos, modulos } = useCatalog()
 
   const [estado, setEstado] = useState<EstadoCanal>({})
   const [disponible, setDisponible] = useState(false)
@@ -45,8 +45,8 @@ export function PresenciaProvider({ children }: { children: ReactNode }) {
   const anuncioRef = useRef<PresenciaUsuario | null>(null)
 
   const miPantalla = useMemo(
-    () => etiquetaPantalla(pathname, { sucursales, modulos }),
-    [pathname, sucursales, modulos]
+    () => etiquetaPantalla(pathname, { sucursales, departamentos, modulos }),
+    [pathname, sucursales, departamentos, modulos]
   )
 
   // Último anuncio: se publica en el canal, no se usa para pintar (por eso va en un

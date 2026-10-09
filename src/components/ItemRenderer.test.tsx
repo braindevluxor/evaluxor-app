@@ -376,7 +376,7 @@ describe('ItemRenderer · re-escaneo: la fila guardada no reemplaza la consulta'
     // El re-escaneo refresca el borrador (lo que se ve al escanear); la lista
     // solo cambia cuando se registra la cantidad. Ninguna consulta debe llamar a
     // `actualizar` por su cuenta.
-    const desde = src.indexOf('const aplicarCodigo = async () => {')
+    const desde = src.indexOf('const aplicarCodigo = async')
     const hasta = src.indexOf('const agregar = () => {')
     expect(desde).toBeGreaterThan(-1)
     expect(hasta).toBeGreaterThan(desde)

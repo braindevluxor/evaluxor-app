@@ -108,7 +108,7 @@ const items: Item[] = [
 ]
 
 const evaluacion: VistaEvaluacion = {
-  id: 'ev1', offline_uuid: 'ou1', sucursal_id: 's1', aperturada_por: 'p1',
+  id: 'ev1', offline_uuid: 'ou1', sucursal_id: 's1', departamento_id: null, aperturada_por: 'p1',
   fecha: '2026-09-10', estado: 'CERRADA', puntuacion: 76,
   comentario_general: 'Se observa buena disposición general del equipo. Es prioritario reforzar los sellos de cámaras y la reposición de extintores en flota.',
   abierta_en: '2026-09-10T08:00:00', cerrada_en: '2026-09-10T11:30:00', created_at: '2026-09-10T08:00:00',

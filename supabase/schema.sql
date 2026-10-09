@@ -35,6 +35,31 @@ alter table public.sucursales add column if not exists gerente_id uuid reference
 alter table public.sucursales add column if not exists branch_id text;
 
 -- ----------------------------------------------------------------------------
+-- DEPARTAMENTOS CENTRALIZADOS (areas de la organizacion que NO son sucursales)
+--
+-- Central es la oficina: lo que se evalua ahi son sus departamentos (Mercadeo,
+-- Taller, Talento Humano, Administracion, ...), y cada uno tiene su propia
+-- evaluacion. Van aparte porque no tienen shop_id, branch_id, direccion ni
+-- Gerente S.
+--
+-- El nombre lleva el sufijo "_centralizados" porque en la base ya existia una
+-- tabla `departamentos` de otro proceso (trae una columna `codigo NOT NULL`):
+-- no se pisa y no se depende de lo que tenga adentro. En la app se llaman
+-- "Departamentos". Ver el detalle y la siembra en
+-- `departamentos-centralizados.sql`.
+-- ----------------------------------------------------------------------------
+create table if not exists public.departamentos_centralizados (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  activa boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+drop index if exists uniq_departamentos_centralizados_nombre;
+create unique index if not exists uniq_departamentos_centralizados_nombre
+  on public.departamentos_centralizados (lower(nombre));
+
+-- ----------------------------------------------------------------------------
 -- PROFILES (1:1 con auth.users; el rol y sucursal se asignan desde invitacion)
 -- ----------------------------------------------------------------------------
 create table if not exists public.profiles (
@@ -467,6 +492,36 @@ create table if not exists public.sucursal_opciones (
   unique (sucursal_id, item_id, opcion_id)
 );
 
+-- CONFIG POR DEPARTAMENTO: gemelo de la de sucursales, con la unidad apuntando
+-- a departamentos_centralizados. Misma semantica: sin filas activas aplica todo.
+create table if not exists public.departamento_modulos (
+  id uuid primary key default gen_random_uuid(),
+  departamento_id uuid not null references public.departamentos_centralizados(id) on delete cascade,
+  modulo_id uuid not null references public.modulos(id) on delete cascade,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (departamento_id, modulo_id)
+);
+
+create table if not exists public.departamento_items (
+  id uuid primary key default gen_random_uuid(),
+  departamento_id uuid not null references public.departamentos_centralizados(id) on delete cascade,
+  item_id uuid not null references public.items(id) on delete cascade,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (departamento_id, item_id)
+);
+
+create table if not exists public.departamento_opciones (
+  id uuid primary key default gen_random_uuid(),
+  departamento_id uuid not null references public.departamentos_centralizados(id) on delete cascade,
+  item_id uuid not null references public.items(id) on delete cascade,
+  opcion_id text not null,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (departamento_id, item_id, opcion_id)
+);
+
 -- ----------------------------------------------------------------------------
 -- EVALUACIONES / RESPUESTAS / FOTOS
 -- EvaluaciÃ³n compartida: la apertura/programa el LIDER (estado) y todos los
@@ -475,7 +530,10 @@ create table if not exists public.sucursal_opciones (
 create table if not exists public.evaluaciones (
   id uuid primary key default gen_random_uuid(),
   offline_uuid uuid not null unique,          -- generado en el dispositivo (idem-potencia en sync)
-  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  -- UNIDAD: una sucursal O un departamento centralizado. Exactamente una de las
+  -- dos, nunca las dos ni ninguna (lo impone el check de abajo).
+  sucursal_id uuid references public.sucursales(id) on delete cascade,
+  departamento_id uuid references public.departamentos_centralizados(id) on delete cascade,
   aperturada_por uuid references public.profiles(id) on delete set null,
   fecha date not null default current_date,
   estado text not null default 'PROGRAMADA'
@@ -485,9 +543,17 @@ create table if not exists public.evaluaciones (
   abierta_en timestamptz,
   cerrada_en timestamptz,
   created_at timestamptz not null default now(),
-  unique (sucursal_id, fecha)
+  unique (sucursal_id, fecha),
+  -- XOR: la evaluación mide una sola unidad, sucursal O departamento.
+  constraint evaluaciones_unidad_check
+    check ((sucursal_id is null) <> (departamento_id is null))
 );
 create index if not exists idx_evaluaciones_sucursal on public.evaluaciones(sucursal_id, fecha);
+-- `unique (sucursal_id, fecha)` no cubre las de departamento: Postgres compara
+-- los null como distintos. Ellas llevan su propio índice único.
+create unique index if not exists uniq_evaluaciones_departamento_fecha
+  on public.evaluaciones (departamento_id, fecha) where departamento_id is not null;
+create index if not exists idx_evaluaciones_departamento on public.evaluaciones(departamento_id, fecha);
 
 -- Registros repetibles de una secciÃ³n (CONTENEDOR): cada fila es una "planilla"
 -- del grupo (ej. un vehÃ­culo, un productoâ€¦) identificada por su etiqueta (texto libre).
@@ -602,22 +668,47 @@ returns boolean language sql stable security definer set search_path = public as
   select exists (select 1 from public.profiles p where p.id = auth.uid() and p.rol = 'LIDER' and p.activo);
 $$;
 
+-- ¿Aplica este mÃ³dulo a esta evaluaciÃ³n? La unidad de una evaluaciÃ³n puede ser
+-- una sucursal o un departamento centralizado, y cada una tiene su propia
+-- configuraciÃ³n (`sucursal_modulos` / `departamento_modulos`). Misma regla en
+-- los dos casos: si la configuraciÃ³n no tiene filas activas aplica todo; si
+-- tiene, solo lo marcado. Las funciones de permisos delegan acÃ¡ para no
+-- repetir el criterio.
+create or replace function public.modulo_aplica_a_ev(e public.evaluaciones, mod_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select case when e.departamento_id is not null then
+      not exists (select 1 from public.departamento_modulos dm
+                  where dm.departamento_id = e.departamento_id and dm.activa)
+      or exists (select 1 from public.departamento_modulos dm
+                 where dm.departamento_id = e.departamento_id and dm.activa
+                   and dm.modulo_id = mod_id)
+    else
+      not exists (select 1 from public.sucursal_modulos sm
+                  where sm.sucursal_id = e.sucursal_id and sm.activa)
+      or exists (select 1 from public.sucursal_modulos sm
+                 where sm.sucursal_id = e.sucursal_id and sm.activa
+                   and sm.modulo_id = mod_id)
+    end;
+$$;
+
+revoke execute on function public.modulo_aplica_a_ev(public.evaluaciones, uuid) from public, anon;
+grant  execute on function public.modulo_aplica_a_ev(public.evaluaciones, uuid) to authenticated;
+
 create or replace function public.puede_ver_evaluacion(e public.evaluaciones)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.profiles p
       where p.id = auth.uid() and p.activo and (
         p.rol in ('LIDER','GERENTE_C','GERENTE_TH')
+        -- El GERENTE_S ve las de SU sucursal. Las de departamento no son de
+        -- ninguna sucursal, así que no entran por acá.
         or (p.rol = 'GERENTE_S' and e.sucursal_id = p.sucursal_id)
         or (p.rol = 'EVALUADOR' and exists (
               select 1
               from public.asignaciones_modulos am
               join public.modulos m on m.id = am.modulo_id and m.activo
               where am.evaluador_id = p.id and am.activa
-                and (
-                  not exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = e.sucursal_id and sm.activa)
-                  or exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = e.sucursal_id and sm.activa and sm.modulo_id = am.modulo_id)
-                )
+                and public.modulo_aplica_a_ev(e, am.modulo_id)
             )
         )
       )
@@ -625,7 +716,8 @@ returns boolean language sql stable security definer set search_path = public as
 $$;
 
 -- QuiÃ©n puede responder: LIDER siempre; EVALUADOR solo en evaluaciÃ³n ACTIVA y
--- de Ã­tems cuyo mÃ³dulo le estÃ¡ asignado y aplica a la sucursal.
+-- de Ã­tems cuyo mÃ³dulo le estÃ¡ asignado y aplica a la unidad de la evaluaciÃ³n
+-- (sucursal o departamento).
 create or replace function public.puede_responder(ev_id uuid, it_id uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select public.es_lider() or exists (
@@ -635,10 +727,7 @@ returns boolean language sql stable security definer set search_path = public as
     join public.asignaciones_modulos am
       on am.modulo_id = i.modulo_id and am.evaluador_id = auth.uid() and am.activa
     where ev.id = ev_id and ev.estado = 'ACTIVA'
-      and (
-        not exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = ev.sucursal_id and sm.activa)
-        or exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = ev.sucursal_id and sm.activa and sm.modulo_id = i.modulo_id)
-      )
+      and public.modulo_aplica_a_ev(ev, i.modulo_id)
   );
 $$;
 
@@ -653,10 +742,7 @@ returns boolean language sql stable security definer set search_path = public as
     join public.asignaciones_modulos am
       on am.modulo_id = i.modulo_id and am.evaluador_id = auth.uid() and am.activa
     where ev.id = ev_id and ev.estado = 'ACTIVA'
-      and (
-        not exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = ev.sucursal_id and sm.activa)
-        or exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = ev.sucursal_id and sm.activa and sm.modulo_id = i.modulo_id)
-      )
+      and public.modulo_aplica_a_ev(ev, i.modulo_id)
   );
 $$;
 
@@ -665,6 +751,12 @@ drop policy if exists sucursales_select on public.sucursales;
 create policy sucursales_select on public.sucursales for select to authenticated using (true);
 drop policy if exists sucursales_lider on public.sucursales;
 create policy sucursales_lider on public.sucursales for all using (public.es_lider()) with check (public.es_lider());
+
+-- DEPARTAMENTOS CENTRALIZADOS: mismo trato que sucursales (lectura / solo LIDER)
+drop policy if exists departamentos_centralizados_select on public.departamentos_centralizados;
+create policy departamentos_centralizados_select on public.departamentos_centralizados for select to authenticated using (true);
+drop policy if exists departamentos_centralizados_lider on public.departamentos_centralizados;
+create policy departamentos_centralizados_lider on public.departamentos_centralizados for all using (public.es_lider()) with check (public.es_lider());
 
 -- PROFILES: lectura autenticados / gestion completa solo LIDER ------------------
 -- `to authenticated` es lo que cierra esta tabla a quien no iniciÃ³ sesiÃ³n. Con
@@ -719,6 +811,20 @@ drop policy if exists sucursal_opciones_select on public.sucursal_opciones;
 create policy sucursal_opciones_select on public.sucursal_opciones for select to authenticated using (true);
 drop policy if exists sucursal_opciones_lider on public.sucursal_opciones;
 create policy sucursal_opciones_lider on public.sucursal_opciones for all using (public.es_lider()) with check (public.es_lider());
+
+-- CONFIG POR DEPARTAMENTO: mismo trato (lectura autenticados / gestion solo LIDER)
+drop policy if exists departamento_modulos_select on public.departamento_modulos;
+create policy departamento_modulos_select on public.departamento_modulos for select to authenticated using (true);
+drop policy if exists departamento_modulos_lider on public.departamento_modulos;
+create policy departamento_modulos_lider on public.departamento_modulos for all using (public.es_lider()) with check (public.es_lider());
+drop policy if exists departamento_items_select on public.departamento_items;
+create policy departamento_items_select on public.departamento_items for select to authenticated using (true);
+drop policy if exists departamento_items_lider on public.departamento_items;
+create policy departamento_items_lider on public.departamento_items for all using (public.es_lider()) with check (public.es_lider());
+drop policy if exists departamento_opciones_select on public.departamento_opciones;
+create policy departamento_opciones_select on public.departamento_opciones for select to authenticated using (true);
+drop policy if exists departamento_opciones_lider on public.departamento_opciones;
+create policy departamento_opciones_lider on public.departamento_opciones for all using (public.es_lider()) with check (public.es_lider());
 
 -- EVALUACIONES -----------------------------------------------------------------
 -- Select: segÃºn rol + mÃ³dulos asignados. Insert/Update/Delete: solo LIDER.
@@ -944,13 +1050,18 @@ create table if not exists public.incidencias (
   id uuid primary key,
   evaluacion_id uuid not null references public.evaluaciones(id) on delete cascade,
   evaluador_id uuid not null references auth.users(id) on delete cascade,
-  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  -- Hereda la unidad de su evaluación: sucursal o departamento, una sola.
+  sucursal_id uuid references public.sucursales(id) on delete cascade,
+  departamento_id uuid references public.departamentos_centralizados(id) on delete cascade,
   fecha date not null,
   modulo_id uuid references public.modulos(id),
   descripcion text not null,
   fotos text[] not null default '{}'::text[],
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint incidencias_unidad_check
+    check ((sucursal_id is null) <> (departamento_id is null))
 );
+create index if not exists idx_incidencias_departamento on public.incidencias (departamento_id, created_at desc);
 
 -- Cargos responsables de la incidencia. Es un jsonb y no un text[] porque cada
 -- cargo lleva su propia marca: `por_validar` va en true cuando se escribiÃ³ a
@@ -981,10 +1092,7 @@ returns boolean language sql stable security definer set search_path = public as
     where ev.id = ev_id
       and ev.estado = 'ACTIVA'
       and (mod_id is null or am.modulo_id = mod_id)
-      and (
-        not exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = ev.sucursal_id and sm.activa)
-        or exists (select 1 from public.sucursal_modulos sm where sm.sucursal_id = ev.sucursal_id and sm.activa and sm.modulo_id = am.modulo_id)
-      )
+      and public.modulo_aplica_a_ev(ev, am.modulo_id)
   );
 $$;
 
@@ -1932,12 +2040,36 @@ create policy sucursal_opciones_select on public.sucursal_opciones for select to
 drop policy if exists "sucursal_opciones_lider" on public.sucursal_opciones;
 create policy sucursal_opciones_lider on public.sucursal_opciones for all using (public.es_lider()) with check (public.es_lider());
 
+-- public.departamento_modulos / _items / _opciones (2 politicas cada una)
+alter table public.departamento_modulos enable row level security;
+drop policy if exists "departamento_modulos_select" on public.departamento_modulos;
+create policy departamento_modulos_select on public.departamento_modulos for select to authenticated using (true);
+drop policy if exists "departamento_modulos_lider" on public.departamento_modulos;
+create policy departamento_modulos_lider on public.departamento_modulos for all using (public.es_lider()) with check (public.es_lider());
+alter table public.departamento_items enable row level security;
+drop policy if exists "departamento_items_select" on public.departamento_items;
+create policy departamento_items_select on public.departamento_items for select to authenticated using (true);
+drop policy if exists "departamento_items_lider" on public.departamento_items;
+create policy departamento_items_lider on public.departamento_items for all using (public.es_lider()) with check (public.es_lider());
+alter table public.departamento_opciones enable row level security;
+drop policy if exists "departamento_opciones_select" on public.departamento_opciones;
+create policy departamento_opciones_select on public.departamento_opciones for select to authenticated using (true);
+drop policy if exists "departamento_opciones_lider" on public.departamento_opciones;
+create policy departamento_opciones_lider on public.departamento_opciones for all using (public.es_lider()) with check (public.es_lider());
+
 -- public.sucursales (2 polÃ­ticas)
 alter table public.sucursales enable row level security;
 drop policy if exists "sucursales_select" on public.sucursales;
 create policy sucursales_select on public.sucursales for select to authenticated using (true);
 drop policy if exists "sucursales_lider" on public.sucursales;
 create policy sucursales_lider on public.sucursales for all using (public.es_lider()) with check (public.es_lider());
+
+-- public.departamentos_centralizados (2 politicas)
+alter table public.departamentos_centralizados enable row level security;
+drop policy if exists "departamentos_centralizados_select" on public.departamentos_centralizados;
+create policy departamentos_centralizados_select on public.departamentos_centralizados for select to authenticated using (true);
+drop policy if exists "departamentos_centralizados_lider" on public.departamentos_centralizados;
+create policy departamentos_centralizados_lider on public.departamentos_centralizados for all using (public.es_lider()) with check (public.es_lider());
 
 -- storage.objects (6 polÃ­ticas)
 -- (storage.objects ya tiene RLS; solo se reponen sus polÃ­ticas)

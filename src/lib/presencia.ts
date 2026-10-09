@@ -31,6 +31,7 @@ export interface PresenciaUsuario {
 
 export interface CatalogoNombres {
   sucursales?: { id: string; nombre: string }[]
+  departamentos?: { id: string; nombre: string }[]
   modulos?: { id: string; nombre: string }[]
 }
 
@@ -62,6 +63,13 @@ export function etiquetaPantalla(ruta: string, catalogo: CatalogoNombres = {}): 
     // /evaluar (la lista de sucursales) no lleva id: es "Mis evaluaciones".
     if (partes.length === 1) return 'Mis evaluaciones'
     if (partes[1] === 'historial') return 'Historial de evaluaciones'
+    // /evaluar/departamento/:departamentoId[/resumen]
+    if (partes[1] === 'departamento') {
+      const dep = nombreDe(catalogo.departamentos, partes[2])
+      const baseDep = dep ? `Departamento ${dep}` : 'un departamento'
+      if (partes[3] === 'resumen') return `Resumen · ${baseDep}`
+      return dep ? `Evaluando · Departamento ${dep}` : 'Evaluando'
+    }
     // /evaluar/:sucursalId[/resumen]
     const suc = nombreDe(catalogo.sucursales, partes[1])
     const base = suc ? `Sucursal ${suc}` : 'una sucursal'
@@ -86,6 +94,7 @@ export function etiquetaPantalla(ruta: string, catalogo: CatalogoNombres = {}): 
 
   if (partes[0] === 'config') {
     if (partes[1] === 'sucursales') return 'Sucursales'
+    if (partes[1] === 'departamentos') return 'Departamentos'
     if (partes[1] === 'modulos') return 'Módulos'
     if (partes[1] === 'items') return 'Ítems'
     if (partes[1] === 'usuarios') return 'Usuarios'

@@ -11,6 +11,7 @@ import {
   medidoresPorModulo,
   peoresItems,
   puntajePorSucursalModulo,
+  puntajePorUnidadModulo,
   rankingSucursales,
   renglonesDrilldown
 } from '../../lib/data/indicadores'
@@ -33,9 +34,100 @@ function haceMeses(n: number): string {
 
 const COLORES_MODULOS = ['#28315F', '#4f87c7', '#16a34a', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#db2777']
 
+/**
+ * Gráfico "Ponderación por unidad y módulo": una curva por módulo con la barra
+ * translúcida del promedio de la unidad. El mismo componente dibuja sucursales
+ * y departamentos; solo cambian las filas y a qué unidad apunta el clic.
+ */
+function GraficoPonderacion({
+  titulo,
+  descripcion,
+  filas,
+  modulos,
+  nombrePromedio,
+  lineaActiva,
+  setLineaActiva,
+  onClic,
+  sinDatos
+}: {
+  titulo: string
+  descripcion: string
+  filas: { nombre: string; porModulo: Record<string, number | null> }[]
+  modulos: { modulo_id: string; nombre: string }[]
+  /** Nombre de la barra en la leyenda ('Promedio por sucursal' / '… por departamento'). */
+  nombrePromedio: string
+  lineaActiva: string | null
+  setLineaActiva: (valor: string | null) => void
+  onClic: (data: unknown) => void
+  sinDatos: string
+}) {
+  const filasGrafico = filas.map((f) => {
+    const valores = Object.values(f.porModulo).filter((v): v is number => v != null)
+    return {
+      unidad: f.nombre,
+      ...f.porModulo,
+      promedio: valores.length ? Math.round((valores.reduce((a, b) => a + b, 0) / valores.length) * 100) / 100 : null
+    }
+  })
+  return (
+    <Card className="lg:col-span-2 border-0!">
+      <h3 className="mb-1 font-bold text-primary-900">{titulo}</h3>
+      <p className="mb-3 text-xs text-slate-400">{descripcion}</p>
+      {modulos.length && filas.length ? (
+        <ResponsiveContainer width="100%" height={380}>
+          <ComposedChart data={filasGrafico} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+            <XAxis dataKey="unidad" interval={0} angle={-38} textAnchor="end" height={90} tick={{ fontSize: 11, fill: '#475569' }} />
+            <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+            <ReferenceLine y={80} stroke="#16a34a" strokeDasharray="4 4" strokeOpacity={0.4} />
+            <ReferenceLine y={60} stroke="#d97706" strokeDasharray="4 4" strokeOpacity={0.4} />
+            <Tooltip
+              formatter={(v, nombre) => [pctComa(Number(v)), String(nombre)]}
+              contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
+            />
+            <Legend
+              iconType="plainline"
+              wrapperStyle={{ fontSize: 12 }}
+              onMouseEnter={(d) => setLineaActiva(d.value === nombrePromedio ? null : (d.value ?? null))}
+              onMouseLeave={() => setLineaActiva(null)}
+            />
+            {/* Barra translúcida: ponderación promedio de la unidad (detrás de las curvas) */}
+            <Bar
+              dataKey="promedio"
+              name={nombrePromedio}
+              fill="#28315F"
+              fillOpacity={0.14}
+              radius={[4, 4, 0, 0]}
+              barSize={16}
+              legendType="rect"
+              onClick={onClic}
+              style={{ cursor: 'pointer' }}
+            />
+            {modulos.map((m, i) => (
+              <Line
+                key={m.modulo_id}
+                type="monotone"
+                dataKey={m.nombre}
+                stroke={COLORES_MODULOS[i % COLORES_MODULOS.length]}
+                strokeWidth={lineaActiva === m.nombre ? 4 : 2}
+                connectNulls
+                dot={{ r: 3, strokeWidth: 1 }}
+                activeDot={{ r: 5 }}
+                opacity={lineaActiva && lineaActiva !== m.nombre ? 0.3 : 1}
+                onClick={onClic}
+                style={{ cursor: 'pointer' }}
+              />
+            ))}
+          </ComposedChart>
+        </ResponsiveContainer>
+      ) : <p className="text-sm text-slate-400">{sinDatos}</p>}
+    </Card>
+  )
+}
+
 export function DashboardHome() {
   const { profile } = useAuth()
-  const { sucursales, modulos, sucursalModulos } = useCatalog()
+  const { sucursales, departamentos, modulos, sucursalModulos } = useCatalog()
 
   const scope = useMemo(() => {
     if (!profile) return null
@@ -54,6 +146,9 @@ export function DashboardHome() {
   const [cargando, setCargando] = useState(true)
 
   const sucursalesVisibles = scope ? sucursales.filter((s) => scope.includes(s.id)) : sucursales
+  // GERENTE_S (con `scope`) solo ve su sucursal: sin departamentos, como en Historial.
+  // Se memoiza: el `[]` nuevo en cada render re-dispararía los useMemo que lo usan.
+  const departamentosVisibles = useMemo(() => (scope ? [] : departamentos), [scope, departamentos])
 
   useEffect(() => {
     let activo = true
@@ -82,12 +177,17 @@ export function DashboardHome() {
     () => (datos ? puntajePorSucursalModulo(datos, sucursalesVisibles) : null),
     [datos, sucursalesVisibles]
   )
+  // El mismo gráfico por departamento: mismos módulos, otras filas.
+  const matrizDepartamentos = useMemo(
+    () => (datos ? puntajePorUnidadModulo(datos, departamentosVisibles) : null),
+    [datos, departamentosVisibles]
+  )
   const modulosOrden = useMemo(() => {
-    const base = matrizModulos?.modulos ?? []
+    const base = datos?.modulos.map((m) => ({ modulo_id: m.id, nombre: m.nombre })) ?? []
     if (!lineaActiva) return base
     // El módulo "hovered" se dibuja al final para quedar encima de los demás (z-index dinámico).
     return [...base].sort((a, b) => (a.nombre === lineaActiva ? 1 : 0) - (b.nombre === lineaActiva ? 1 : 0))
-  }, [matrizModulos, lineaActiva])
+  }, [datos, lineaActiva])
   const peores = useMemo(() => (datos ? peoresItems(datos) : []), [datos])
 
   // Dona de ítems con más incumplimientos: cada ítem aporta el equivalente a evaluaciones
@@ -123,15 +223,33 @@ export function DashboardHome() {
     for (const s of sucursalesVisibles) m.set(s.nombre, s.id)
     return m
   }, [sucursalesVisibles])
+  const idPorNombreDepartamento = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const d of departamentosVisibles) m.set(d.nombre, d.id)
+    return m
+  }, [departamentosVisibles])
 
   const abrirDrill = (p: { titulo: string; subtitulo?: string; alcance: AlcanceDrilldown; etiquetaScope?: string }) => setDrill(p)
 
+  /** Nombre de la fila clickeada en el gráfico de ponderación (payload de recharts). */
+  const nombreClickeado = (data: unknown): string | null => {
+    const d = data as { payload?: Record<string, unknown>; unidad?: unknown } | null | undefined
+    const nombre = d?.payload?.unidad ?? d?.unidad
+    return typeof nombre === 'string' ? nombre : null
+  }
+
   const abrirDrillSucursal = (data: unknown) => {
-    const d = data as { payload?: Record<string, unknown>; sucursal?: unknown } | null | undefined
-    const nombre = d?.payload?.sucursal ?? d?.sucursal
-    if (typeof nombre !== 'string') return
+    const nombre = nombreClickeado(data)
+    if (!nombre) return
     const id = idPorNombreSucursal.get(nombre)
     if (id) abrirDrill({ titulo: nombre, subtitulo: 'Evaluaciones de esta sucursal en el rango seleccionado', alcance: { sucursal_id: id } })
+  }
+
+  const abrirDrillDepartamento = (data: unknown) => {
+    const nombre = nombreClickeado(data)
+    if (!nombre) return
+    const id = idPorNombreDepartamento.get(nombre)
+    if (id) abrirDrill({ titulo: nombre, subtitulo: 'Evaluaciones de este departamento en el rango seleccionado', alcance: { departamento_id: id } })
   }
 
   const abrirDrillMes = (data: unknown) => {
@@ -174,7 +292,12 @@ export function DashboardHome() {
       ? Math.round((conPuntaje.reduce((a, e) => a + (e.puntuacion ?? 0), 0) / conPuntaje.length) * 100) / 100
       : null
     const totalSuc = sucursalesVisibles.length || 1
-    const cubiertas = new Set(datos.evaluaciones.map((e) => e.sucursal_id)).size
+    // Cobertura = cuántas sucursales del alcance tienen evaluación en el rango.
+    // Las de departamento no son de ninguna sucursal: meter su `null` en el set
+    // sumaría una "tienda" que no existe y subiría el porcentaje de mentira.
+    const cubiertas = new Set(
+      datos.evaluaciones.map((e) => e.sucursal_id).filter((s): s is string => !!s)
+    ).size
     return {
       global,
       completadas: datos.evaluaciones.length,
@@ -452,70 +575,33 @@ export function DashboardHome() {
             )}
           </Card>
 
-          <Card className="lg:col-span-2 border-0!">
-            <h3 className="mb-1 font-bold text-primary-900">Ponderación por sucursal y módulo</h3>
-            <p className="mb-3 text-xs text-slate-400">Curvas por módulo con la barra translúcida del promedio por sucursal; pasa el cursor por la leyenda para elevar una curva y haz clic en una barra o punto para ver las evaluaciones de esa sucursal</p>
-            {matrizModulos && matrizModulos.modulos.length && matrizModulos.sucursales.length ? (
-              <ResponsiveContainer width="100%" height={380}>
-                <ComposedChart
-                  data={matrizModulos.sucursales.map((s) => {
-                    const valores = Object.values(s.porModulo).filter((v): v is number => v != null)
-                    return {
-                      sucursal: s.nombre,
-                      ...s.porModulo,
-                      promedio: valores.length
-                        ? Math.round((valores.reduce((a, b) => a + b, 0) / valores.length) * 100) / 100
-                        : null
-                    }
-                  })}
-                  margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                  <XAxis dataKey="sucursal" interval={0} angle={-38} textAnchor="end" height={90} tick={{ fontSize: 11, fill: '#475569' }} />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
-                  <ReferenceLine y={80} stroke="#16a34a" strokeDasharray="4 4" strokeOpacity={0.4} />
-                  <ReferenceLine y={60} stroke="#d97706" strokeDasharray="4 4" strokeOpacity={0.4} />
-                  <Tooltip
-                    formatter={(v, nombre) => [pctComa(Number(v)), String(nombre)]}
-                    contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
-                  />
-                  <Legend
-                    iconType="plainline"
-                    wrapperStyle={{ fontSize: 12 }}
-                    onMouseEnter={(d) => setLineaActiva(d.value === 'Promedio por sucursal' ? null : (d.value ?? null))}
-                    onMouseLeave={() => setLineaActiva(null)}
-                  />
-                  {/* Barra translúcida: ponderación promedio de la sucursal (detrás de las curvas) */}
-                  <Bar
-                    dataKey="promedio"
-                    name="Promedio por sucursal"
-                    fill="#28315F"
-                    fillOpacity={0.14}
-                    radius={[4, 4, 0, 0]}
-                    barSize={16}
-                    legendType="rect"
-                    onClick={abrirDrillSucursal}
-                    style={{ cursor: 'pointer' }}
-                  />
-                  {modulosOrden.map((m, i) => (
-                    <Line
-                      key={m.modulo_id}
-                      type="monotone"
-                      dataKey={m.nombre}
-                      stroke={COLORES_MODULOS[i % COLORES_MODULOS.length]}
-                      strokeWidth={lineaActiva === m.nombre ? 4 : 2}
-                      connectNulls
-                      dot={{ r: 3, strokeWidth: 1 }}
-                      activeDot={{ r: 5 }}
-                      opacity={lineaActiva && lineaActiva !== m.nombre ? 0.3 : 1}
-                      onClick={abrirDrillSucursal}
-                      style={{ cursor: 'pointer' }}
-                    />
-                  ))}
-                </ComposedChart>
-              </ResponsiveContainer>
-            ) : <p className="text-sm text-slate-400">Sin datos de módulos para mostrar en el rango.</p>}
-          </Card>
+          <GraficoPonderacion
+            titulo="Ponderación por sucursal y módulo"
+            descripcion="Curvas por módulo con la barra translúcida del promedio por sucursal; pasa el cursor por la leyenda para elevar una curva y haz clic en una barra o punto para ver las evaluaciones de esa sucursal"
+            filas={matrizModulos?.sucursales ?? []}
+            modulos={modulosOrden}
+            nombrePromedio="Promedio por sucursal"
+            lineaActiva={lineaActiva}
+            setLineaActiva={setLineaActiva}
+            onClic={abrirDrillSucursal}
+            sinDatos="Sin datos de módulos para mostrar en el rango."
+          />
+
+          {/* El filtro por sucursal no aplica a departamentos: con la sucursal
+              elegida el gráfico quedaría vacío, así que no se muestra. */}
+          {!sucursalSel && departamentosVisibles.length ? (
+            <GraficoPonderacion
+              titulo="Ponderación por departamento y módulo"
+              descripcion="Curvas por módulo con la barra translúcida del promedio por departamento; pasa el cursor por la leyenda para elevar una curva y haz clic en una barra o punto para ver las evaluaciones de ese departamento"
+              filas={matrizDepartamentos?.unidades ?? []}
+              modulos={modulosOrden}
+              nombrePromedio="Promedio por departamento"
+              lineaActiva={lineaActiva}
+              setLineaActiva={setLineaActiva}
+              onClic={abrirDrillDepartamento}
+              sinDatos="Sin datos de módulos para mostrar en el rango."
+            />
+          ) : null}
         </div>
       ) : null}
 

@@ -3,7 +3,7 @@ import { puntajePorModulo, type ConjuntoDatos } from './data/indicadores'
 
 const datos: ConjuntoDatos = {
   evaluaciones: [{
-    id: 'e1', offline_uuid: 'x', sucursal_id: 's1', aperturada_por: 'u1',
+    id: 'e1', offline_uuid: 'x', sucursal_id: 's1', departamento_id: null, aperturada_por: 'u1',
     fecha: '2026-01-01', estado: 'CERRADA', puntuacion: 90, comentario_general: null,
     abierta_en: null, cerrada_en: null, created_at: ''
   }],

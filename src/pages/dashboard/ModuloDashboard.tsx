@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Layers } from 'lucide-react'
+import { ArrowLeft, FileDown, Layers } from 'lucide-react'
 import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
@@ -17,7 +17,8 @@ import {
   type ConjuntoDatos,
   type ResumenItemModulo
 } from '../../lib/data/indicadores'
-import { Card, EmptyState, Field, Input, Select, Skeleton } from '../../components/ui'
+import { Card, EmptyState, Field, Input, Select, Skeleton, Button } from '../../components/ui'
+import { descargarReporteModulo } from '../../lib/pdf/reporteModulo'
 import { GraficoItem } from '../../components/dashboard/GraficoItem'
 import { MedidorModulo } from '../../components/dashboard/MedidorModulo'
 import { ModalDrilldown, DetalleEvalCabecera, DetalleRespuestasLista } from '../../components/dashboard/ModalDrilldown'
@@ -72,6 +73,7 @@ export function ModuloDashboard() {
   const [sucursalSel, setSucursalSel] = useState('')
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
   const [cargando, setCargando] = useState(true)
+  const [errorPdf, setErrorPdf] = useState<string | null>(null)
 
   const sucursalesVisibles = scope ? sucursales.filter((s) => scope.includes(s.id)) : sucursales
 
@@ -112,6 +114,34 @@ export function ModuloDashboard() {
     for (const r of resumen) m.set(r.item.id, r)
     return m
   }, [resumen])
+
+  /** Rótulo del filtro activo: la unidad elegida o el alcance completo. */
+  const alcanceTexto = useMemo(() => {
+    const elegida = sucursalSel ?? scope?.[0] ?? ''
+    if (!elegida) return 'Todas las unidades'
+    return sucursalesVisibles.find((s) => s.id === elegida)?.nombre ?? 'Sucursal'
+  }, [sucursalSel, scope, sucursalesVisibles])
+
+  /**
+   * El reporte sale del mismo `resumen` que alimenta las tarjetas: reincidencia
+   * por punto (agrupada por ítem) y resultado general por ítem, en ese orden.
+   */
+  const descargarReporte = async () => {
+    if (!resumen.length) return
+    setErrorPdf(null)
+    try {
+      await descargarReporteModulo({
+        moduloNombre,
+        desde: desde || null,
+        hasta: hasta || null,
+        alcance: alcanceTexto,
+        evaluaciones: datos?.evaluaciones.length ?? 0,
+        resumen
+      })
+    } catch {
+      setErrorPdf('No se pudo generar el reporte. Intenta de nuevo.')
+    }
+  }
 
   const contenedores = useMemo(() => catalogoItems.filter((i) => i.tipo === 'CONTENEDOR'), [catalogoItems])
   const contenedorIds = useMemo(() => new Set(contenedores.map((c) => c.id)), [contenedores])
@@ -246,7 +276,7 @@ export function ModuloDashboard() {
               promedio por umbral, conciliación o trabajadores/unidades).
             </p>
           </div>
-          <div className="shrink-0">
+          <div className="flex shrink-0 flex-col items-end gap-2.5">
             {cargando ? (
               <Skeleton className="h-40 w-40 rounded-2xl" />
             ) : medidor ? (
@@ -271,6 +301,25 @@ export function ModuloDashboard() {
                 </div>
               </div>
             )}
+            <div className="flex flex-col items-end gap-1.5">
+              <Button
+                variant="secondary"
+                className="min-h-0 gap-1.5 px-3 py-2 text-xs"
+                disabled={cargando || !resumen.length}
+                title={
+                  resumen.length
+                    ? 'Reincidencia por punto del checklist y resultado general por ítem'
+                    : 'Sin datos en el rango seleccionado'
+                }
+                onClick={() => void descargarReporte()}
+              >
+                <FileDown className="h-4 w-4" />
+                Descargar reporte
+              </Button>
+              {errorPdf ? (
+                <p className="max-w-[220px] text-right text-[11px] leading-snug text-red-600">{errorPdf}</p>
+              ) : null}
+            </div>
           </div>
         </div>
       </Card>

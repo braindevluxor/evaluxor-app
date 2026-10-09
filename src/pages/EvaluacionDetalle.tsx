@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, ChevronRight, FileDown, FolderOpen, Pencil, RefreshCw, Tag, X } from 'lucide-react'
 import { useOffline } from '../context/OfflineContext'
 import { useAuth } from '../context/AuthContext'
-import { obtenerEvaluacion, resumirEvaluacion, puntajeModuloDeRespuestas, type DetalleEvaluacion } from '../lib/data/indicadores'
+import { obtenerEvaluacion, resumirEvaluacion, puntajeModuloDeRespuestas, unidadDe, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { cargosDelCentro, centroDisponible, separacionDisponible, useCargosPorCentro, type CatalogosCentro, type CentroOperaciones } from '../lib/data/cargosCentro'
 import { descargarInformePdf } from '../lib/pdf'
 import type { OpcionesPdf } from '../lib/pdf/opciones'
@@ -875,7 +875,7 @@ export function EvaluacionDetalle() {
   })
   const { puntaje, itemsBinarios, itemsBinariosOk } = resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones)
   const est = estadoBadge(puntaje)
-  const aplicaOpciones = opcionesQueAplican(evaluacion.sucursal_id, sucursalOpciones)
+  const aplicaOpciones = opcionesQueAplican(unidadDe(evaluacion), sucursalOpciones)
   const aplicarOpciones = (item: Item) => {
     if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
     const ids = aplicaOpciones.get(item.id)
@@ -1379,9 +1379,11 @@ export function EvaluacionDetalle() {
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-lg font-extrabold text-primary-900">{evaluacion.sucursal?.nombre ?? 'Sucursal'}</p>
+                <p className="text-lg font-extrabold text-primary-900">{evaluacion.sucursal?.nombre ?? evaluacion.departamento?.nombre ?? 'Sucursal'}</p>
                 <p className="text-sm text-slate-500">
-                  {[evaluacion.sucursal?.shop_id ? `Nº tienda ${evaluacion.sucursal.shop_id}` : '', evaluacion.sucursal?.direccion ?? ''].filter(Boolean).join(' · ') || 'Sin datos de tienda'}
+                  {evaluacion.departamento
+                    ? 'Departamento'
+                    : [evaluacion.sucursal?.shop_id ? `Nº tienda ${evaluacion.sucursal.shop_id}` : '', evaluacion.sucursal?.direccion ?? ''].filter(Boolean).join(' · ') || 'Sin datos de tienda'}
                 </p>
                 <p className="mt-1 text-xs text-slate-400">
                   {new Date(`${evaluacion.fecha}T12:00:00`).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {evaluacion.aperturador?.nombre ?? '—'}
@@ -1529,7 +1531,7 @@ export function EvaluacionDetalle() {
               .map((r) => ({ item: itemMod.find((i) => i.id === r.item_id), valor: r.valor }))
               .filter((x): x is { item: Item; valor: unknown } => !!x.item)
             const { ok, total } = itemsProporcion(vals.map((v) => ({ item: aplicarOpciones(v.item), valor: v.valor })))
-            const punteo = puntajeModuloDeRespuestas(respuestas, items, m.id, evaluacion.sucursal_id, sucursalOpciones)
+            const punteo = puntajeModuloDeRespuestas(respuestas, items, m.id, unidadDe(evaluacion), sucursalOpciones)
             // Cuántas filas del módulo quedan en pantalla con el filtro actual. El
             // puntaje del módulo NO se recalcula: es el del módulo entero, y bajarlo
             // con el filtro haría creer que el filtro cambió la evaluación.

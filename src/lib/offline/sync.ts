@@ -69,7 +69,8 @@ export async function encolarRespuestas(draft: DraftEval): Promise<void> {
   )
   const job: SyncJob = {
     id: crypto.randomUUID(),
-    sucursal_id: draft.sucursal_id,
+    unidad_id: draft.unidad_id,
+    departamento_id: draft.departamento_id ?? null,
     evaluador_id: draft.evaluador_id,
     fecha: draft.fecha,
     instancias: instanciasDeDraft(draft),
@@ -79,7 +80,24 @@ export async function encolarRespuestas(draft: DraftEval): Promise<void> {
     created_at: Date.now()
   }
   await putJob(job)
-  await deleteDraft(draft.sucursal_id)
+  await deleteDraft(draft.unidad_id)
+}
+
+/**
+ * La evaluación ACTIVA de una unidad (sucursal o departamento) en una fecha.
+ *
+ * Es el eslabón entre lo que quedó en el dispositivo y la fila de la nube: la
+ * unidad puede ser de las dos clases, así que el filtro cambia según cuál sea.
+ */
+async function evaluacionActivaDe(
+  unidad: Pick<SyncJob, 'unidad_id' | 'departamento_id'>,
+  fecha: string
+) {
+  const base = supabase.from('evaluaciones').select('id').eq('fecha', fecha).eq('estado', 'ACTIVA')
+  const q = unidad.departamento_id
+    ? base.eq('departamento_id', unidad.departamento_id)
+    : base.eq('sucursal_id', unidad.unidad_id)
+  return q.maybeSingle()
 }
 
 type FilaInstancia = {
@@ -249,8 +267,14 @@ const idsPorConsulta = 100
  * Devuelve `null` si falta algo: sin los datos completos es mejor no explicar
  * nada que explicar la mitad y dejar al evaluador creyendo a medias.
  */
-async function reglasDeGuardado(sucursalId: string | undefined, itemIds: string[]): Promise<ReglasGuardado | null> {
-  if (!sucursalId || !itemIds.length) return null
+async function reglasDeGuardado(
+  evaluacion: { sucursal_id?: string | null; departamento_id?: string | null } | null,
+  itemIds: string[]
+): Promise<ReglasGuardado | null> {
+  const departamentoId = evaluacion?.departamento_id ?? null
+  const sucursalId = evaluacion?.sucursal_id ?? null
+  const unidadId = departamentoId ?? sucursalId
+  if (!unidadId || !itemIds.length) return null
   try {
     // Los ids van en la URL del POST, así que un avance largo se reparte: metidos
     // todos en un `in` una evaluación con muchas respuestas llegaría a cortar la
@@ -258,12 +282,16 @@ async function reglasDeGuardado(sucursalId: string | undefined, itemIds: string[
     // caso grande, que es donde más ítems puede haber bloqueados.
     const trozos: string[][] = []
     for (let i = 0; i < itemIds.length; i += idsPorConsulta) trozos.push(itemIds.slice(i, i + idsPorConsulta))
-    const [consultas, asignaciones, deLaSucursal] = await Promise.all([
+    const [consultas, asignaciones, deLaUnidad] = await Promise.all([
       Promise.all(trozos.map((ids) => supabase.from('items').select('id, modulo_id').in('id', ids))),
       supabase.from('asignaciones_modulos').select('modulo_id').eq('activa', true),
-      supabase.from('sucursal_modulos').select('modulo_id').eq('sucursal_id', sucursalId).eq('activa', true)
+      // La configuración de módulos es de la unidad de la evaluación: la de la
+      // sucursal o la del departamento.
+      departamentoId
+        ? supabase.from('departamento_modulos').select('modulo_id').eq('departamento_id', departamentoId).eq('activa', true)
+        : supabase.from('sucursal_modulos').select('modulo_id').eq('sucursal_id', unidadId).eq('activa', true)
     ])
-    if (asignaciones.error || deLaSucursal.error) return null
+    if (asignaciones.error || deLaUnidad.error) return null
     if (consultas.some((c) => c.error)) return null
 
     const filas = consultas.flatMap((c) => (c.data ?? []) as { id: string; modulo_id: string | null }[])
@@ -281,7 +309,7 @@ async function reglasDeGuardado(sucursalId: string | undefined, itemIds: string[
 
     return {
       asignados: new Set((asignaciones.data ?? []).map((a) => (a as { modulo_id: string }).modulo_id)),
-      habilitadosSucursal: new Set((deLaSucursal.data ?? []).map((s) => (s as { modulo_id: string }).modulo_id)),
+      habilitadosUnidad: new Set((deLaUnidad.data ?? []).map((s) => (s as { modulo_id: string }).modulo_id)),
       moduloDeItem,
       nombreDeModulo
     }
@@ -304,8 +332,8 @@ async function reglasDeGuardado(sucursalId: string | undefined, itemIds: string[
  */
 async function explicarPermiso(e: ErrorSubida, evaluacionId: string, itemIds: string[]): Promise<ErrorSubida> {
   if (e.causa !== 'rechazada') return e
-  const { data } = await supabase.from('evaluaciones').select('estado, sucursal_id').eq('id', evaluacionId).maybeSingle()
-  const evaluacion = data as { estado?: string; sucursal_id?: string } | null
+  const { data } = await supabase.from('evaluaciones').select('estado, sucursal_id, departamento_id').eq('id', evaluacionId).maybeSingle()
+  const evaluacion = data as { estado?: string; sucursal_id?: string | null; departamento_id?: string | null } | null
   const estado = evaluacion?.estado
   if (!estado) return e
 
@@ -316,7 +344,7 @@ async function explicarPermiso(e: ErrorSubida, evaluacionId: string, itemIds: st
     return err
   }
 
-  const reglas = await reglasDeGuardado(evaluacion.sucursal_id, itemIds)
+  const reglas = await reglasDeGuardado(evaluacion, itemIds)
   const explicacion = reglas ? explicacionBloqueos(bloqueosDeGuardado(reglas)) : null
   if (explicacion) e.explicacion = explicacion
   return e
@@ -437,14 +465,8 @@ export async function procesarCola(): Promise<{
 
     try {
       // La evaluación ya existe (la apertura/abre el Líder). Se resuelve por
-      // sucursal + fecha y debe estar ACTIVA para recibir respuestas.
-      const { data: ev, error: evErr } = await supabase
-        .from('evaluaciones')
-        .select('id')
-        .eq('sucursal_id', job.sucursal_id)
-        .eq('fecha', job.fecha)
-        .eq('estado', 'ACTIVA')
-        .maybeSingle()
+      // unidad + fecha y debe estar ACTIVA para recibir respuestas.
+      const { data: ev, error: evErr } = await evaluacionActivaDe(job, job.fecha)
       if (evErr) throw evErr
       if (!ev) throw new Error('La evaluación no está activa. El Líder debe abrirla antes de sincronizar respuestas.')
       evaluacionId = ev.id as string
@@ -539,13 +561,7 @@ export async function sincronizarIncidentes(): Promise<{ ok: number; fail: numbe
   let fail = 0
   for (const inc of pendientes) {
     try {
-      const { data: ev, error: evErr } = await supabase
-        .from('evaluaciones')
-        .select('id')
-        .eq('sucursal_id', inc.sucursal_id)
-        .eq('fecha', inc.fecha)
-        .eq('estado', 'ACTIVA')
-        .maybeSingle()
+      const { data: ev, error: evErr } = await evaluacionActivaDe(inc, inc.fecha)
       if (evErr) throw evErr
       if (!ev) throw new Error('La evaluación no está activa. El Líder debe abrirla antes de sincronizar incidencias.')
       const evaluacionId = ev.id as string
@@ -554,7 +570,9 @@ export async function sincronizarIncidentes(): Promise<{ ok: number; fail: numbe
         id: inc.id,
         evaluacion_id: evaluacionId,
         evaluador_id: inc.evaluador_id,
-        sucursal_id: inc.sucursal_id,
+        // Una incidencia hereda la unidad de su evaluación: sucursal o departamento.
+        sucursal_id: inc.departamento_id ? null : inc.unidad_id,
+        departamento_id: inc.departamento_id ?? null,
         fecha: inc.fecha,
         modulo_id: inc.modulo_id,
         descripcion: inc.descripcion,

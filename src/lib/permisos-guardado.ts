@@ -6,9 +6,9 @@
  *
  *   1. que el módulo del ítem tenga asignación viva para él
  *      (`asignaciones_modulos.activa`);
- *   2. que ese módulo esté habilitado en la sucursal (`sucursal_modulos.activa`),
- *      pero solo si la sucursal tiene algún módulo activo: si no tiene ninguno,
- *      le aplican todos.
+ *   2. que ese módulo esté habilitado en la unidad de la evaluación
+ *      (`sucursal_modulos.activa` o `departamento_modulos.activa`), pero solo si
+ *      la unidad tiene algún módulo activo: si no tiene ninguno, le aplican todos.
  *
  * El 42501 de Postgres no dice cuál de las dos falló, así que la app terminaba
  * mostrando `new row violates row-level security policy for table
@@ -32,15 +32,15 @@
 export interface ReglasGuardado {
   /** Módulos con `asignaciones_modulos.activa` para quien está guardando. */
   asignados: ReadonlySet<string>
-  /** `modulo_id` con fila activa en `sucursal_modulos` de la sucursal. */
-  habilitadosSucursal: ReadonlySet<string>
+  /** `modulo_id` con fila activa en la configuración de la unidad (`sucursal_modulos` o `departamento_modulos`). */
+  habilitadosUnidad: ReadonlySet<string>
   /** `modulo_id` de cada ítem rechazado. `null` = no se pudo leer su módulo. */
   moduloDeItem: ReadonlyMap<string, string | null>
   /** Nombre de cada módulo, para que el mensaje diga cuál y no un UUID. */
   nombreDeModulo: ReadonlyMap<string, string>
 }
 
-export type MotivoPermiso = 'asignacion_dada_de_baja' | 'modulo_no_aplica_a_la_sucursal'
+export type MotivoPermiso = 'asignacion_dada_de_baja' | 'modulo_no_aplica_a_la_unidad'
 
 export interface BloqueoPermiso {
   motivo: MotivoPermiso
@@ -81,9 +81,9 @@ export function bloqueosDeGuardado(reglas: ReglasGuardado): BloqueoPermiso[] {
     if (!reglas.asignados.has(moduloId)) {
       bloqueos.push({ motivo: 'asignacion_dada_de_baja', modulo_id: moduloId, modulo, item_ids: itemIds })
     }
-    if (reglas.habilitadosSucursal.size > 0 && !reglas.habilitadosSucursal.has(moduloId)) {
+    if (reglas.habilitadosUnidad.size > 0 && !reglas.habilitadosUnidad.has(moduloId)) {
       bloqueos.push({
-        motivo: 'modulo_no_aplica_a_la_sucursal',
+        motivo: 'modulo_no_aplica_a_la_unidad',
         modulo_id: moduloId,
         modulo,
         item_ids: itemIds
@@ -97,7 +97,7 @@ export function bloqueosDeGuardado(reglas: ReglasGuardado): BloqueoPermiso[] {
 export function textoBloqueo(b: BloqueoPermiso): string {
   return b.motivo === 'asignacion_dada_de_baja'
     ? `«${b.modulo}» ya no lo tenés asignado`
-    : `«${b.modulo}» no está habilitado en esta sucursal`
+    : `«${b.modulo}» no está habilitado en esta evaluación`
 }
 
 /**

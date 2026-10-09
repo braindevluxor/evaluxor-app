@@ -1,4 +1,4 @@
-import { Gauge, FolderOpen, FolderKanban, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen } from 'lucide-react'
+import { Gauge, FolderOpen, FolderKanban, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen, Building2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -31,6 +31,7 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/dashboard/historial': { titulo: 'Historial de evaluaciones', subtitulo: 'Programación, seguimiento y cierre de evaluaciones' },
   '/dashboard/comparativas': { titulo: 'Comparativas', subtitulo: 'Analiza el desempeño por evaluador, mes o sucursal' },
   '/config/sucursales': { titulo: 'Sucursales', subtitulo: 'Registro de supermercados a evaluar' },
+  '/config/departamentos': { titulo: 'Departamentos', subtitulo: 'Áreas de la organización que se evalúan por separado' },
   '/config/modulos': { titulo: 'Módulos', subtitulo: 'Áreas que se evalúan en cada visita' },
   '/config/items': { titulo: 'Ítems de evaluación', subtitulo: 'Preguntas y criterios de cada módulo' },
   '/config/usuarios': { titulo: 'Usuarios', subtitulo: 'Gestión de roles y accesos' },
@@ -72,6 +73,7 @@ function ConsoleLayoutContenido() {
       seccion: 'Gestión',
       items: [
         { to: '/config/sucursales', label: 'Sucursales', icon: <Store className="h-5 w-5" /> },
+        { to: '/config/departamentos', label: 'Departamentos', icon: <Building2 className="h-5 w-5" /> },
         { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> },
         { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> }
       ]

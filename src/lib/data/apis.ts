@@ -183,7 +183,8 @@ export function valoresDeProducto(r: ResultadoScan): Record<string, unknown> {
   }
 }
 
-function nombreColaborador(c: ColaboradorAPI): string {
+/** Nombre completo de un colaborador ("Nombre Apellido"), sin espacios de más. */
+export function nombreColaborador(c: ColaboradorAPI): string {
   return [c.name, c.lastname].filter((x) => typeof x === 'string' && x.trim()).join(' ')
 }
 

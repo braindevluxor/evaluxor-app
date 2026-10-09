@@ -156,6 +156,13 @@ export function BarcodeScanner({ open, onClose, onDetect }: Props) {
           placeholder="Código interno o SKU"
           value={codigoManual}
           onChange={(e) => setCodigoManual(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.keyCode === 13) {
+              e.preventDefault()
+              const c = (e.currentTarget.value || codigoManual).trim()
+              if (c) onDetect(c)
+            }
+          }}
           autoFocus={estado === 'error'}
         />
       </div>

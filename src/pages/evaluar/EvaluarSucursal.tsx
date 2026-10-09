@@ -36,13 +36,19 @@ interface RegistroActivo {
 }
 
 export function EvaluarSucursal() {
-  const { sucursalId = '' } = useParams()
+  // Dos rutas posibles: /evaluar/:sucursalId y /evaluar/departamento/:departamentoId.
+  const { sucursalId = '', departamentoId = '' } = useParams()
+  /** Unidad evaluada: sucursal o departamento. Es la clave del borrador. */
+  const unidadId = sucursalId || departamentoId
+  /** Ruta base de ESTA evaluación, para volver al resumen sin importar la clase. */
+  const rutaBase = departamentoId ? `/evaluar/departamento/${departamentoId}` : `/evaluar/${sucursalId}`
   const navigate = useNavigate()
   const { profile } = useAuth()
   const { online, pendientes, sync: syncCola } = useOffline()
-  const { modulosActivos, itemsDe } = useModulosActivos(sucursalId)
-  const { sucursales } = useCatalog()
+  const { modulosActivos, itemsDe } = useModulosActivos(sucursalId, departamentoId)
+  const { sucursales, departamentos } = useCatalog()
   const sucursal = sucursales.find((s) => s.id === sucursalId)
+  const departamento = departamentos.find((d) => d.id === departamentoId)
 
   // Ítems de módulos "Compartido": solo de ellos se fusiona el avance del otro
   // evaluador. Los módulos no compartidos son exclusivos de un evaluador.
@@ -69,11 +75,11 @@ export function EvaluarSucursal() {
   const [navAbierta, setNavAbierta] = useState(false)
   const [modulosAbierta, setModulosAbierta] = useState(false)
   const [idxModulo, setIdxModulo] = useState(() => {
-    const raw = sessionStorage.getItem(`evx:${sucursalId}:mod`)
+    const raw = sessionStorage.getItem(`evx:${unidadId}:mod`)
     return raw ? Number(raw) : 0
   })
   const [idxItem, setIdxItem] = useState(() => {
-    const raw = sessionStorage.getItem(`evx:${sucursalId}:item`)
+    const raw = sessionStorage.getItem(`evx:${unidadId}:item`)
     const n = raw ? Number(raw) : 0
     return Number.isFinite(n) && n >= 0 ? n : 0
   })
@@ -306,10 +312,10 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
     if (!profile) return
     void (async () => {
       const activas = await listarEvaluacionesActivas().catch(() => [])
-      // Si hay varias ACTIVAS para la sucursal (p.ej. una vieja sin cerrar), se
+      // Si hay varias ACTIVAS para la unidad (p.ej. una vieja sin cerrar), se
       // trabaja sobre la más reciente para no abrir una evaluación anterior.
       const activa = activas
-        .filter((e) => e.sucursal_id === sucursalId)
+        .filter((e) => (departamentoId ? e.departamento_id === departamentoId : e.sucursal_id === sucursalId))
         .sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))[0]
       if (!activa) {
         setSinActiva(true)
@@ -318,9 +324,9 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       }
       evaluacionIdRef.current = activa.id
       setEvaluacionId(activa.id)
-      const existente = await getDraft(sucursalId)
+      const existente = await getDraft(unidadId)
       // Un borrador local de OTRA evaluación (otra fecha) no debe "resurgir" en
-      // la nueva evaluación de la misma sucursal: se descartan sus respuestas,
+      // la nueva evaluación de la misma unidad: se descartan sus respuestas,
       // registros y comentario para que la medición arranque de cero.
       const mismoDía = !!existente && existente.fecha === activa.fecha
       const [enNube, instanciasNube] = await Promise.all([
@@ -363,7 +369,8 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
         respOtros[key] = { valor: r.valor, por: 'otros' }
       }
       const d: DraftEval = {
-        sucursal_id: sucursalId,
+        unidad_id: unidadId,
+        departamento_id: departamentoId || null,
         evaluador_id: profile.id,
         fecha: activa.fecha,
         comentario_general: mismoDía ? existente?.comentario_general ?? '' : '',
@@ -381,7 +388,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       agendarNube()
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sucursalId, profile])
+  }, [unidadId, profile])
 
   // Colaboración en vivo: cuando otro evaluador guarda respuestas o registros para
   // la misma evaluación, se fusionan aquí para que los dos vean todos los productos
@@ -563,7 +570,9 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       <MobileLayout titulo="Evaluación">
         <EmptyState
           title="No hay evaluación abierta"
-          subtitle="El Líder aún no ha abierto la evaluación de esta sucursal. Cuando la aperture podrás llenar tus módulos."
+          subtitle={departamento
+            ? `El Líder aún no ha abierto la evaluación de ${departamento.nombre}. Cuando la aperture podrás llenar tus módulos.`
+            : 'El Líder aún no ha abierto la evaluación de esta sucursal. Cuando la aperture podrás llenar tus módulos.'}
         />
         <div className="text-center">
           <Link to="/evaluar" className="inline-flex items-center gap-1 text-sm font-semibold text-primary"><ArrowLeft className="h-4 w-4" /> Volver</Link>
@@ -615,8 +624,8 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
   const pctModulo = totalModulo ? Math.round((hechoModulo / totalModulo) * 100) : 0
 
   const guardarPaso = (mod: number, item: number) => {
-    sessionStorage.setItem(`evx:${sucursalId}:mod`, String(mod))
-    sessionStorage.setItem(`evx:${sucursalId}:item`, String(item))
+    sessionStorage.setItem(`evx:${unidadId}:mod`, String(mod))
+    sessionStorage.setItem(`evx:${unidadId}:item`, String(item))
   }
 
   const irSiguiente = () => {
@@ -642,7 +651,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       setIdxItem(0)
       return
     }
-    navigate(`/evaluar/${sucursalId}/resumen`)
+    navigate(`${rutaBase}/resumen`)
   }
 
   const irAnterior = () => {
@@ -720,9 +729,9 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
     setIdxRegistro(0)
   }
 
-  function consultarApi() {
+  function consultarApi(codigoForzado?: string) {
     if (!apiSeccion || !paso) return
-    const codigo = codigoConsulta.trim()
+    const codigo = (codigoForzado ?? codigoConsulta).trim()
     if (!codigo) return
     setConsultando(true)
     setMensajeConsulta(null)
@@ -1083,9 +1092,13 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
                       value={codigoConsulta}
                       onChange={(e) => setCodigoConsulta(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                        if (e.key === 'Enter' || e.keyCode === 13) {
                           e.preventDefault()
-                          if (codigoConsulta.trim()) consultarApi()
+                          const val = (e.currentTarget.value || codigoConsulta).trim()
+                          if (val) {
+                            setCodigoConsulta(val)
+                            consultarApi(val)
+                          }
                         }
                       }}
                       placeholder={placeholderConsulta}
@@ -1103,7 +1116,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
                         <Camera className="h-5 w-5" />
                       </button>
                     ) : null}
-                    <Button variant="primary" className="shrink-0" disabled={!codigoConsulta.trim() || consultando} onClick={consultarApi}>
+                    <Button variant="primary" className="shrink-0" disabled={!codigoConsulta.trim() || consultando} onClick={() => consultarApi()}>
                       {consultando ? <Spinner size={16} /> : <Search className="h-4 w-4" />}
                       {consultando ? 'Consultando…' : 'Consultar'}
                     </Button>
@@ -1152,7 +1165,15 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
                       ) : null}
                     </div>
                   ) : null}
-                  <BarcodeScanner open={scanAbierto} onClose={() => setScanAbierto(false)} onDetect={(codigo) => { setCodigoConsulta(codigo); setScanAbierto(false) }} />
+                  <BarcodeScanner
+                    open={scanAbierto}
+                    onClose={() => setScanAbierto(false)}
+                    onDetect={(codigo) => {
+                      setCodigoConsulta(codigo)
+                      setScanAbierto(false)
+                      consultarApi(codigo)
+                    }}
+                  />
                 </div>
               ) : (
                 <div className="mt-3 flex gap-2">
@@ -1210,6 +1231,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
           {profile ? (
             <ReportarIncidencia
               sucursalId={sucursalId}
+              departamentoId={departamentoId}
               fecha={actual.fecha}
               moduloId={modulo.id}
               moduloNombre={modulo.nombre}
@@ -1260,7 +1282,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
             <Button
               variant="success"
               className="min-w-0 flex-1 px-2.5 text-[13px]"
-              onClick={() => navigate(`/evaluar/${sucursalId}/resumen`)}
+              onClick={() => navigate(`${rutaBase}/resumen`)}
             >
               <span className="truncate">Ver resumen</span> <Check className="h-4 w-4 shrink-0" />
             </Button>

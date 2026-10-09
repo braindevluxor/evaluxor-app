@@ -6,7 +6,7 @@ import { claveRespuesta } from '../pasos'
 describe('respuestasConInstancia', () => {
   it('excluye respuestas fusionadas de otros evaluadores (por: otros) y conserva claves por registro', () => {
     const draft: DraftEval = {
-      sucursal_id: 's1',
+      unidad_id: 's1',
       evaluador_id: 'e1',
       fecha: '2026-09-27',
       comentario_general: '',

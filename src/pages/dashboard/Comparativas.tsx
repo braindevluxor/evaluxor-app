@@ -59,6 +59,9 @@ export function Comparativas() {
     }
     const porSuc = new Map<string, { nombre: string; puntajes: (number | null)[]; completadas: number }>()
     for (const ev of datos.evaluaciones) {
+      // La dimensión es por sucursal: las evaluaciones de departamento no tienen
+      // sucursal y quedan fuera de este gráfico (las cubre la dimensión por mes).
+      if (!ev.sucursal_id) continue
       const puntaje = ev.puntuacion
       const s = porSuc.get(ev.sucursal_id)
       if (s) {
@@ -88,7 +91,7 @@ export function Comparativas() {
     const idPorNombreSuc = new Map<string, string>()
     const idPorEvaluador = new Map<string, string>()
     for (const ev of datos?.evaluaciones ?? []) {
-      idPorNombreSuc.set(ev.sucursal?.nombre ?? ev.sucursal_id, ev.sucursal_id)
+      if (ev.sucursal_id) idPorNombreSuc.set(ev.sucursal?.nombre ?? ev.sucursal_id, ev.sucursal_id)
       const n = ev.aperturador?.nombre ?? 'Sin nombre'
       if (!idPorEvaluador.has(n)) idPorEvaluador.set(n, ev.aperturada_por || ev.id)
     }

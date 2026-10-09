@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Item, Modulo, Opcion, Respuesta, Sucursal, SucursalModulo, VistaEvaluacion } from '../types'
-import { medidoresPorModulo, puntajePorSucursalModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, type ConjuntoDatos } from './indicadores'
+import { medidoresPorModulo, puntajePorSucursalModulo, puntajePorUnidadModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, unidadDe, type ConjuntoDatos } from './indicadores'
 
 const sucursales: Sucursal[] = [
   { id: 's1', nombre: 'Sucursal Norte', shop_id: null, branch_id: null, direccion: null, gerente_id: null, activa: true, created_at: '' },
@@ -35,6 +35,7 @@ const evaluaciones = sucursales.map((sucursal, orden) => ({
   id: `ev${orden + 1}`,
   offline_uuid: `offline-${orden + 1}`,
   sucursal_id: sucursal.id,
+  departamento_id: null,
   aperturada_por: 'user-test',
   fecha: '2026-09-01',
   estado: 'CERRADA' as const,
@@ -59,11 +60,33 @@ function respuesta(evaluacionId: string, itemId: string, cumple: boolean): Respu
   }
 }
 
+/** Evaluación de un departamento centralizado: sin sucursal, con el nombre de la unidad. */
+function mkDepartamento(id: string, departamentoId: string, fecha: string, puntuacion: number | null): VistaEvaluacion {
+  return {
+    id,
+    offline_uuid: id,
+    sucursal_id: null,
+    departamento_id: departamentoId,
+    aperturada_por: 'user-test',
+    fecha,
+    estado: 'CERRADA',
+    puntuacion,
+    comentario_general: null,
+    abierta_en: null,
+    cerrada_en: null,
+    created_at: '',
+    sucursal: null,
+    departamento: { id: departamentoId, nombre: 'Contabilidad' },
+    aperturador: null
+  }
+}
+
 function mkEvaluacion(id: string, sucursalId: string, fecha: string, puntuacion: number | null): VistaEvaluacion {
   return {
     id,
     offline_uuid: id,
     sucursal_id: sucursalId,
+    departamento_id: null,
     aperturada_por: 'user-test',
     fecha,
     estado: 'CERRADA',
@@ -101,6 +124,35 @@ describe('puntajePorSucursalModulo', () => {
     expect(resultado.modulos.map((modulo) => modulo.nombre)).toEqual(['Módulo 1', 'Módulo 2', 'Módulo 3'])
     expect(resultado.sucursales[0].porModulo).toEqual({ 'Módulo 1': 100, 'Módulo 2': 0, 'Módulo 3': 100 })
     expect(resultado.sucursales[1].porModulo).toEqual({ 'Módulo 1': 0, 'Módulo 2': null, 'Módulo 3': 100 })
+  })
+})
+
+describe('puntajePorUnidadModulo', () => {
+  it('arma la matriz por departamento sin mezclarla con las sucursales', () => {
+    const datos: ConjuntoDatos = {
+      evaluaciones: [evaluaciones[0], mkDepartamento('evDep', 'dep1', '2026-09-03', 100)],
+      // La sucursal falla i1 y el departamento la cumple: cada respuesta queda en su fila.
+      respuestas: [respuesta('ev1', 'i1', false), respuesta('evDep', 'i1', true)],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    }
+
+    const matriz = puntajePorUnidadModulo(datos, [
+      { id: 's1', nombre: 'Sucursal Norte' },
+      { id: 'dep1', nombre: 'Contabilidad' }
+    ])
+
+    expect(matriz.modulos.map((modulo) => modulo.nombre)).toEqual(['Módulo 1', 'Módulo 2', 'Módulo 3'])
+    expect(matriz.unidades.map((u) => u.nombre)).toEqual(['Sucursal Norte', 'Contabilidad'])
+    expect(matriz.unidades[0].unidad_id).toBe('s1')
+    expect(matriz.unidades[0].porModulo['Módulo 1']).toBe(0)
+    expect(matriz.unidades[1].unidad_id).toBe('dep1')
+    expect(matriz.unidades[1].porModulo['Módulo 1']).toBe(100)
+    // Los módulos sin respuesta de esa unidad quedan en null, como en sucursales.
+    expect(matriz.unidades[1].porModulo['Módulo 2']).toBeNull()
   })
 })
 
@@ -628,6 +680,24 @@ describe('renglonesDrilldown', () => {
     expect(filas[0].sucursal).toBe('S')
   })
 
+  it('filtra por departamento y nombra esa unidad', () => {
+    const datos = {
+      evaluaciones: [...evs, mkDepartamento('d3', 'dep1', '2026-09-10', 80)],
+      respuestas: [],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const filas = renglonesDrilldown(datos, { departamento_id: 'dep1' })
+    expect(filas.map((f) => f.id)).toEqual(['d3'])
+    expect(filas[0].sucursal).toBe('Contabilidad')
+    // Las de sucursal no entran, y un departamento sin evaluaciones queda vacío.
+    expect(renglonesDrilldown(datos, { departamento_id: 'dep2' })).toEqual([])
+  })
+
   it('con soloNoCumple incluye solo las evaluaciones donde el ítem no llegó al 100%', () => {
     const datos = {
       evaluaciones: evs,
@@ -835,5 +905,19 @@ describe('conPuntajesRecalculados', () => {
       resumirEvaluacion(evaluacion, respuestas, items).puntaje
     )
     expect(evaluacion.puntuacion).toBe(60.73)
+  })
+})
+
+describe('unidadDe · una evaluación mide una sola unidad', () => {
+  it('devuelve la sucursal cuando no es de departamento', () => {
+    expect(unidadDe({ sucursal_id: 's1', departamento_id: null })).toBe('s1')
+  })
+
+  it('devuelve el departamento cuando lo es', () => {
+    expect(unidadDe({ sucursal_id: null, departamento_id: 'd1' })).toBe('d1')
+  })
+
+  it('sin unidad no inventa una: devuelve vacío', () => {
+    expect(unidadDe({ sucursal_id: null, departamento_id: null })).toBe('')
   })
 })

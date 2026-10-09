@@ -19,7 +19,9 @@ import {
 
 type IncidenciaVista = {
   id: string
-  sucursal_id: string
+  /** Unidad de la incidencia: sucursal **o** departamento (una de las dos). */
+  sucursal_id: string | null
+  departamento_id: string | null
   fecha: string
   modulo_id: string | null
   descripcion: string
@@ -34,7 +36,7 @@ type IncidenciaVista = {
 
 export function IncidenciasPage() {
   const { profile } = useAuth()
-  const { sucursales, modulos } = useCatalog()
+  const { sucursales, departamentos, modulos } = useCatalog()
   const { online, sync } = useOffline()
   const [incidencias, setIncidencias] = useState<IncidenciaVista[]>([])
   const [cargando, setCargando] = useState(true)
@@ -59,7 +61,7 @@ export function IncidenciasPage() {
       if (online) {
         const { data, error: queryError } = await supabase
           .from('incidencias')
-          .select('id, sucursal_id, fecha, modulo_id, descripcion, fotos, created_at, responsables')
+          .select('id, sucursal_id, departamento_id, fecha, modulo_id, descripcion, fotos, created_at, responsables')
           .eq('evaluador_id', profile.id)
           .order('created_at', { ascending: false })
 
@@ -68,7 +70,8 @@ export function IncidenciasPage() {
         } else {
           remotas = (data ?? []).map((fila) => ({
             id: fila.id as string,
-            sucursal_id: fila.sucursal_id as string,
+            sucursal_id: (fila.sucursal_id as string | null) ?? null,
+            departamento_id: (fila.departamento_id as string | null) ?? null,
             fecha: fila.fecha as string,
             modulo_id: fila.modulo_id as string | null,
             descripcion: fila.descripcion as string,
@@ -209,7 +212,11 @@ export function IncidenciasPage() {
         ) : (
           <ul className="divide-y divide-slate-200">
             {incidencias.map((incidente) => {
-              const sucursal = sucursales.find((fila) => fila.id === incidente.sucursal_id)
+              const sucursal = incidente.sucursal_id ? sucursales.find((fila) => fila.id === incidente.sucursal_id) : undefined
+              const departamento = incidente.departamento_id ? departamentos.find((fila) => fila.id === incidente.departamento_id) : undefined
+              // La unidad de la incidencia: un departamento centralizado o, si no,
+              // la sucursal a la que pertenece.
+              const unidad = departamento?.nombre ?? sucursal?.nombre ?? 'Sucursal'
               const modulo = modulos.find((fila) => fila.id === incidente.modulo_id)
               return (
                 <li key={incidente.id} className="py-3">
@@ -217,7 +224,7 @@ export function IncidenciasPage() {
                     <div className="min-w-0 flex-1">
                       <p className="whitespace-pre-wrap text-sm font-medium text-slate-900">{incidente.descripcion}</p>
                       <p className="mt-1 text-xs text-slate-600">
-                        {sucursal?.nombre ?? 'Sucursal'} · {new Date(`${incidente.fecha}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {unidad} · {new Date(`${incidente.fecha}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })}
                         {modulo ? ` · ${modulo.nombre}` : ''}
                       </p>
                       <ChipsResponsables valor={incidente.responsables} className="mt-1.5" />
@@ -233,7 +240,7 @@ export function IncidenciasPage() {
                       disabled={!online && !incidente.local}
                       className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-600 hover:bg-amber-100 hover:text-amber-900"
                       title="Editar incidencia"
-                      aria-label={`Editar incidencia de ${sucursal?.nombre ?? 'la sucursal'}`}
+                      aria-label={`Editar incidencia de ${unidad}`}
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
@@ -265,7 +272,9 @@ export function IncidenciasPage() {
             <EditorResponsablesIncidencia
               valor={responsablesEditando}
               onChange={setResponsablesEditando}
-              sucursalId={editando.sucursal_id}
+              // Sin sucursal (incidencia de un departamento) el catálogo de cargos
+              // no aplica: el editor queda en modo texto libre.
+              sucursalId={editando.sucursal_id ?? ''}
             />
           ) : null}
           {errorGuardado ? <p role="alert" className="text-xs font-medium text-red-700">{errorGuardado}</p> : null}
@@ -281,7 +290,8 @@ export function IncidenciasPage() {
 function convertirLocal(incidente: IncidenteRecord): IncidenciaVista {
   return {
     id: incidente.id,
-    sucursal_id: incidente.sucursal_id,
+    sucursal_id: incidente.departamento_id ? null : incidente.unidad_id,
+    departamento_id: incidente.departamento_id ?? null,
     fecha: incidente.fecha,
     modulo_id: incidente.modulo_id,
     descripcion: incidente.descripcion,

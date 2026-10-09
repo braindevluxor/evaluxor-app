@@ -471,11 +471,34 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
         ? (existente.fisica ?? 0) + borrador.fisica
         : borrador.fisica
 
-  const aplicarCodigo = async () => {
-    const codigo = borrador.sku.trim()
+  const aplicarCodigo = async (codigoForzado?: string) => {
+    const raw = codigoForzado ?? borrador.sku
+    const codigo = raw.trim()
     setInfo('')
     setExito('')
     if (!codigo) return
+    if (consultando) return
+
+    const ya = productos.find((p) => p.sku === codigo)
+    setBorrador((b) => ({
+      ...b,
+      sku: raw,
+      ...(ya
+        ? {
+            nombre: ya.nombre,
+            teorica: ya.teorica,
+            fisica: null,
+            apiId: ya.apiId,
+            soh: ya.soh,
+            lastSync: ya.lastSync,
+            finalBase: ya.finalBase,
+            finalTax: ya.finalTax,
+            departamento: ya.departamento,
+            sinHablador: ya.sinHablador
+          }
+        : {})
+    }))
+
     // Se consulta SIEMPRE, también cuando el SKU ya está en la lista. Antes había
     // un atajo que reutilizaba la fila guardada para evitar consultas repetidas,
     // y el efecto secundario era que el `lastSync` (y el SOH, y el precio, y la
@@ -632,7 +655,13 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
                   : { sku, nombre: null, teorica: null, fisica: null, apiId: null }
               )
             }}
-            onKeyDown={(e) => { if (e.key === 'Enter') void aplicarCodigo() }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.keyCode === 13) {
+                e.preventDefault()
+                const valor = (e.currentTarget.value || borrador.sku).trim()
+                if (valor) void aplicarCodigo(valor)
+              }
+            }}
           />
           <button
             type="button"
@@ -642,7 +671,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
           >
             <ScanLine className="h-5 w-5" />
           </button>
-          <Button type="button" variant="secondary" className="shrink-0 min-h-0 px-3 py-2" disabled={!borrador.sku.trim()} onClick={() => void aplicarCodigo()}>
+          <Button type="button" variant="secondary" className="shrink-0 min-h-0 px-3 py-2" disabled={!borrador.sku.trim() || consultando} onClick={() => void aplicarCodigo()}>
             Buscar
           </Button>
         </div>
@@ -708,6 +737,9 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
             valor={borrador.fisica}
             disabled={borrador.sinHablador === true}
             onChange={(n) => setBorrador((b) => ({ ...b, fisica: n }))}
+            onEnter={() => {
+              if (borradorCompleto) agregar()
+            }}
           />
         </div>
         {/* Solo en conciliación por precio: el hablador es la etiqueta con el precio
@@ -1937,7 +1969,19 @@ function BotonNoCumple({ activo, onPick }: { activo: boolean; onPick: () => void
   )
 }
 
-function CampoConciliacion({ etiqueta, valor, onChange, disabled }: { etiqueta: string; valor: number | null; onChange: (n: number | null) => void; disabled?: boolean }) {
+function CampoConciliacion({
+  etiqueta,
+  valor,
+  onChange,
+  onEnter,
+  disabled
+}: {
+  etiqueta: string
+  valor: number | null
+  onChange: (n: number | null) => void
+  onEnter?: () => void
+  disabled?: boolean
+}) {
   return (
     <div className="min-w-0 flex-1">
       <label className="mb-1 block text-xs font-medium text-slate-500">{etiqueta}</label>
@@ -1952,6 +1996,12 @@ function CampoConciliacion({ etiqueta, valor, onChange, disabled }: { etiqueta: 
           onChange={(e) => {
             const n = Number(e.target.value)
             onChange(Number.isFinite(n) && e.target.value !== '' ? n : null)
+          }}
+          onKeyDown={(e) => {
+            if ((e.key === 'Enter' || e.keyCode === 13) && onEnter) {
+              e.preventDefault()
+              onEnter()
+            }
           }}
         />
       </div>

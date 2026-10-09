@@ -74,7 +74,12 @@ export function MisEvaluaciones() {
             <div key={ev.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate font-bold text-primary-900">{ev.sucursal?.nombre ?? 'Sucursal'}</p>
+                  <p className="truncate font-bold text-primary-900">
+                    {ev.departamento?.nombre ?? ev.sucursal?.nombre ?? 'Sucursal'}
+                    {ev.departamento ? (
+                      <span className="ml-1.5 align-middle text-[10px] font-bold uppercase tracking-wide text-primary-500">Departamento</span>
+                    ) : null}
+                  </p>
                   <p className="text-xs text-slate-500">
                     {new Date(`${ev.fecha}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' })}
                   </p>

@@ -62,7 +62,7 @@ function EnCursoPuntaje({ fila }: { fila?: { puntaje: number | null; respondidos
 
 export function Historial() {
   const { profile } = useAuth()
-  const { sucursales } = useCatalog()
+  const { sucursales, departamentos } = useCatalog()
 
   const scope = useMemo(() => {
     if (!profile) return null
@@ -76,6 +76,7 @@ export function Historial() {
   const [desde, setDesde] = useState(haceMeses(6))
   const [hasta, setHasta] = useState('')
   const [sucursalSel, setSucursalSel] = useState('')
+  const [departamentoSel, setDepartamentoSel] = useState('')
   const [evals, setEvals] = useState<VistaEvaluacion[] | null>(null)
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
   const [descargando, setDescargando] = useState<string | null>(null)
@@ -87,17 +88,21 @@ export function Historial() {
   const [error, setError] = useState<string | null>(null)
 
   // Apertura / programación
-  const [sucursalAbrir, setSucursalAbrir] = useState('')
+  const [unidadAbrir, setUnidadAbrir] = useState('')
   const [fechaAbrir, setFechaAbrir] = useState(new Date().toISOString().slice(0, 10))
   const [gestionando, setGestionando] = useState(false)
 
   const sucursalesVisibles = scope ? sucursales.filter((s) => scope.includes(s.id)) : sucursales
+  // GERENTE_S (con `scope`) solo ve su sucursal: sin departamentos y sin filtro.
+  const departamentosVisibles = scope ? [] : departamentos
+  const esDepartamentoAbrir = departamentosVisibles.some((d) => d.id === unidadAbrir)
 
   const cargar = async (silencioso = false) => {
     if (!silencioso) setEvals(null)
     try {
       const d = await consultarEvaluaciones({
         sucursal_ids: sucursalSel ? [sucursalSel] : scope,
+        departamento_ids: departamentoSel ? [departamentoSel] : null,
         desde: desde || undefined,
         hasta: hasta || undefined
       })
@@ -115,6 +120,7 @@ export function Historial() {
       try {
         const d = await consultarEvaluaciones({
           sucursal_ids: sucursalSel ? [sucursalSel] : scope,
+          departamento_ids: departamentoSel ? [departamentoSel] : null,
           desde: desde || undefined,
           hasta: hasta || undefined
         })
@@ -128,14 +134,14 @@ export function Historial() {
     })()
     return () => { activo = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desde, hasta, sucursalSel, scope?.join(',')])
+  }, [desde, hasta, sucursalSel, departamentoSel, scope?.join(',')])
 
   // Refresco automático: muestra el puntaje en curso mientras los evaluadores responden.
   useEffect(() => {
     const t = window.setInterval(() => { void cargar(true) }, 60000)
     return () => window.clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desde, hasta, sucursalSel, scope?.join(',')])
+  }, [desde, hasta, sucursalSel, departamentoSel, scope?.join(',')])
 
   // Puntaje en vivo de las evaluaciones activas: con las mismas reglas que al cerrar.
   const puntajesVivos = useMemo(() => {
@@ -177,21 +183,23 @@ export function Historial() {
   const hoy = new Date().toISOString().slice(0, 10)
 
   const aperturar = async () => {
-    if (!profile || !sucursalAbrir || !fechaAbrir) {
-      setError('Selecciona la sucursal y la fecha.')
+    if (!profile || !unidadAbrir || !fechaAbrir) {
+      setError('Selecciona la unidad y la fecha.')
       return
     }
     setError(null)
     setGestionando(true)
     try {
       const esHoy = fechaAbrir === hoy
+      // Una evaluación mide UNA unidad: sucursal o departamento, nunca las dos.
       await crearEvaluacion({
-        sucursal_id: sucursalAbrir,
+        sucursal_id: esDepartamentoAbrir ? null : unidadAbrir,
+        departamento_id: esDepartamentoAbrir ? unidadAbrir : null,
         fecha: fechaAbrir,
         estado: esHoy ? 'ACTIVA' : 'PROGRAMADA',
         aperturada_por: profile.id
       })
-      setSucursalAbrir('')
+      setUnidadAbrir('')
       await cargar()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo crear la evaluación.')
@@ -257,20 +265,27 @@ export function Historial() {
             <h3 className="font-bold text-primary-900">Aperturar evaluación</h3>
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            Si la fecha es de hoy la evaluación queda <b>Activa</b> para que los evaluadores llenen; si es futura queda <b>Programada</b>. Una por sucursal y fecha.
+            Si la fecha es de hoy la evaluación queda <b>Activa</b> para que los evaluadores llenen; si es futura queda <b>Programada</b>. Una por unidad y fecha.
           </p>
           <div className="mt-3 grid gap-3 sm:grid-cols-3">
-            <Field label="Sucursal">
-              <Select value={sucursalAbrir} onChange={(e) => setSucursalAbrir(e.target.value)} disabled={!!scope}>
+            <Field label="Unidad">
+              <Select value={unidadAbrir} onChange={(e) => setUnidadAbrir(e.target.value)} disabled={!!scope}>
                 <option value="">Selecciona…</option>
-                {sucursalesVisibles.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                <optgroup label="Sucursales">
+                  {sucursalesVisibles.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                </optgroup>
+                {departamentosVisibles.length ? (
+                  <optgroup label="Departamentos">
+                    {departamentosVisibles.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                  </optgroup>
+                ) : null}
               </Select>
             </Field>
             <Field label="Fecha">
               <Input type="date" value={fechaAbrir} onChange={(e) => setFechaAbrir(e.target.value)} />
             </Field>
             <div className="flex items-end">
-              <Button variant="primary" className="w-full" disabled={gestionando || !sucursalAbrir} onClick={() => void aperturar()}>
+              <Button variant="primary" className="w-full" disabled={gestionando || !unidadAbrir} onClick={() => void aperturar()}>
                 {gestionando ? 'Guardando…' : fechaAbrir === hoy ? 'Aperturar ahora' : 'Programar'}
               </Button>
             </div>
@@ -292,9 +307,30 @@ export function Historial() {
             <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
           </Field>
           <Field label="Sucursal">
-            <Select value={sucursalSel} onChange={(e) => setSucursalSel(e.target.value)} disabled={!!scope}>
+            <Select
+              value={sucursalSel}
+              onChange={(e) => {
+                setSucursalSel(e.target.value)
+                // Los filtros son excluyentes: una evaluación es de una sucursal
+                // O de un departamento, y aplicar los dos a la vez no traería nada.
+                if (e.target.value) setDepartamentoSel('')
+              }}
+              disabled={!!scope}
+            >
               <option value="">Todas</option>
               {sucursalesVisibles.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </Select>
+          </Field>
+          <Field label="Departamento">
+            <Select
+              value={departamentoSel}
+              onChange={(e) => {
+                setDepartamentoSel(e.target.value)
+                if (e.target.value) setSucursalSel('')
+              }}
+            >
+              <option value="">Todos</option>
+              {departamentosVisibles.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
             </Select>
           </Field>
         </div>
@@ -327,7 +363,7 @@ export function Historial() {
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase text-slate-400">
                   <th className="px-4 py-3">Fecha</th>
-                  <th className="px-4 py-3">Sucursal</th>
+                  <th className="px-4 py-3">Unidad</th>
                   <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3 text-right">Puntaje</th>
                   <th className="px-4 py-3" />
@@ -340,7 +376,10 @@ export function Historial() {
                       {new Date(`${ev.fecha}T12:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })}
                     </td>
                     <td className="px-4 py-3">
-                      <p className="font-semibold text-primary-900">{ev.sucursal?.nombre ?? 'Sucursal'}</p>
+                      <p className="font-semibold text-primary-900">
+                        {ev.departamento?.nombre ?? ev.sucursal?.nombre ?? 'Sucursal'}
+                        {ev.departamento ? <Badge color={0}>Departamento</Badge> : null}
+                      </p>
                       {ev.sucursal?.direccion ? <p className="text-xs text-slate-400">{ev.sucursal.direccion}</p> : null}
                     </td>
                     <td className="px-4 py-3">
@@ -427,7 +466,7 @@ export function Historial() {
 
       <Confirmar
         open={aReabrir != null}
-        texto={`¿Reabrir la evaluación de ${aReabrir?.sucursal?.nombre ?? 'esta sucursal'} (${new Date(`${aReabrir?.fecha}T12:00:00`).toLocaleDateString('es')})? Volverá a quedar Activa: los evaluadores podrán responder y modificar sus respuestas, y se pueden volver a subir las fotos. El puntaje y el comentario del cierre quedan como están hasta que la cierres otra vez.`}
+        texto={`¿Reabrir la evaluación de ${aReabrir?.departamento?.nombre ?? aReabrir?.sucursal?.nombre ?? 'esta unidad'} (${new Date(`${aReabrir?.fecha}T12:00:00`).toLocaleDateString('es')})? Volverá a quedar Activa: los evaluadores podrán responder y modificar sus respuestas, y se pueden volver a subir las fotos. El puntaje y el comentario del cierre quedan como están hasta que la cierres otra vez.`}
         textoConfirmar="Reabrir"
         variant="primary"
         onConfirm={() => void reabrir()}
@@ -436,7 +475,7 @@ export function Historial() {
 
       <Confirmar
         open={aEliminar != null}
-        texto={`¿Eliminar la evaluación de ${aEliminar?.sucursal?.nombre ?? 'esta sucursal'} (${new Date(`${aEliminar?.fecha}T12:00:00`).toLocaleDateString('es')})? Se borrarán sus respuestas y fotografías.`}
+        texto={`¿Eliminar la evaluación de ${aEliminar?.departamento?.nombre ?? aEliminar?.sucursal?.nombre ?? 'esta unidad'} (${new Date(`${aEliminar?.fecha}T12:00:00`).toLocaleDateString('es')})? Se borrarán sus respuestas y fotografías.`}
         onConfirm={() => void eliminar()}
         onCancel={() => setAEliminar(null)}
       />

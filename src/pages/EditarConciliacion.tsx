@@ -109,7 +109,7 @@ export function EditarConciliacion() {
           <div className="min-w-0">
             <h1 className="truncate text-base font-extrabold">Editar conciliación</h1>
             <p className="truncate text-xs text-white/80">
-              {evaluacion.sucursal?.nombre ?? 'Sucursal'} · {new Date(`${evaluacion.fecha}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })}
+              {evaluacion.departamento?.nombre ?? evaluacion.sucursal?.nombre ?? 'Sucursal'} · {new Date(`${evaluacion.fecha}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })}
             </p>
           </div>
         </div>

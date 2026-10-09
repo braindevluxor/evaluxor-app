@@ -6,6 +6,7 @@ const CATALOGO = {
     { id: 's1', nombre: 'Norte' },
     { id: 's2', nombre: 'Centro' }
   ],
+  departamentos: [{ id: 'd1', nombre: 'Mercadeo' }],
   modulos: [{ id: 'm1', nombre: 'Inventario' }]
 }
 
@@ -21,6 +22,15 @@ describe('presencia · nombre de la pantalla', () => {
   it('no confunde /evaluar/historial con una sucursal llamada "historial"', () => {
     // Sin el catálogo, `/evaluar/historial` sigue siendo el historial y no "evaluando".
     expect(etiquetaPantalla('/evaluar/historial')).toBe('Historial de evaluaciones')
+  })
+
+  it('las rutas de departamento se leen como departamento, no como sucursal', () => {
+    // /evaluar/departamento/:id es otra rama: si se leyera como sucursal diría
+    // "evaluando" o inventaría un nombre de tienda.
+    expect(etiquetaPantalla('/evaluar/departamento/d1', CATALOGO)).toBe('Evaluando · Departamento Mercadeo')
+    expect(etiquetaPantalla('/evaluar/departamento/d1/resumen', CATALOGO)).toBe('Resumen · Departamento Mercadeo')
+    expect(etiquetaPantalla('/evaluar/departamento/d2', CATALOGO)).toBe('Evaluando')
+    expect(etiquetaPantalla('/evaluar/departamento/d1')).toBe('Evaluando')
   })
 
   it('cae a una etiqueta genérica cuando el catálogo aún no cargó', () => {
@@ -39,6 +49,7 @@ describe('presencia · nombre de la pantalla', () => {
     expect(etiquetaPantalla('/dashboard/modulo/m9', CATALOGO)).toBe('Módulo')
     expect(etiquetaPantalla('/config/usuarios')).toBe('Usuarios')
     expect(etiquetaPantalla('/config/items')).toBe('Ítems')
+    expect(etiquetaPantalla('/config/departamentos')).toBe('Departamentos')
     expect(etiquetaPantalla('/config/cualquier-cosa')).toBe('Configuración')
     expect(etiquetaPantalla('/proyectos/biometrico')).toBe('Biométrico')
     expect(etiquetaPantalla('/proyectos/p1')).toBe('Proyectos')

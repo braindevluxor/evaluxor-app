@@ -75,7 +75,9 @@ export function UsuariosPage() {
     setCargandoMod(true)
     try {
       const [mods, asig] = await Promise.all([listarModulosAdmin(), listarAsignacionesModulosAdmin()])
-      setModulos(mods)
+      // Los módulos-herramienta (Revisión Pre-Entrega) no se asignan a usuarios:
+      // los usa quien abre la herramienta, y no puntúan en la evaluación.
+      setModulos(mods.filter((m) => !m.herramienta))
       setAsignados(new Set(asig.filter((a) => a.activa).map((a) => `${a.evaluador_id}|${a.modulo_id}`)))
     } finally {
       setCargandoMod(false)

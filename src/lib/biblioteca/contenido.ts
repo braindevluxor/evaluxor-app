@@ -85,7 +85,7 @@ export const ETAPAS: EtapaDoc[] = [
     puntos: [
       'Barra de KPIs con cumplimiento global, completadas, cobertura e ítems incumplidos.',
       'Medidor global y medidores por módulo con escala de color.',
-      'Pódium de sucursales y gráfico de ponderación por sucursal y módulo.',
+      'Pódium de sucursales y gráfico de ponderación por unidad y módulo, con su versión de sucursales y la de departamentos.',
       'Reporte PDF por evaluación: puntaje por módulo, incumplimientos por responsable y evidencias.'
     ]
   },
@@ -263,7 +263,7 @@ export const KPIS: KpiDoc[] = [
             titulo: 'Dónde se ve',
             items: [
               'Medidores de módulo (tiles con nombre a 2 líneas y escala de color).',
-              'Gráfico de ponderación por sucursal y módulo: la barra translúcida muestra el promedio de los módulos no nulos por sucursal.'
+              'Gráfico de ponderación por sucursal y módulo: la barra translúcida muestra el promedio de los módulos no nulos por sucursal. Los departamentos tienen el mismo gráfico aparte.'
             ]
           }
         ]

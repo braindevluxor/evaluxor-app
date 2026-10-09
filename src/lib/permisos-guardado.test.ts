@@ -10,7 +10,7 @@ import { bloqueosDeGuardado, explicacionBloqueos, textoBloqueo, type ReglasGuard
 function reglas(extra: Partial<ReglasGuardado> = {}): ReglasGuardado {
   return {
     asignados: new Set(['mod-almacen']),
-    habilitadosSucursal: new Set(['mod-almacen', 'mod-venta']),
+    habilitadosUnidad: new Set(['mod-almacen', 'mod-venta']),
     moduloDeItem: new Map([['i1', 'mod-almacen']]),
     nombreDeModulo: new Map([
       ['mod-almacen', 'Almacén'],
@@ -49,12 +49,12 @@ describe('bloqueosDeGuardado', () => {
     const bloqueos = bloqueosDeGuardado(
       reglas({
         asignados: new Set(['mod-almacen', 'mod-venta']),
-        habilitadosSucursal: new Set(['mod-almacen']),
+        habilitadosUnidad: new Set(['mod-almacen']),
         moduloDeItem: new Map([['i1', 'mod-venta']])
       })
     )
 
-    expect(bloqueos.map((b) => b.motivo)).toEqual(['modulo_no_aplica_a_la_sucursal'])
+    expect(bloqueos.map((b) => b.motivo)).toEqual(['modulo_no_aplica_a_la_unidad'])
     expect(bloqueos[0].modulo).toBe('Punto de venta')
   })
 
@@ -62,7 +62,7 @@ describe('bloqueosDeGuardado', () => {
     const bloqueos = bloqueosDeGuardado(
       reglas({
         asignados: new Set(['mod-almacen']),
-        habilitadosSucursal: new Set<string>(), // la sucursal no restringe nada
+        habilitadosUnidad: new Set<string>(), // la sucursal no restringe nada
         moduloDeItem: new Map([['i1', 'mod-almacen']])
       })
     )
@@ -72,17 +72,17 @@ describe('bloqueosDeGuardado', () => {
 
   it('anuncia los dos motivos cuando el módulo no está ni asignado ni habilitado', () => {
     const bloqueos = bloqueosDeGuardado(
-      reglas({ asignados: new Set<string>(), habilitadosSucursal: new Set(['mod-venta']) })
+      reglas({ asignados: new Set<string>(), habilitadosUnidad: new Set(['mod-venta']) })
     )
 
-    expect(bloqueos.map((b) => b.motivo)).toEqual(['asignacion_dada_de_baja', 'modulo_no_aplica_a_la_sucursal'])
+    expect(bloqueos.map((b) => b.motivo)).toEqual(['asignacion_dada_de_baja', 'modulo_no_aplica_a_la_unidad'])
   })
 
   it('junta en un bloqueo los ítems del mismo módulo', () => {
     const bloqueos = bloqueosDeGuardado(
       reglas({
         asignados: new Set<string>(),
-        habilitadosSucursal: new Set(['mod-venta']),
+        habilitadosUnidad: new Set(['mod-venta']),
         moduloDeItem: new Map([['i1', 'mod-almacen'], ['i2', 'mod-almacen']])
       })
     )
@@ -117,12 +117,12 @@ describe('el mensaje que se lee en el teléfono', () => {
 
   it('arma las dos causas en una sola frase', () => {
     const bloqueos = bloqueosDeGuardado(
-      reglas({ asignados: new Set<string>(), habilitadosSucursal: new Set(['mod-venta']) })
+      reglas({ asignados: new Set<string>(), habilitadosUnidad: new Set(['mod-venta']) })
     )
     const texto = explicacionBloqueos(bloqueos)
 
     expect(texto).toBe(
-      'El servidor no te deja guardar: «Almacén» ya no lo tenés asignado y «Almacén» no está habilitado en esta sucursal. ' +
+      'El servidor no te deja guardar: «Almacén» ya no lo tenés asignado y «Almacén» no está habilitado en esta evaluación. ' +
         'No es un problema de internet ni del teléfono. Tu avance sigue en este teléfono y sube solo cuando el Líder lo corrija. Avisale al Líder.'
     )
   })
@@ -135,8 +135,8 @@ describe('el mensaje que se lee en el teléfono', () => {
     expect(textoBloqueo({ motivo: 'asignacion_dada_de_baja', modulo_id: 'm', modulo: 'Almacén', item_ids: [] })).toBe(
       '«Almacén» ya no lo tenés asignado'
     )
-    expect(textoBloqueo({ motivo: 'modulo_no_aplica_a_la_sucursal', modulo_id: 'm', modulo: 'Almacén', item_ids: [] })).toBe(
-      '«Almacén» no está habilitado en esta sucursal'
+    expect(textoBloqueo({ motivo: 'modulo_no_aplica_a_la_unidad', modulo_id: 'm', modulo: 'Almacén', item_ids: [] })).toBe(
+      '«Almacén» no está habilitado en esta evaluación'
     )
   })
 })

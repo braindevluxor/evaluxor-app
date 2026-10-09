@@ -1,32 +1,40 @@
 import { supabase } from '../supabase'
 import { getCache, putCache, type CacheData } from '../offline/db'
-import type { Modulo, Item, Sucursal, SucursalModulo, SucursalItem, SucursalOpcion } from '../types'
+import type { Modulo, Item, Sucursal, Departamento, SucursalModulo, SucursalItem, SucursalOpcion, DepartamentoModulo, DepartamentoItem, DepartamentoOpcion } from '../types'
 
 export async function obtenerCacheLocal(): Promise<CacheData | undefined> {
   return getCache()
 }
 
 export async function refrescarCatalogo(evaluadorId: string): Promise<CacheData> {
-  const [modulos, items, sucursales, asignaciones, asignacionesModulos, sucursalModulos, sucursalItems, sucursalOpciones] = await Promise.all([
+  const [modulos, items, sucursales, departamentos, asignaciones, asignacionesModulos, sucursalModulos, sucursalItems, sucursalOpciones, departamentoModulos, departamentoItems, departamentoOpciones] = await Promise.all([
     selectSeguro(supabase.from('modulos').select('*').eq('activo', true).order('orden').order('nombre')),
     selectSeguro(supabase.from('items').select('*').eq('activo', true)),
     selectSeguro(supabase.from('sucursales').select('*, gerente:profiles!sucursales_gerente_id_fkey(id, nombre)').eq('activa', true).order('nombre')),
+    selectSeguro(supabase.from('departamentos_centralizados').select('*').eq('activa', true).order('nombre')),
     selectSeguro(supabase.from('asignaciones').select('*').eq('evaluador_id', evaluadorId).eq('activa', true)),
     selectSeguro(supabase.from('asignaciones_modulos').select('*').eq('evaluador_id', evaluadorId).eq('activa', true)),
     selectSeguro(supabase.from('sucursal_modulos').select('*').eq('activa', true)),
     selectSeguro(supabase.from('sucursal_items').select('*').eq('activa', true)),
-    selectSeguro(supabase.from('sucursal_opciones').select('*').eq('activa', true))
+    selectSeguro(supabase.from('sucursal_opciones').select('*').eq('activa', true)),
+    selectSeguro(supabase.from('departamento_modulos').select('*').eq('activa', true)),
+    selectSeguro(supabase.from('departamento_items').select('*').eq('activa', true)),
+    selectSeguro(supabase.from('departamento_opciones').select('*').eq('activa', true))
   ])
 
   const data: CacheData = {
     modulos: modulos as Modulo[],
     items: items as Item[],
     sucursales: sucursales as Sucursal[],
+    departamentos: departamentos as Departamento[],
     asignaciones: asignaciones as CacheData['asignaciones'],
     asignacionesModulos: asignacionesModulos as CacheData['asignacionesModulos'],
     sucursalModulos: sucursalModulos as SucursalModulo[],
     sucursalItems: sucursalItems as SucursalItem[],
     sucursalOpciones: sucursalOpciones as SucursalOpcion[],
+    departamentoModulos: departamentoModulos as DepartamentoModulo[],
+    departamentoItems: departamentoItems as DepartamentoItem[],
+    departamentoOpciones: departamentoOpciones as DepartamentoOpcion[],
     updated_at: Date.now()
   }
   await putCache(data)

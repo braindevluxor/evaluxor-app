@@ -343,7 +343,7 @@ describe('el rechazo nombra el módulo que lo causa', () => {
     await expect(
       guardarBorradorNube(EV, USUARIO, [respuesta('i1')], [instancia('a', 'i1')])
     ).rejects.toMatchObject({
-      explicacion: expect.stringContaining('«Almacén» no está habilitado en esta sucursal')
+      explicacion: expect.stringContaining('«Almacén» no está habilitado en esta evaluación')
     })
   })
 
