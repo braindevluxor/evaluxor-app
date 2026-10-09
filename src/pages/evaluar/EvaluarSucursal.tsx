@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, CloudOff, FolderOpen, List, Plus, RefreshCw, Search, Tag, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, CloudOff, FolderOpen, List, Plus, RefreshCw, Tag, Trash2, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
@@ -1087,15 +1087,66 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
 
               {apiSeccion ? (
                 <div className="order-first mt-3 space-y-2">
-                  <div className="flex gap-2">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      // Leer directamente del DOM para evitar estado stale de React
+                      const inputEl = e.currentTarget.querySelector('input')
+                      const val = (inputEl?.value || codigoConsulta).replace(/[\r\n\t]/g, '').trim()
+                      if (val && !consultando) {
+                        setCodigoConsulta(val)
+                        consultarApi(val)
+                      }
+                    }}
+                    className="relative w-full"
+                  >
                     <input
                       value={codigoConsulta}
-                      onChange={(e) => setCodigoConsulta(e.target.value)}
+                      type="search"
+                      enterKeyHint="search"
+                      inputMode="search"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize={apiSeccion.id === 'vehiculos' ? 'characters' : 'off'}
+                      spellCheck={false}
+                      onChange={(e) => {
+                        const raw = e.target.value
+                        // Detección directa de sufijos de escáneres handheld
+                        // (Enter/Tab inyectados como caracteres \n, \r o \t)
+                        if (raw.includes('\n') || raw.includes('\r') || raw.includes('\t')) {
+                          const limpio = raw.replace(/[\r\n\t]/g, '').trim()
+                          if (limpio) {
+                            setCodigoConsulta(limpio)
+                            consultarApi(limpio)
+                            return
+                          }
+                        }
+                        setCodigoConsulta(raw)
+                      }}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.keyCode === 13 || e.key === 'Tab' || e.keyCode === 9) {
+                        if (
+                          e.key === 'Enter' ||
+                          e.keyCode === 13 ||
+                          e.key === 'Tab' ||
+                          e.keyCode === 9 ||
+                          e.which === 13 ||
+                          e.which === 9
+                        ) {
                           e.preventDefault()
                           e.stopPropagation()
-                          const val = (e.currentTarget.value || codigoConsulta).trim()
+                          const val = (e.currentTarget.value || codigoConsulta).replace(/[\r\n\t]/g, '').trim()
+                          if (val) {
+                            setCodigoConsulta(val)
+                            consultarApi(val)
+                          }
+                        }
+                      }}
+                      onKeyUp={(e) => {
+                        if (e.key === 'Enter' || e.keyCode === 13 || e.which === 13) {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          const val = (e.currentTarget.value || codigoConsulta).replace(/[\r\n\t]/g, '').trim()
                           if (val) {
                             setCodigoConsulta(val)
                             consultarApi(val)
@@ -1103,25 +1154,20 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
                         }
                       }}
                       placeholder={placeholderConsulta}
-                      autoCapitalize={apiSeccion.id === 'vehiculos' ? 'characters' : undefined}
-                      className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-200"
+                      className={`min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-200 ${apiSeccion.id === 'productos' ? 'pr-11' : ''}`}
                     />
                     {apiSeccion.id === 'productos' ? (
                       <button
                         type="button"
                         onClick={() => setScanAbierto(true)}
-                        className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-300 bg-white text-slate-500 transition-colors hover:border-primary hover:text-primary"
-                        title="Escanear código de barras"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary"
+                        title="Escanear código de barras con la cámara"
                         aria-label="Escanear código de barras"
                       >
                         <Camera className="h-5 w-5" />
                       </button>
                     ) : null}
-                    <Button variant="primary" className="shrink-0" disabled={!codigoConsulta.trim() || consultando} onClick={() => consultarApi()}>
-                      {consultando ? <Spinner size={16} /> : <Search className="h-4 w-4" />}
-                      {consultando ? 'Consultando…' : 'Consultar'}
-                    </Button>
-                  </div>
+                  </form>
                   {mensajeConsulta ? (
                     <div className="rounded-xl bg-amber-50 px-3 py-2">
                       <p className="text-xs font-medium text-amber-800">{mensajeConsulta}</p>

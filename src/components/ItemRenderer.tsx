@@ -515,8 +515,14 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
       return
     }
     setConsultando(true)
-    const r = await buscarProducto(codigo, shopId)
-    setConsultando(false)
+    let r: ResultadoScan
+    try {
+      r = await buscarProducto(codigo, shopId)
+    } catch {
+      r = { nombre: null, mensaje: 'Error al consultar producto.' }
+    } finally {
+      setConsultando(false)
+    }
     if (r.nombre) {
       setBorrador((b) => aplicarResultadoScan(b, r, contraDato))
       setTimeout(() => fisicaInputRef.current?.focus(), 50)
@@ -645,14 +651,39 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
 
       <div className="space-y-2 rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Escanea y agrega un producto</p>
-        <div className="relative w-full">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            const valor = (skuInputRef.current?.value || borrador.sku).replace(/[\r\n\t]/g, '').trim()
+            if (valor) void aplicarCodigo(valor)
+          }}
+          className="relative w-full"
+        >
           <Input
             ref={skuInputRef}
+            type="search"
+            inputMode="search"
+            enterKeyHint="search"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             placeholder="SKU / código interno del producto"
             value={borrador.sku}
             className="pr-11"
             onChange={(e) => {
-              const sku = e.target.value
+              const raw = e.target.value
+              // Detección directa de sufijos de escáneres handheld (Enter/Tab inyectados como caracteres \n, \r o \t)
+              if (raw.includes('\n') || raw.includes('\r') || raw.includes('\t')) {
+                const limpio = raw.replace(/[\r\n\t]/g, '').trim()
+                if (limpio) {
+                  setBorrador((b) => ({ ...b, sku: limpio }))
+                  void aplicarCodigo(limpio)
+                  return
+                }
+              }
+              const sku = raw
               const codigo = sku.trim()
               const ya = codigo ? productos.find((p) => p.sku === codigo) : undefined
               setInfo('')
@@ -664,10 +695,25 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
               )
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.keyCode === 13 || e.key === 'Tab' || e.keyCode === 9) {
+              if (
+                e.key === 'Enter' ||
+                e.keyCode === 13 ||
+                e.key === 'Tab' ||
+                e.keyCode === 9 ||
+                e.which === 13 ||
+                e.which === 9
+              ) {
                 e.preventDefault()
                 e.stopPropagation()
-                const valor = (e.currentTarget.value || borrador.sku).trim()
+                const valor = (e.currentTarget.value || borrador.sku).replace(/[\r\n\t]/g, '').trim()
+                if (valor) void aplicarCodigo(valor)
+              }
+            }}
+            onKeyUp={(e) => {
+              if (e.key === 'Enter' || e.keyCode === 13 || e.which === 13) {
+                e.preventDefault()
+                e.stopPropagation()
+                const valor = (e.currentTarget.value || borrador.sku).replace(/[\r\n\t]/g, '').trim()
                 if (valor) void aplicarCodigo(valor)
               }
             }}
@@ -681,7 +727,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
           >
             <ScanLine className="h-5 w-5" />
           </button>
-        </div>
+        </form>
         {consultando ? (
           <p className="flex items-center gap-2 text-xs text-slate-500"><Spinner /> Consultando producto…</p>
         ) : info ? (
