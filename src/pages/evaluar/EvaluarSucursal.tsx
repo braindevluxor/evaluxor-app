@@ -1092,8 +1092,9 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
                       value={codigoConsulta}
                       onChange={(e) => setCodigoConsulta(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.keyCode === 13) {
+                        if (e.key === 'Enter' || e.keyCode === 13 || e.key === 'Tab' || e.keyCode === 9) {
                           e.preventDefault()
+                          e.stopPropagation()
                           const val = (e.currentTarget.value || codigoConsulta).trim()
                           if (val) {
                             setCodigoConsulta(val)

@@ -432,6 +432,8 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
   const [editando, setEditando] = useState<number | null>(null)
   const [edicion, setEdicion] = useState<{ teorica: number | null; fisica: number | null; sinHablador: boolean }>({ teorica: null, fisica: null, sinHablador: false })
   const [borrador, setBorrador] = useState<ProductoConciliacion>({ sku: '', nombre: null, teorica: null, fisica: null, soh: null, lastSync: null, finalBase: null, finalTax: null })
+  const skuInputRef = useRef<HTMLInputElement>(null)
+  const fisicaInputRef = useRef<HTMLInputElement>(null)
 
   const v = (valor as ValorConciliacion | null) ?? { productos: [] }
   const productos = v.productos ?? []
@@ -517,8 +519,10 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
     setConsultando(false)
     if (r.nombre) {
       setBorrador((b) => aplicarResultadoScan(b, r, contraDato))
+      setTimeout(() => fisicaInputRef.current?.focus(), 50)
     } else {
       setInfo(r.mensaje ?? 'Producto no encontrado.')
+      setTimeout(() => skuInputRef.current?.focus(), 50)
     }
   }
 
@@ -561,6 +565,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
         setExito(`${sku} · marcado sin hablador · cuenta como No Match.`)
         setBorrador({ sku: '', nombre: null, teorica: null, fisica: null, apiId: null })
         setInfo('')
+        setTimeout(() => skuInputRef.current?.focus(), 50)
         return
       }
       // Re-escaneo: el físico nuevo se suma al previo en lugar de duplicar el producto.
@@ -618,6 +623,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
     }
     setBorrador({ sku: '', nombre: null, teorica: null, fisica: null, apiId: null, soh: null, lastSync: null, finalBase: null, finalTax: null })
     setInfo('')
+    setTimeout(() => skuInputRef.current?.focus(), 50)
   }
 
   const pctBorrador = conciliacionPorcentaje({ teorica: borrador.teorica, fisica: fisicaResultante })
@@ -639,10 +645,12 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
 
       <div className="space-y-2 rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Escanea y agrega un producto</p>
-        <div className="flex items-center gap-2">
+        <div className="relative w-full">
           <Input
+            ref={skuInputRef}
             placeholder="SKU / código interno del producto"
             value={borrador.sku}
+            className="pr-11"
             onChange={(e) => {
               const sku = e.target.value
               const codigo = sku.trim()
@@ -656,8 +664,9 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
               )
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.keyCode === 13) {
+              if (e.key === 'Enter' || e.keyCode === 13 || e.key === 'Tab' || e.keyCode === 9) {
                 e.preventDefault()
+                e.stopPropagation()
                 const valor = (e.currentTarget.value || borrador.sku).trim()
                 if (valor) void aplicarCodigo(valor)
               }
@@ -666,14 +675,12 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
           <button
             type="button"
             onClick={() => setEscaneando(true)}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-200 text-slate-600 hover:bg-slate-300"
-            title="Escanear código de barras"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary"
+            title="Escanear código de barras con la cámara"
+            aria-label="Escanear código de barras"
           >
             <ScanLine className="h-5 w-5" />
           </button>
-          <Button type="button" variant="secondary" className="shrink-0 min-h-0 px-3 py-2" disabled={!borrador.sku.trim() || consultando} onClick={() => void aplicarCodigo()}>
-            Buscar
-          </Button>
         </div>
         {consultando ? (
           <p className="flex items-center gap-2 text-xs text-slate-500"><Spinner /> Consultando producto…</p>
@@ -723,16 +730,19 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
         ) : null}
         <Input
           placeholder="Nombre del producto (se autocompleta al buscar)"
+          tabIndex={-1}
           value={borrador.nombre ?? ''}
           onChange={(e) => setBorrador((b) => ({ ...b, nombre: e.target.value }))}
         />
         <div className="flex flex-wrap items-end gap-2">
           <CampoConciliacion
+            tabIndex={-1}
             etiqueta={contraDato === 'FINAL_BASE' ? 'Teórica (precio)' : 'Teórica (SOH)'}
             valor={borrador.teorica}
             onChange={(n) => setBorrador((b) => ({ ...b, teorica: n }))}
           />
           <CampoConciliacion
+            inputRef={fisicaInputRef}
             etiqueta={existente ? 'Física nueva (suma al previo)' : 'Física (contada)'}
             valor={borrador.fisica}
             disabled={borrador.sinHablador === true}
@@ -1974,24 +1984,30 @@ function CampoConciliacion({
   valor,
   onChange,
   onEnter,
-  disabled
+  disabled,
+  inputRef,
+  tabIndex
 }: {
   etiqueta: string
   valor: number | null
   onChange: (n: number | null) => void
   onEnter?: () => void
   disabled?: boolean
+  inputRef?: React.Ref<HTMLInputElement>
+  tabIndex?: number
 }) {
   return (
     <div className="min-w-0 flex-1">
       <label className="mb-1 block text-xs font-medium text-slate-500">{etiqueta}</label>
       <div className="w-full">
         <Input
+          ref={inputRef}
           type="number"
           inputMode="decimal"
           min={0}
           placeholder={disabled ? '—' : '0'}
           disabled={disabled}
+          tabIndex={tabIndex}
           value={valor ?? ''}
           onChange={(e) => {
             const n = Number(e.target.value)
