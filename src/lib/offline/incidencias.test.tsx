@@ -186,6 +186,14 @@ describe('incidencias · filtro por evaluación y agrupación', () => {
     expect(pagina).toContain('{grupo.unidad}')
   })
 
+  it('nace colgada y sólo se abre al entrar desde una evaluación', () => {
+    expect(pagina).toContain('const abierta = plegadas[grupo.clave] ?? abiertaDeEntrada')
+    expect(pagina).toContain('const desdeEvaluacion = !!(unidadSel && fechaSel)')
+    expect(pagina).toContain('const abiertaDeEntrada = !desdeEvaluacion')
+    // Si el default fuera `true`, la lista saldría extendida desde el menú.
+    expect(pagina).not.toContain('plegadas[grupo.clave] ?? true')
+  })
+
   it('se llega desde la evaluación con la unidad y el día ya puestos', () => {
     expect(reporte).toContain('/evaluar/incidencias?unidad=')
     expect(reporte).toContain('&fecha=${encodeURIComponent(fecha)}')

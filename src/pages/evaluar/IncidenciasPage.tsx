@@ -168,8 +168,15 @@ export function IncidenciasPage() {
     )
   }, [incidencias, unidadSel, fechaSel, moduloSel, nombreUnidad])
 
-  // Las secciones nacen abiertas: plegar es una acción, no una condición de entrada.
+  // Estado explícito de lo que el usuario abrió o cerró a mano. Lo que no
+  // tocó, se resuelve con `abiertaDeEntrada`.
   const [plegadas, setPlegadas] = useState<Record<string, boolean>>({})
+  // Por defecto las secciones van colgadas: la lista se ve como un índice de
+  // visitas y sólo se abre lo que interesa. La única excepción es entrar desde
+  // una evaluación, donde la URL ya trae la unidad y el día y lo que se quiere
+  // ver es justamente esa visita.
+  const desdeEvaluacion = !!(unidadSel && fechaSel)
+  const abiertaDeEntrada = !desdeEvaluacion
   const conFiltro = agrupadas.reduce((total, grupo) => total + grupo.items.length, 0)
 
   function abrirEdicion(incidente: IncidenciaVista) {
@@ -335,7 +342,7 @@ export function IncidenciasPage() {
         ) : (
           <div className="space-y-3">
             {agrupadas.map((grupo) => {
-              const abierta = plegadas[grupo.clave] ?? true
+              const abierta = plegadas[grupo.clave] ?? abiertaDeEntrada
               // El bloque se distingue por el relleno, no por un borde: la
               // página es blanca y estas tarjetas son gris claro.
               return (
