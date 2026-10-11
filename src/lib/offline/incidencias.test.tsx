@@ -157,6 +157,42 @@ describe('incidencias · pantalla independiente en el menú', () => {
   })
 })
 
+describe('incidencias · filtro por evaluación y agrupación', () => {
+  const pagina = fuente('../../pages/evaluar/IncidenciasPage.tsx')
+  const reporte = fuente('../../components/ReportarIncidencia.tsx')
+
+  it('lee el filtro de la URL en vez de guardarlo en estado', () => {
+    // Al estar en los search params, el enlace desde la evaluación llega con el
+    // filtro puesto y refrescar o volver con Atrás no lo borra.
+    expect(pagina).toContain('useSearchParams()')
+    expect(pagina).toContain("params.get('unidad')")
+    expect(pagina).toContain("params.get('fecha')")
+    expect(pagina).toContain("params.get('modulo')")
+    expect(pagina).toContain('setParams(siguiente, { replace: true })')
+  })
+
+  it('cruza la lista con la unidad, la fecha y el módulo elegidos', () => {
+    expect(pagina).toContain("if (unidadSel && (i.departamento_id ?? i.sucursal_id) !== unidadSel) return false")
+    expect(pagina).toContain("if (fechaSel && i.fecha !== fechaSel) return false")
+    expect(pagina).toContain("if (moduloSel && (i.modulo_id ?? '') !== moduloSel) return false")
+  })
+
+  it('agrupa por evaluación, que es unidad + fecha', () => {
+    expect(pagina).toContain("const clave = `${unidadId}|${incidencia.fecha}`")
+    expect(pagina).toContain('fechaBonita(grupo.fecha)')
+    expect(pagina).toContain('grupo.items.length')
+    expect(pagina).toContain('aria-expanded={abierta}')
+    // El encabezado de cada bloque trae unidad y día, no un pedazo de fecha suelto.
+    expect(pagina).toContain('{grupo.unidad}')
+  })
+
+  it('se llega desde la evaluación con la unidad y el día ya puestos', () => {
+    expect(reporte).toContain('/evaluar/incidencias?unidad=')
+    expect(reporte).toContain('&fecha=${encodeURIComponent(fecha)}')
+    expect(reporte).toContain('aria-label="Ver incidencias de esta evaluación"')
+  })
+})
+
 describe('incidencias · el Líder las ve en el detalle de la evaluación', () => {
   it('la sección va montada en el detalle', () => {
     const detalle = fuente('../../pages/EvaluacionDetalle.tsx')

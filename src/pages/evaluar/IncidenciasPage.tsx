@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Camera, CloudOff, Pencil, RefreshCw, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { AlertTriangle, Camera, ChevronDown, CloudOff, Filter, Pencil, RefreshCw, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
@@ -8,7 +9,7 @@ import { ChipsResponsables, EditorResponsablesIncidencia } from '../../component
 import { PhotoCapture } from '../../components/PhotoCapture'
 import { pathFotoIncidencia } from '../../lib/offline/sync'
 import { supabase } from '../../lib/supabase'
-import { Button, Modal, Spinner, Textarea } from '../../components/ui'
+import { Button, cn, Input, Modal, Select, Spinner, Textarea } from '../../components/ui'
 import { ModalImagen } from '../../components/ModalImagen'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import {
@@ -32,6 +33,11 @@ type IncidenciaVista = {
   created_at: number
   pendiente: boolean
   local: boolean
+}
+
+/** La fecha en el mismo formato que ya se mostraba en cada incidencia. */
+function fechaBonita(fecha: string): string {
+  return new Date(`${fecha}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 export function IncidenciasPage() {
@@ -106,6 +112,66 @@ export function IncidenciasPage() {
     void cargar()
   }, [cargar])
 
+  /* El filtro vive en la URL y no en estado local: así el enlace que sale de la
+     evaluación llega con la unidad y el día ya puestos (ver ReportarIncidencia),
+     se puede compartir, y refrescar la página o volver con Atrás no lo borra. */
+  const [params, setParams] = useSearchParams()
+  const unidadSel = params.get('unidad') ?? ''
+  const fechaSel = params.get('fecha') ?? ''
+  const moduloSel = params.get('modulo') ?? ''
+  const hayFiltro = !!(unidadSel || fechaSel || moduloSel)
+
+  const cambiarFiltro = useCallback(
+    (clave: string, valor: string) => {
+      const siguiente = new URLSearchParams(params)
+      if (valor) siguiente.set(clave, valor)
+      else siguiente.delete(clave)
+      setParams(siguiente, { replace: true })
+    },
+    [params, setParams]
+  )
+
+  const nombreUnidad = useCallback(
+    (unidadId: string, esDepartamento: boolean) =>
+      (esDepartamento ? departamentos.find((d) => d.id === unidadId) : sucursales.find((s) => s.id === unidadId))?.nombre ?? 'Sucursal',
+    [departamentos, sucursales]
+  )
+
+  /**
+   * Una incidencia pertenece a una evaluación, y una evaluación es unidad + fecha
+   * (la misma clave que usa `evaluacionActivaDe` al subir). Agrupar así es lo que
+   * hace legible la lista: cada bloque es una visita, no un pedazo de la historia
+   * del evaluador mezclado con las demás tiendas.
+   */
+  const agrupadas = useMemo(() => {
+    const visibles = incidencias.filter((i) => {
+      if (unidadSel && (i.departamento_id ?? i.sucursal_id) !== unidadSel) return false
+      if (fechaSel && i.fecha !== fechaSel) return false
+      if (moduloSel && (i.modulo_id ?? '') !== moduloSel) return false
+      return true
+    })
+    const mapa = new Map<string, { clave: string; unidad: string; fecha: string; items: IncidenciaVista[] }>()
+    for (const incidencia of visibles) {
+      const unidadId = incidencia.departamento_id ?? incidencia.sucursal_id ?? ''
+      const clave = `${unidadId}|${incidencia.fecha}`
+      const grupo = mapa.get(clave) ?? {
+        clave,
+        unidad: nombreUnidad(unidadId, !!incidencia.departamento_id),
+        fecha: incidencia.fecha,
+        items: []
+      }
+      grupo.items.push(incidencia)
+      mapa.set(clave, grupo)
+    }
+    return [...mapa.values()].sort((a, b) =>
+      b.fecha === a.fecha ? (b.items[0]?.created_at ?? 0) - (a.items[0]?.created_at ?? 0) : b.fecha.localeCompare(a.fecha)
+    )
+  }, [incidencias, unidadSel, fechaSel, moduloSel, nombreUnidad])
+
+  // Las secciones nacen abiertas: plegar es una acción, no una condición de entrada.
+  const [plegadas, setPlegadas] = useState<Record<string, boolean>>({})
+  const conFiltro = agrupadas.reduce((total, grupo) => total + grupo.items.length, 0)
+
   function abrirEdicion(incidente: IncidenciaVista) {
     setEditando(incidente)
     setDescripcion(incidente.descripcion)
@@ -176,7 +242,11 @@ export function IncidenciasPage() {
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-bold text-slate-900">Incidencias reportadas</h2>
-            <p className="text-xs text-slate-500">{incidencias.length} en total · puedes editar la descripción</p>
+            <p className="text-xs text-slate-500">
+              {hayFiltro
+                ? `${conFiltro} de ${incidencias.length} · puedes editar la descripción`
+                : `${incidencias.length} en total · puedes editar la descripción`}
+            </p>
           </div>
           <button
             type="button"
@@ -201,54 +271,126 @@ export function IncidenciasPage() {
           </p>
         ) : null}
 
+        {/* El filtro vive en la URL: el enlace desde la evaluación llega con la
+            unidad y el día puestos, y se puede compartir o refrescar sin perderlo. */}
+        <section className="rounded-xl bg-slate-50 p-3">
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 shrink-0 text-slate-500" />
+            <p className="flex-1 text-xs font-bold uppercase tracking-wide text-slate-500">Filtrar por evaluación</p>
+            {hayFiltro ? (
+              <button
+                type="button"
+                onClick={() => setParams(new URLSearchParams(), { replace: true })}
+                className="inline-flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-slate-900"
+              >
+                <X className="h-3.5 w-3.5" /> Quitar
+              </button>
+            ) : null}
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            <label className="block">
+              <span className="block text-[11px] font-semibold text-slate-500">Sucursal o departamento</span>
+              <Select className="mt-1" value={unidadSel} onChange={(e) => cambiarFiltro('unidad', e.target.value)}>
+                <option value="">Todas</option>
+                <optgroup label="Sucursales">
+                  {sucursales.map((s) => (
+                    <option key={s.id} value={s.id}>{s.nombre}</option>
+                  ))}
+                </optgroup>
+                {departamentos.length ? (
+                  <optgroup label="Departamentos">
+                    {departamentos.map((d) => (
+                      <option key={d.id} value={d.id}>{d.nombre}</option>
+                    ))}
+                  </optgroup>
+                ) : null}
+              </Select>
+            </label>
+            <label className="block">
+              <span className="block text-[11px] font-semibold text-slate-500">Fecha</span>
+              <Input type="date" className="mt-1" value={fechaSel} onChange={(e) => cambiarFiltro('fecha', e.target.value)} />
+            </label>
+            <label className="block">
+              <span className="block text-[11px] font-semibold text-slate-500">Módulo</span>
+              <Select className="mt-1" value={moduloSel} onChange={(e) => cambiarFiltro('modulo', e.target.value)}>
+                <option value="">Todos</option>
+                {modulos.filter((m) => !m.herramienta).map((m) => (
+                  <option key={m.id} value={m.id}>{m.nombre}</option>
+                ))}
+              </Select>
+            </label>
+          </div>
+        </section>
+
         {cargando ? (
           <div className="flex justify-center py-12"><Spinner size={24} /></div>
-        ) : incidencias.length === 0 ? (
-          <div className="border-y border-dashed border-slate-300 py-10 text-center">
+        ) : agrupadas.length === 0 ? (
+          <div className="rounded-xl bg-slate-50 py-10 text-center">
             <AlertTriangle className="mx-auto h-7 w-7 text-slate-300" />
-            <p className="mt-2 text-sm font-semibold text-slate-700">Todavía no hay incidencias</p>
-            <p className="mt-1 text-xs text-slate-500">Puedes reportarlas desde la barra de evaluación.</p>
+            <p className="mt-2 text-sm font-semibold text-slate-700">{hayFiltro ? 'Nada con ese filtro' : 'Todavía no hay incidencias'}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {hayFiltro ? 'Probá quitar el filtro o mirar otra fecha.' : 'Puedes reportarlas desde la barra de evaluación.'}
+            </p>
           </div>
         ) : (
-          <ul className="divide-y divide-slate-200">
-            {incidencias.map((incidente) => {
-              const sucursal = incidente.sucursal_id ? sucursales.find((fila) => fila.id === incidente.sucursal_id) : undefined
-              const departamento = incidente.departamento_id ? departamentos.find((fila) => fila.id === incidente.departamento_id) : undefined
-              // La unidad de la incidencia: un departamento centralizado o, si no,
-              // la sucursal a la que pertenece.
-              const unidad = departamento?.nombre ?? sucursal?.nombre ?? 'Sucursal'
-              const modulo = modulos.find((fila) => fila.id === incidente.modulo_id)
+          <div className="space-y-3">
+            {agrupadas.map((grupo) => {
+              const abierta = plegadas[grupo.clave] ?? true
+              // El bloque se distingue por el relleno, no por un borde: la
+              // página es blanca y estas tarjetas son gris claro.
               return (
-                <li key={incidente.id} className="py-3">
-                  <div className="flex items-start gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="whitespace-pre-wrap text-sm font-medium text-slate-900">{incidente.descripcion}</p>
-                      <p className="mt-1 text-xs text-slate-600">
-                        {unidad} · {new Date(`${incidente.fecha}T12:00:00`).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })}
-                        {modulo ? ` · ${modulo.nombre}` : ''}
-                      </p>
-                      <ChipsResponsables valor={incidente.responsables} className="mt-1.5" />
-                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-                        <span>{new Date(incidente.created_at).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-                        {incidente.fotos.length + incidente.photoIds.length > 0 ? <span className="inline-flex items-center gap-1"><Camera className="h-3.5 w-3.5" /> {incidente.fotos.length + incidente.photoIds.length} foto(s)</span> : null}
-                        {incidente.pendiente ? <span className="font-semibold text-amber-700">Pendiente de sincronizar</span> : null}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => abrirEdicion(incidente)}
-                      disabled={!online && !incidente.local}
-                      className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-600 hover:bg-amber-100 hover:text-amber-900"
-                      title="Editar incidencia"
-                      aria-label={`Editar incidencia de ${unidad}`}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                  </div>
-                </li>
+                <section key={grupo.clave} className="overflow-hidden rounded-xl bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => setPlegadas((p) => ({ ...p, [grupo.clave]: !abierta }))}
+                    aria-expanded={abierta}
+                    className="flex w-full items-center gap-2 bg-slate-100 px-3 py-2.5 text-left transition-colors hover:bg-slate-200"
+                  >
+                    <ChevronDown className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', abierta ? '' : '-rotate-90')} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-bold text-slate-800">{grupo.unidad}</span>
+                      <span className="block text-xs text-slate-500">
+                        {fechaBonita(grupo.fecha)} · {grupo.items.length} incidencia{grupo.items.length === 1 ? '' : 's'}
+                      </span>
+                    </span>
+                  </button>
+                  {abierta ? (
+                    <ul className="divide-y divide-slate-200">
+                      {grupo.items.map((incidente) => {
+                        const modulo = modulos.find((fila) => fila.id === incidente.modulo_id)
+                        return (
+                          <li key={incidente.id} className="px-3 py-3">
+                            <div className="flex items-start gap-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="whitespace-pre-wrap text-sm font-medium text-slate-900">{incidente.descripcion}</p>
+                                {modulo ? <p className="mt-1 text-xs text-slate-600">{modulo.nombre}</p> : null}
+                                <ChipsResponsables valor={incidente.responsables} className="mt-1.5" />
+                                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                                  <span>{new Date(incidente.created_at).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                                  {incidente.fotos.length + incidente.photoIds.length > 0 ? <span className="inline-flex items-center gap-1"><Camera className="h-3.5 w-3.5" /> {incidente.fotos.length + incidente.photoIds.length} foto(s)</span> : null}
+                                  {incidente.pendiente ? <span className="font-semibold text-amber-700">Pendiente de sincronizar</span> : null}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => abrirEdicion(incidente)}
+                                disabled={!online && !incidente.local}
+                                className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-600 hover:bg-amber-100 hover:text-amber-900"
+                                title="Editar incidencia"
+                                aria-label={`Editar incidencia de ${grupo.unidad}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : null}
+                </section>
               )
             })}
-          </ul>
+          </div>
         )}
       </div>
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertTriangle, ArrowLeft, Check, CloudOff, Send } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Check, CloudOff, Eye, Send } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useOffline } from '../context/OfflineContext'
 import { addIncidente } from '../lib/offline/db'
 import { Button, Spinner, Textarea, cn } from './ui'
@@ -157,6 +158,17 @@ export function ReportarIncidencia({ sucursalId, departamentoId, fecha, moduloId
                     <p className="truncate text-xs text-slate-500">Módulo en curso: {moduloNombre}</p>
                   ) : null}
                 </div>
+                {/* La lista de esta misma evaluación, no la de todas: el enlace
+                    arrastra la unidad y el día para que la pantalla de
+                    incidencias abra filtrada a la visita en curso. */}
+                <Link
+                  to={`/evaluar/incidencias?unidad=${encodeURIComponent(unidadId)}&fecha=${encodeURIComponent(fecha)}`}
+                  aria-label="Ver incidencias de esta evaluación"
+                  title="Ver incidencias de esta evaluación"
+                  className="ml-auto grid h-10 w-10 shrink-0 place-items-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <Eye className="h-5 w-5" />
+                </Link>
               </header>
 
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
