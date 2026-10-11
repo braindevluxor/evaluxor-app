@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Pencil, Settings2, Trash2 } from 'lucide-react'
 import { listarDepartamentosAdmin, guardarDepartamento, eliminarDepartamento } from '../../lib/data/departamentos'
 import type { Departamento } from '../../lib/types'
-import { Button, Field, Input, Modal, Badge, SkeletonFilas } from '../../components/ui'
+import { Button, ButtonIcon, Field, Input, Modal, Badge, SkeletonFilas } from '../../components/ui'
 import { DepartamentoConfigModal } from './SucursalConfig'
 
 /**
@@ -111,28 +111,31 @@ export function DepartamentosPage() {
                     <Badge color={d.activa ? 2 : 4}>{d.activa ? 'Activo' : 'Inactivo'}</Badge>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      <button
+                    <div className="flex items-center justify-end gap-1.5">
+                      <ButtonIcon
+                        variant="primary"
                         onClick={() => setConfigurando(d)}
                         title="Configurar módulos e ítems"
-                        className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700"
+                        aria-label="Configurar módulos e ítems"
                       >
-                        <Settings2 className="h-4 w-4" />
-                      </button>
-                      <button
+                        <Settings2 className="h-5 w-5" />
+                      </ButtonIcon>
+                      <ButtonIcon
+                        variant="primary"
                         onClick={() => abrir(d)}
                         title="Editar"
-                        className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700"
+                        aria-label="Editar"
                       >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button
+                        <Pencil className="h-5 w-5" />
+                      </ButtonIcon>
+                      <ButtonIcon
+                        variant="danger"
                         onClick={() => { setMsg(null); setABorrar(d) }}
                         title="Eliminar"
-                        className="grid h-8 w-8 place-items-center rounded-full bg-red-600 text-white transition-colors hover:bg-red-700"
+                        aria-label="Eliminar"
                       >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                        <Trash2 className="h-5 w-5" />
+                      </ButtonIcon>
                     </div>
                   </td>
                 </tr>

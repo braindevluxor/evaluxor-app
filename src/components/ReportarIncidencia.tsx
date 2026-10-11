@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Check, CloudOff, Send } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { AlertTriangle, ArrowLeft, Check, CloudOff, Send } from 'lucide-react'
 import { useOffline } from '../context/OfflineContext'
 import { addIncidente } from '../lib/offline/db'
-import { Button, Modal, Spinner, Textarea, cn } from './ui'
+import { Button, Spinner, Textarea, cn } from './ui'
 import { PhotoCapture } from './PhotoCapture'
 import { EditorResponsablesIncidencia } from './EditorResponsablesIncidencia'
 import { normalizarResponsables, type ResponsableIncidencia } from '../lib/data/responsablesIncidencia'
@@ -58,6 +59,16 @@ export function ReportarIncidencia({ sucursalId, departamentoId, fecha, moduloId
 
   const cerrar = useCallback(() => setAbierto(false), [])
 
+  // La pantalla se cierra con Escape, igual que hacía el modal.
+  useEffect(() => {
+    if (!abierto) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAbierto(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [abierto])
+
   // La confirmación se ve en el propio botón y se va sola: si no, queda un
   // cartel flotando durante toda la visita.
   useEffect(() => {
@@ -101,8 +112,13 @@ export function ReportarIncidencia({ sucursalId, departamentoId, fecha, moduloId
         aria-label="Reportar incidencia"
         title={recienGuardada ? 'Incidencia guardada' : 'Reportar algo fuera de lo programado'}
         className={cn(
-          'relative grid h-11 w-11 shrink-0 place-items-center rounded-full text-white transition-colors',
-          recienGuardada ? 'bg-green-600' : 'bg-amber-500 hover:bg-amber-600'
+          // Mismo lenguaje que las acciones del Historial: outline, el color
+          // vive en el trazo del ícono y el fondo sólo aparece como tinte al
+          // hover. El ámbar lo deja claro que es "avisar algo", no navegar.
+          'relative inline-grid h-11 w-11 shrink-0 place-items-center rounded-full transition-colors',
+          recienGuardada
+            ? 'text-green-600 hover:bg-green-50'
+            : 'text-amber-500 hover:bg-amber-50'
         )}
       >
         {recienGuardada ? <Check className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
@@ -115,61 +131,84 @@ export function ReportarIncidencia({ sucursalId, departamentoId, fecha, moduloId
           </span>
         ) : null}
       </button>
+      {/* Pantalla propia a pantalla completa (no un modal): el formulario vive
+          en su vista con header y volver, y la evaluación queda abajo sin
+          perder el módulo ni el ítem donde iba el evaluador. */}
+      {abierto
+        ? createPortal(
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Reportar incidencia"
+              className="fixed inset-0 z-[100] flex flex-col bg-white"
+            >
+              <header className="flex shrink-0 items-center gap-2 bg-white px-3 py-3">
+                <button
+                  type="button"
+                  onClick={cerrar}
+                  aria-label="Volver"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+                <div className="min-w-0">
+                  <h2 className="truncate text-base font-bold text-primary-900">Reportar incidencia</h2>
+                  {moduloNombre ? (
+                    <p className="truncate text-xs text-slate-500">Módulo en curso: {moduloNombre}</p>
+                  ) : null}
+                </div>
+              </header>
 
-      <Modal
-        open={abierto}
-        onClose={cerrar}
-        title="Reportar incidencia"
-        footer={
-          <div className="flex gap-2">
-            <Button variant="secondary" className="flex-1" onClick={cerrar}>Cancelar</Button>
-            <Button className="flex-1" onClick={() => void guardar()} disabled={!descripcion.trim() || guardando}>
-              {guardando ? <Spinner size={16} light /> : <Send className="h-4 w-4" />}
-              Reportar
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-3">
-          <p className="text-sm text-slate-600">
-            Anotá algo que viste en la tienda y no está en el cuestionario. Queda registrado para el Líder.
-          </p>
-          {moduloNombre ? (
-            <p className="text-xs text-slate-500">
-              Módulo en curso: <span className="font-semibold text-slate-700">{moduloNombre}</span>
-            </p>
-          ) : null}
-          <Textarea
-            rows={4}
-            autoFocus
-            value={descripcion}
-            onChange={(e) => setDescripcion(e.target.value)}
-            placeholder="Ej: hay una bandeja de pechuga de pollo dentro de la nevera de helado."
-          />
-          {/* Va después del texto y antes de las fotos: primero qué pasó, después
-              a quién le corresponde, y las fotos al final porque son las que más
-              pesan en el modal. */}
-          {/* Sin sucursal (incidencia de un departamento) el catálogo de cargos
-              no aplica: el editor queda en modo texto libre. */}
-          <EditorResponsablesIncidencia
-            valor={responsables}
-            onChange={setResponsables}
-            sucursalId={sucursalId}
-          />
-          <PhotoCapture photoIds={photoIds} onChange={setPhotoIds} />
-          <p className="flex items-center gap-1.5 text-xs text-slate-500">
-            {online ? (
-              <>
-                <Check className="h-3.5 w-3.5 text-green-600" /> Se sube al reportar. Si no hay señal, queda en el teléfono.
-              </>
-            ) : (
-              <>
-                <CloudOff className="h-3.5 w-3.5 text-amber-600" /> Sin conexión: queda en el teléfono y sube sola después.
-              </>
-            )}
-          </p>
-        </div>
-      </Modal>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+                <div className="mx-auto w-full max-w-lg space-y-3">
+                  <p className="text-sm text-slate-600">
+                    Anotá algo que viste en la tienda y no está en el cuestionario. Queda registrado para el Líder.
+                  </p>
+                  <Textarea
+                    rows={5}
+                    autoFocus
+                    value={descripcion}
+                    onChange={(e) => setDescripcion(e.target.value)}
+                    placeholder="Ej: hay una bandeja de pechuga de pollo dentro de la nevera de helado."
+                  />
+                  {/* Va después del texto y antes de las fotos: primero qué pasó,
+                      después a quién le corresponde, y las fotos al final porque
+                      son las que más pesan. */}
+                  {/* Sin sucursal (incidencia de un departamento) el catálogo de
+                      cargos no aplica: el editor queda en modo texto libre. */}
+                  <EditorResponsablesIncidencia
+                    valor={responsables}
+                    onChange={setResponsables}
+                    sucursalId={sucursalId}
+                  />
+                  <PhotoCapture photoIds={photoIds} onChange={setPhotoIds} />
+                  <p className="flex items-center gap-1.5 text-xs text-slate-500">
+                    {online ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-green-600" /> Se sube al reportar. Si no hay señal, queda en el teléfono.
+                      </>
+                    ) : (
+                      <>
+                        <CloudOff className="h-3.5 w-3.5 text-amber-600" /> Sin conexión: queda en el teléfono y sube sola después.
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="shrink-0 bg-white px-4 py-3">
+                <div className="mx-auto flex w-full max-w-lg gap-2">
+                  <Button variant="secondary" className="flex-1" onClick={cerrar}>Cancelar</Button>
+                  <Button className="flex-1" onClick={() => void guardar()} disabled={!descripcion.trim() || guardando}>
+                    {guardando ? <Spinner size={16} light /> : <Send className="h-4 w-4" />}
+                    Reportar
+                  </Button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </>
   )
 }

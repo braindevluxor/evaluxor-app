@@ -565,8 +565,10 @@ describe('ItemRenderer · la lista se pinta depurada desde el primer render', ()
     expect(html).toContain('Sin revisar')
   })
 
-  it('con un punto tildado el check general se enciende solo', () => {
-    const valor = { colaboradores: [trabajador(5, 'Marta', 'Sosa', { selected: ['o1'] })] }
+  it('el check general muestra la confirmación del evaluador, no se enciende solo', () => {
+    // El check es un espejo de `aplica`, que en la carga viene en false y sólo
+    // lo mueve `marcarAplica`. Ningún tildado del checklist lo toca.
+    const valor = { colaboradores: [trabajador(5, 'Marta', 'Sosa', { aplica: true, selected: ['o1'] })] }
     const html = renderToStaticMarkup(
       <ItemRenderer item={itemColaboradoresVarios()} valor={valor} index={0} total={1} onChange={() => {}} />
     )
@@ -576,6 +578,21 @@ describe('ItemRenderer · la lista se pinta depurada desde el primer render', ()
     expect(check).not.toContain('disabled=""')
     expect(check).toContain('title="Cuenta para el puntaje"')
     expect(html).toContain('Incompleto')
+  })
+
+  it('carga con todos los puntos tildados y el check general apagado', () => {
+    // El flujo es "todo bien salvo lo que destildes": entra completa y el
+    // evaluador destilda los puntos que faltan, que es mucho más rápido que
+    // tildar treinta casillas de una en una.
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).toContain('aplica: false')
+    expect(src).toContain('selected: [...idsChecks]')
+    // Tildar o destildar un punto no mueve el check general: eso lo decide el
+    // evaluador, y hasta que no lo marque el trabajador no entra en el puntaje.
+    const desde = src.indexOf('const toggleCheck = (dni: number, opcionId: string) => {')
+    const hasta = src.indexOf('const marcarNoAplica', desde)
+    expect(desde).toBeGreaterThan(-1)
+    expect(src.slice(desde, hasta)).not.toMatch(/aplica: true/)
   })
 
   it('a quien se le tildó algo pero está excluido, el check queda apagado y se puede encender', () => {
@@ -813,5 +830,174 @@ describe('ItemRenderer · filas heredadas de la nube (sin campos nuevos)', () =>
     expect(() =>
       renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis')} valor={valor} index={0} total={1} onChange={() => {}} />)
     ).not.toThrow()
+  })
+})
+
+/**
+ * Cuando un punto queda INCUMPLIDO y el ítem tiene responsables configurados,
+ * los chips aparecen marcados apenas se despliega el trabajador. Es una
+ * preselección de cara al evaluador, no una escritura: hasta que él toca algo no
+ * se guarda nada, porque escribir solo al montar encendía la casilla de "cuenta
+ * para el puntaje" junto al nombre y podía hacer desaparecer la fila entera.
+ */
+describe('ItemRenderer · los responsables se preseleccionan sin escribir nada', () => {
+  const fuente = (rel: string): string =>
+    readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+  it('no tiene efectos: el montaje no dispara onChange', () => {
+    const src = fuente('./WidgetsEvaluacion.tsx')
+    // El error original era un `useEffect` que llamaba a `onChange` al montar.
+    // Sin efectos no hay nada que correr en ese commit, ni carrera que resolver.
+    expect(src).not.toMatch(/useEffect/)
+    expect(src).not.toMatch(/useRef/)
+    // Ningún `onChange` con el arreglo completo del ítem: ése era el que
+    // convertía la preselección en dato guardado sin que nadie lo pidiera.
+    expect(src).not.toMatch(/onChange\(\[\.\.\.responsables\]\)/)
+    expect(src).not.toMatch(/onChange\(\[responsables\[0\]\]\)/)
+  })
+
+  it('la preselección vive en estado local y sólo mientras siga sin tocar', () => {
+    const src = fuente('./WidgetsEvaluacion.tsx')
+    expect(src).toMatch(/const \[tocado, setTocado\] = useState\(false\)/)
+    // Las tres condiciones juntas: una cosa es que haya responsables, otra que
+    // el evaluador no haya tocado nada todavía, y otra que no haya elegido a
+    // nadie a mano (si eligió, su elección manda).
+    expect(src).toMatch(/const preseleccionando = !tocado && seleccion\.length === 0 && responsables\.length > 0/)
+    expect(src).toMatch(/const elegidos = preseleccionando \? responsables : seleccion/)
+  })
+
+  it('el primer toque confirma la preselección entera y le aplica el cambio', () => {
+    const src = fuente('./WidgetsEvaluacion.tsx')
+    // Comparar y construir contra `elegidos`, no contra `seleccion`: si no, al
+    // tocar un chip de la preselección se agregaría el primero encima de una
+    // lista vacía en vez de sacarlo.
+    expect(src).toMatch(/const existe = elegidos\.includes\(r\)/)
+    expect(src).toMatch(/onChange\(existe \? elegidos\.filter\(\(x\) => x !== r\) : \[\.\.\.elegidos, r\]\)/)
+    // Y el toque levanta la bandera ANTES de escribir, para que el mismo render
+    // ya no vuelva a preseleccionar.
+    expect(src).toMatch(/setTocado\(true\)\s*\n\s*onChange\(existe/)
+  })
+
+  it('los chips y el título leen `elegidos`, no el valor crudo', () => {
+    const src = fuente('./WidgetsEvaluacion.tsx')
+    // Si pintaran con `seleccion` (vacío) los chips se verían apagados pese a
+    // estar preseleccionados, que era exactamente la queja original.
+    expect(src).toMatch(/title=\{elegidos\.includes\(r\)/)
+    expect(src).toMatch(/elegidos\.includes\(r\) \? 'bg-primary text-white'/)
+  })
+
+  it('anuncia que es una preselección y cómo confirmarla, con texto por cantidad', () => {
+    const src = fuente('./WidgetsEvaluacion.tsx')
+    expect(src).toMatch(/\? responsables\.length === 1/)
+    // Decir "quedó marcado" sería mentirle: todavía no se guardó nada.
+    expect(src).not.toMatch(/Quedaron marcados/)
+    expect(src).not.toMatch(/Quedó marcado/)
+    expect(src).toMatch(/Preseleccionado: \$\{responsables\[0\]\} es el único responsable/)
+    expect(src).toMatch(/Preseleccionados los \$\{responsables\.length\} responsables/)
+    expect(src).toMatch(/Tocá el chip para confirmarlo/)
+    expect(src).toMatch(/Tocá un chip para confirmar/)
+  })
+
+  it('al confirmar responsables no se tilda el punto ni se enciende el check general', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    const desde = src.indexOf('const marcarResponsables = (dni: number, opcionId: string, rs: string[]) => {')
+    const fn = src.slice(desde, src.indexOf('const enCuenta =', desde))
+    // Sólo el responsable. Antes también forzaba `aplica` y sumaba la opción a
+    // `selected`, y con eso el punto dejaba de estar "sin cumplir" (el panel se
+    // escondía solo) y la fila entera podía pasar a "cumple" y desaparecer.
+    expect(fn).toContain('responsablesPorOpcion')
+    expect(fn).not.toMatch(/aplica: true/)
+    expect(fn).not.toMatch(/selected:/)
+    expect(fn).not.toMatch(/Array\.from\(new Set/)
+  })
+
+  it('los seis call sites montan el selector sólo cuando el punto está sin cumplir', () => {
+    const item = fuente('./ItemRenderer.tsx')
+    const plano = fuente('./PlanoEditor.tsx')
+    // 6 en ItemRenderer (CUMPLE_NO_CUMPLE, CHECKLIST, LISTA_COLABORADORES,
+    // UNIDAD_CHECKLIST, conciliación y el plano heredado) + 1 en PlanoEditor.
+    expect(item.match(/<SelectorResponsables/g)).toHaveLength(6)
+    expect(plano.match(/<SelectorResponsables/g)).toHaveLength(1)
+    // Ninguno debe montar el selector fuera del estado incumplido.
+    expect(item).toMatch(/value === false/)
+    expect(plano).toMatch(/fallados > 0/)
+  })
+})
+
+/**
+ * Varias escrituras a la vez, un solo snapshot.
+ *
+ * Un ítem con N selectores de responsables puede escribir N veces en el mismo
+ * tick (el evaluador repartiendo fallas a mano sobre varios checks, o varios
+ * ítems abiertos a la vez). Si cada escritura se construye desde el `value` del
+ * render y se vuelca sobre el `draft` del render, todas se calculan sobre la
+ * misma copia vieja y sólo sobrevive la última.
+ *
+ * Esto se cubre con updaters funcionales que se resuelven contra el draft vivo.
+ * La preselección al montar ya no escribe (ver el describe anterior), así que la
+ * ráfaga del montaje dejó de existir; el mecanismo queda porque las escrituras
+ * del evaluador siguen pudiendo ser varias en el mismo tick.
+ *
+ * Estas pruebas son de fuente: el proyecto no tiene `@testing-library/react`
+ * y el `renderToStaticMarkup` (SSR) no ejecuta `useEffect`.
+ */
+describe('ItemRenderer · las escrituras simultáneas componen en vez de pisarse', () => {
+  const fuente = (rel: string): string =>
+    readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+  it('EvaluarSucursal resuelve el updater contra el draft vivo, no contra el del render', () => {
+    const src = fuente('../pages/evaluar/EvaluarSucursal.tsx')
+    // Base: la ref, que se actualiza síncrona en cada escritura.
+    expect(src).toMatch(/const base = draftRef\.current \?\? actual/)
+    // Forma funcional: `valor` puede ser `(prev) => next`.
+    expect(src).toMatch(/typeof valor === 'function'/)
+    expect(src).toMatch(/\(valor as \(p: unknown\) => unknown\)\(previo\)/)
+    // El punto de control: si sigue escribiendo desde `actual`, las N opciones
+    // siguen compitiendo por el mismo objeto y vuelve la carrera.
+    expect(src).not.toMatch(/respuestas: \{ \.\.\.actual\.respuestas/)
+  })
+
+  it('Contenido.guardar deja pasar el updater y sólo inyecta el gerente al resultado', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    // Si `guardar` intentara resolverlo contra `valor` (el del render) se
+    // perdería lo que acabaron de marcar las opciones anteriores.
+    expect(src).toMatch(/if \(typeof v === 'function'\)/)
+    expect(src).toMatch(/onChange\(\(prev: unknown\) => inyectar\(\(v as \(p: unknown\) => unknown\)\(prev\)\)\)/)
+  })
+
+  it('los tres puntos multi-responsable escriben como updater', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    // CHECKLIST: un selector por check. Uno por unidad × check en
+    // UNIDAD_CHECKLIST (dos ramas: carga única y repetible).
+    expect(src.match(/responsablesPorOpcion: \{ \.\.\.\(base\.responsablesPorOpcion \?\? \{\}\), \[o\.id\]: sel \}/g)).toHaveLength(3)
+    expect(src).not.toMatch(/responsablesPorOpcion: \{ \.\.\.\(v\.responsablesPorOpcion/)
+    expect(src).not.toMatch(/responsablesPorOpcion: \{ \.\.\.\(value\.responsablesPorOpcion/)
+    // LISTA_COLABORADORES: un selector por trabajador × check.
+    expect(src).toMatch(/actualizar\(\(prev: ColaboradorItem\[\]\) => ordenarTrabajadores\(prev\)/)
+  })
+
+  it('el updater de la lista de colaboradores se resuelve contra prev y no contra v', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    const actualizar = src.slice(src.indexOf('const actualizar = (cols'), src.indexOf('const limpiar = () => {'))
+    expect(actualizar).toMatch(/const lista = typeof cols === 'function' \? cols\(base\.colaboradores \?\? \[\]\) : cols/)
+    expect(actualizar).toMatch(/\.\.\.base,/)
+    // Si vuelve a escribir `{ ...v, colaboradores: ... }` la carrera regresa.
+    expect(actualizar).not.toMatch(/onChange\(\{ \.\.\.v, colaboradores/)
+  })
+
+  it('RevisionPreEntrega también resuelve el updater (renderiza el mismo ítem)', () => {
+    const src = fuente('../pages/herramientas/RevisionPreEntrega.tsx')
+    expect(src).toMatch(/typeof valor === 'function'/)
+    expect(src).toMatch(/\[itemId\]: nuevoValor/)
+  })
+
+  it('el throttle de IndexedDB no se queda con la primera escritura de la ráfaga', () => {
+    const src = fuente('../pages/evaluar/EvaluarSucursal.tsx')
+    // Sin el borde de cola, los N auto-marcados del mismo tick escriben en la
+    // base local sólo el primero (el incompleto) y al reabrir se pierden.
+    expect(src).toMatch(/putLocalTimer\.current = window\.setTimeout/)
+    expect(src).toMatch(/if \(d && vivoRef\.current\) void putDraft\(d\)/)
+    // Y el timer se limpia al desmontar, junto al de la nube.
+    expect(src).toMatch(/if \(putLocalTimer\.current\) window\.clearTimeout\(putLocalTimer\.current\)/)
   })
 })

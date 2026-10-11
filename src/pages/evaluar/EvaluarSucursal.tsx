@@ -23,7 +23,7 @@ import { apiDisponible, esColorHex, etiquetaDeCampo, formatearValorConsulta, sel
 import { supabase } from '../../lib/supabase'
 import { ItemRenderer } from '../../components/ItemRenderer'
 import { ReportarIncidencia } from '../../components/ReportarIncidencia'
-import { Button, EmptyState, Modal, cn } from '../../components/ui'
+import { Button, ButtonIcon, EmptyState, Modal, cn } from '../../components/ui'
 import { BarcodeScanner } from '../../components/BarcodeScanner'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import { yaExisteRegistroConEtiqueta } from '../../lib/registro'
@@ -102,6 +102,11 @@ export function EvaluarSucursal() {
   const etiquetaInputRef = useRef<HTMLInputElement | null>(null)
 
   const guardadoRef = useRef<Map<string, number>>(new Map())
+  // El throttle de 400 ms de `cambiarValor` salta el `putDraft` de una ráfaga
+  // (los N auto-marcados de un mismo tick). Sin este timer IndexedDB se quedaría
+  // con la PRIMERA escritura de la ráfaga, que es justamente la incompleta, y al
+  // reabrir el ítem se perderían los demás.
+  const putLocalTimer = useRef<number | null>(null)
   const evaluacionIdRef = useRef<string | null>(null)
   const draftRef = useRef<DraftEval | null>(null)
   const nubeTimer = useRef<number | null>(null)
@@ -222,6 +227,9 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       flush()
       window.removeEventListener('beforeunload', flush)
       if (nubeTimer.current) window.clearTimeout(nubeTimer.current)
+      // `flush` de arriba ya persiste el draft completo al desmontar; este timer
+      // sólo cubre la ventana en la que la página sigue abierta.
+      if (putLocalTimer.current) window.clearTimeout(putLocalTimer.current)
     }
   }, [])
 
@@ -617,6 +625,18 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
   const instanciaIndex = registro ? instanciasDeSeccion(registro.seccionId).findIndex((i) => i.id === registro.instanciaId) : -1
   const ultimoHijo = registro ? idxRegistro >= hijosSeccion.length - 1 : false
 
+  /* El botón de la derecha cambia de nombre y de destino al final del
+     recorrido: adentro de un módulo avanza de ítem; en el último paso del
+     último módulo cierra la evaluación con el resumen. Los íconos no se pueden
+     confundir, así que el nombre va en `aria-label`/`title`. */
+  const alResumen = !registro && ultimoPasoModulo && ultimoModulo
+  const etiquetaAvanzar = alResumen ? 'Ver resumen' : !registro && ultimoPasoModulo ? 'Siguiente módulo' : 'Siguiente'
+
+  /* Al terminar el último hijo de una sección repetible hay dos salidas:
+     cerrar la sección o agregar otro registro. Se resuelve acá para que la
+     barra sólo pinte, no decida. */
+  const finSeccion = !!registro && ultimoHijo
+
   const pasosDe = (m: typeof modulo) => pasosDeModulo(itemsDe(m), instanciasPlanasDe(actual))
   const resumir = (m: typeof modulo) => pasosDe(m).filter((p) => tieneRespuesta(p.item, actual.respuestas[p.key]?.valor)).length
   const hechoModulo = resumir(modulo)
@@ -692,9 +712,22 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
 
   function cambiarValor(itemId: string, instanciaId: string | null, valor: unknown) {
     const key = claveRespuesta(itemId, instanciaId)
+    // `actual` es el draft del render en curso: si varios `SelectorResponsables`
+    // preseleccionan a la vez (un checklist con N checks incumplidos monta N
+    // selectores en el mismo commit), todos escriben sobre el mismo snapshot y
+    // sólo sobrevive el último. La ref en cambio se actualiza de forma síncrona
+    // en cada escritura, así que ahí sí se ven las anteriores.
+    //
+    // `valor` además puede llegar como updater `(prev) => next`: el ítem entero
+    // se lee del último valor guardado, porque cada opción sólo conoce la suya y
+    // construir `{ ...value, rPO: {...} }` desde el `value` del render descarta
+    // lo que acaba de marcar la opción vecina.
+    const base = draftRef.current ?? actual
+    const previo = base.respuestas[key]?.valor
+    const valorFinal = typeof valor === 'function' ? (valor as (p: unknown) => unknown)(previo) : valor
     const nuevo: DraftEval = {
-      ...actual,
-      respuestas: { ...actual.respuestas, [key]: { valor, por: 'yo' } }
+      ...base,
+      respuestas: { ...base.respuestas, [key]: { valor: valorFinal, por: 'yo' } }
     }
     draftRef.current = nuevo
     setDraft(nuevo)
@@ -703,6 +736,16 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
     if (now - ultimo > 400) {
       void putDraft(nuevo)
       guardadoRef.current.set(key, now)
+    } else if (putLocalTimer.current === null) {
+      // Borde de cola: si la escritura se salteó por el throttle, al cabo de los
+      // 400 ms se persiste el draft YA completo (el que quedó en la ref), no el
+      // de la primera escritura de la ráfaga.
+      const restante = 400 - (now - ultimo)
+      putLocalTimer.current = window.setTimeout(() => {
+        putLocalTimer.current = null
+        const d = draftRef.current
+        if (d && vivoRef.current) void putDraft(d)
+      }, Math.max(restante, 0) + 1)
     }
     agendarNube()
   }
@@ -958,7 +1001,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
         ) : null}
         {registro && seccion && hijoActual ? (
           <div>
-            <div className="mb-3 flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2">
+            <div className="mb-3 flex items-center gap-2 rounded-xl bg-primary-50 px-3 py-2">
               <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
               <div className="min-w-0 flex-1">
                 <p className="text-[10px] font-bold uppercase tracking-wide text-primary-500">Sección · Registro {instanciaIndex + 1} de {instanciasDeSeccion(registro.seccionId).length}</p>
@@ -985,26 +1028,27 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
           </div>
         ) : esSeccion && paso ? (
           <div className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2">
+            <div className="sup p-4">
+              {/* El `?` vive dentro del propio encabezado, a la altura del texto
+                  y alineado a la derecha: antes iba en un renglón aparte
+                  debajo, y el ojo tenía que bajar a buscarlo. */}
+              <div className="flex items-center gap-2 rounded-xl bg-primary-50 px-3 py-2">
                 <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-primary-500">Sección repetible</p>
                   <p className="truncate text-sm font-bold text-primary-900">{paso.texto}</p>
                 </div>
-              </div>
-              <div className="mt-2 flex justify-end">
-                <span className="group relative inline-flex">
+                <span className="group relative inline-flex shrink-0 self-center">
                   <button
                     type="button"
-                    className="grid h-7 w-7 place-items-center rounded-full text-slate-400 transition-colors hover:bg-primary-50 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary-200"
+                    className="grid h-7 w-7 place-items-center rounded-full text-slate-400 transition-colors hover:bg-white/70 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary-200"
                     aria-label="Ayuda sobre los registros de esta sección"
                   >
                     <CircleHelp className="h-5 w-5" />
                   </button>
                   <span
                     role="tooltip"
-                    className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-80 rounded-xl border border-slate-200 bg-white p-3 text-left text-xs leading-relaxed text-slate-600 shadow-lg group-hover:block group-focus-within:block"
+                    className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-80 rounded-xl bg-white p-3 text-left text-xs leading-relaxed text-slate-600 shadow-lg group-hover:block group-focus-within:block"
                   >
                     {apiSeccion ? (
                       <>Esta sección se repite por <b>registro</b> y consulta la API de <b>{apiSeccion.nombre}</b>. Escribí el identificador ({placeholderConsulta}), tocá «Consultar» y guardá el registro con los datos traídos. Cada registro evalúa sus {hijosOrdenados(itemsModulo, paso.id).length} ítems.</>
@@ -1016,14 +1060,14 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
               </div>
             </div>
 
-            <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-col rounded-2xl bg-slate-50 p-4">
               <div className="flex items-center justify-between">
                 <p className="font-bold text-primary-900">Registros</p>
                 <p className="text-xs text-slate-500">{registrosSeccion.length} creado(s)</p>
               </div>
 
               {registrosSeccion.length === 0 ? (
-                <div className="mt-3 rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-400">
+                <div className="mt-3 rounded-xl bg-white px-4 py-6 text-center text-xs text-slate-400">
                   {apiSeccion
                     ? 'Todavía no hay registros. Consultá un identificador y agregá el primero.'
                     : 'Todavía no hay registros. Escribí un identificador y tocá «Agregar registro» para evaluar el primero.'}
@@ -1035,7 +1079,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
                     const hechos = hijos.filter((h) => actual.respuestas[claveRespuesta(h.id, ins.id)]).length
                     const completo = hijos.length > 0 && hechos === hijos.length
                     return (
-                      <li key={ins.id} className="flex items-center gap-2 rounded-xl border border-slate-200 p-2.5">
+                      <li key={ins.id} className="flex items-center gap-2 rounded-xl bg-white p-2.5">
                         <button type="button" onClick={() => entrarRegistro(paso, ins)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                           <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-full', completo ? 'bg-green-100 text-green-700' : 'bg-primary-50 text-primary')}>
                             {completo ? <Check className="h-4 w-4" /> : <Tag className="h-4 w-4" />}
@@ -1223,7 +1267,10 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
                   />
                 </div>
               ) : (
-                <div className="mt-3 flex gap-2">
+                // El botón vive DENTRO del cuadro, al estilo del escáner: un ícono
+                // `+` pegado a la derecha en vez de un botón con etiqueta afuera.
+                // `pr-11` en el input deja el hueco para que no se pisen los textos.
+                <div className="relative mt-3 w-full">
                   <input
                     ref={etiquetaInputRef}
                     value={etiquetaNueva}
@@ -1235,11 +1282,18 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
                       }
                     }}
                     placeholder="Identificador (ej. placa, código, nombre…)"
-                    className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-200"
+                    className="min-w-0 w-full rounded-xl border border-slate-300 px-3 py-2 pr-11 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-200"
                   />
-                  <Button variant="primary" className="shrink-0" disabled={!etiquetaNueva.trim()} onClick={agregarRegistro}>
-                    <Plus className="h-4 w-4" /> Agregar
-                  </Button>
+                  <button
+                    type="button"
+                    onClick={agregarRegistro}
+                    disabled={!etiquetaNueva.trim()}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                    title="Agregar registro"
+                    aria-label="Agregar registro"
+                  >
+                    <Plus className="h-5 w-5" />
+                  </button>
                 </div>
               )}
 
@@ -1268,72 +1322,87 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
         <div className="h-28" />
       </div>
 
-      {/* Barra de controles: todo en UNA línea. Va con `gap-1 px-2` y textos
-          cortos a propósito, porque en la sección repetible (que suma "Terminar"
-          y "Agregar otro") son cinco botones y con los nombres largos no entran
-          en un teléfono de 360 px. El `truncate` es la red de seguridad: los
-          íconos nunca se encogen y la fila nunca pasa a dos alturas. */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white shadow-[0_-4px_16px_-8px_rgb(15_23_42/0.15)]">
+      {/* Barra de controles: todo en UNA línea y sólo con íconos, al estilo de
+          las acciones del Historial. Cada botón vive en un slot `flex-1`, así
+          que quedan repartidos parejos por todo el ancho en vez de pegados a
+          los extremos con un hueco enorme al medio. Sin borde ni sombra: se
+          apoya en el fondo blanco y choca contra el contenido por el
+          `pb-` que deja la página. */}
+      <div className="fixed inset-x-0 bottom-0 z-40 bg-white">
         <div className="mx-auto flex w-full max-w-lg items-center gap-1 px-2 py-3">
-          {profile ? (
-            <ReportarIncidencia
-              sucursalId={sucursalId}
-              departamentoId={departamentoId}
-              fecha={actual.fecha}
-              moduloId={modulo.id}
-              moduloNombre={modulo.nombre}
-              evaluadorId={profile.id}
-            />
-          ) : null}
-          <Button
-            variant="secondary"
-            onClick={irAnterior}
-            disabled={!registro && idxModulo === 0 && idxItem === 0}
-            className="min-w-0 flex-1 px-2.5 text-[13px]"
-          >
-            <ArrowLeft className="h-4 w-4 shrink-0" /> <span className="truncate">Anterior</span>
-          </Button>
-          <Button
-            variant="secondary"
-            className="h-11 w-11 shrink-0 px-2"
-            onClick={() => setNavAbierta(true)}
-            aria-label="Navegación rápida"
-            title="Navegación rápida"
-          >
-            <List className="h-5 w-5" />
-          </Button>
-          {registro ? (
-            ultimoHijo ? (
-              <>
-                <Button variant="secondary" className="min-w-0 flex-1 px-2.5 text-[13px]" onClick={volverSeccion}>
-                  <span className="truncate">Terminar</span>
-                </Button>
-                <Button variant="primary" className="min-w-0 flex-1 px-2.5 text-[13px]" onClick={irSiguiente}>
-                  <span className="truncate">Otro</span> <Plus className="h-4 w-4 shrink-0" />
-                </Button>
-              </>
-            ) : (
-              <Button variant="primary" className="min-w-0 flex-1 px-2.5 text-[13px]" onClick={irSiguiente}>
-                <span className="truncate">Siguiente</span> <ArrowRight className="h-4 w-4 shrink-0" />
-              </Button>
-            )
-          ) : !ultimoPasoModulo ? (
-            <Button variant="primary" className="min-w-0 flex-1 px-2.5 text-[13px]" onClick={irSiguiente}>
-              <span className="truncate">Siguiente</span> <ArrowRight className="h-4 w-4 shrink-0" />
-            </Button>
-          ) : !ultimoModulo ? (
-            <Button variant="primary" className="min-w-0 flex-1 px-2.5 text-[13px]" onClick={irSiguiente}>
-              <span className="truncate">Siguiente módulo</span> <ArrowRight className="h-4 w-4 shrink-0" />
-            </Button>
-          ) : (
-            <Button
-              variant="success"
-              className="min-w-0 flex-1 px-2.5 text-[13px]"
-              onClick={() => navigate(`${rutaBase}/resumen`)}
+          <div className="flex flex-1 justify-center">
+            <ButtonIcon
+              variant="neutral"
+              className="h-12 w-12"
+              onClick={irAnterior}
+              disabled={!registro && idxModulo === 0 && idxItem === 0}
+              aria-label="Anterior"
+              title="Anterior"
             >
-              <span className="truncate">Ver resumen</span> <Check className="h-4 w-4 shrink-0" />
-            </Button>
-          )}
+              <ArrowLeft className="h-6 w-6" />
+            </ButtonIcon>
+          </div>
+
+          {/* Incidencia + selector de ítems: también en su propio slot, para
+              que los cuatro botones del caso normal repartan el ancho por
+              igual. */}
+          <div className="flex flex-1 justify-center">
+            {profile ? (
+              <ReportarIncidencia
+                sucursalId={sucursalId}
+                departamentoId={departamentoId}
+                fecha={actual.fecha}
+                moduloId={modulo.id}
+                moduloNombre={modulo.nombre}
+                evaluadorId={profile.id}
+              />
+            ) : null}
+          </div>
+          <div className="flex flex-1 justify-center">
+            <ButtonIcon
+              variant="neutral"
+              className="h-12 w-12"
+              onClick={() => setNavAbierta(true)}
+              aria-label="Navegación rápida"
+              title="Navegación rápida"
+            >
+              <List className="h-6 w-6" />
+            </ButtonIcon>
+          </div>
+
+          {/* Derecha: avanzar. En la sección repetible, al llegar al último hijo
+              se ofrecen las dos salidas (terminar / agregar otro), cada una en
+              su slot para que la fila siga repartida por igual. */}
+          {finSeccion ? (
+            <div className="flex flex-1 justify-center">
+              <ButtonIcon
+                variant="neutral"
+                className="h-12 w-12"
+                onClick={volverSeccion}
+                aria-label="Terminar la sección"
+                title="Terminar"
+              >
+                <Check className="h-6 w-6" />
+              </ButtonIcon>
+            </div>
+          ) : null}
+          <div className="flex flex-1 justify-center">
+            <ButtonIcon
+              variant={alResumen ? 'success' : 'primary'}
+              className="h-12 w-12"
+              aria-label={finSeccion ? 'Agregar otro registro' : etiquetaAvanzar}
+              title={finSeccion ? 'Otro' : etiquetaAvanzar}
+              onClick={finSeccion || !alResumen ? irSiguiente : () => navigate(`${rutaBase}/resumen`)}
+            >
+              {finSeccion ? (
+                <Plus className="h-6 w-6" />
+              ) : alResumen ? (
+                <Check className="h-6 w-6" />
+              ) : (
+                <ArrowRight className="h-6 w-6" />
+              )}
+            </ButtonIcon>
+          </div>
         </div>
       </div>
 

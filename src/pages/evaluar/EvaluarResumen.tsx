@@ -90,7 +90,7 @@ export function EvaluarResumen() {
             const respondidos = pasos.filter((p) => tieneRespuesta(p.item, draft.respuestas[p.key]?.valor)).length
             const completo = pasos.length > 0 && respondidos === pasos.length
             return (
-              <div key={m.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div key={m.id} className="sup p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-bold text-primary-900">{m.nombre}</p>

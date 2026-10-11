@@ -15,30 +15,19 @@ import {
   puntajeEnCurso,
   type ConjuntoDatos
 } from '../../lib/data/indicadores'
-import type { EstadoEvaluacion, VistaEvaluacion } from '../../lib/types'
+import type { VistaEvaluacion } from '../../lib/types'
 import { descargarInformePdf } from '../../lib/pdf'
 import { useModulosExportables } from '../../lib/pdf/modulosExportables'
 import type { OpcionesPdf } from '../../lib/pdf/opciones'
 import { SelectorPdf } from '../../components/SelectorPdf'
 import { verTodo } from '../../lib/roles'
-import { Badge, Button, Card, Confirmar, Field, Input, Puntaje, Select, Skeleton, SkeletonFilas } from '../../components/ui'
+import { Badge, Button, ButtonIcon, Card, claseBotonIcono, Confirmar, EmptyState, Field, Input, Modal, Puntaje, Select, Skeleton, SkeletonFilas, Textarea } from '../../components/ui'
+import { COLOR_BADGE_ESTADO, ETIQUETA_ESTADO, colorBadgePuntaje } from '../../lib/diseno'
 
 function haceMeses(n: number): string {
   const d = new Date()
   d.setMonth(d.getMonth() - n)
   return d.toISOString().slice(0, 10)
-}
-
-const COLOR_ESTADO: Record<EstadoEvaluacion, number> = {
-  PROGRAMADA: 4,
-  ACTIVA: 2,
-  CERRADA: 3
-}
-
-const ETIQUETA_ESTADO: Record<EstadoEvaluacion, string> = {
-  PROGRAMADA: 'Programada',
-  ACTIVA: 'Activa',
-  CERRADA: 'Cerrada'
 }
 
 /** Puntaje en curso de una evaluación activa: valor en vivo + estado de avance. */
@@ -85,6 +74,9 @@ export function Historial() {
   const { modulos: modulosDeElegir, cargando: cargandoModulosElegir } = useModulosExportables(elegirEn)
   const [aEliminar, setAEliminar] = useState<VistaEvaluacion | null>(null)
   const [aReabrir, setAReabrir] = useState<VistaEvaluacion | null>(null)
+  /** Evaluación cuyo cierre está abierto en el modal de comentario. null = cerrado. */
+  const [cierrePendiente, setCierrePendiente] = useState<{ ev: VistaEvaluacion; puntaje: number | null } | null>(null)
+  const [comentarioCierre, setComentarioCierre] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   // Apertura / programación
@@ -245,8 +237,20 @@ export function Historial() {
     try {
       const det = await obtenerEvaluacion(ev.id)
       const puntaje = det ? resumirEvaluacion(det.evaluacion, det.respuestas, det.items, det.sucursalOpciones).puntaje : ev.puntuacion
-      const comentario = window.prompt('Comentario de cierre (opcional):', '') ?? ''
-      await cerrarEvaluacion(ev.id, puntaje, comentario.trim() || null)
+      setComentarioCierre('')
+      setCierrePendiente({ ev, puntaje })
+    } catch {
+      setError('No se pudo preparar el cierre de la evaluación.')
+    }
+    setGestionando(false)
+  }
+
+  const confirmarCierre = async () => {
+    if (!cierrePendiente) return
+    setGestionando(true)
+    try {
+      await cerrarEvaluacion(cierrePendiente.ev.id, cierrePendiente.puntaje, comentarioCierre.trim() || null)
+      setCierrePendiente(null)
       await cargar()
     } catch {
       setError('No se pudo cerrar la evaluación.')
@@ -351,17 +355,17 @@ export function Historial() {
         </Card>
       ) : evals.length === 0 ? (
         <Card>
-          <div className="py-10 text-center">
-            <p className="text-lg font-bold text-primary-900">Sin evaluaciones en el rango</p>
-            <p className="text-sm text-slate-500">Ajusta los filtros o apertura una evaluación con el botón superior.</p>
-          </div>
+          <EmptyState
+            title="Sin evaluaciones en el rango"
+            subtitle="Ajusta los filtros o apertura una evaluación con el botón superior."
+          />
         </Card>
       ) : (
         <Card className="overflow-hidden p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+                  <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase text-slate-400">
+                <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <th className="px-4 py-3">Fecha</th>
                   <th className="px-4 py-3">Unidad</th>
                   <th className="px-4 py-3">Estado</th>
@@ -371,40 +375,46 @@ export function Historial() {
               </thead>
               <tbody>
                 {evals.map((ev) => (
-                  <tr key={ev.id} className="border-b border-slate-100 last:border-0">
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                  <tr key={ev.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50/60 last:border-0">
+                    <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">
                       {new Date(`${ev.fecha}T12:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
                       <p className="font-semibold text-primary-900">
                         {ev.departamento?.nombre ?? ev.sucursal?.nombre ?? 'Sucursal'}
                         {ev.departamento ? <Badge color={0}>Departamento</Badge> : null}
                       </p>
                       {ev.sucursal?.direccion ? <p className="text-xs text-slate-400">{ev.sucursal.direccion}</p> : null}
                     </td>
-                    <td className="px-4 py-3">
-                      <Badge color={COLOR_ESTADO[ev.estado]}>{ETIQUETA_ESTADO[ev.estado]}</Badge>
+                    <td className="px-4 py-2.5">
+                      <Badge color={COLOR_BADGE_ESTADO[ev.estado]}>{ETIQUETA_ESTADO[ev.estado]}</Badge>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
                       {ev.estado === 'ACTIVA' ? (
                         <EnCursoPuntaje fila={puntajesVivos.get(ev.id)} />
                       ) : (
                         <div className="flex items-center justify-end gap-2">
                           <Puntaje value={ev.puntuacion} />
                           {ev.puntuacion != null ? (
-                            <Badge color={ev.puntuacion >= 80 ? 2 : ev.puntuacion >= 60 ? 3 : 4}>
+                            <Badge color={colorBadgePuntaje(ev.puntuacion)}>
                               {ev.puntuacion >= 80 ? 'Cumple' : ev.puntuacion >= 60 ? 'Riesgo' : 'No cumple'}
                             </Badge>
                           ) : null}
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                    <td className="px-4 py-2.5 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
                         {esLider && ev.estado === 'PROGRAMADA' && ev.fecha <= hoy ? (
-                          <Button variant="primary" className="min-h-0 gap-1.5 px-3 py-1.5" disabled={gestionando} onClick={() => void abrir(ev)}>
-                            <Play className="h-4 w-4" /> Abrir
-                          </Button>
+                          <ButtonIcon
+                            variant="primary"
+                            disabled={gestionando}
+                            onClick={() => void abrir(ev)}
+                            title="Abrir evaluación"
+                            aria-label="Abrir evaluación"
+                          >
+                            <Play className="h-5 w-5" />
+                          </ButtonIcon>
                         ) : null}
                         {esLider && ev.estado === 'PROGRAMADA' && ev.fecha > hoy ? (
                           <span className="text-xs font-semibold text-slate-400">
@@ -415,44 +425,60 @@ export function Historial() {
                           <>
                             <Link
                               to={`/evaluaciones/${ev.id}/conciliacion`}
-                              className="inline-flex min-h-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-primary hover:underline"
-                              title="Editar los productos de conciliación ya escaneados"
+                              className={claseBotonIcono('neutral')}
+                              title="Editar conciliación"
+                              aria-label="Editar conciliación"
                             >
-                              <Pencil className="h-4 w-4" /> Editar
+                              <Pencil className="h-5 w-5" />
                             </Link>
-                            <Button variant="success" className="min-h-0 gap-1.5 px-3 py-1.5" disabled={gestionando} onClick={() => void cerrar(ev)}>
-                              <Lock className="h-4 w-4" /> Cerrar
-                            </Button>
+                            <ButtonIcon
+                              variant="success"
+                              disabled={gestionando}
+                              onClick={() => void cerrar(ev)}
+                              title="Cerrar evaluación"
+                              aria-label="Cerrar evaluación"
+                            >
+                              <Lock className="h-5 w-5" />
+                            </ButtonIcon>
                           </>
                         ) : null}
                         {esLider && ev.estado === 'CERRADA' ? (
-                          <Button variant="secondary" className="min-h-0 gap-1.5 px-3 py-1.5" disabled={gestionando} onClick={() => void abrir(ev)}>
-                            <Unlock className="h-4 w-4" /> Reabrir
-                          </Button>
+                          <ButtonIcon
+                            variant="secondary"
+                            disabled={gestionando}
+                            onClick={() => void abrir(ev)}
+                            title="Reabrir evaluación"
+                            aria-label="Reabrir evaluación"
+                          >
+                            <Unlock className="h-5 w-5" />
+                          </ButtonIcon>
                         ) : null}
                         <Link
                           to={`/evaluaciones/${ev.id}`}
-                          className="inline-flex min-h-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-primary hover:underline"
+                          className={claseBotonIcono('neutral')}
+                          title="Ver detalle"
+                          aria-label="Ver detalle"
                         >
-                          <Eye className="h-4 w-4" /> Ver
+                          <Eye className="h-5 w-5" />
                         </Link>
-                        <Button
+                        <ButtonIcon
                           variant="secondary"
-                          className="min-h-0 gap-1.5 px-3 py-1.5"
                           disabled={descargando === ev.id}
                           onClick={() => setElegirEn(ev.id)}
+                          title="Descargar PDF"
+                          aria-label="Descargar PDF"
                         >
-                          <FileDown className="h-4 w-4" />
-                          Descargar PDF
-                        </Button>
+                          <FileDown className="h-5 w-5" />
+                        </ButtonIcon>
                         {esLider ? (
-                          <button
+                          <ButtonIcon
+                            variant="dangerGhost"
                             onClick={() => setAEliminar(ev)}
-                            className="grid h-8 w-8 place-items-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-600"
                             title="Eliminar evaluación"
+                            aria-label="Eliminar evaluación"
                           >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                            <Trash2 className="h-5 w-5" />
+                          </ButtonIcon>
                         ) : null}
                       </div>
                     </td>
@@ -463,6 +489,35 @@ export function Historial() {
           </div>
         </Card>
       )}
+
+      <Modal
+        open={cierrePendiente != null}
+        onClose={() => setCierrePendiente(null)}
+        title="Cerrar evaluación"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setCierrePendiente(null)}>Cancelar</Button>
+            <Button variant="success" disabled={gestionando} onClick={() => void confirmarCierre()}>
+              {gestionando ? 'Cerrando…' : 'Cerrar evaluación'}
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          Vas a cerrar la evaluación de{' '}
+          <b>{cierrePendiente?.ev.departamento?.nombre ?? cierrePendiente?.ev.sucursal?.nombre ?? 'esta unidad'}</b>{' '}
+          ({cierrePendiente ? new Date(`${cierrePendiente.ev.fecha}T12:00:00`).toLocaleDateString('es') : ''}). El
+          puntaje queda guardado y los evaluadores ya no podrán responder hasta que la reabras.
+        </p>
+        <Field label="Comentario de cierre (opcional)" className="mt-3">
+          <Textarea
+            rows={3}
+            value={comentarioCierre}
+            onChange={(e) => setComentarioCierre(e.target.value)}
+            placeholder="Observaciones del cierre"
+          />
+        </Field>
+      </Modal>
 
       <Confirmar
         open={aReabrir != null}

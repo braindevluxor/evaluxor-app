@@ -176,7 +176,12 @@ export default function RevisionPreEntrega() {
     (itemId: string, valor: unknown) => {
       const actual = regRef.current
       if (!actual) return
-      const respuestas = { ...actual.respuestas, [itemId]: valor }
+      const previo = actual.respuestas[itemId]
+      // `valor` puede venir como updater `(prev) => next`: los auto-marcados de
+      // responsables escriben varios a la vez sobre el mismo ítem y resuelven
+      // contra el valor vivo, no contra el del render.
+      const nuevoValor = typeof valor === 'function' ? (valor as (p: unknown) => unknown)(previo) : valor
+      const respuestas = { ...actual.respuestas, [itemId]: nuevoValor }
       const nuevo: PreEntregaRecord = {
         ...actual,
         respuestas,

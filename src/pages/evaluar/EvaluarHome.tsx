@@ -97,8 +97,8 @@ export function EvaluarHome() {
                 <div
                   key={s.id}
                   className={cn(
-                    'rounded-2xl border-2 bg-white p-4 shadow-sm',
-                    draft ? 'border-amber-400' : activa ? 'border-slate-200' : 'border-slate-200 opacity-70'
+                    'sup sup-activo group p-4',
+                    draft ? 'border-2 border-amber-400' : 'border-2 border-transparent'
                   )}
                 >
                   <Link to={`/evaluar/${s.id}`} className="block rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300">
@@ -121,7 +121,7 @@ export function EvaluarHome() {
                     </div>
                   </Link>
                   {draft ? (
-                    <div className="mt-2 flex items-center justify-between gap-2 border-t border-amber-100 pt-2">
+                    <div className="mt-2 flex items-center justify-between gap-2 pt-2">
                       <p className="text-[11px] font-medium text-amber-700">Borrador guardado en este dispositivo.</p>
                       <button
                         type="button"
@@ -144,8 +144,8 @@ export function EvaluarHome() {
                 <div
                   key={d.id}
                   className={cn(
-                    'rounded-2xl border-2 bg-white p-4 shadow-sm',
-                    draft ? 'border-amber-400' : activa ? 'border-slate-200' : 'border-slate-200 opacity-70'
+                    'sup sup-activo group p-4',
+                    draft ? 'border-2 border-amber-400' : 'border-2 border-transparent'
                   )}
                 >
                   <Link to={`/evaluar/departamento/${d.id}`} className="block rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300">
@@ -173,7 +173,7 @@ export function EvaluarHome() {
                     </div>
                   </Link>
                   {draft ? (
-                    <div className="mt-2 flex items-center justify-between gap-2 border-t border-amber-100 pt-2">
+                    <div className="mt-2 flex items-center justify-between gap-2 pt-2">
                       <p className="text-[11px] font-medium text-amber-700">Borrador guardado en este dispositivo.</p>
                       <button
                         type="button"

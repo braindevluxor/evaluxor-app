@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, Pencil, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
+import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, Pencil, Plus, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
 import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
@@ -9,6 +9,7 @@ import { estadosDeEvaluacionesAnteriores } from '../lib/data/colaboradoresHistor
 import { useProgresoCarga } from '../lib/progresoCarga'
 import { formatearValorConsulta } from '../lib/data/apis'
 import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar, Modal, ProgressBar } from './ui'
+import { COLOR_BADGE_TIPO_ITEM, EYEBROW, HEX_CUMPLE, HEX_NO_CUMPLE, HEX_RIESGO } from '../lib/diseno'
 import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
 import { FotogaleriaRutas } from './dashboard/Fotogaleria'
@@ -73,11 +74,10 @@ function checkIncumplido(item: Item, o: Opcion, valor: unknown): boolean {
 
 export function ItemRenderer({ item, valor, onChange, index, total, shopId, branchId, gerente, sucursalId, fechaEvaluacion, evaluador }: Props) {
   const preg = `${index + 1}. ${item.texto}` + (item.requerido ? ' *' : '')
-  const tipoColor =
-    item.tipo === 'CUMPLE_NO_CUMPLE' ? 3 : item.tipo === 'CONCILIACION' ? 6 : item.tipo === 'CHECKLIST' ? 5 : item.tipo === 'LISTA_COLABORADORES' || item.tipo === 'UNIDAD_CHECKLIST' ? 1 : item.tipo === 'PLANO_XY' ? 2 : 4
+  const tipoColor = COLOR_BADGE_TIPO_ITEM[item.tipo]
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="sup p-4">
       <div className="mb-3 flex items-start justify-between gap-2">
         <p className="font-semibold text-slate-800">{preg}</p>
         <Badge color={tipoColor}>{etiquetaTipo(item.tipo)}</Badge>
@@ -86,7 +86,7 @@ export function ItemRenderer({ item, valor, onChange, index, total, shopId, bran
       {item.requerido && estaVacioItem(item, valor) ? (
         <p className="mt-2 text-xs font-medium text-red-600">Obligatorio para enviar la evaluación.</p>
       ) : null}
-      <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Pregunta {index + 1} de {total}</p>
+      <p className={cn('mt-2', EYEBROW)}>Pregunta {index + 1} de {total}</p>
     </section>
   )
 }
@@ -97,12 +97,21 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
   // valor es un objeto: sin selección de la falla → gerente.
   const tieneRespConfig = (item.responsables?.length ?? 0) > 0 || (item.opciones ?? []).some((o) => responsablesDeOpcion(o).length)
   const guardar = (v: unknown) => {
-    const esObjeto = !!v && typeof v === 'object' && !Array.isArray(v)
-    if (item.tipo !== 'CONTENEDOR' && tieneRespConfig && esObjeto) {
-      onChange({ ...(v as object), responsablesGerente: gerente ?? null })
-    } else {
-      onChange(v)
+    const inyectar = (res: unknown): unknown => {
+      const esObjeto = !!res && typeof res === 'object' && !Array.isArray(res)
+      if (item.tipo !== 'CONTENEDOR' && tieneRespConfig && esObjeto) {
+        return { ...(res as object), responsablesGerente: gerente ?? null }
+      }
+      return res
     }
+    // Un updater `(prev) => next` no se resuelve acá: lo resuelve `cambiarValor`
+    // contra el draft vivo. Hacerlo contra `valor` (el del render) volvería a
+    // pisar las preselecciones que acaban de escribir las otras opciones.
+    if (typeof v === 'function') {
+      onChange((prev: unknown) => inyectar((v as (p: unknown) => unknown)(prev)))
+      return
+    }
+    onChange(inyectar(v))
   }
   switch (item.tipo) {
     case 'CUMPLE_NO_CUMPLE': {
@@ -252,7 +261,7 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                 {!esNoAplica ? (
                   cumpleOpcion ? (
                     // Estado neutro (validado): sin alerta roja y sin responsables.
-                    <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2.5">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2.5">
                       {esRango ? (
                         <span className="text-xs font-semibold text-green-700">
                           Punto validado <span className="font-normal text-slate-400">· valor {valorRango ?? '—'}{o.unidad ? ` ${o.unidad}` : ''}</span>
@@ -271,7 +280,7 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                     </div>
                   ) : (
                     // Estado de error (sin cumplir): validar el punto + responsables de la falla.
-                    <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
+                    <div className="min-w-0 bg-red-50/60 px-3 py-2.5">
                       {esRango ? (
                         <>
                           <p className="mb-1 text-xs font-semibold text-slate-600">
@@ -300,7 +309,13 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                           seleccion={value.responsablesPorOpcion?.[o.id] ?? []}
                           gerente={gerente}
                           onChange={(sel) =>
-                            guardar({ ...value, responsablesPorOpcion: { ...(value.responsablesPorOpcion ?? {}), [o.id]: sel } })
+                            guardar((prev: unknown) => {
+                              const base = (prev ?? value) as ValorChecklist
+                              return {
+                                ...base,
+                                responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
+                              }
+                            })
                           }
                         />
                       ) : null}
@@ -649,7 +664,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
         </BotonNoAplica>
       </div>
 
-      <div className="space-y-2 rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
+      <div className="space-y-2 rounded-xl bg-slate-50 p-3">
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Escanea y agrega un producto</p>
         <form
           onSubmit={(e) => {
@@ -860,7 +875,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
             </button>
             {verLista ? (
               <>
-                <p className="border-t border-slate-100 px-3 pt-2 text-[11px] font-medium text-slate-400">
+                <p className="px-3 pt-2 text-[11px] font-medium text-slate-400">
                   Desliza un producto: derecha para editar · izquierda para eliminar.
                 </p>
                 <ul className="space-y-2 p-3">
@@ -1205,8 +1220,18 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
    * vuelve a encender el check, como manda la regla de que sin nada tildado el
    * check general está apagado.
    */
-  const actualizar = (cols: ColaboradorItem[]) =>
-    onChange({ ...v, colaboradores: cols.map((c) => (esColaboradorRevisado(c) || c.aplica !== false ? c : { ...c, aplica: true })) })
+  // `cols` acepta también un updater `(prev) => lista`: los auto-marcados de
+  // responsables de varios trabajadores llegan en el mismo flush de effects y,
+  // construidos desde el `v` del render, cada uno pisaba a la anterior.
+  const actualizar = (cols: ColaboradorItem[] | ((prev: ColaboradorItem[]) => ColaboradorItem[])) =>
+    onChange((prev: unknown) => {
+      const base: ValorListaColaboradores = (prev ?? v) as ValorListaColaboradores
+      const lista = typeof cols === 'function' ? cols(base.colaboradores ?? []) : cols
+      return {
+        ...base,
+        colaboradores: lista.map((c) => (esColaboradorRevisado(c) || c.aplica !== false ? c : { ...c, aplica: true }))
+      }
+    })
   const limpiar = () => {
     setConfirmarLimpiar(false)
     setPendienteCombinacion(null)
@@ -1281,8 +1306,16 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         branch_name: c.branch_name ?? '',
         admission_date: c.admission_date ?? null,
         active: c.active !== false,
-        aplica: true,
-        selected: [],
+        // La lista entra con todos los puntos tildados y el evaluador destilda
+        // los que faltan: es mucho más rápido destildar tres que tildar treinta.
+        //
+        // El check general (el de "cuenta para el puntaje", junto al nombre)
+        // queda apagado a propósito. No se enciende solo nunca: lo decide el
+        // evaluador. Hasta que no lo marque, ese trabajador no entra en el
+        // puntaje, así que un listado recién cargado no aprueba nada por su
+        // cuenta.
+        aplica: false,
+        selected: [...idsChecks],
         noAplica: [],
         responsablesPorOpcion: {}
       }))
@@ -1316,7 +1349,10 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
     actualizar(colaboradores.map((c) => {
       if (c.dni !== dni) return c
       const sel = c.selected.includes(opcionId) ? c.selected.filter((x) => x !== opcionId) : [...c.selected, opcionId]
-      return { ...c, selected: sel, aplica: true }
+      // Tildar o destildar un punto NO enciende el check general. Ese check es
+      // una decisión del evaluador y nada más: si se encendiera solo al tocar
+      // cualquier casilla, no sería "lo marqué yo".
+      return { ...c, selected: sel }
     }))
   }
 
@@ -1331,25 +1367,37 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         ...c,
         noAplica: marcar ? [...noAplica, opcionId] : noAplica.filter((id) => id !== opcionId),
         selected: marcar ? c.selected.filter((id) => id !== opcionId) : c.selected,
-        aplica: true,
         responsablesPorOpcion
       }
     }))
   }
 
+  // Asignar responsables registra QUIÉN responde por el punto caído y nada más.
+  //
+  // Antes también forzaba `aplica: true` y metía la opción en `selected`, y eso
+  // encadenaba tres efectos que nadie pidió: el punto dejaba de estar "sin
+  // cumplir" (y el panel se escondía solo, dejándote un solo chip para elegir),
+  // el trabajador quedaba como revisado así que la casilla de "cuenta para el
+  // puntaje" se encendía sola, y si todos sus puntos terminaban tildados la fila
+  // entera pasaba a "cumple" y desaparecía de la lista.
+  //
+  // Esas dos casillas (la del punto y la general) las marca el evaluador. Acá sólo
+  // se anota el responsable: el punto sigue caído, que es justo lo que dice el
+  // encabezado del panel.
   const marcarResponsables = (dni: number, opcionId: string, rs: string[]) => {
-    actualizar(colaboradores.map((c) => (c.dni === dni ? { ...c, responsablesPorOpcion: { ...(c.responsablesPorOpcion ?? {}), [opcionId]: rs }, aplica: true, selected: Array.from(new Set([...(c.selected ?? []), opcionId])) } : c)))
+    actualizar((prev: ColaboradorItem[]) => ordenarTrabajadores(prev).map((c) => (c.dni === dni ? { ...c, responsablesPorOpcion: { ...(c.responsablesPorOpcion ?? {}), [opcionId]: rs } } : c)))
   }
 
   const enCuenta = colaboradores.filter((c) => c.aplica)
-  // Los que el evaluador no llegó a tocar NO entran en el puntaje. Se cuentan
-  // aparte para que la diferencia sea explícita y nadie lea "sin marcar" como
-  // "reprobado": la lista entera arranca destildada y no revisar es una decisión
-  // legítima cuando el tiempo no alcanza.
+  // Los puntos están tildados desde que se carga la lista, así que lo único que
+  // saca a un trabajador del puntaje es que el evaluador no haya confirmado su
+  // check general. Se cuentan aparte para que la diferencia sea explícita y
+  // nadie lea "sin confirmar" como "reprobado": es una decisión legítima
+  // cuando el tiempo no alcanza.
   const aplicando = colaboradoresQueCuentan(colaboradores)
   const conChecksAplicables = aplicando.filter((c) => opcionesAplicablesColaborador(c, opts).length > 0)
   const cumplidos = conChecksAplicables.filter((c) => colaboradorCumple(c, opts)).length
-  const sinRevisar = enCuenta.length - aplicando.length
+  const sinConfirmar = colaboradores.length - enCuenta.length
   const totalAplicables = conChecksAplicables.length
 
   if (!opts.length) {
@@ -1358,7 +1406,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
 
   return (
     <div className="space-y-3">
-      <div className="rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
+      <div className="rounded-xl bg-slate-50 p-3">
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Trabajadores de la tienda</p>
         {colaboradores.length ? (
           <>
@@ -1373,18 +1421,18 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                 ` · ${enCuenta.length - aplicando.length} sin puntos aplicables`
               ) : null}
             </p>
-            {/* El aviso que evita el error de lectura: "Sin marcar" no es "reprobado". */}
-            {sinRevisar > 0 ? (
+            {/* El aviso que evita el error de lectura: "Sin confirmar" no es "reprobado". */}
+            {sinConfirmar > 0 ? (
               <p className="mt-1 text-xs text-slate-500">
-                {sinRevisar} trabajador{sinRevisar === 1 ? '' : 'es'} sin revisar: su checklist está destildado y
-                <span className="font-semibold text-slate-700"> no entran en el puntaje</span>. Revisalos si necesitás
-                contarlos.
+                {sinConfirmar} trabajador{sinConfirmar === 1 ? '' : 'es'} sin confirmar: sus puntos están tildados, pero
+                <span className="font-semibold text-slate-700"> no entran en el puntaje</span> hasta que marques el check
+                junto a su nombre.
               </p>
             ) : null}
           </>
         ) : (
           <p className="mt-1 text-xs text-slate-500">
-            El ítem se puntúa por trabajador: cada revisado completo vale su parte, y los que quedan destildados sin tocar todavía no cuentan ({etiquetaFiltro}).
+            El ítem se puntúa por trabajador: cada revisado completo vale su parte, y los que no confirmes con el check junto a su nombre todavía no cuentan ({etiquetaFiltro}).
           </p>
         )}
         <div className="mt-3 flex items-center gap-2">
@@ -1430,7 +1478,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
         primer render y la única espera es la del "Actualizar listado".
       */}
       {barraVisible ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-3">
+        <div className="rounded-xl bg-slate-50 p-3">
           <ProgressBar valorAprox={avance} />
           {mensaje ? <p className="mt-2 text-xs text-slate-500">{mensaje}</p> : null}
         </div>
@@ -1441,7 +1489,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
           {/* Buscador fijo: no se pierde al hacer scroll en listas largas. Se pega
               debajo de la cabecera sticky del layout (top-16 = 64px) y -mx-4/px-4
               lo estira hasta los bordes de la tarjeta blanca que lo contiene. */}
-          <div className="sticky top-16 z-20 -mx-4 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+          <div className="sticky top-16 z-20 -mx-4 bg-white px-4 py-2.5">
             <Input
               type="text"
               value={busqueda}
@@ -1465,8 +1513,8 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                 // Sin nada registrado la fila dice "Sin revisar", no "Incompleto":
                 // no es un incumplimiento, es un trabajador que todavía no entró
                 // en la evaluación.
-                const estado = todosNoAplican ? 'No aplica' : cumple ? 'Completo' : revisado ? 'Incompleto' : 'Sin revisar'
-                const estadoClass = todosNoAplican ? 'bg-slate-200 text-slate-600' : cumple ? 'bg-green-100 text-green-700' : revisado ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'
+                const estado = todosNoAplican ? 'No aplica' : !c.aplica ? 'Sin confirmar' : cumple ? 'Completo' : revisado ? 'Incompleto' : 'Sin revisar'
+                const estadoClass = todosNoAplican ? 'bg-slate-200 text-slate-600' : !c.aplica ? 'bg-slate-100 text-slate-500' : cumple ? 'bg-green-100 text-green-700' : revisado ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'
                 return (
                   <div key={c.dni} className={cn('rounded-xl border transition-colors', c.aplica ? (cumple ? 'border-green-200 bg-white' : 'border-slate-200 bg-white') : 'border-slate-100 bg-slate-50')}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
@@ -1509,7 +1557,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                       </button>
                     </div>
                     {abierto ? (
-                      <div className="space-y-1 border-t border-slate-100 px-3 pb-3 pt-2">
+                      <div className="space-y-1 px-3 pb-3 pt-2">
                         {opts.map((o) => {
                           const esta = c.selected.includes(o.id)
                           const noAplica = (c.noAplica ?? []).includes(o.id)
@@ -1555,10 +1603,10 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                                 </button>
                               </div>
                               {noAplica ? (
-                                <p className="border-t border-slate-200 px-3 py-2 text-xs font-medium text-slate-500">Este punto no se evalúa para este trabajador.</p>
+                                <p className="px-3 py-2 text-xs font-medium text-slate-500">Este punto no se evalúa para este trabajador.</p>
                               ) : !esta ? (
                                 // Punto sin marcar de ESTE trabajador: responsables de la falla junto al punto, como en CHECKLIST/UNIDAD.
-                                <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
+                                <div className="min-w-0 bg-red-50/60 px-3 py-2.5">
                                   <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
                                     Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
                                   </p>
@@ -1657,7 +1705,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
     return (
       <div className="space-y-3">
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Checklist (una sola carga)</p>
-        <div className="rounded-xl border border-slate-200 bg-white p-3">
+        <div className="rounded-xl bg-slate-50 p-3">
           <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-slate-500">Identificador (ej. Nº de serie)</p>
           <Input
             placeholder="Ej. serial de la impresora fiscal"
@@ -1694,7 +1742,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                   </div>
                   {esta ? (
                     // Estado neutro (validado): sin alerta roja ni responsables.
-                    <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2.5">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2.5">
                       <label className="flex cursor-pointer items-center gap-2">
                         <input
                           type="checkbox"
@@ -1707,7 +1755,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                     </div>
                   ) : (
                     // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
-                    <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
+                    <div className="min-w-0 bg-red-50/60 px-3 py-2.5">
                       <label className="mb-2 flex cursor-pointer items-center gap-2">
                         <input
                           type="checkbox"
@@ -1725,7 +1773,13 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                           seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
                           gerente={gerente}
                           onChange={(sel) =>
-                            onChange({ ...v, responsablesPorOpcion: { ...(v.responsablesPorOpcion ?? {}), [o.id]: sel } })
+                            onChange((prev: unknown) => {
+                              const base = (prev ?? v) as ValorUnidadChecklist
+                              return {
+                                ...base,
+                                responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
+                              }
+                            })
                           }
                         />
                       ) : null}
@@ -1784,18 +1838,28 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
 
   return (
     <div className="space-y-3">
-      <div className="rounded-xl border-2 border-dashed border-primary/40 bg-slate-50 p-3">
+      <div className="rounded-xl bg-slate-50 p-3">
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Agregar unidad</p>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="relative mt-2">
+          {/* El `+` va DENTRO del cuadro, igual que el escáner: `pr-11` deja el
+              hueco a la derecha para que el texto no pise el ícono. */}
           <Input
             placeholder="Valor alfanumérico (ej. PATIO-01)"
             value={codigo}
             onChange={(e) => setCodigo(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregar() } }}
+            className="pr-11"
           />
-          <Button type="button" variant="primary" className="shrink-0 min-h-0 px-3 py-2" disabled={!codigo.trim()} onClick={agregar}>
-            Agregar
-          </Button>
+          <button
+            type="button"
+            onClick={agregar}
+            disabled={!codigo.trim()}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+            title="Agregar unidad"
+            aria-label="Agregar unidad"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
         </div>
         {info ? <p className="mt-2 text-xs font-medium text-amber-600">{info}</p> : null}
       </div>
@@ -1810,7 +1874,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
               const abierto = abiertoIdx === i
               const cumple = unidadCumple(u, opts)
               return (
-                <div key={`${u.codigo}-${i}`} className="rounded-xl border border-slate-200 bg-white">
+                <div key={`${u.codigo}-${i}`} className="rounded-xl bg-slate-50">
                   <div className="flex items-center gap-2 px-3 py-2.5">
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">{u.codigo}</span>
                     <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
@@ -1834,7 +1898,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                     </button>
                   </div>
                   {abierto ? (
-                    <div className="space-y-2 border-t border-slate-100 px-3 pb-3 pt-2">
+                    <div className="space-y-2 px-3 pb-3 pt-2">
                       {opts.map((o) => {
                         const esta = u.selected.includes(o.id)
                         const incumple = checkIncumplido(item, o, v)
@@ -1858,7 +1922,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                             </div>
                             {incumple ? (
                               // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
-                              <div className="min-w-0 border-t border-red-100 bg-red-50/60 px-3 py-2.5">
+                              <div className="min-w-0 bg-red-50/60 px-3 py-2.5">
                                 <label className="mb-2 flex cursor-pointer items-center gap-2">
                                   <input
                                     type="checkbox"
@@ -1876,14 +1940,20 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                                     seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
                                     gerente={gerente}
                                     onChange={(sel) =>
-                                      onChange({ ...v, responsablesPorOpcion: { ...(v.responsablesPorOpcion ?? {}), [o.id]: sel } })
+                                      onChange((prev: unknown) => {
+                                        const base = (prev ?? v) as ValorUnidadChecklist
+                                        return {
+                                          ...base,
+                                          responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
+                                        }
+                                      })
                                     }
                                   />
                                 ) : null}
                               </div>
                             ) : (
                               // Estado neutro (validado): sin alerta roja ni responsables.
-                              <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2.5">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2.5">
                                 <label className="flex cursor-pointer items-center gap-2">
                                   <input
                                     type="checkbox"
@@ -2134,10 +2204,10 @@ function BarraRango({ etiqueta, minimo, maximo, unidad, valor, onChange }: { eti
   const max = typeof maximo === 'number' && maximo > min ? maximo : Math.max(100, min * 2, min + 1)
   // Posición del mínimo sobre la barra (allí empieza a "teñirse" de verde).
   const pctMin = Math.max(8, Math.min(90, (min / max) * 100))
-  const gradiente = `linear-gradient(90deg, #dc2626 0%, #f59e0b ${pctMin}%, #22c55e 100%)`
+  const gradiente = `linear-gradient(90deg, ${HEX_NO_CUMPLE} 0%, ${HEX_RIESGO} ${pctMin}%, ${HEX_CUMPLE} 100%)`
   const fmt = (n: number) => `${Math.round(n * 10) / 10}`
   const cumple = valor != null && min > 0 ? valor >= min : valor != null
-  const colorThumb = valor == null ? '#64748b' : cumple ? '#16a34a' : '#dc2626'
+  const colorThumb = valor == null ? '#64748b' : cumple ? HEX_CUMPLE : HEX_NO_CUMPLE
   const sufijo = unidad ? ` ${unidad}` : ''
 
   return (

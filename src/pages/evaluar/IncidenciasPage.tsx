@@ -170,7 +170,7 @@ export function IncidenciasPage() {
   return (
     <MobileLayout titulo="Incidencias" subtitulo="Reportes de tus evaluaciones">
       <div className="space-y-4">
-        <section className="flex items-center gap-3 border-b border-slate-200 pb-3">
+        <section className="flex items-center gap-3 pb-3">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-800">
             <AlertTriangle className="h-5 w-5" />
           </span>

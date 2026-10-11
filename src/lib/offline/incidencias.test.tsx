@@ -110,17 +110,23 @@ describe('incidencias · el botón flotante está en toda la evaluación', () =>
     expect(fab).not.toMatch(/className="fixed bottom-/)
   })
 
-  it('la barra queda en una sola línea: el botón comparte fila con la navegación', () => {
+  it('la barra queda en una sola línea y sólo con íconos', () => {
     const pagina = fuente('../../pages/evaluar/EvaluarSucursal.tsx')
     // Un solo contenedor flex con `items-center`: nada se apila en dos alturas.
     expect(pagina).toContain('mx-auto flex w-full max-w-lg items-center gap-1 px-2 py-3')
     // Y sin la fila extra que se había hecho en el intento anterior.
     expect(pagina).not.toContain('mt-2 flex items-center gap-3')
     expect(pagina).not.toMatch(/<div className="h-40" \/>/)
-    // Con cinco botones en 360 px, los textos largos se cortan en vez de partir
-    // la fila en dos alturas.
-    expect(pagina).toMatch(/<span className="truncate">Siguiente módulo<\/span>/)
-    expect(pagina).not.toContain('Agregar otro registro')
+    // Nada de etiquetas de texto en la barra: cada acción es un ícono solo, con
+    // su nombre en `aria-label`/`title`. Así en 360 px entran los cinco casos
+    // (atrás, incidencia, selector, terminar/agregar, avanzar) sin partir la fila.
+    expect(pagina).not.toMatch(/<span className="truncate">/)
+    expect(pagina).toContain("alResumen ? 'Ver resumen'")
+    expect(pagina).toContain("'Siguiente módulo'")
+    expect(pagina).toContain('aria-label={finSeccion ?')
+    // Iconos grandes y en slots de igual ancho: no quedan pegados a los extremos.
+    expect(pagina).toContain('className="h-12 w-12"')
+    expect(pagina).toContain('<ArrowRight className="h-6 w-6" />')
   })
 
   it('el formulario acepta descripción y fotos, y avisa que queda guardado sin señal', () => {

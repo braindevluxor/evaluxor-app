@@ -3,7 +3,7 @@ import { Pencil, Settings2 } from 'lucide-react'
 import { listarSucursalesAdmin, guardarSucursal, type SucursalVista } from '../../lib/data/catalog'
 import { listarUsuarios, type ProfileVista } from '../../lib/data/usuarios'
 import type { Sucursal } from '../../lib/types'
-import { Button, Field, Input, Modal, Badge, Select, SkeletonFilas } from '../../components/ui'
+import { Button, ButtonIcon, Field, Input, Modal, Badge, Select, SkeletonFilas } from '../../components/ui'
 import { SucursalConfigModal } from './SucursalConfig'
 import { useCatalog } from '../../context/CatalogContext'
 
@@ -61,13 +61,13 @@ export function SucursalesPage() {
                     <Badge color={s.activa ? 2 : 4}>{s.activa ? 'Activa' : 'Inactiva'}</Badge>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      <button onClick={() => setConfigurando(s)} title="Configurar módulos e ítems" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
-                        <Settings2 className="h-4 w-4" />
-                      </button>
-                      <button onClick={() => { setEditando(s); setModal(true) }} title="Editar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
-                        <Pencil className="h-4 w-4" />
-                      </button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <ButtonIcon variant="primary" onClick={() => setConfigurando(s)} title="Configurar módulos e ítems" aria-label="Configurar módulos e ítems">
+                        <Settings2 className="h-5 w-5" />
+                      </ButtonIcon>
+                      <ButtonIcon variant="primary" onClick={() => { setEditando(s); setModal(true) }} title="Editar" aria-label="Editar">
+                        <Pencil className="h-5 w-5" />
+                      </ButtonIcon>
                     </div>
                   </td>
                 </tr>

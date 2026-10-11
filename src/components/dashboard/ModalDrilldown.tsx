@@ -10,17 +10,7 @@ import { Badge, Modal, Puntaje, cn } from '../ui'
 import type { DetalleRespuestaEval, FilaDrilldownEval } from '../../lib/data/indicadores'
 import { etiquetaTipo } from '../../lib/scoring'
 import { num } from '../../lib/numeros'
-
-const ETIQUETA_ESTADO: Record<string, string> = {
-  PROGRAMADA: 'Programada',
-  ACTIVA: 'Activa',
-  CERRADA: 'Cerrada'
-}
-const COLOR_ESTADO: Record<string, number> = {
-  PROGRAMADA: 4,
-  ACTIVA: 3,
-  CERRADA: 2
-}
+import { badgeEstado, etiquetaEstado } from '../../lib/diseno'
 
 function fechaCorta(iso: string): string {
   return new Date(`${iso}T12:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -102,7 +92,7 @@ export function ModalDrilldown({
                     <p className="truncate text-sm font-semibold text-slate-800">{r.sucursal}</p>
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-400">
                       <span>{fechaCorta(r.fecha)}</span>
-                      <Badge color={COLOR_ESTADO[r.estado] ?? 0}>{ETIQUETA_ESTADO[r.estado] ?? r.estado}</Badge>
+                      <Badge color={badgeEstado(r.estado)}>{etiquetaEstado(r.estado)}</Badge>
                       {r.puntaje != null && r.puntajeScope != null ? (
                         <span className="font-medium text-slate-500">Global {num(r.puntaje)}%</span>
                       ) : null}
@@ -154,7 +144,7 @@ export function DetalleEvalCabecera({
         <p className="text-xs text-slate-400">
           {new Date(`${fecha}T12:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' })}
           {' · '}
-          <Badge color={COLOR_ESTADO[estado] ?? 0}>{ETIQUETA_ESTADO[estado] ?? estado}</Badge>
+          <Badge color={badgeEstado(estado)}>{etiquetaEstado(estado)}</Badge>
           {muestras != null ? <span className="ml-1">· {muestras} {muestras === 1 ? 'respuesta' : 'respuestas'} puntuables</span> : null}
         </p>
       </div>

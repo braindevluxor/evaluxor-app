@@ -4,7 +4,7 @@ import { listarModulosAdmin } from '../../lib/data/catalog'
 import { supabase } from '../../lib/supabase'
 import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
 import type { Invitacion, Modulo, Rol, Sucursal } from '../../lib/types'
-import { Badge, Button, Field, Input, Modal, Select, Skeleton, SkeletonFilas, cn } from '../../components/ui'
+import { Badge, Button, ButtonIcon, Field, Input, Modal, Select, Skeleton, SkeletonFilas, cn } from '../../components/ui'
 import { UltimaSync } from '../../components/UltimaSync'
 import { EnLinea } from '../../components/EnLinea'
 import { usePresencia } from '../../context/PresenciaContext'
@@ -188,18 +188,18 @@ export function UsuariosPage() {
                   <td className="px-4 py-3 text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1.5">
                       {u.bloqueado ? (
-                        <button onClick={() => { setDesbloqueando(u); setPassProv(''); setMsgDes(null) }} title="Desbloquear" className="grid h-8 w-8 place-items-center rounded-full bg-emerald-600 text-white transition-colors hover:bg-emerald-700">
-                          <Unlock className="h-4 w-4" />
-                        </button>
+                        <ButtonIcon variant="success" onClick={() => { setDesbloqueando(u); setPassProv(''); setMsgDes(null) }} title="Desbloquear" aria-label="Desbloquear">
+                          <Unlock className="h-5 w-5" />
+                        </ButtonIcon>
                       ) : null}
                       {u.rol === 'EVALUADOR' ? (
-                        <button onClick={() => abrirAsignacion(u)} title="Asignar módulos" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
-                          <FolderOpen className="h-4 w-4" />
-                        </button>
+                        <ButtonIcon variant="primary" onClick={() => abrirAsignacion(u)} title="Asignar módulos" aria-label="Asignar módulos">
+                          <FolderOpen className="h-5 w-5" />
+                        </ButtonIcon>
                       ) : null}
-                      <button onClick={() => setEditando(u)} title="Editar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
-                        <Pencil className="h-4 w-4" />
-                      </button>
+                      <ButtonIcon variant="primary" onClick={() => setEditando(u)} title="Editar" aria-label="Editar">
+                        <Pencil className="h-5 w-5" />
+                      </ButtonIcon>
                     </div>
                   </td>
                 </tr>
@@ -248,13 +248,15 @@ export function UsuariosPage() {
           <div className="mt-4">
             <p className="mb-1 text-sm font-semibold text-slate-700">Comparte este enlace con el nuevo usuario:</p>
             <code className="block break-all rounded-xl bg-slate-50 px-3 py-2 text-xs text-primary">{linkInv}</code>
-            <button
+            <ButtonIcon
+              variant="primary"
+              className="mt-2"
               onClick={() => void navigator.clipboard.writeText(linkInv)}
               title="Copiar enlace"
-              className="mt-2 grid h-9 w-9 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700"
+              aria-label="Copiar enlace"
             >
-              <Copy className="h-4 w-4" />
-            </button>
+              <Copy className="h-5 w-5" />
+            </ButtonIcon>
           </div>
         ) : null}
       </Modal>

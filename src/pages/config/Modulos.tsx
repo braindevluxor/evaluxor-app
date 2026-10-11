@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listarModulosAdmin, guardarModulo, eliminarModulo } from '../../lib/data/catalog'
 import type { Modulo, Item } from '../../lib/types'
-import { Button, Field, Input, Modal, Badge, Textarea, SkeletonTarjetas } from '../../components/ui'
+import { Button, ButtonIcon, Field, Input, Modal, Badge, Textarea, SkeletonTarjetas, claseBotonIcono } from '../../components/ui'
 import { List, Pencil, Trash2 } from 'lucide-react'
 import { IconoModulo } from '../../components/IconoModulo'
 import { ICONOS_MODULO } from '../../lib/iconosModulo'
@@ -50,16 +50,16 @@ export function ModulosPage() {
               </div>
               <p className="mb-3 line-clamp-2 text-sm text-slate-500">{m.descripcion || 'Sin descripción'}</p>
               <p className="mb-3 text-xs text-slate-400">{m._items.length} ítem(s) configurados</p>
-              <div className="mt-auto flex items-center justify-end gap-2">
-                <Link to={`/config/items?modulo=${m.id}`} title="Ver ítems" className="grid h-9 w-9 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
-                  <List className="h-4 w-4" />
+              <div className="mt-auto flex items-center justify-end gap-1.5">
+                <Link to={`/config/items?modulo=${m.id}`} title="Ver ítems" aria-label="Ver ítems" className={claseBotonIcono('primary')}>
+                  <List className="h-5 w-5" />
                 </Link>
-                <button onClick={() => { setEditando(m); setModal(true) }} title="Editar" className="grid h-9 w-9 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700">
-                  <Pencil className="h-4 w-4" />
-                </button>
-                <button onClick={() => setABorrar(m)} title="Eliminar" className="grid h-9 w-9 place-items-center rounded-full bg-red-600 text-white transition-colors hover:bg-red-700">
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <ButtonIcon variant="primary" onClick={() => { setEditando(m); setModal(true) }} title="Editar" aria-label="Editar">
+                  <Pencil className="h-5 w-5" />
+                </ButtonIcon>
+                <ButtonIcon variant="danger" onClick={() => setABorrar(m)} title="Eliminar" aria-label="Eliminar">
+                  <Trash2 className="h-5 w-5" />
+                </ButtonIcon>
               </div>
             </div>
           ))}

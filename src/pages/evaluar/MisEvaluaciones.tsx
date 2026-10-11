@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Eye, FileDown } from 'lucide-react'
-import type { EstadoEvaluacion, VistaEvaluacion } from '../../lib/types'
-import { Badge, Button, EmptyState, Puntaje, SkeletonTarjetas } from '../../components/ui'
+import type { VistaEvaluacion } from '../../lib/types'
+import { Badge, ButtonIcon, claseBotonIcono, EmptyState, Puntaje, SkeletonTarjetas } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import { useAuth } from '../../context/AuthContext'
 import { consultarEvaluaciones } from '../../lib/data/indicadores'
@@ -10,12 +10,7 @@ import { descargarInformePdf } from '../../lib/pdf'
 import { useModulosExportables } from '../../lib/pdf/modulosExportables'
 import type { OpcionesPdf } from '../../lib/pdf/opciones'
 import { SelectorPdf } from '../../components/SelectorPdf'
-
-const COLOR_ESTADO: Record<EstadoEvaluacion, number> = {
-  PROGRAMADA: 4,
-  ACTIVA: 2,
-  CERRADA: 3
-}
+import { COLOR_BADGE_ESTADO, etiquetaEstado } from '../../lib/diseno'
 
 export function MisEvaluaciones() {
   const { profile } = useAuth()
@@ -71,7 +66,7 @@ export function MisEvaluaciones() {
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
           ) : null}
           {evals.map((ev) => (
-            <div key={ev.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div key={ev.id} className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-bold text-primary-900">
@@ -87,27 +82,27 @@ export function MisEvaluaciones() {
                 <div className="text-right">
                   <Puntaje value={ev.puntuacion} />
                   <div className="mt-1">
-                    <Badge color={COLOR_ESTADO[ev.estado]}>
-                      {ev.estado === 'ACTIVA' ? 'En curso' : ev.estado === 'CERRADA' ? 'Cerrada' : 'Programada'}
-                    </Badge>
+                    <Badge color={COLOR_BADGE_ESTADO[ev.estado]}>{etiquetaEstado(ev.estado)}</Badge>
                   </div>
                 </div>
               </div>
-              <div className="mt-3 flex gap-2">
-                <Button
+              <div className="mt-3 flex items-center justify-end gap-1.5">
+                <ButtonIcon
                   variant="secondary"
-                  className="flex-1"
                   disabled={descargando === ev.id}
                   onClick={() => setElegirEn(ev.id)}
+                  title="Descargar PDF"
+                  aria-label="Descargar PDF"
                 >
-                  <FileDown className="h-4 w-4" />
-                  Descargar PDF
-                </Button>
+                  <FileDown className="h-5 w-5" />
+                </ButtonIcon>
                 <Link
                   to={`/evaluaciones/${ev.id}`}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-primary px-3 py-2.5 text-sm font-bold text-white"
+                  className={claseBotonIcono('primary')}
+                  title="Ver detalle"
+                  aria-label="Ver detalle"
                 >
-                  <Eye className="h-4 w-4" /> Ver detalle
+                  <Eye className="h-5 w-5" />
                 </Link>
               </div>
             </div>

@@ -8,7 +8,8 @@ import { etiquetaTipo, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, pesoItem, redondea
 import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
 import { APIS_DISPONIBLES, apiDisponible } from '../../lib/data/apis'
 import type { FiltroColaboradores, Item, Modulo, Opcion, Sucursal, TipoItem } from '../../lib/types'
-import { Button, Field, Input, Modal, Select, Textarea, Badge, Skeleton, cn } from '../../components/ui'
+import { Button, ButtonIcon, Field, Input, Modal, Select, Textarea, Badge, Skeleton, cn } from '../../components/ui'
+import { COLOR_BADGE_TIPO_ITEM } from '../../lib/diseno'
 
 const TIPOS = Object.keys(ETIQUETAS_TIPO) as TipoItem[]
 
@@ -292,9 +293,9 @@ export function ItemsPage() {
                         <Plus className="h-4 w-4" /> Ítem dentro
                       </button>
                     ) : null}
-                    <button onClick={() => { setEditando(it); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null); setModal(true) }} title="Editar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700"><Pencil className="h-4 w-4" /></button>
-                    <button onClick={() => iniciarCopia(it)} title="Copiar ítem" className="grid h-8 w-8 place-items-center rounded-full border border-slate-300 bg-white text-slate-500 transition-colors hover:border-primary hover:bg-primary-50 hover:text-primary"><Copy className="h-4 w-4" /></button>
-                    <button onClick={() => setABorrar(it)} title="Eliminar" className="grid h-8 w-8 place-items-center rounded-full bg-red-600 text-white transition-colors hover:bg-red-700"><Trash2 className="h-4 w-4" /></button>
+                    <ButtonIcon variant="primary" onClick={() => { setEditando(it); setNuevoPadreId(null); setEsCopia(false); setOrigenCopia(null); setModal(true) }} title="Editar" aria-label="Editar"><Pencil className="h-5 w-5" /></ButtonIcon>
+                    <ButtonIcon variant="neutral" onClick={() => iniciarCopia(it)} title="Copiar ítem" aria-label="Copiar ítem"><Copy className="h-5 w-5" /></ButtonIcon>
+                    <ButtonIcon variant="danger" onClick={() => setABorrar(it)} title="Eliminar" aria-label="Eliminar"><Trash2 className="h-5 w-5" /></ButtonIcon>
                   </div>
                 </div>
               </Fragment>
@@ -413,7 +414,7 @@ export function ItemsPage() {
 }
 
 function tipoColor(t: TipoItem): number {
-  return t === 'CUMPLE_NO_CUMPLE' ? 3 : t === 'CONCILIACION' ? 6 : t === 'CHECKLIST' ? 5 : t === 'LISTA_COLABORADORES' ? 1 : t === 'UNIDAD_CHECKLIST' ? 1 : t === 'PLANO_XY' ? 2 : 4
+  return COLOR_BADGE_TIPO_ITEM[t]
 }
 
 function FormItem({
@@ -933,7 +934,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
             {responsables.length && !conRango ? (
               <SelectorResponsables opciones={responsables} valor={responsablesDeOpcion(o)} onChange={(rs) => cambiarResponsables(i, rs)} />
             ) : null}
-            <button type="button" onClick={() => quitar(i)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-red-500 hover:bg-red-50" title="Eliminar opción"><Trash2 className="h-5 w-5" /></button>
+            <ButtonIcon type="button" variant="danger" onClick={() => quitar(i)} title="Eliminar opción" aria-label="Eliminar opción"><Trash2 className="h-5 w-5" /></ButtonIcon>
           </div>
           {conRango ? (
             <div className="flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 px-2.5 py-2">

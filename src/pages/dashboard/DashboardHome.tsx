@@ -25,14 +25,13 @@ import { distribuirPorcentajes, num as numFormateado, pct as pctComa } from '../
 import {
   ResponsiveContainer, ComposedChart, Bar, Line, Area, AreaChart, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ReferenceLine
 } from 'recharts'
+import { COLORES_MODULOS, HEX_PRIMARY, HEX_CUMPLE, HEX_RIESGO, colorPuntajeHex } from '../../lib/diseno'
 
 function haceMeses(n: number): string {
   const d = new Date()
   d.setMonth(d.getMonth() - n)
   return d.toISOString().slice(0, 10)
 }
-
-const COLORES_MODULOS = ['#28315F', '#4f87c7', '#16a34a', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#db2777']
 
 /**
  * Gráfico "Ponderación por unidad y módulo": una curva por módulo con la barra
@@ -79,8 +78,8 @@ function GraficoPonderacion({
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
             <XAxis dataKey="unidad" interval={0} angle={-38} textAnchor="end" height={90} tick={{ fontSize: 11, fill: '#475569' }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
-            <ReferenceLine y={80} stroke="#16a34a" strokeDasharray="4 4" strokeOpacity={0.4} />
-            <ReferenceLine y={60} stroke="#d97706" strokeDasharray="4 4" strokeOpacity={0.4} />
+            <ReferenceLine y={80} stroke={HEX_CUMPLE} strokeDasharray="4 4" strokeOpacity={0.4} />
+            <ReferenceLine y={60} stroke={HEX_RIESGO} strokeDasharray="4 4" strokeOpacity={0.4} />
             <Tooltip
               formatter={(v, nombre) => [pctComa(Number(v)), String(nombre)]}
               contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
@@ -95,7 +94,7 @@ function GraficoPonderacion({
             <Bar
               dataKey="promedio"
               name={nombrePromedio}
-              fill="#28315F"
+              fill={HEX_PRIMARY}
               fillOpacity={0.14}
               radius={[4, 4, 0, 0]}
               barSize={16}
@@ -205,7 +204,7 @@ export function DashboardHome() {
       const desde = (acum / Math.max(1, total)) * 360
       acum += p.fallos
       const hasta = (acum / Math.max(1, total)) * 360
-      const color = p.ratio >= 0.8 ? '#16a34a' : p.ratio >= 0.6 ? '#d97706' : '#dc2626'
+      const color = colorPuntajeHex(p.ratio * 100)
       return `${color} ${desde}deg ${hasta}deg`
     })
     return { items, shares, total, fondo: total ? `conic-gradient(${zonas.join(',')})` : '#e2e8f0' }
@@ -412,8 +411,8 @@ export function DashboardHome() {
                 <AreaChart data={evolucion} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
                   <defs>
                     <linearGradient id="gradEvolucion" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#28315F" stopOpacity={0.28} />
-                      <stop offset="100%" stopColor="#28315F" stopOpacity={0.02} />
+                      <stop offset="0%" stopColor={HEX_PRIMARY} stopOpacity={0.28} />
+                      <stop offset="100%" stopColor={HEX_PRIMARY} stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
@@ -429,11 +428,11 @@ export function DashboardHome() {
                     type="monotone"
                     dataKey="puntaje"
                     name="Cumplimiento %"
-                    stroke="#28315F"
+                    stroke={HEX_PRIMARY}
                     strokeWidth={3}
                     fill="url(#gradEvolucion)"
                     connectNulls
-                    dot={{ r: 3.5, strokeWidth: 1, fill: '#28315F' }}
+                    dot={{ r: 3.5, strokeWidth: 1, fill: HEX_PRIMARY }}
                     activeDot={{ r: 5.5 }}
                     onClick={abrirDrillMes}
                   />
@@ -550,7 +549,7 @@ export function DashboardHome() {
                 {/* Leyenda clickeable */}
                 <div className="min-w-0 flex-1 space-y-1.5">
                   {donaIncumplidos.items.map((p, i) => {
-                    const color = p.ratio >= 0.8 ? '#16a34a' : p.ratio >= 0.6 ? '#d97706' : '#dc2626'
+                    const color = colorPuntajeHex(p.ratio * 100)
                     return (
                       <button
                         key={p.item_id}

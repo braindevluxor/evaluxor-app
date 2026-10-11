@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type Ref, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
 import { FolderOpen, HelpCircle, X } from 'lucide-react'
+import { colorPuntajeClase } from '../lib/diseno'
 
 export function cn(...cls: (string | false | null | undefined)[]): string {
   return cls.filter(Boolean).join(' ')
@@ -48,6 +49,49 @@ export function Button({
   )
 }
 
+/**
+ * Botón cuadrado/circular de un solo icono.
+ *
+ * Existe separado de `Button` porque `cn` solo concatena clases: pasar `p-0` a
+ * `Button` NO quita el `px-4 py-2.5` de su base (gana el que esté después en la
+ * hoja de estilos) y el resultado era un óvalo de color con el icono aplastado
+ * —el "botón vacío"—. Acá no hay padding: el icono se centra con `inline-grid`.
+ */
+export type IconVariant = BtnVariant | 'neutral' | 'dangerGhost'
+
+/**
+ * Variante de botón-icono: siempre outline (stroke heredado del icono).
+ * El color vive en el trazo del propio icono y el fondo sólo aparece como un
+ * tinte suave al hacer hover — nada de círculos rellenos que deforman la fila.
+ */
+const variantesIcono: Record<IconVariant, string> = {
+  primary: 'text-primary-700 hover:bg-primary-50',
+  secondary: 'text-primary-700 hover:bg-primary-50',
+  ghost: 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
+  neutral: 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
+  success: 'text-green-600 hover:bg-green-50',
+  danger: 'text-red-500 hover:bg-red-50 hover:text-red-600',
+  dangerGhost: 'text-red-500 hover:bg-red-50 hover:text-red-600'
+}
+
+/** Clases de la base de un botón-icono, para los casos que deben ser un `<Link>`. */
+export const CLASE_ICONO = 'inline-grid h-9 w-9 shrink-0 place-items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50'
+
+/** Clases completas de un botón-icono según su variante (útil para `<Link>`). */
+export function claseBotonIcono(variant: IconVariant = 'ghost', className?: string): string {
+  return cn(CLASE_ICONO, variantesIcono[variant], className)
+}
+
+export function ButtonIcon({
+  variant = 'ghost',
+  className,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: IconVariant }) {
+  return (
+    <button className={claseBotonIcono(variant, className)} {...props} />
+  )
+}
+
 interface FieldProps {
   label: string
   children: ReactNode
@@ -64,7 +108,7 @@ export function Field({ label, children, className, hint, labelClassName, hintCl
     <label className={cn('flex flex-col gap-1.5', className)}>
       <span className={cn('text-sm font-medium text-slate-700', labelClassName)}>{label}</span>
       {children}
-      {hint ? <span className={cn('text-xs text-slate-400', hintClassName)}>{hint}</span> : null}
+      {hint ? <span className={cn('text-xs text-slate-500', hintClassName)}>{hint}</span> : null}
     </label>
   )
 }
@@ -249,7 +293,7 @@ export function SkeletonPantalla({ completa = false }: { completa?: boolean }) {
 export function EmptyState({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-      <FolderOpen className="h-10 w-10 text-slate-300" strokeWidth={1.5} />
+      <FolderOpen className="h-10 w-10 text-slate-400" strokeWidth={1.5} />
       <p className="font-semibold text-slate-700">{title}</p>
       {subtitle ? <p className="text-sm text-slate-500">{subtitle}</p> : null}
     </div>
@@ -313,7 +357,7 @@ export function Modal({
           {children}
         </div>
         {footer ? (
-          <div className="shrink-0 border-t border-slate-100 px-5 py-3.5">{footer}</div>
+          <div className="shrink-0 px-5 py-3.5">{footer}</div>
         ) : null}
       </div>
     </div>
@@ -340,7 +384,7 @@ export function Confirmar({
   useCerrarConEscape(open, onCancel)
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/50 p-4">
       <div className="w-full max-w-sm rounded-2xl bg-white p-5">
         <p className="text-sm text-slate-700">{texto}</p>
         <div className="mt-4 flex justify-end gap-2">
@@ -403,8 +447,7 @@ export function ProgressBar({
 
 export function Puntaje({ value, className }: { value: number | null; className?: string }) {
   if (value == null) return <span className={cn('text-sm text-slate-400', className)}>—</span>
-  const color = value >= 80 ? 'text-green-700' : value >= 60 ? 'text-amber-700' : 'text-red-700'
-  return <span className={cn('font-bold tabular-nums', color, className)}>{value.toLocaleString('es')}%</span>
+  return <span className={cn('font-bold tabular-nums', colorPuntajeClase(value), className)}>{value.toLocaleString('es')}%</span>
 }
 
 const MARGEN_TOOLTIP = 12
@@ -504,12 +547,15 @@ export function InfoTooltip({ texto, className }: { texto: string; className?: s
         aria-expanded={abierto}
         aria-label="Más información"
         className={cn(
-          'inline-grid h-5 w-5 shrink-0 place-items-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600',
+          // Alto acá y no `h-5`: en teléfono el dedo necesita superficie, y al
+          // vivir dentro de un `flex items-center` el ícono queda centrado con
+          // su descripción, que es lo que pidió el diseño.
+          'inline-grid h-6 w-6 shrink-0 place-items-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600',
           abierto && 'bg-slate-100 text-slate-600',
           className
         )}
       >
-        <HelpCircle className="h-4 w-4" />
+        <HelpCircle className="h-5 w-5" />
       </button>
       {abierto
         ? createPortal(

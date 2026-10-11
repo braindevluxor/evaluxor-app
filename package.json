@@ -13,6 +13,8 @@
     "backfill:departamentos": "node scripts/backfill-departamentos.mjs"
   },
   "dependencies": {
+    "@fontsource/lato": "^5.3.0",
+    "@fontsource/poppins": "^5.3.0",
     "@supabase/supabase-js": "^2.117.0",
     "html5-qrcode": "^2.3.8",
     "idb": "^8.0.3",

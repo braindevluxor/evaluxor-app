@@ -95,15 +95,7 @@ export function PhotoCapture({ photoIds, onChange }: Props) {
   }
 
   return (
-    <div className="flex items-start justify-between gap-3">
-      <div className="flex-1 space-y-2">
-        {subiendo ? (
-          <div className="grid aspect-square w-full place-items-center rounded-xl border border-dashed border-slate-300">
-            <Spinner />
-          </div>
-        ) : null}
-        <MinaFotos photoIds={photoIds} onQuitar={quitar} />
-      </div>
+    <div className="space-y-3">
       <input
         ref={inputRef}
         type="file"
@@ -121,24 +113,36 @@ export function PhotoCapture({ photoIds, onChange }: Props) {
         className="hidden"
         onChange={(e) => void agregar(e.target)}
       />
-      <div className="flex shrink-0 flex-col gap-2">
+      <div className="space-y-2">
+        {subiendo ? (
+          <div className="grid aspect-square w-full place-items-center rounded-xl bg-slate-50">
+            <Spinner />
+          </div>
+        ) : null}
+        <MinaFotos photoIds={photoIds} onQuitar={quitar} />
+      </div>
+      {/* Dos botones en fila, del mismo alto y alineados: antes iban apilados y
+          desfasados a la derecha, y quedaban como círculos sueltos. */}
+      <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={subiendo}
           aria-label="Tomar foto"
-          className="grid h-12 w-12 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
+          className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-3 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
         >
-          <Camera className="h-5 w-5" />
+          <Camera className="h-5 w-5 shrink-0" />
+          <span className="truncate">Tomar foto</span>
         </button>
         <button
           type="button"
           onClick={() => galeriaRef.current?.click()}
           disabled={subiendo}
           aria-label="Adjuntar foto desde la galería"
-          className="grid h-12 w-12 place-items-center rounded-full border-2 border-primary bg-white text-primary transition-colors hover:bg-primary-50 disabled:opacity-50"
+          className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-primary-200 bg-white px-3 text-sm font-semibold text-primary transition-colors hover:bg-primary-50 disabled:opacity-50"
         >
-          <ImageIcon className="h-5 w-5" />
+          <ImageIcon className="h-5 w-5 shrink-0" />
+          <span className="truncate">Galería</span>
         </button>
       </div>
     </div>

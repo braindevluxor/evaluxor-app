@@ -13,3 +13,8 @@ supabase/.temp
 
 .vercel
 .env*
+
+# Herramientas locales del agente y respaldos manuales: no son código del proyecto.
+.agents/
+*.bak
+*.bak[0-9]*

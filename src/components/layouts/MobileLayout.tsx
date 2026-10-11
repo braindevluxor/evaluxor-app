@@ -73,8 +73,10 @@ export function HeaderMini({
   extra?: React.ReactNode
 }) {
   const { profile } = useAuth()
+  // Sin `shadow-sm`: el diseño quedó plano y el header se separa del contenido
+  // por su propio color, no por una sombra.
   return (
-    <header className="sticky top-0 z-30 bg-primary text-white shadow-sm">
+    <header className="sticky top-0 z-30 bg-primary text-white">
       <div className="flex items-center justify-between gap-2 px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           {onClickMenu ? (
@@ -129,8 +131,10 @@ export function MobileLayout({
     window.addEventListener('keydown', manejar)
     return () => window.removeEventListener('keydown', manejar)
   }, [menuAbierto])
+  // Fondo blanco a pedido: sin gris de fondo las tarjetas (`.sup`) se separan
+  // por su propio borde de un pelo, no por contraste ni por sombra.
   return (
-    <div className="min-h-screen bg-slate-100 pb-6">
+    <div className="min-h-screen bg-white pb-6">
       <HeaderMini titulo={titulo ?? 'EvaLuxor'} subtitulo={subtitulo} onClickMenu={() => setMenuAbierto(true)} extra={extra} />
       <SyncBanner />
       <main className="mx-auto w-full max-w-lg px-4 py-5">{children}</main>
@@ -139,7 +143,7 @@ export function MobileLayout({
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" aria-hidden />
           <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85%] flex-col bg-white">
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+            <div className="flex items-center justify-between px-4 py-3">
               <span className="text-lg font-extrabold text-primary">EvaLuxor</span>
               <button
                 onClick={cerrar}
@@ -165,7 +169,7 @@ export function MobileLayout({
               ) : null}
               <ItemLateral to="/perfil" label="Perfil" icon={<Settings className="h-5 w-5" />} onClick={cerrar} />
             </nav>
-            <div className="border-t border-slate-100 p-3">
+            <div className="p-3">
               <p className="px-3 pb-2 text-sm font-semibold text-slate-800">{profile?.nombre || 'Usuario'}</p>
               <VersionEnMenu />
               <button

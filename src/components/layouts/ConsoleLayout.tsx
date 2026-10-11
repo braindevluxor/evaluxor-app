@@ -6,7 +6,7 @@ import { DashboardFiltersProvider, useDashboardFilters } from '../../context/Das
 import { puedeConfigurar } from '../../lib/roles'
 import { SyncBanner } from './MobileLayout'
 import { BarraKpis } from '../dashboard/BarraKpis'
-import { cn } from '../ui'
+import { ButtonIcon, cn } from '../ui'
 
 interface EnlaceMenu {
   to: string
@@ -131,7 +131,7 @@ function ConsoleLayoutContenido() {
           {!colapsado && barra ? (
             <span
               aria-hidden
-              className="absolute left-3 right-3 z-0 rounded-xl bg-amber-300/40 transition-all duration-300 ease-out"
+              className="absolute left-3 right-3 z-0 rounded-xl bg-primary-100 transition-all duration-300 ease-out"
               style={{ top: barra.top, height: barra.height }}
             />
           ) : null}
@@ -171,7 +171,7 @@ function ConsoleLayoutContenido() {
                           <span className={cn(
                             'shrink-0 rounded-lg text-primary transition-transform duration-300 ease-out',
                             isActive ? 'scale-125' : 'scale-100',
-                            isActive && colapsado ? 'bg-amber-300/40 p-1' : ''
+                            isActive && colapsado ? 'bg-primary-100 p-1' : ''
                           )}>{i.icon}</span>
                           <span className={cn('truncate', colapsado && 'lg:hidden')}>{i.label}</span>
                         </>
@@ -198,13 +198,15 @@ function ConsoleLayoutContenido() {
             <Settings className="h-4 w-4" />
             <span className={cn(colapsado && 'lg:hidden')}>Mi perfil / contraseña</span>
           </NavLink>
-          <button
+          <ButtonIcon
+            variant="danger"
+            className="mt-2"
             onClick={() => void signOut()}
             title="Cerrar sesión"
-            className="mt-2 grid h-8 w-8 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700"
+            aria-label="Cerrar sesión"
           >
-            <LogOut className="h-4 w-4" />
-          </button>
+            <LogOut className="h-5 w-5" />
+          </ButtonIcon>
         </div>
       </aside>
 

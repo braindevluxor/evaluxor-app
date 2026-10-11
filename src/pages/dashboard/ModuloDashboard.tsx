@@ -27,6 +27,7 @@ import { setKpisGlobal, type EstadoKpis } from '../../lib/kpisGlobal'
 import { cn } from '../../components/ui'
 import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, ReferenceLine, LabelList } from 'recharts'
 import { num, pct as pctComa } from '../../lib/numeros'
+import { CLASES_TIPO_ITEM, EYEBROW, HEX_CUMPLE, HEX_RIESGO, HEX_NO_CUMPLE, HEX_SIN_DATO, colorPuntajeHex } from '../../lib/diseno'
 import type { Item } from '../../lib/types'
 
 function haceMeses(n: number): string {
@@ -35,24 +36,14 @@ function haceMeses(n: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-const ETIQUETA = 'text-[10px] font-bold uppercase tracking-wider text-slate-500'
+const ETIQUETA = EYEBROW
 
-const COLOR_TIPO: Record<string, string> = {
-  CUMPLE_NO_CUMPLE: 'bg-emerald-50 text-emerald-700',
-  CHECKLIST: 'bg-sky-50 text-sky-700',
-  CONCILIACION: 'bg-violet-50 text-violet-700',
-  LISTA_COLABORADORES: 'bg-amber-50 text-amber-700',
-  UNIDAD_CHECKLIST: 'bg-fuchsia-50 text-fuchsia-700',
-  CONTENEDOR: 'bg-slate-100 text-slate-600'
-}
+const COLOR_TIPO = CLASES_TIPO_ITEM
 
 /** Color de la barra según el umbral oficial (verde ≥80, ámbar 60-79, rojo <60). */
-function colorDePuntaje(p: number | null): string {
-  if (p == null) return '#cbd5e1'
-  return p >= 80 ? '#16a34a' : p >= 60 ? '#d97706' : '#dc2626'
-}
+const colorDePuntaje = colorPuntajeHex
 
-const COLORES_BARRA = ['#16a34a', '#d97706', '#dc2626', '#cbd5e1']
+const COLORES_BARRA = [HEX_CUMPLE, HEX_RIESGO, HEX_NO_CUMPLE, HEX_SIN_DATO]
 
 export function ModuloDashboard() {
   const { moduloId = '' } = useParams()
@@ -359,8 +350,8 @@ export function ModuloDashboard() {
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
               <XAxis dataKey="etiqueta" interval={0} angle={-38} textAnchor="end" height={90} tick={{ fontSize: 11, fill: '#475569' }} />
               <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
-              <ReferenceLine y={80} stroke="#16a34a" strokeDasharray="4 4" strokeOpacity={0.4} />
-              <ReferenceLine y={60} stroke="#d97706" strokeDasharray="4 4" strokeOpacity={0.4} />
+              <ReferenceLine y={80} stroke={HEX_CUMPLE} strokeDasharray="4 4" strokeOpacity={0.4} />
+              <ReferenceLine y={60} stroke={HEX_RIESGO} strokeDasharray="4 4" strokeOpacity={0.4} />
               <Tooltip
                 formatter={(v) => [v == null ? '—' : pctComa(Number(v)), 'Puntaje']}
                 labelFormatter={(etiqueta) => {
