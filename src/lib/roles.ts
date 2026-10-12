@@ -1,4 +1,4 @@
-import type { Rol } from './types'
+import type { EstadoEvaluacion, Rol } from './types'
 
 export const ES_LIDER = 'LIDER'
 export const ES_EVALUADOR = 'EVALUADOR'
@@ -26,6 +26,24 @@ export function puedeEvaluar(rol: Rol): boolean {
 
 export function puedeConfigurar(rol: Rol): boolean {
   return rol === 'LIDER'
+}
+
+/**
+ * ¿Se pueden corregir los productos escaneados de una conciliación?
+ *
+ * Mientras la evaluación está ACTIVA, cualquiera que pueda responder. Una vez
+ * cerrada, solo el Líder —que es lo que permite el servidor: `puede_responder`
+ * arranca con `select public.es_lider() or …`, sin tocar el estado. Y tiene
+ * sentido: el borrón de inventario se corrige después de cerrar igual que
+ * cualquier otro dato mal escaneado, y lo que se arregla es el balance de
+ * conciliación, no el puntaje ya registrado.
+ *
+ * Existía porque el editor devolvía sin más en cuanto la evaluación no estaba
+ * ACTIVA, mientras el lápiz del historial la abría igual: el Líder confirmaba el
+ * borrado, la fila no se movía y el producto seguía en el detalle.
+ */
+export function puedeCorregirConciliacion(rol: Rol, estado: EstadoEvaluacion): boolean {
+  return estado === 'ACTIVA' || rol === 'LIDER'
 }
 
 export function verTodo(rol: Rol): boolean {

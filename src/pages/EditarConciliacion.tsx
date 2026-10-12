@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, RefreshCw } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { obtenerEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
+import { puedeCorregirConciliacion } from '../lib/roles'
 import { guardarBorradorNube } from '../lib/offline/sync'
 import { etiquetaTipo } from '../lib/scoring'
 import { ConciliacionEditor } from '../components/ItemRenderer'
@@ -42,8 +43,20 @@ export function EditarConciliacion() {
     })()
   }, [evaluacionId])
 
+  const estadoEval = detalle?.evaluacion.estado ?? null
+  /**
+   * ¿Se puede escribir en esta evaluación?
+   *
+   * El editor se abre desde el historial también para evaluaciones cerradas (el
+   * lápiz del historial no mira el estado), y antes `guardar` devolvía acá sin
+   * más: el Líder confirmaba el borrado, la fila no se movía y el producto
+   * seguía en el detalle, que es justo lo que reportaron. Ver
+   * `puedeCorregirConciliacion`.
+   */
+  const editable = !!profile && !!estadoEval && puedeCorregirConciliacion(profile.rol, estadoEval)
+
   const guardar = (itemId: string, valor: unknown) => {
-    if (!profile || detalle?.evaluacion.estado !== 'ACTIVA') return
+    if (!editable) return
     setValores((prev) => ({ ...prev, [itemId]: valor }))
     setGuardado((g) => ({ ...g, [itemId]: 'guardando' }))
     if (guardadoRef.current.get(itemId)) window.clearTimeout(guardadoRef.current.get(itemId))
@@ -121,8 +134,8 @@ export function EditarConciliacion() {
             Los cambios se guardan automáticamente en la nube y el Líder los ve en el detalle.
           </p>
         ) : (
-          <div className="rounded-xl bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-            Esta evaluación está <b>{evaluacion.estado === 'CERRADA' ? 'cerrada' : 'programada'}</b>. Solo se pueden editar los productos de conciliación mientras la evaluación está activa.
+          <div className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700">
+            Esta evaluación está <b>{evaluacion.estado === 'CERRADA' ? 'cerrada' : 'programada'}</b>, pero puedes corregir los productos escaneados: el puntaje ya registrado no cambia, sólo el balance de conciliación.
           </div>
         )}
 
