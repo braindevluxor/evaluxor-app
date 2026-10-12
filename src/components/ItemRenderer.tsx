@@ -680,7 +680,12 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
           <Input
             ref={skuInputRef}
             type="search"
-            inputMode="search"
+            // Teclado numérico: lo único que se escribe acá es un código de
+            // barras. En el teléfono el teclado de texto es una fila entera de
+            // teclas de más para un campo que sólo va a recibir dígitos. Los
+            // escáneres handheld no se tocan: inyectan el código y su Enter,
+            // que ya detecta el `onChange` de abajo.
+            inputMode="numeric"
             enterKeyHint="search"
             autoComplete="off"
             autoCorrect="off"

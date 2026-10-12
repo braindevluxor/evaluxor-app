@@ -1156,7 +1156,10 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
                       value={codigoConsulta}
                       type="search"
                       enterKeyHint="search"
-                      inputMode="search"
+                      // Teclado numérico salvo para vehículos: la placa lleva
+                      // letras y ahí el teclado numérico no deja escribirlas.
+                      // El SKU y la cédula son sólo dígitos.
+                      inputMode={apiSeccion.id === 'vehiculos' ? 'text' : 'numeric'}
                       autoComplete="off"
                       autoCorrect="off"
                       autoCapitalize={apiSeccion.id === 'vehiculos' ? 'characters' : 'off'}
