@@ -1069,3 +1069,53 @@ describe('ItemRenderer · la pérdida acumulada se ve mientras se evalúa', () =
     expect(src).toContain("resumenPerdidaConciliacion(productos, 'SOH')")
   })
 })
+
+describe('ItemRenderer · Total conciliación = Match / Total SKU', () => {
+  const pintar = (valor: unknown) =>
+    renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={valor} index={0} total={1} onChange={() => {}} />)
+
+  it('ya no hay «promedio»: el rótulo es Total conciliación', () => {
+    const html = pintar({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: 10 }] })
+    expect(html).toContain('Total conciliación')
+    expect(html).not.toContain('Prom. conciliación')
+  })
+
+  it('es Match sobre Total SKU: 3 de 4 cuadran dan 75%', () => {
+    const html = pintar({
+      productos: [
+        { sku: 'A', nombre: null, teorica: 10, fisica: 10 },
+        { sku: 'B', nombre: null, teorica: 2, fisica: 1 },
+        { sku: 'C', nombre: null, teorica: 100, fisica: 100 },
+        { sku: 'D', nombre: null, teorica: 100, fisica: 100 }
+      ]
+    })
+    expect(html).toMatch(/75%<\/p><p[^>]*>Total conciliación<\/p>/)
+  })
+
+  it('todo cuadrado da 100% y nada cuadrado da 0%', () => {
+    const completo = pintar({
+      productos: [
+        { sku: 'A', nombre: null, teorica: 10, fisica: 10 },
+        { sku: 'B', nombre: null, teorica: 0, fisica: 0 }
+      ]
+    })
+    expect(completo).toMatch(/100%<\/p><p[^>]*>Total conciliación<\/p>/)
+
+    const descuadrado = pintar({
+      productos: [
+        { sku: 'A', nombre: null, teorica: 10, fisica: 9 },
+        { sku: 'B', nombre: null, teorica: 10, fisica: 11 }
+      ]
+    })
+    expect(descuadrado).toMatch(/>0%<\/p><p[^>]*>Total conciliación<\/p>/)
+  })
+
+  it('el contador Match y el porcentaje leen la misma definición', () => {
+    const src = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
+    expect(src).toContain('const conciliadas = productos.filter(esMatchConciliacion).length')
+    expect(src).toContain('const total = totalConciliacion(v)')
+    // La tasa de descuadre sigue viva en el detalle y en los indicadores, pero
+    // ya no es el número que se muestra acá.
+    expect(src).not.toContain('conciliacionTotal')
+  })
+})

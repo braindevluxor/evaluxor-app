@@ -624,6 +624,38 @@ function claveOrden(valor: string): string {
   return valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '')
 }
 
+/**
+ * Un SKU cierra cuadrado: tiene las dos cantidades cargadas, no está marcado
+ * "sin hablador" y lo contado coincide con el sistema.
+ *
+ * Vive en una función porque es a la vez la definición del contador "Match" de
+ * la pantalla y la del numerador del Total de conciliación: si el contador
+ * dijera una cosa y el porcentaje otra, no habría forma de saber cuál de los
+ * dos está equivocado.
+ */
+export function esMatchConciliacion(p: ProductoConciliacion | null | undefined): boolean {
+  return !esSinHablador(p) && conciliacionComparable(p) && p.fisica === p.teorica
+}
+
+/**
+ * Total de conciliación: (Match / Total SKU) × 100.
+ *
+ * No es un promedio de los porcentajes de cada producto, es una cuenta de
+ * filas: un SKU que descuadra por un centésimo le cuesta al total lo mismo que
+ * otro que descuadra por mil unidades, y así lo pide el negocio.
+ *
+ * El denominador es TODO lo escaneado, no sólo lo comparable: una fila guardada
+ * a medias no es un Match y hace bajar el total en vez de desaparecer del
+ * cálculo (para eso ya está `conciliacionTotal`, que sí se define sólo sobre lo
+ * comparable y que sigue mandando el veredicto del ítem).
+ */
+export function totalConciliacion(v: ValorConciliacion | null | undefined): number | null {
+  const ps = v?.productos ?? []
+  if (!ps.length) return null
+  const match = ps.filter(esMatchConciliacion).length
+  return Math.round((match / ps.length) * 10000) / 100
+}
+
 export function conciliacionTotal(v: ValorConciliacion | null | undefined): number | null {
   // Tasa de productos sin coincidir: (productos donde física ≠ teórica) / (total
   // escaneados con ambas cantidades) × 100. Por lo tanto 0% = todo concilia y

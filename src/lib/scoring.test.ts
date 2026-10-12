@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, conciliacionComparable, esSinHablador, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, montoSobranteConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion, agruparPorDepartamento, precioVenta, productosParaConciliar, truncarDecimales, formatearPrecioBase, formatearMontoPerdida, promedioPuntajesModulos } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, esMatchConciliacion, totalConciliacion, conciliacionComparable, esSinHablador, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, montoSobranteConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion, agruparPorDepartamento, precioVenta, productosParaConciliar, truncarDecimales, formatearPrecioBase, formatearMontoPerdida, promedioPuntajesModulos } from './scoring'
 
 describe('orden de lectura de una conciliación', () => {
   const prod = (sku: string, teorica: number | null, fisica: number | null, finalBase?: number | null) => ({
@@ -819,6 +819,52 @@ it('conciliacion porcentaje: si pasa de 100 se resta el excedente, si no queda c
     expect(conciliacionTotal({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: null }] })).toBe(null)
     expect(conciliacionTotal({ productos: [] })).toBe(null)
     expect(conciliacionTotal(null)).toBe(null)
+  })
+
+  it('total de conciliación es (Match / Total SKU) × 100', () => {
+    // A cuadra y B no → 1 de 2 = 50
+    expect(totalConciliacion({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: 10 }, { sku: 'B', nombre: null, teorica: 10, fisica: 5 }] })).toBe(50)
+    // Ninguno cuadra → 0
+    expect(totalConciliacion({ productos: [{ sku: 'A', nombre: null, teorica: 150, fisica: 160 }, { sku: 'B', nombre: null, teorica: 48, fisica: 39 }] })).toBe(0)
+    // Todos cuadran (incluido stock 0/0) → 100
+    expect(totalConciliacion({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: 10 }, { sku: 'B', nombre: null, teorica: 0, fisica: 0 }] })).toBe(100)
+    // Sin SKU agregados no hay total que mostrar
+    expect(totalConciliacion({ productos: [] })).toBeNull()
+    expect(totalConciliacion(null)).toBeNull()
+  })
+
+  it('el total cuenta FILAS: el tamaño de la diferencia no mueve el número', () => {
+    // Un descuadre de 1 y un descuadre de 1000 valen lo mismo acá: es Match o
+    // no es Match. La plata está en ResumenPerdida, no en este contador.
+    const chico = totalConciliacion({ productos: [{ sku: 'A', nombre: null, teorica: 10, fisica: 9 }, { sku: 'B', nombre: null, teorica: 10, fisica: 10 }] })
+    const grande = totalConciliacion({ productos: [{ sku: 'A', nombre: null, teorica: 1000, fisica: 900 }, { sku: 'B', nombre: null, teorica: 10, fisica: 10 }] })
+    expect(chico).toBe(50)
+    expect(grande).toBe(50)
+  })
+
+  it('el total no se hace trampa: el SKU sin hablador está en el denominador', () => {
+    // Conciliación por precio: 1 cuadra y 1 quedó sin etiqueta → 50, no 100.
+    const sinHablador = { sku: 'A', nombre: 'Papel', teorica: 1.84, fisica: null, sinHablador: true }
+    const ok = { sku: 'B', nombre: 'Pan', teorica: 1.84, fisica: 1.84 }
+    expect(totalConciliacion({ productos: [ok, sinHablador] })).toBe(50)
+    expect(esMatchConciliacion(sinHablador)).toBe(false)
+    expect(esMatchConciliacion(ok)).toBe(true)
+  })
+
+  it('el denominador es TODO lo escaneado: una fila a medias baja el total', () => {
+    // 2 cuadran de 3 agregados → 66.67. La tercera fila no es Match ni No Match
+    // (falta la física), y esconde el descuadre en la tasa de descuadre.
+    expect(totalConciliacion({ productos: [
+      { sku: 'A', nombre: null, teorica: 10, fisica: 10 },
+      { sku: 'B', nombre: null, teorica: 10, fisica: 10 },
+      { sku: 'C', nombre: null, teorica: 10, fisica: null }
+    ] })).toBe(66.67)
+    // En cambio `conciliacionTotal` sigue midiendo sólo sobre lo comparable.
+    expect(conciliacionTotal({ productos: [
+      { sku: 'A', nombre: null, teorica: 10, fisica: 10 },
+      { sku: 'B', nombre: null, teorica: 10, fisica: 10 },
+      { sku: 'C', nombre: null, teorica: 10, fisica: null }
+    ] })).toBe(0)
   })
 
   describe('producto sin hablador (conciliación por precio)', () => {

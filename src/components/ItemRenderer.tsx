@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, Pencil, Plus, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, formatearMontoPerdida, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, resumenPerdidaConciliacion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, esMatchConciliacion, totalConciliacion, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, formatearMontoPerdida, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, resumenPerdidaConciliacion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores, ordenarTrabajadores } from '../lib/data/colaboradores'
 import { combinarPorDni, aplicarHistorial } from '../lib/data/colaboradoresEstado'
@@ -473,9 +473,9 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
     })
   const actualizarProducto = (i: number, patch: Partial<ProductoConciliacion>) =>
     actualizar(productos.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))
-  const promedio = conciliacionTotal(v)
+  const total = totalConciliacion(v)
 
-  const conciliadas = productos.filter((p) => p.teorica != null && p.fisica != null && p.fisica === p.teorica).length
+  const conciliadas = productos.filter(esMatchConciliacion).length
   // Los sin hablador son No Match aunque no tengan precio físico que comparar:
   // contar solo las filas con las dos cantidades los dejaba fuera del resumen.
   const desconciliadas = productos.filter((p) => esSinHablador(p) || (p.teorica != null && p.fisica != null && p.fisica !== p.teorica)).length
@@ -859,11 +859,13 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
 
       {productos.length > 0 ? (
         <>
+          {/* Match / Total SKU × 100: cuenta de filas, no promedio de
+              porcentajes. El verde es 100% — que todo haya cuadrado. */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <ResumenConciliacion etiqueta="SKU agregados" valor={String(productos.length)} color="text-primary-900" />
             <ResumenConciliacion etiqueta="Match" valor={String(conciliadas)} color="text-green-600" />
             <ResumenConciliacion etiqueta="No Match" valor={String(desconciliadas)} color={desconciliadas > 0 ? 'text-red-600' : 'text-slate-400'} />
-            <ResumenConciliacion etiqueta="Prom. conciliación" valor={promedio != null ? `${promedio}%` : '—'} color={promedio != null ? (promedio === 0 ? 'text-green-600' : 'text-red-600') : 'text-slate-400'} />
+            <ResumenConciliacion etiqueta="Total conciliación" valor={total != null ? `${total}%` : '—'} color={total != null ? (total === 100 ? 'text-green-600' : 'text-red-600') : 'text-slate-400'} />
           </div>
 
           {/* La plata se ve aquí, en el momento en que se escanea, no recién al
