@@ -166,11 +166,13 @@ as $$
   )
   select jsonb_build_object(
     'evaluacion', (
+      -- El alias hace falta en los tres: `from ev` no crea el alias `e`, y sin
+      -- él Postgres resuelve `to_jsonb(e)` como una COLUMNA llamada "e".
       select to_jsonb(e) || jsonb_build_object(
-        'sucursal', (select to_jsonb(s) from suc),
-        'departamento', (select to_jsonb(d) from dep)
+        'sucursal', (select to_jsonb(s) from suc s),
+        'departamento', (select to_jsonb(d) from dep d)
       )
-      from ev
+      from ev e
     ),
     'respuestas', (select coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb) from resp r),
     -- `its` y `padres` vienen de la misma tabla, así que la unión sólo
