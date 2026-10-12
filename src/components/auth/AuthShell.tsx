@@ -26,36 +26,16 @@ export const labelAuth = ''
 export const hintAuth = ''
 
 /**
- * Límites del logo dentro de public/logo.webp, medidos sobre el canal alfa:
- * el archivo es un lienzo de 1920x1080 y el wordmark ocupa solo la franja
- * x 115–1833 / y 471–642 (1719x172), con ~471px vacíos arriba y ~437px abajo.
- */
-const LOGO = { lienzo: 1920, x: 115, y: 471, ancho: 1719, alto: 172 } as const
-
-/** Porcentaje del ancho del contenedor que vale un píxel del logo. */
-const LOGO_ESCALA = 100 / LOGO.ancho
-
-/**
- * Logo recortado a su contenido visible: sin las franjas transparentes el <img>
- * ocuparía una caja 16:9 con el wordmark flotando en el medio y el formulario
- * quedaría separado por un hueco invisible. El contenedor toma la proporción real
- * del logo y la imagen se corre con márgenes negativos hasta encuadrarla.
+ * Marca completa (isotipo + nombre) en public/completo.webp.
+ *
+ * El archivo ya viene recortado a su contenido visible, así que acá no hay que
+ * calcular nada: la imagen toma el ancho que le manden y baja sola. Antes se
+ * mostraba sólo el wordmark sobre un lienzo 16:9 y hacía falta recortarlo en
+ * pantalla con las medidas escritas a mano, que era frágil y dejaba un hueco
+ * invisible entre el logo y el formulario.
  */
 export function LogoAuth({ alt, className }: { alt: string; className?: string }) {
-  return (
-    <div className={cn('overflow-hidden', className)} style={{ aspectRatio: `${LOGO.ancho} / ${LOGO.alto}` }}>
-      <img
-        src="/logo.webp"
-        alt={alt}
-        className="max-w-none"
-        style={{
-          width: `${(LOGO.lienzo * LOGO_ESCALA).toFixed(2)}%`,
-          marginLeft: `${(-LOGO.x * LOGO_ESCALA).toFixed(2)}%`,
-          marginTop: `${(-LOGO.y * LOGO_ESCALA).toFixed(2)}%`
-        }}
-      />
-    </div>
-  )
+  return <img src="/completo.webp" alt={alt} className={cn('h-auto', className)} />
 }
 
 /**

@@ -52,7 +52,10 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png'],
+      // Los iconos y el logo de acceso van en webp: el isotipo pesa la décima
+      // parte que el png y se ve igual. `includeAssets` es el listado exacto que
+      // se pre-cachea, así que el resto de los webp de public no entra.
+      includeAssets: ['icons/icon-192.webp', 'icons/icon-512.webp', 'icons/maskable-512.webp', 'completo.webp'],
       manifest: {
         name: 'EvaLuxor - Evaluaciones 360 Supermercados',
         short_name: 'EvaLuxor',
@@ -63,14 +66,21 @@ export default defineConfig({
         orientation: 'portrait-primary',
         start_url: '/evaluar',
         lang: 'es',
+        // El isotipo sobre el mismo disco navy de siempre (#0B2545, el mismo
+        // color que `theme_color`). La maskable va a sangre completa: el
+        // sistema le recorta la forma, así que la marca tiene que vivir dentro
+        // de la zona segura del centro.
         icons: [
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+          { src: '/icons/icon-192.webp', sizes: '192x192', type: 'image/webp' },
+          { src: '/icons/icon-512.webp', sizes: '512x512', type: 'image/webp' },
+          { src: '/icons/maskable-512.webp', sizes: '512x512', type: 'image/webp', purpose: 'maskable' }
         ]
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // Los originales de marca son la fuente con la que se generaron los
+        // webp: la app no los usa y no tienen que ocupar el caché offline.
+        globIgnores: ['**/isotipo.png', '**/completo.png', '**/logo.png'],
         navigateFallback: '/index.html'
       }
     })
