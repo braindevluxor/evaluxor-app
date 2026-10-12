@@ -9,13 +9,17 @@ function fuente(rel: string): string {
 }
 
 describe('CompartirEvaluacion · botón', () => {
-  it('en el encabezado va sobre fondo oscuro', () => {
+  it('en el encabezado va sin fondo y sólo icono', () => {
     const html = renderToStaticMarkup(<CompartirEvaluacion evaluacionId="ev-1" creadoPor={null} />)
-    // El detalle de evaluación tiene el encabezado en `bg-primary`: ahí el
-    // botón se pinta con fondo translúcido y texto blanco.
-    expect(html).toContain('bg-white/10')
+    // El encabezado del detalle puso sus botones como puro icono sobre el azul:
+    // un disco translúcido ahí se leía como un contorno. Éste va igual, y el
+    // color del icono sale del texto.
     expect(html).toContain('text-white')
-    expect(html).toContain('h-4 w-4')
+    expect(html).toContain('h-10 w-10')
+    expect(html).toContain('h-5 w-5')
+    // Sin fondo de reposo. `hover:bg-white/10` sí está permitido: ese tinte sólo
+    // aparece apuntando, y es lo único que dice en escritorio que se puede tocar.
+    expect(html).not.toMatch(/(^|[\s"'])bg-white\/10/)
     // Y el color sale del texto, no de una variante clara que quedaría
     // invisible sobre azul.
     expect(html).not.toContain('text-slate-500')
@@ -31,6 +35,19 @@ describe('CompartirEvaluacion · botón', () => {
     expect(html).toContain('hover:bg-slate-100')
     expect(html).toContain('h-5 w-5')
     expect(html).not.toContain('bg-white/10')
+  })
+
+  it('las dos caras son distinguibles, sin mezclar colores', () => {
+    const cabecera = renderToStaticMarkup(
+      <CompartirEvaluacion evaluacionId="ev-1" creadoPor={null} />
+    )
+    const ficha = renderToStaticMarkup(
+      <CompartirEvaluacion variante="ficha" evaluacionId="ev-1" creadoPor={null} />
+    )
+    expect(cabecera).toContain('text-white')
+    expect(ficha).not.toContain('text-white')
+    expect(ficha).toContain('text-slate-500')
+    expect(cabecera).not.toContain('text-slate-500')
   })
 
   it('el modal no se pinta hasta que se abre', () => {

@@ -439,7 +439,10 @@ export function Historial() {
                               title="Cerrar evaluación"
                               aria-label="Cerrar evaluación"
                             >
-                              <Lock className="h-5 w-5" />
+                              {/* El candado refleja el ESTADO de la evaluación,
+                                  no la acción del botón: está abierta, así que
+                                  sale el candado abierto. */}
+                              <Unlock className="h-5 w-5" />
                             </ButtonIcon>
                           </>
                         ) : null}
@@ -451,7 +454,8 @@ export function Historial() {
                             title="Reabrir evaluación"
                             aria-label="Reabrir evaluación"
                           >
-                            <Unlock className="h-5 w-5" />
+                            {/* Estado cerrada → candado cerrado. */}
+                            <Lock className="h-5 w-5" />
                           </ButtonIcon>
                         ) : null}
                         <Link

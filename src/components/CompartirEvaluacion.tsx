@@ -31,9 +31,10 @@ import { formatearFechaHora } from '../lib/tiempo'
  * rol corresponde.
  *
  * El botón tiene dos caras porque vive en dos sitios: el encabezado azul del
- * detalle de evaluación (fondo translúcido, icono chico) y la fila de acciones
- * del historial, donde tiene que verse igual que el Eye y el FileDown de al
- * lado. `variante` elige una; `className` es para ajustes sueltos encima.
+ * detalle de evaluación (puro icono, sin fondo, igual que el resto de la barra)
+ * y la fila de acciones del historial, donde tiene que verse igual que el Eye y
+ * el FileDown de al lado. `variante` elige una; `className` es para ajustes
+ * sueltos encima.
  *
  * Y cambia de color: **verde cuando el enlace está activo**, así el Líder sabe
  * de un vistazo, sin abrir nada, qué evaluaciones tiene compartidas. Cada cara
@@ -43,12 +44,15 @@ import { formatearFechaHora } from '../lib/tiempo'
 export type VarianteCompartir = 'header' | 'ficha'
 
 const CARAS: Record<VarianteCompartir, { boton: string; activo: string; icono: string }> = {
+  // La cara de cabecera sigue `BOTON_CABECERA` del detalle: puro icono, sin
+  // disco y un poco más grande que el estándar, para que la barra no quede
+  // sembrada de contornos sobre el azul.
   header: {
     boton:
-      'grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20',
+      'grid h-10 w-10 shrink-0 place-items-center rounded-full text-white transition-colors hover:bg-white/10',
     activo:
-      'grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 text-green-400 transition-colors hover:bg-white/20',
-    icono: 'h-4 w-4'
+      'grid h-10 w-10 shrink-0 place-items-center rounded-full text-green-400 transition-colors hover:bg-white/10',
+    icono: 'h-5 w-5'
   },
   ficha: {
     boton: claseBotonIcono('neutral'),

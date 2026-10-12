@@ -31,6 +31,22 @@ import { ordenarTrabajadores } from '../lib/data/colaboradores'
 const UMBRAL_CUMPLE = 80
 
 /**
+ * La cara de los botones del encabezado del detalle: **sólo icono, sin fondo**,
+ * y un poco por encima del tamaño estándar (`h-10`/`h-5` contra los `h-9`/`h-4`
+ * de `CLASE_ICONO`).
+ *
+ * Sin fondo porque sobre el azul de la cabecera un disco translúcido se lee como
+ * un contorno alrededor del icono, y cinco botones seguidos así vuelven ruidosa
+ * una barra que tendría que quedar silenciosa. Sólo el hover conserva un tinte,
+ * que es lo único que dice en escritorio que eso se puede tocar.
+ *
+ * Más grandes porque ya no hay disco que ayude a leerlos: el icono es todo lo
+ * que hay.
+ */
+const BOTON_CABECERA =
+  'grid h-10 w-10 shrink-0 place-items-center rounded-full text-white transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60'
+
+/**
  * El veredicto del puntaje. Solo devuelve el índice de la paleta y el texto: el
  * color del número grande lo saca `colorFondoBadge` del MISMO índice, así que el
  * número y su etiqueta no pueden quedar de distinto color el día que se cambie un
@@ -1001,21 +1017,26 @@ export function EvaluacionDetalle() {
       <header className="sticky top-0 z-30 bg-primary text-white shadow-sm">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3 lg:max-w-7xl lg:px-6">
           <div className="flex min-w-0 items-center gap-2">
-            <button onClick={() => navigate(-1)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 hover:bg-white/20" title="Volver">
-              <ArrowLeft className="h-4 w-4" />
+            <button
+              onClick={() => navigate(-1)}
+              className={BOTON_CABECERA}
+              title="Volver"
+              aria-label="Volver"
+            >
+              <ArrowLeft className="h-5 w-5" />
             </button>
             <h1 className="truncate text-base font-extrabold">Detalle de evaluación</h1>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
               onClick={() => void sincronizar()}
               disabled={sincronizando}
               title="Sincronizar: sube lo pendiente y recarga los datos"
               aria-label="Sincronizar evaluación"
-              className="relative grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-60"
+              className={cn(BOTON_CABECERA, 'relative')}
             >
-              <RefreshCw className={cn('h-4 w-4', sincronizando && 'animate-spin')} />
+              <RefreshCw className={cn('h-5 w-5', sincronizando && 'animate-spin')} />
               {pendientes > 0 && !sincronizando ? (
                 <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-amber-400 px-1 text-[10px] font-black text-amber-950">
                   {pendientes}
@@ -1032,29 +1053,30 @@ export function EvaluacionDetalle() {
                 de solo lectura, y este botón lleva a la vista de edición —que ya sabe
                 borrar un producto con confirmación— sin duplicar esa lógica acá. */}
             {profile?.rol === 'LIDER' && hayConciliacion ? (
-              <Button
-                variant="ghost"
-                className="min-h-0 gap-1.5 bg-white/10 px-3 py-1.5 text-white hover:bg-white/20"
+              <button
+                type="button"
+                className={BOTON_CABECERA}
                 onClick={() => navigate(`/evaluaciones/${evaluacion.id}/conciliacion`)}
-                title="Agregar o quitar productos escaneados"
+                title="Editar productos"
+                aria-label="Agregar o quitar productos escaneados"
               >
-                <Pencil className="h-4 w-4" />
-                <span className="hidden sm:inline">Editar productos</span>
-              </Button>
+                <Pencil className="h-5 w-5" />
+              </button>
             ) : null}
-            {/* Va "ghost" y no "secondary": el secondary trae `border border-primary-200`
-                y sobre el fondo de color del encabezado ese borde se ve como un
-                contorno alrededor del botón. El fondo translúcido lo define el className. */}
-            <Button
-              variant="ghost"
-              className="min-h-0 gap-1.5 bg-white/10 px-3 py-1.5 text-white hover:bg-white/20"
+            {/* El PDF es icono sólo como los demás. Va en `<button>` plano y no en
+                `Button`: `Button` arrastra `px-4 py-2.5 min-h-[44px]`, y eso sobre
+                `h-10 w-10` queda decidido por el orden del CSS de Tailwind, no por
+                el orden de las clases. Acá no hay nada que pisarse. */}
+            <button
+              type="button"
+              className={BOTON_CABECERA}
               disabled={descargando}
               onClick={() => setSelectorAbierto(true)}
               title="Elegir qué incluye el PDF"
+              aria-label="Descargar PDF"
             >
-              <FileDown className="h-4 w-4" />
-              Descargar PDF
-            </Button>
+              <FileDown className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </header>
