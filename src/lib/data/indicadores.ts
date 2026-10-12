@@ -33,6 +33,21 @@ export interface FiltrosIndicadores {
   desde?: string
   hasta?: string
   modulo_id?: string
+  /**
+   * Solo evaluaciones cerradas. Una que todavía está abierta no es un resultado:
+   * sus respuestas están a medias y su `puntuacion` todavía no existe, así que
+   * entra en los promedios como un cero disfrazado y en los contadores como una
+   * hecha. Los listados (Historial, Mis evaluaciones) la necesitan a completa,
+   * por eso el filtro es opt-in y no la norma.
+   */
+  soloCerradas?: boolean
+  /**
+   * Solo evaluaciones de sucursal. El dashboard de un módulo mide sucursales —
+   * «Sucursales evaluadas», «Promedio del módulo por sucursal» —, así que una
+   * evaluación de departamento ahí adentro no tiene dónde renderizarse y sólo
+   * inflaba «Evaluaciones en el rango».
+   */
+  soloSucursales?: boolean
 }
 
 /**
@@ -208,6 +223,8 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
   const departamentos = f.departamento_ids && f.departamento_ids.length ? f.departamento_ids : null
   if (sucursales) query = query.in('sucursal_id', sucursales)
   if (departamentos) query = query.in('departamento_id', departamentos)
+  if (f.soloCerradas) query = query.eq('estado', 'CERRADA')
+  if (f.soloSucursales) query = query.is('departamento_id', null)
   if (f.desde) query = query.gte('fecha', f.desde)
   if (f.hasta) query = query.lte('fecha', f.hasta)
 

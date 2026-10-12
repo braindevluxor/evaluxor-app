@@ -54,14 +54,18 @@ describe('revisión pre-entrega · las preguntas son el catálogo, no texto suel
   })
 })
 
-describe('revisión pre-entrega · entra desde el menú y guarda su propia tabla', () => {
-  it('la ruta está protegida y el menú apunta a ella', () => {
+describe('revisión pre-entrega · quedó fuera de la app', () => {
+  it('no tiene ruta ni entrada en el menú, pero el código y la tabla siguen', () => {
     const app = fuente('../../App.tsx')
     const menu = fuente('../../components/layouts/MobileLayout.tsx')
-    expect(app).toContain('path="/herramientas/revision-pre-entrega"')
-    expect(app).toContain('<RevisionPreEntregaPage />')
-    expect(menu).toContain('to="/herramientas/revision-pre-entrega"')
-    expect(menu).toContain('label="Revisión Pre-Entrega"')
+    expect(app).not.toContain('path="/herramientas/revision-pre-entrega"')
+    expect(app).not.toContain('<RevisionPreEntregaPage />')
+    expect(menu).not.toContain('to="/herramientas/revision-pre-entrega"')
+    expect(menu).not.toContain('label="Revisión Pre-Entrega"')
+    // Se sacó sólo el acceso: volver es reponer el Route, no reescribir nada.
+    expect(fuente('../../pages/herramientas/RevisionPreEntrega.tsx')).toContain(
+      'export default function RevisionPreEntrega()'
+    )
   })
 })
 

@@ -158,7 +158,11 @@ export function DashboardHome() {
           sucursal_ids: sucursalSel ? [sucursalSel] : scope,
           desde: desde || undefined,
           hasta: hasta || undefined,
-          modulo_id: moduloSel || undefined
+          modulo_id: moduloSel || undefined,
+          // Los KPIs y los promedios dicen «completadas»: una evaluación que
+          // sigue abierta no cuenta como tal. Los departamentos sí, porque
+          // este dashboard tiene su propio gráfico por departamento.
+          soloCerradas: true
         })
         if (activo) setDatos(d)
       } catch {

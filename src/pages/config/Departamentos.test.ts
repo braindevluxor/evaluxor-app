@@ -158,3 +158,33 @@ describe('departamentos · configurar módulos, ítems y puntos', () => {
     }
   })
 })
+
+describe('Taller Automotriz · la migración que lo saca de las sucursales', () => {
+  const sql = fuente('../../../supabase/taller-automotriz-a-departamento.sql')
+
+  it('prevea antes de escribir y sobre todo las colisiones de fecha', () => {
+    expect(sql).toContain('PREVIEW')
+    // `uniq_evaluaciones_departamento_fecha` tumbaría el UPDATE entero a mitad
+    // de camino con un error sin contexto; se chequea antes y se dice qué pasa.
+    expect(sql).toContain('uniq_evaluaciones_departamento_fecha')
+    expect(sql).toContain('raise exception')
+  })
+
+  it('mueve evaluaciones, incidencias y config, en ese orden de unidad', () => {
+    expect(sql).toContain('set sucursal_id = null')
+    expect(sql).toContain('departamento_id = v_dep')
+    // La config se copia, no se mueve: si algo sale mal la sucursal sigue
+    // teniendo la suya, y se puede deshacer.
+    expect(sql).toContain('and not exists (')
+    for (const tabla of ['departamento_modulos', 'departamento_items', 'departamento_opciones']) {
+      expect(sql).toContain(`insert into public.${tabla}`)
+    }
+  })
+
+  it('desactiva la sucursal y jamás la borra', () => {
+    expect(sql).toContain('set activa = false')
+    // Borrarla dispararía `on delete cascade` en nueve tablas y se llevaría el
+    // histórico de evaluaciones puesto.
+    expect(sql).not.toMatch(/delete\s+from\s+public\.sucursales/i)
+  })
+})

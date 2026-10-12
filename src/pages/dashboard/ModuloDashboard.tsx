@@ -77,7 +77,11 @@ export function ModuloDashboard() {
           sucursal_ids: sucursalSel ? [sucursalSel] : scope,
           desde: desde || undefined,
           hasta: hasta || undefined,
-          modulo_id: moduloId || undefined
+          modulo_id: moduloId || undefined,
+          // Este dashboard es de sucursales: lo que no está cerrado todavía no
+          // es resultado y lo que es de departamento no tiene fila acá.
+          soloCerradas: true,
+          soloSucursales: true
         })
         if (activo) setDatos(d)
       } catch {

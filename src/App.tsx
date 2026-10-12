@@ -35,7 +35,8 @@ const BibliotecaPage = lazy(() => import('./pages/biblioteca/BibliotecaPage').th
 const ProyectosHome = lazy(() => import('./pages/proyectos/ProyectosHome').then((m) => ({ default: m.ProyectosHome })))
 const BiometricoProyecto = lazy(() => import('./pages/proyectos/BiometricoProyecto').then((m) => ({ default: m.BiometricoProyecto })))
 const ProyectoDetalle = lazy(() => import('./pages/proyectos/ProyectoDetalle').then((m) => ({ default: m.ProyectoDetalle })))
-const RevisionPreEntregaPage = lazy(() => import('./pages/herramientas/RevisionPreEntrega'))
+// Revisión Pre-Entrega: fuera del menú y de las rutas por decisión de producto;
+// el módulo (`pages/herramientas/RevisionPreEntrega`) sigue en el repo.
 
 const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH', 'EVALUADOR']
 
@@ -109,16 +110,9 @@ function Rutas() {
                       }
                     />
 
-                    <Route
-                      path="/herramientas/revision-pre-entrega"
-                      element={
-                        <RequireAuth>
-                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
-                            <RevisionPreEntregaPage />
-                          </RequireRol>
-                        </RequireAuth>
-                      }
-                    />
+                    {/* La herramienta Revisión Pre-Entrega quedó fuera del menú y
+                        de las rutas: se rearmará aparte. El código y la tabla
+                        siguen intactos, así que volver es reponer este Route. */}
                     {/* El mismo flujo de evaluación, pero sobre un departamento
                         centralizado: la unidad se lee de la ruta. */}
                     <Route

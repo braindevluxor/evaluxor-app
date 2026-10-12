@@ -36,7 +36,10 @@ export function Comparativas() {
         const d = await consultarEvaluaciones({
           sucursal_ids: sucursalSel ? [sucursalSel] : scope,
           desde: desde || undefined,
-          hasta: hasta || undefined
+          hasta: hasta || undefined,
+          // Compara puntajes y «evaluaciones completadas»: una abierta aporta
+          // un puntaje a medias a un lado y nada al otro.
+          soloCerradas: true
         })
         if (activo) setDatos(d)
       } catch {
