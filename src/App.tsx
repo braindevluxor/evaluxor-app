@@ -17,6 +17,7 @@ import { EvaluarSucursal } from './pages/evaluar/EvaluarSucursal'
 import { EvaluacionDetalle, SkeletonEvaluacionDetalle } from './pages/EvaluacionDetalle'
 import { EditarConciliacion } from './pages/EditarConciliacion'
 import { SkeletonPantalla } from './components/ui'
+import { AvisoHost } from './components/AvisoHost'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 const EvaluarResumen = lazy(() => import('./pages/evaluar/EvaluarResumen').then((m) => ({ default: m.EvaluarResumen })))
@@ -227,6 +228,9 @@ export default function App() {
                   el servidor, sin cortar a quien está evaluando. */}
               <VersionProvider>
                 <Rutas />
+                {/* El cartel flotante de confirmaciones va fuera de las rutas:
+                    cambia de pantalla no debe apagar lo que se está avisando. */}
+                <AvisoHost />
               </VersionProvider>
             </PresenciaProvider>
           </CatalogProvider>

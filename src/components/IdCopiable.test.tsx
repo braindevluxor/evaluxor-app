@@ -49,4 +49,14 @@ describe('los tres lugares donde aparece el ID después de escanear', () => {
     expect(src).not.toContain('<strong className="font-semibold text-slate-500">ID:')
     expect(src).not.toContain('`ID: ${producto.apiId}`')
   })
+
+  it('la confirmación sale como aviso flotante, y también cuando falló', () => {
+    const propio = fuente('./IdCopiable.tsx')
+    // El éxito se avisa con el número, para que sirva si hay dos IDs a la vista.
+    expect(propio).toContain('avisar(`ID ${id} copiado`)')
+    // Y el fracaso también: un toque que no hizo nada tiene que decirlo.
+    expect(propio).toContain("avisar('No se pudo copiar el ID', 'error')")
+    // Nunca confirma a ciegas: sólo si el helper devolvió true.
+    expect(propio).toContain('if (!ok)')
+  })
 })

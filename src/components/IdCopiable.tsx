@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { copiarAlPortapapeles } from '../lib/copiar'
+import { avisar } from '../lib/aviso'
 
 /**
  * El `id` del producto en la API, tocable: al tocarlo se copia.
@@ -19,8 +20,15 @@ export function IdCopiable({ id, className }: { id: number | string; className?:
 
   const alCopiar = () => {
     void copiarAlPortapapeles(String(id)).then((ok) => {
-      if (!ok) return
+      // Sin señal de éxito no se confirma nada: la confirmación tiene que ser
+      // real. Si no se pudo, se avisa igual —mejor un cartel rojo que un toque
+      // que no hizo nada—.
+      if (!ok) {
+        avisar('No se pudo copiar el ID', 'error')
+        return
+      }
       setCopiado(true)
+      avisar(`ID ${id} copiado`)
       clearTimeout(reloj.current)
       reloj.current = setTimeout(() => setCopiado(false), 1800)
     })

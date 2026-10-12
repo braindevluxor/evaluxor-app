@@ -341,6 +341,30 @@ input[type='date'] {
   }
 }
 
+/* --- Aviso flotante (la confirmación de que algo se hizo) --------------------
+   Sube desde abajo y se apaga sola. El centrado no va en el `transform`: con
+   Tailwind v4 el `-translate-x-1/2` usa la propiedad `translate`, que se aplica
+   ANTES que `transform`, así que las dos conviven sin pisarse y con
+   `prefers-reduced-motion` apagando la animación sigue quedando centrado. */
+.aviso-entrar {
+  animation: aviso-entrar 0.22s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+@keyframes aviso-entrar {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aviso-entrar {
+    animation: none;
+  }
+}
+
 /* --- Foco accesible en los gráficos (recharts 3 habilita accesibilidad por defecto) ---
    Se quita el anillo negro de los elementos internos (cada celda de la tooltip,
    cada punto) que hacía la página ilegible, pero el contenedor del gráfico
