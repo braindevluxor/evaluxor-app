@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { AlertTriangle, CheckCheck, History, LogOut, Menu, Settings, Check, LayoutDashboard, X } from 'lucide-react'
+import { AlertTriangle, CheckCheck, History, LogOut, Settings, Check, LayoutDashboard, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useOffline } from '../../context/OfflineContext'
 import { useVersion } from '../../context/VersionContext'
@@ -90,7 +90,14 @@ export function HeaderMini({
               className={BOTON_CABECERA}
               aria-label="Abrir menú"
             >
-              <Menu className="h-5 w-5" />
+              {/* El isotipo en blanco en vez de la hamburguesa: en la barra de
+                  navegación la marca es mejor ancla que el icono de menú, y es
+                  lo primero que se ve al entrar. El isotipo es azul y sobre
+                  `bg-primary` desaparecería, así que se lo pasa a blanco con
+                  `brightness-0 invert`: primero lo vuelve todo negro y después
+                  lo invierte. Los dos pasos hacen falta y el canal alfa se
+                  respeta, así que no aparece un cuadro sólido detrás. */}
+              <img src="/isotipo.webp" alt="" className="h-6 w-auto brightness-0 invert" />
             </button>
           ) : null}
           <div className="min-w-0">
