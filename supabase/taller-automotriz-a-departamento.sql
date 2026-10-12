@@ -161,6 +161,7 @@ declare
   v_suc uuid;
   v_dep uuid;
   v_col integer;
+  v_fechas text;
   v_eval integer;
   v_inc integer;
   v_mod integer;
@@ -199,7 +200,20 @@ begin
      );
 
   if v_col > 0 then
-    raise exception 'Hay % evaluacion(es) de la sucursal cuya fecha ya tiene evaluacion en el departamento (indice uniq_evaluaciones_departamento_fecha). Resuelve esas fechas a mano y vuelve a correr.', v_col;
+    -- Se listan las fechas, no sólo el conteo: "duplicate key" sin contexto no
+    -- dice qué día hay que mirar en Historial.
+    select coalesce(string_agg(to_char(ev.fecha, 'YYYY-MM-DD'), ', ' order by ev.fecha), '')
+      into v_fechas
+      from public.evaluaciones ev
+     where ev.sucursal_id = v_suc
+       and exists (
+         select 1
+         from public.evaluaciones otra
+         where otra.departamento_id = v_dep
+           and otra.fecha = ev.fecha
+       );
+
+    raise exception 'Estas fechas ya tienen evaluacion en el departamento: %. El indice uniq_evaluaciones_departamento_fecha no deja dos el mismo dia. Resuelvelas a mano (borra la repetida o mueve la fecha) y vuelve a correr este archivo.', v_fechas;
   end if;
 
   -- 1) Evaluaciones: cambian de unidad. Las dos columnas se cambian en el MISMO
