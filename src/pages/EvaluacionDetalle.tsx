@@ -22,6 +22,7 @@ import { Fotogaleria, FotogaleriaRutas } from '../components/dashboard/Fotogaler
 import { PlanoLectura } from '../components/PlanoEditor'
 import { pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple, pathsEvidenciaOpcion, pathsEvidenciaProducto } from '../lib/evidencias'
 import { IconoModulo } from '../components/IconoModulo'
+import { CompartirEvaluacion } from '../components/CompartirEvaluacion'
 import { ordenarTrabajadores } from '../lib/data/colaboradores'
 
 /** Desde acá arranca el "Cumple". Vive acá y no junto al badge para que el color del
@@ -1021,6 +1022,12 @@ export function EvaluacionDetalle() {
                 </span>
               ) : null}
             </button>
+            {/* El enlace público lo arma sólo Líder: crear y apagar enlaces es
+                configuración, igual que el catálogo. La pantalla de invitado es de
+                sólo lectura — ver `supabase/compartir-evaluacion.sql`. */}
+            {profile?.rol === 'LIDER' ? (
+              <CompartirEvaluacion evaluacionId={evaluacion.id} creadoPor={profile?.id ?? null} />
+            ) : null}
             {/* Solo para Líder y solo cuando hay productos escaneados: el detalle es
                 de solo lectura, y este botón lleva a la vista de edición —que ya sabe
                 borrar un producto con confirmación— sin duplicar esa lógica acá. */}

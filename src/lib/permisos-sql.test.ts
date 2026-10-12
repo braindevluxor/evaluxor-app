@@ -82,6 +82,23 @@ function helpersDePolitica(): string[] {
 const remediation = sinComentarios(bloqueSql('permisos-funcion.sql'))
 const schema = sinComentarios(bloqueSql('schema.sql'))
 
+/**
+ * ¿Existe la función en algún archivo de `supabase/`?
+ *
+ * `schema.sql` es el consolidado de referencia, pero no es el único sitio donde
+ * se declara una función: `compartir-evaluacion.sql` añadió una aparte. Un
+ * revoke apuntando a una función de un archivo posterior al consolidado no es
+ * un error de permisos, y sin esto el chequeo lo marcaría como tal.
+ */
+function existeEnSupabase(nombre: string): boolean {
+  const dir = fileURLToPath(new URL('../../supabase/', import.meta.url))
+  for (const archivo of readdirSync(dir).filter((f) => f.endsWith('.sql'))) {
+    const sql = sinComentarios(readFileSync(join(dir, archivo), 'utf8'))
+    if (new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${nombre}\\s*\\(`).test(sql)) return true
+  }
+  return false
+}
+
 /** Todo el código de la app, para cruzar qué funciones se llaman por RPC. */
 function codigoDeLaApp(): string {
   const raiz = fileURLToPath(new URL('../../src/', import.meta.url))
@@ -244,7 +261,7 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
     // sesión, así que su grant tiene que llegar a `anon`. Todas las demás se
     // llaman con la sesión ya puesta, y para esas el que sirve es `authenticated`.
     // Exigir `authenticated` para todas rompería las dos del login.
-    const sinSesion = new Set(['intento_login', 'email_por_usuario'])
+    const sinSesion = new Set(['intento_login', 'email_por_usuario', 'ver_conciliacion_compartida'])
     const rpcs = new Set([...codigoApp.matchAll(/supabase\.rpc\(\s*'(\w+)'/g)].map((m) => m[1]))
     expect(rpcs.size).toBeGreaterThan(0)
     for (const fn of rpcs) {
@@ -254,6 +271,73 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
         `${fn}: la app la llama por RPC pero ningún archivo le da permiso a ${rol}`
       ).toMatch(new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.${fn}\\([^)]*\\)\\s+to\\s+${rol}`, 'i'))
     }
+  })
+})
+
+describe('schema.sql · el enlace público de conciliación', () => {
+  /**
+   * Es la única apertura a `anon` que existe después del login, y es
+   * deliberada: hay una pantalla pública (`/compartir/:token`) para quien
+   * quiere ver la conciliación de una evaluación sin tener cuenta. Estos tests
+   * existen para que la próxima apertura tenga que venir con su motivo.
+   */
+  it('la única función abierta a anon, además de las del login, es el enlace', () => {
+    const abiertas = [...remediation.matchAll(
+      /grant\s+execute\s+on\s+function\s+public\.(\w+)\([^)]*\)\s+to\s+([^;]*\banon\b[^;]*);/gi
+    )]
+      .map((m) => m[1])
+      .sort()
+    expect(abiertas).toEqual(['email_por_usuario', 'intento_login', 'ver_conciliacion_compartida'])
+  })
+
+  it('la puerta es el token, y un token malo no devuelve nada', () => {
+    const sql = sinComentarios(fuente('../../supabase/compartir-evaluacion.sql'))
+    expect(sql).toMatch(/create\s+or\s+replace\s+function\s+public\.ver_conciliacion_compartida\(p_token text\)/i)
+    // SECURITY DEFINER es obligatorio (sin permiso de tabla no leería nada), y
+    // con él viene la obligación de fijar el search_path.
+    expect(sql).toMatch(/security\s+definer/i)
+    expect(sql).toMatch(/set\s+search_path\s*=\s*public,\s*pg_temp/i)
+    // Sin sesión no hay `auth.uid()` que preguntar: la única autorización es
+    // que el token exista Y que el enlace esté activo.
+    expect(sql).toMatch(/c\.activo\s+and\s+c\.token\s*=\s*p_token/)
+    // Un token inválido tiene que ser indistinguible de "no existe", o se
+    // pueden enumerar enlaces probando tokens y comparando respuestas.
+    expect(sql).toContain("'evaluacion', (")
+    expect(sql).toMatch(/'respuestas',\s*\(select coalesce\(jsonb_agg/)
+  })
+
+  it('el enlace no abre más que la conciliación', () => {
+    const sql = sinComentarios(fuente('../../supabase/compartir-evaluacion.sql'))
+    // Nada de esto puede salir por un enlace público: son las tablas que
+    // exponen evidencia física, personas o el resto de la evaluación.
+    for (const tabla of ['fotos', 'incidencias', 'profiles', 'asignaciones', 'instancias_grupo']) {
+      expect(sql, `la función no debe leer ${tabla}`).not.toMatch(new RegExp(`from\\s+public\\.${tabla}\\b`, 'i'))
+    }
+    // Los ítems se filtran por tipo: sólo conciliación.
+    expect(sql).toMatch(/i\.tipo\s*=\s*'CONCILIACION'/)
+  })
+
+  it('la tabla nace cerrada para anon y con RLS', () => {
+    const sql = sinComentarios(fuente('../../supabase/compartir-evaluacion.sql'))
+    expect(sql).toMatch(/alter\s+table\s+public\.evaluaciones_compartidas\s+enable\s+row\s+level\s+security/i)
+    // Ninguna política es para anon: quien no tiene sesión ni siquiera llega a
+    // evaluar políticas porque `cerrar-permisos-anon.sql` le quitó el permiso
+    // de tabla, y la RLS es la segunda capa.
+    const politicas = [...sql.matchAll(/create\s+policy\s+(\w+)[\s\S]*?\bto\s+(\w+)/gi)].map((m) => `${m[1]}:${m[2]}`)
+    expect(politicas.length).toBeGreaterThan(0)
+    expect(politicas.every((p) => p.endsWith(':authenticated'))).toBe(true)
+    // Y crear o apagar enlaces es cosa de Líder, igual que todo el catálogo.
+    expect(sql).toMatch(/using\s*\(\s*public\.es_lider\(\)\s*\)\s*with\s+check\s*\(\s*public\.es_lider\(\)\s*\)/i)
+  })
+
+  it('el enlace se apaga sin borrar la evaluación', () => {
+    const sql = sinComentarios(fuente('../../supabase/compartir-evaluacion.sql'))
+    // `activo` es lo que hace reversible el enlace: apagarlo no depende de
+    // borrar la fila, y borrar la fila no depende de borrar la evaluación.
+    expect(sql).toMatch(/activo\s+boolean\s+not\s+null\s+default\s+true/)
+    // La PK es la evaluación: compartir dos veces REEMPLAZA el enlace en vez
+    // de acumular links viejos que nadie puede revocar.
+    expect(sql).toMatch(/evaluacion_id\s+uuid\s+primary\s+key/)
   })
 })
 
@@ -268,9 +352,10 @@ describe('schema.sql · corre limpio', () => {
   })
 
   it('cada revoke apunta a una función que existe en el schema', () => {
-    const fns = funcionesDelSchema()
     const firmas = [...remediation.matchAll(/revoke\s+execute\s+on\s+function\s+public\.(\w+)\(/gi)].map((m) => m[1])
     expect(firmas.length).toBeGreaterThan(0)
-    for (const f of firmas) expect(fns.has(f), `no existe ${f}`).toBe(true)
+    // En `supabase/`, no sólo en el consolidado: `compartir-evaluacion.sql`
+    // declara la suya fuera de schema.sql y su revoke vive acá dentro.
+    for (const f of firmas) expect(existeEnSupabase(f), `no existe ${f}`).toBe(true)
   })
 })

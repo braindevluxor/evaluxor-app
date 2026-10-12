@@ -1553,6 +1553,10 @@ order by p.proname;
 --     con los privilegios del rol que consulta, y TODAS las consultas de la
 --     app son con sesion.
 --   Â· `intento_login` y `email_por_usuario` para `anon`: es la pantalla de login.
+--   Â· `ver_conciliacion_compartida` para `anon`: la UNICA apertura posterior al
+--     login, y es deliberada. Es el enlace publico de conciliacion
+--     (`/compartir/:token`); no da permiso de tabla, es SECURITY DEFINER y su
+--     autorizacion es el token, no el rol. Ver `compartir-evaluacion.sql`.
 --   Â· `desbloquear_usuario` y `registrar_sync` para `authenticated`: la app las
 --     llama con sesion.
 --   Â· 4 triggers para `authenticated`: margen de seguridad (ver
@@ -1638,7 +1642,7 @@ order by c.relname;
 
 -- 2) Las funciones. Esta tabla es la que hay que leer contra las 21 alertas:
 --    Â· los 6 ayudantes tienen que dar anon_puede = false, sesion_puede = true
---    Â· intento_login y email_por_usuario al reves: anon_puede = true
+--    Â· intento_login, email_por_usuario y ver_conciliacion_compartida al reves: anon_puede = true
 --    Â· cualquier otro anon_puede = true que aparezca aca es una alerta que
 --      falta cerrar
 select
@@ -1652,10 +1656,12 @@ order by p.proname;
 
 -- 3) El resumen. LAS TABLAS TIENEN QUE DAR 0.
 --
---    En funciones NO da 0, y no es un error: da 2, que son `intento_login` y
---    `email_por_usuario`, la pantalla de login. Corre sin sesion por definicion,
---    asi que `anon` las tiene que poder llamar. Lo que no puede aparecer es
---    ninguna otra.
+--    En funciones NO da 0, y no es un error: da 3, que son `intento_login`,
+--    `email_por_usuario` y `ver_conciliacion_compartida` (el enlace publico de
+--    conciliacion). Las dos primeras son la pantalla de login, que corre sin
+--    sesion por definicion; la tercera es la unica apertura deliberada
+--    posterior al login y su autorizacion es el token, no el rol. Lo que no
+--    puede aparecer es ninguna otra.
 select
   (select count(*) from pg_class c
      join pg_namespace n on n.oid = c.relnamespace
@@ -1801,6 +1807,29 @@ grant  execute on function public.email_por_usuario(text) to anon;
 -- con sesion.
 revoke execute on function public.upsert_respuestas(jsonb) from public, anon;
 grant  execute on function public.upsert_respuestas(jsonb) to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 6) Enlace publico de conciliacion: `anon` SI, a proposito
+-- ----------------------------------------------------------------------------
+-- Es la UNICA apertura a `anon` despues del login, y es deliberada. Existe una
+-- pantalla publica (`/compartir/:token`) que muestra la conciliacion de UNA
+-- evaluacion a quien no tiene cuenta: el coordinador de inventario que quiere
+-- ver el proceso sin que le den acceso a la app.
+--
+-- Lo que la hace segura no es el permiso de tabla (no tiene ninguno: el revoke
+-- general de `cerrar-permisos-anon.sql` se la deja quitada) sino que es
+-- SECURITY DEFINER con `search_path` fijo y devuelve exactamente una
+-- evaluacion, y sólo si el token coincide con un enlace activo. Sin token
+-- valido devuelve `evaluacion: null`, que es indistinguible de "no existe",
+-- asi que no se pueden enumerar enlaces probando tokens.
+--
+-- Tambien va para `authenticated` porque el enlace lo puede abrir alguien que
+-- YA tiene sesion (un lider mirando su propio link con la app abierta): sin
+-- ese grant, con la sesion puesta el enlace daba "permission denied".
+--
+-- La app la llama por RPC desde src/lib/data/compartir.ts, SIN sesion.
+revoke execute on function public.ver_conciliacion_compartida(text) from public, anon;
+grant  execute on function public.ver_conciliacion_compartida(text) to anon, authenticated;
 
 -- ----------------------------------------------------------------------------
 -- Verificacion
@@ -2553,10 +2582,10 @@ order by c.relrowsecurity, n.nspname || '.' || c.relname;
 
 
 -- ----------------------------------------------------------------------------
--- 2) Las 45 politicas del repo, una por fila
+-- 2) Las politicas del repo, una por fila
 -- ----------------------------------------------------------------------------
--- Si esta consulta NO devuelve filas, estan las 45. Cada fila que aparezca es una
--- politica que falta: se creo la tabla pero no su regla, y queda abierta o
+-- Si esta consulta NO devuelve filas, estan las 47. Cada fila que aparezca es
+-- una politica que falta: se creo la tabla pero no su regla, y queda abierta o
 -- inaccesible segun el caso.
 with esperadas (politica, tabla) as (
   values
@@ -2564,6 +2593,8 @@ with esperadas (politica, tabla) as (
     ('asignaciones_select', 'public.asignaciones'),
     ('asignaciones_modulos_lider', 'public.asignaciones_modulos'),
     ('asignaciones_modulos_select', 'public.asignaciones_modulos'),
+    ('evaluaciones_compartidas_lider', 'public.evaluaciones_compartidas'),
+    ('evaluaciones_compartidas_select', 'public.evaluaciones_compartidas'),
     ('evaluaciones_delete', 'public.evaluaciones'),
     ('evaluaciones_insert', 'public.evaluaciones'),
     ('evaluaciones_select', 'public.evaluaciones'),
@@ -2652,12 +2683,16 @@ order by p.proname;
 -- ----------------------------------------------------------------------------
 -- 'intento_login' y 'email_por_usuario' si van abiertas: son la pantalla de
 -- login, que corre antes de autenticar, y por ahi no se puede evitar.
+-- 'ver_conciliacion_compartida' tambien, y es la tercera y ultima: es el
+-- enlace publico de conciliacion (`/compartir/:token`). Es SECURITY DEFINER,
+-- con search_path fijo y con el token como unica autorizacion; ver
+-- `compartir-evaluacion.sql`.
 -- Las demas deberian dar 'ok' (cerradas para anon).
 select
   p.proname as funcion,
   has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede,
   case
-    when p.proname in ('intento_login', 'email_por_usuario')
+    when p.proname in ('intento_login', 'email_por_usuario', 'ver_conciliacion_compartida')
       then 'permitido sin sesion'
     when has_function_privilege('anon', p.oid, 'EXECUTE')
       then 'ABIERTA A ANON: correr reactivar-politicas.sql'
@@ -2670,6 +2705,6 @@ where n.nspname = 'public'
     'validar_suma_puntaje_items', 'validar_registro', 'handle_new_user',
     'validar_modulo_compartido', 'validar_unico_evaluador_modulo',
     'desbloquear_usuario', 'registrar_sync',
-    'intento_login', 'email_por_usuario'
+    'intento_login', 'email_por_usuario', 'ver_conciliacion_compartida'
   )
 order by p.proname;

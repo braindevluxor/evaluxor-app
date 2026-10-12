@@ -36,6 +36,11 @@ const BibliotecaPage = lazy(() => import('./pages/biblioteca/BibliotecaPage').th
 const ProyectosHome = lazy(() => import('./pages/proyectos/ProyectosHome').then((m) => ({ default: m.ProyectosHome })))
 const BiometricoProyecto = lazy(() => import('./pages/proyectos/BiometricoProyecto').then((m) => ({ default: m.BiometricoProyecto })))
 const ProyectoDetalle = lazy(() => import('./pages/proyectos/ProyectoDetalle').then((m) => ({ default: m.ProyectoDetalle })))
+// Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
+// cuenta. Va con lazy porque sólo se descarga quien abre el enlace.
+const ConciliacionPublica = lazy(() =>
+  import('./pages/publico/ConciliacionPublica').then((m) => ({ default: m.ConciliacionPublica }))
+)
 // Revisión Pre-Entrega: fuera del menú y de las rutas por decisión de producto;
 // el módulo (`pages/herramientas/RevisionPreEntrega`) sigue en el repo.
 
@@ -57,6 +62,11 @@ function Rutas() {
                     <Route path="/" element={<HomeRedirect />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/registro" element={<RegisterPage />} />
+                    {/* Sin `RequireAuth` a propósito: es el enlace que un Líder
+                        le pasa al coordinador de inventario para que vea la
+                        conciliación sin tener cuenta. La autorización es el
+                        token, y sólo da lectura — ver `supabase/compartir-evaluacion.sql`. */}
+                    <Route path="/compartir/:token" element={<ConciliacionPublica />} />
                     <Route path="/perfil" element={<RequireAuth><PerfilPage /></RequireAuth>} />
                     <Route
                       path="/evaluaciones/:evaluacionId"
