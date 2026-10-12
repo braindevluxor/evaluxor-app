@@ -58,6 +58,28 @@ export interface ValorConciliacion {
   responsables?: string[]
   /** Nombre del gerente de la sucursal (horneado al responder): destino por defecto de los puntos incumplidos. */
   responsablesGerente?: string | null
+  /**
+   * SKUs borrados. **Sin esto no se puede borrar un producto**, y es literal:
+   * en producción `upsert_respuestas` no reemplaza el valor, lo fusiona con el
+   * que ya está en la nube usando `mergear_conciliacion`, y esa fusión es una
+   * unión por SKU. Borrar X mandaba una lista sin X, el servidor la unía con la
+   * anterior (que todavía traía X) y X volvía en esa misma escritura.
+   *
+   * La marca vive en el valor guardado a propósito: un teléfono que todavía no
+   * sincronizó manda a X de vuelta, y el servidor la mata igual porque la marca
+   * sigue ahí.
+   */
+  borrados?: string[] | null
+  /**
+   * SKUs que vuelven a la lista a propósito —alguien lo re-escaneó— y con eso se
+   * levanta su marca de `borrados`.
+   *
+   * Hace falta el aviso explícito porque es lo único que distingue "lo re-escaneé
+   * porque lo quiero" de "este teléfono no se enteró del borrado y me manda la
+   * lista vieja": los dos suben el mismo SKU. Es de una sola pasada —el
+   * servidor lo consume y no lo guarda—.
+   */
+  reabrir?: string[] | null
 }
 export interface ProductoConciliacion {
   sku: string

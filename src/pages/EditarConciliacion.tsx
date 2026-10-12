@@ -4,12 +4,21 @@ import { ArrowLeft, Check, RefreshCw } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { obtenerEvaluacion, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { puedeCorregirConciliacion } from '../lib/roles'
+import { claveRespuesta } from '../lib/pasos'
 import { guardarBorradorNube } from '../lib/offline/sync'
 import { etiquetaTipo } from '../lib/scoring'
 import { ConciliacionEditor } from '../components/ItemRenderer'
 import { Badge, Button, Skeleton, cn } from '../components/ui'
 
 type EstadoGuardado = 'espera' | 'guardando' | 'ok' | 'error'
+
+/** Valores de la evaluación indexados por par (ítem, registro), con la misma
+ * clave que usa el borrador del evaluador (`claveRespuesta`). */
+function mapaDeRespuestas(d: DetalleEvaluacion): Record<string, unknown> {
+  const v: Record<string, unknown> = {}
+  for (const r of d.respuestas) v[claveRespuesta(r.item_id, r.instancia_id)] = r.valor
+  return v
+}
 
 export function EditarConciliacion() {
   const { evaluacionId = '' } = useParams()
@@ -36,9 +45,7 @@ export function EditarConciliacion() {
         return
       }
       setDetalle(d)
-      const v: Record<string, unknown> = {}
-      for (const r of d.respuestas) v[r.item_id] = r.valor
-      setValores(v)
+      setValores(mapaDeRespuestas(d))
       setEstado('ok')
     })()
   }, [evaluacionId])
@@ -55,22 +62,27 @@ export function EditarConciliacion() {
    */
   const editable = !!profile && !!estadoEval && puedeCorregirConciliacion(profile.rol, estadoEval)
 
-  const guardar = (itemId: string, valor: unknown) => {
+  /**
+   * Guarda un bloque. El `instancia_id` que viaja es el del bloque que se está
+   * mirando: mandar siempre `null` —lo que hacía antes— creaba una fila nueva
+   * al lado de la que el detalle lee, y el producto reaparecía.
+   */
+  const guardar = (clave: string, itemId: string, instanciaId: string | null, valor: unknown) => {
     if (!editable) return
-    setValores((prev) => ({ ...prev, [itemId]: valor }))
-    setGuardado((g) => ({ ...g, [itemId]: 'guardando' }))
-    if (guardadoRef.current.get(itemId)) window.clearTimeout(guardadoRef.current.get(itemId))
+    setValores((prev) => ({ ...prev, [clave]: valor }))
+    setGuardado((g) => ({ ...g, [clave]: 'guardando' }))
+    if (guardadoRef.current.get(clave)) window.clearTimeout(guardadoRef.current.get(clave))
     const timer = window.setTimeout(() => {
-      void guardarBorradorNube(evaluacionId, profile.id, [{ item_id: itemId, instancia_id: null, valor }])
-        .then(() => setGuardado((g) => ({ ...g, [itemId]: 'ok' })))
-        .catch(() => setGuardado((g) => ({ ...g, [itemId]: 'error' })))
+      void guardarBorradorNube(evaluacionId, profile.id, [{ item_id: itemId, instancia_id: instanciaId, valor }])
+        .then(() => setGuardado((g) => ({ ...g, [clave]: 'ok' })))
+        .catch(() => setGuardado((g) => ({ ...g, [clave]: 'error' })))
     }, 600)
-    guardadoRef.current.set(itemId, timer)
+    guardadoRef.current.set(clave, timer)
   }
 
-  const reintentar = (itemId: string) => {
-    const v = valoresRef.current[itemId]
-    if (v !== undefined) guardar(itemId, v)
+  const reintentar = (clave: string, itemId: string, instanciaId: string | null) => {
+    const v = valoresRef.current[clave]
+    if (v !== undefined) guardar(clave, itemId, instanciaId, v)
   }
 
   useEffect(() => () => {
@@ -111,6 +123,19 @@ export function EditarConciliacion() {
   const itemsConciliacion = items.filter((i) => i.tipo === 'CONCILIACION')
   const activa = evaluacion.estado === 'ACTIVA'
   const shopId = evaluacion.sucursal?.shop_id ?? null
+  /**
+   * Un editor por cada lista de productos que existe de verdad: una si el ítem
+   * no tiene registros, y una por registro si los tiene. Antes había uno solo
+   * por ítem y se colaban todas las listas en el mismo casillero.
+   *
+   * Una respuesta vive por PAR (ítem, registro), no por ítem —la misma clave que
+   * usa el borrador del evaluador en el teléfono.
+   */
+  const bloquesDe = (item: (typeof items)[number]) => {
+    const instancias = detalle.instancias.filter((x) => x.item_id === item.id).sort((a, b) => a.orden - b.orden)
+    if (!instancias.length) return [{ clave: claveRespuesta(item.id, null), instanciaId: null, etiqueta: null }]
+    return instancias.map((x) => ({ clave: claveRespuesta(item.id, x.id), instanciaId: x.id, etiqueta: x.etiqueta }))
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 pb-10">
@@ -145,35 +170,42 @@ export function EditarConciliacion() {
             <p className="mt-1 text-sm">Esta evaluación no tiene respuestas con productos escaneados.</p>
           </div>
         ) : (
-          itemsConciliacion.map((item) => {
-            const g = guardado[item.id] ?? 'espera'
-            return (
-              <section key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
-                  <p className="text-sm font-semibold text-primary-900">{item.texto}</p>
-                  <Badge color={6}>{etiquetaTipo(item.tipo)}</Badge>
-                </div>
-                <div className="p-4">
-                  <ConciliacionEditor
-                    valor={valores[item.id]}
-                    onChange={(v) => guardar(item.id, v)}
-                    shopId={shopId}
-                    item={item}
-                  />
-                  <div className={cn('mt-2 flex items-center justify-end gap-1.5 text-[11px] font-bold', g === 'ok' ? 'text-green-600' : g === 'error' ? 'text-red-500' : 'text-slate-400')}>
-                    {g === 'guardando' ? (<><RefreshCw className="h-3 w-3 animate-spin" /> Guardando…</>) : null}
-                    {g === 'ok' ? (<><Check className="h-3 w-3" /> Guardado en la nube</>) : null}
-                    {g === 'error' ? (
-                      <button type="button" onClick={() => reintentar(item.id)} className="underline">
-                        Error al guardar · reintentar
-                      </button>
+          itemsConciliacion.map((item) => (
+            <section key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
+                <p className="text-sm font-semibold text-primary-900">{item.texto}</p>
+                <Badge color={6}>{etiquetaTipo(item.tipo)}</Badge>
+              </div>
+              {bloquesDe(item).map((b) => {
+                const g = guardado[b.clave] ?? 'espera'
+                return (
+                  <div key={b.clave} className="p-4">
+                    {b.etiqueta ? (
+                      <p className="mb-2 rounded-lg bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-600">
+                        Registro · {b.etiqueta}
+                      </p>
                     ) : null}
-                    {g === 'espera' ? 'Edita una cantidad para guardar' : null}
+                    <ConciliacionEditor
+                      valor={valores[b.clave]}
+                      onChange={(v) => guardar(b.clave, item.id, b.instanciaId, v)}
+                      shopId={shopId}
+                      item={item}
+                    />
+                    <div className={cn('mt-2 flex items-center justify-end gap-1.5 text-[11px] font-bold', g === 'ok' ? 'text-green-600' : g === 'error' ? 'text-red-500' : 'text-slate-400')}>
+                      {g === 'guardando' ? (<><RefreshCw className="h-3 w-3 animate-spin" /> Guardando…</>) : null}
+                      {g === 'ok' ? (<><Check className="h-3 w-3" /> Guardado en la nube</>) : null}
+                      {g === 'error' ? (
+                        <button type="button" onClick={() => reintentar(b.clave, item.id, b.instanciaId)} className="underline">
+                          Error al guardar · reintentar
+                        </button>
+                      ) : null}
+                      {g === 'espera' ? 'Edita una cantidad para guardar' : null}
+                    </div>
                   </div>
-                </div>
-              </section>
-            )
-          })
+                )
+              })}
+            </section>
+          ))
         )}
       </main>
     </div>

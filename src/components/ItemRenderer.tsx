@@ -466,11 +466,35 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
   // fila, el índice se corrige solo y no se queda mirando la de al lado).
   const productoFotos = fotosDe ? productos.find((p) => p.sku === fotosDe) ?? null : null
 
-  const actualizar = (items: ProductoConciliacion[]) =>
+  /**
+   * Escribe la lista y, con ella, las marcas de borrado.
+   *
+   * En producción el servidor no reemplaza el valor: lo fusiona con el que ya
+   * está en la nube por SKU (`mergear_conciliacion`), así que mandar una lista
+   * sin un producto no lo borra —lo resucita en esa misma escritura, porque la
+   * fusión lo vuelve a traer desde el valor anterior. Lo que se manda es la
+   * marca `borrados`, y la marca la mata también adentro del valor guardado:
+   * así un teléfono que todavía no sincronizó manda el producto de vuelta y el
+   * servidor lo vuelve a matar.
+   *
+   * Si el SKU aparece en la lista que sale, se levanta su marca (`reabrir`). Es
+   * lo único que distingue "lo re-escaneé porque lo quiero" de "este equipo no
+   * se enteró del borrado y me manda la lista vieja": los dos suben el mismo
+   * SKU, y sólo uno lo hace con la marca en la mano.
+   */
+  const actualizar = (items: ProductoConciliacion[], quitados: string[] = []) => {
+    const previas = new Set(v.borrados ?? [])
+    for (const sku of quitados) previas.add(sku)
+    const enLista = new Set(items.map((p) => p.sku))
+    const reabrir = [...previas].filter((sku) => enLista.has(sku))
+    const borrados = [...previas].filter((sku) => !enLista.has(sku))
     onChange({
       ...v,
+      borrados: borrados.length ? borrados : null,
+      reabrir: reabrir.length ? reabrir : null,
       productos: items.map((producto) => guardarPerdidaConciliacion(producto, contraDato))
     })
+  }
   const actualizarProducto = (i: number, patch: Partial<ProductoConciliacion>) =>
     actualizar(productos.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))
   const total = totalConciliacion(v)
@@ -890,7 +914,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
             {verLista ? (
               <>
                 <p className="px-3 pt-2 text-[11px] font-medium text-slate-400">
-                  Desliza un producto: derecha para editar · izquierda para eliminar.
+                  Desliza un producto para editar, o toca la papelera para eliminarlo.
                 </p>
                 <ul className="space-y-2 p-3">
                   {productos.map((p, i) => {
@@ -1061,6 +1085,19 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
                             photoIds={p.photoIds ?? []}
                             onChange={(ids) => actualizarProducto(i, { photoIds: ids })}
                           />
+                          {/* La papelera va a la vista y no sólo detrás del gesto:
+                              borrar un producto escaneado por error era imposible
+                              de encontrar en el teléfono. Fuera del área de
+                              deslizar por lo mismo que la cámara. */}
+                          <button
+                            type="button"
+                            onClick={() => setAEliminar({ producto: p, index: i })}
+                            aria-label={`Eliminar ${p.sku}`}
+                            title="Eliminar producto"
+                            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-red-500 hover:bg-red-50 hover:text-red-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </div>
                       </li>
                     )
@@ -1139,7 +1176,9 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
           open
           texto={`¿Quitar el producto ${aEliminar.producto.sku}${aEliminar.producto.nombre ? ` (${aEliminar.producto.nombre})` : ''}? El cambio se guardará en la nube.`}
           onConfirm={() => {
-            actualizar(productos.filter((_, idx) => idx !== aEliminar.index))
+            // El SKU borrado viaja con su marca: sin ella el servidor lo trae de
+            // vuelta desde el valor que ya tenía guardado.
+            actualizar(productos.filter((_, idx) => idx !== aEliminar.index), [aEliminar.producto.sku])
             setAEliminar(null)
           }}
           onCancel={() => setAEliminar(null)}
