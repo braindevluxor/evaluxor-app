@@ -7,7 +7,6 @@ import { useCatalog } from '../../context/CatalogContext'
 import {
   consultarEvaluaciones,
   detalleDeEvaluacion,
-  evolucionMensual,
   medidoresPorModulo,
   peoresItems,
   puntajePorSucursalModulo,
@@ -23,7 +22,7 @@ import { verTodo } from '../../lib/roles'
 import { setKpisGlobal } from '../../lib/kpisGlobal'
 import { distribuirPorcentajes, num as numFormateado, pct as pctComa } from '../../lib/numeros'
 import {
-  ResponsiveContainer, ComposedChart, Bar, Line, Area, AreaChart, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ReferenceLine
+  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ReferenceLine
 } from 'recharts'
 import { COLORES_MODULOS, HEX_PRIMARY, HEX_CUMPLE, HEX_RIESGO, colorPuntajeHex } from '../../lib/diseno'
 
@@ -213,7 +212,6 @@ export function DashboardHome() {
     })
     return { items, shares, total, fondo: total ? `conic-gradient(${zonas.join(',')})` : '#e2e8f0' }
   }, [peores])
-  const evolucion = useMemo(() => (datos ? evolucionMensual(datos) : []), [datos])
 
   // Drilldown (modal): alcance clickeado y sus evaluaciones filtradas.
   const [drill, setDrill] = useState<{ titulo: string; subtitulo?: string; alcance: AlcanceDrilldown; etiquetaScope?: string } | null>(null)
@@ -253,19 +251,6 @@ export function DashboardHome() {
     if (!nombre) return
     const id = idPorNombreDepartamento.get(nombre)
     if (id) abrirDrill({ titulo: nombre, subtitulo: 'Evaluaciones de este departamento en el rango seleccionado', alcance: { departamento_id: id } })
-  }
-
-  const abrirDrillMes = (data: unknown) => {
-    const d = data as { payload?: Record<string, unknown> } | null | undefined
-    const key = d?.payload?.key
-    const mes = d?.payload?.mes
-    if (typeof key === 'string') {
-      abrirDrill({
-        titulo: typeof mes === 'string' ? mes : key,
-        subtitulo: 'Evaluaciones de ese mes en el rango seleccionado',
-        alcance: { mes: key }
-      })
-    }
   }
 
   const detalleDe = (id: string) => {
@@ -396,64 +381,6 @@ export function DashboardHome() {
               </div>
             ) : (
               <p className="text-sm text-slate-400">Sin módulos activos.</p>
-            )}
-          </Card>
-
-          <Card className="lg:col-span-2 border-0!">
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="font-bold text-primary-900">Evolución del cumplimiento global</h3>
-                <p className="text-xs text-slate-400">Promedio por mes en el rango y evaluaciones completadas · haz clic en un punto o barra para ver las evaluaciones de ese mes</p>
-              </div>
-              <div className="flex items-center gap-3 text-[10px] font-semibold text-slate-500">
-                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-primary" /> Cumplimiento promedio</span>
-                <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-sky-300" /> Evaluaciones completadas</span>
-              </div>
-            </div>
-            {evolucion.length ? (
-              <ResponsiveContainer width="100%" height={260}>
-                <AreaChart data={evolucion} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-                  <defs>
-                    <linearGradient id="gradEvolucion" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={HEX_PRIMARY} stopOpacity={0.28} />
-                      <stop offset="100%" stopColor={HEX_PRIMARY} stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                  <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#475569' }} />
-                  <YAxis yAxisId="l" domain={[0, 100]} tick={{ fontSize: 11 }} />
-                  <YAxis yAxisId="r" orientation="right" width={36} tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <Tooltip
-                    formatter={(v, nombre) => [nombre === 'Cumplimiento %' ? pctComa(Number(v)) : String(v), String(nombre)]}
-                    contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
-                  />
-                  <Area
-                    yAxisId="l"
-                    type="monotone"
-                    dataKey="puntaje"
-                    name="Cumplimiento %"
-                    stroke={HEX_PRIMARY}
-                    strokeWidth={3}
-                    fill="url(#gradEvolucion)"
-                    connectNulls
-                    dot={{ r: 3.5, strokeWidth: 1, fill: HEX_PRIMARY }}
-                    activeDot={{ r: 5.5 }}
-                    onClick={abrirDrillMes}
-                  />
-                  <Bar
-                    yAxisId="r"
-                    dataKey="completadas"
-                    name="Evaluaciones completadas"
-                    fill="#bae6fd"
-                    radius={[4, 4, 0, 0]}
-                    barSize={18}
-                    onClick={abrirDrillMes}
-                    style={{ cursor: 'pointer' }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <p className="text-sm text-slate-400">Sin evaluaciones en el rango seleccionado.</p>
             )}
           </Card>
 

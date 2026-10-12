@@ -1001,3 +1001,71 @@ describe('ItemRenderer · las escrituras simultáneas componen en vez de pisarse
     expect(src).toMatch(/if \(putLocalTimer\.current\) window\.clearTimeout\(putLocalTimer\.current\)/)
   })
 })
+
+describe('ItemRenderer · la pérdida acumulada se ve mientras se evalúa', () => {
+  // Mismo par que usa el detalle: un faltante de 3 y un sobrante de 3.
+  const conDescuadre = {
+    productos: [
+      { sku: 'SKU-FALTA', nombre: 'Faltan unidades', teorica: 10, fisica: 7, finalBase: 12.5 },
+      { sku: 'SKU-SOBRA', nombre: 'Sobran unidades', teorica: 2, fisica: 5, finalBase: 2 }
+    ]
+  }
+
+  const pintar = (item: Item, valor: unknown) =>
+    renderToStaticMarkup(<ItemRenderer item={item} valor={valor} index={0} total={1} onChange={() => {}} />)
+
+  it('en SOH muestra la real y la absoluta con los mismos números que el detalle', () => {
+    const html = pintar(itemConciliacion(), conDescuadre)
+    // Faltantes: 3 × 12,50 = 37,50. Sobrantes: 3 × 2,00 = 6,00.
+    // Absoluta = 37,50 + 6,00 = 43,50. Son los mismos números que cierra la
+    // evaluación en EvaluacionDetalle: dos pantallas no pueden dar dos verdades.
+    expect(html).toContain('Pérdida acumulada')
+    expect(html).toContain('USD37,50')
+    expect(html).toContain('USD43,50')
+    expect(html).toContain('2 de 2 SKU descuadrados')
+  })
+
+  it('la absoluta va después de la real: son dos montos, no uno repetido', () => {
+    const html = pintar(itemConciliacion(), conDescuadre)
+    expect(html.indexOf('USD37,50')).toBeGreaterThan(-1)
+    expect(html.indexOf('USD43,50')).toBeGreaterThan(html.indexOf('USD37,50'))
+  })
+
+  it('con contra dato por precio no hay PVP con qué valorar y el bloque no aparece', () => {
+    const html = pintar(itemConciliacion('FINAL_BASE'), conDescuadre)
+    // Un "USD0,00" acá sería una mentira: no es que no se perdió nada, es que
+    // en modo precio la pérdida no se calcula en este ítem.
+    expect(html).not.toContain('Pérdida acumulada')
+    expect(html).not.toContain('USD37,50')
+    expect(html).not.toContain('Absoluta')
+  })
+
+  it('si nada descuadra se dice «Todo concilia» y va en verde', () => {
+    const html = pintar(itemConciliacion(), {
+      productos: [{ sku: 'SKU-OK', nombre: 'Pan', teorica: 10, fisica: 10, finalBase: 12.5 }]
+    })
+    expect(html).toContain('Todo concilia')
+    expect(html).toContain('USD0,00')
+    expect(html).toContain('bg-green-50')
+    expect(html).not.toContain('SKU descuadrados')
+  })
+
+  it('un descuadre sin precio base no se pinta de verde: queda en ámbar y fuera del monto', () => {
+    const html = pintar(itemConciliacion(), {
+      productos: [{ sku: 'SKU-SINPRECIO', nombre: 'Sin precio', teorica: 10, fisica: 7 }]
+    })
+    // Hay descuadre pero no hay con qué valorarlo: decir "Todo concilia" sería
+    // mentir, y pintarlo de rojo implicaría plata perdida que no se puede afirmar.
+    expect(html).toContain('1 SKU sin precio base')
+    expect(html).toContain('bg-amber-50')
+    expect(html).not.toContain('Todo concilia')
+    expect(html).toContain('USD0,00')
+  })
+
+  it('el bloque cuelga del resumen de la conciliación y sólo en modo SOH', () => {
+    const src = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
+    expect(src).toContain("{contraDato === 'SOH' ? <ResumenPerdida productos={productos} /> : null}")
+    // Y el cálculo siempre se pide en SOH: nunca en el contra dato del ítem.
+    expect(src).toContain("resumenPerdidaConciliacion(productos, 'SOH')")
+  })
+})

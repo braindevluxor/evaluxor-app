@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, Pencil, Plus, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, conciliacionTotal, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, formatearMontoPerdida, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, resumenPerdidaConciliacion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores, ordenarTrabajadores } from '../lib/data/colaboradores'
 import { combinarPorDni, aplicarHistorial } from '../lib/data/colaboradoresEstado'
@@ -865,6 +865,11 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
             <ResumenConciliacion etiqueta="No Match" valor={String(desconciliadas)} color={desconciliadas > 0 ? 'text-red-600' : 'text-slate-400'} />
             <ResumenConciliacion etiqueta="Prom. conciliación" valor={promedio != null ? `${promedio}%` : '—'} color={promedio != null ? (promedio === 0 ? 'text-green-600' : 'text-red-600') : 'text-slate-400'} />
           </div>
+
+          {/* La plata se ve aquí, en el momento en que se escanea, no recién al
+              cerrar la evaluación: es el dato que hace que el evaluador pare a
+              investigar un SKU. Sólo en modo SOH — ver `ResumenPerdida`. */}
+          {contraDato === 'SOH' ? <ResumenPerdida productos={productos} /> : null}
 
           <div className="rounded-xl bg-white">
             <button
@@ -1989,6 +1994,71 @@ function ResumenConciliacion({ etiqueta, valor, color }: { etiqueta: string; val
     <div className="rounded-xl bg-white px-3 py-2.5 text-center">
       <p className={cn('text-lg font-extrabold tabular-nums', color)}>{valor}</p>
       <p className="mt-0.5 break-words text-[11px] font-medium leading-tight text-slate-500">{etiqueta}</p>
+    </div>
+  )
+}
+
+/**
+ * La plata perdida en esta conciliación, acumulada fila por fila.
+ *
+ * Dos números porque son dos cosas distintas y se confunden sin verse: la
+ * **real** es sólo lo que falta (mercadería que salió y no volvió) y la
+ * **absoluta** le suma los sobrantes — que también son descuadre, sólo que
+ * mercadería a buscar en vez de plata gastada. En `EvaluacionDetalle` y en el
+ * PDF se usan exactamente estos dos nombres, así que el evaluador ve el mismo
+ * cálculo antes y después de cerrar.
+ *
+ * Sólo existe en modo SOH: contra precio base no hay PVP con qué valorar, y un
+ * "USD0,00" en pantalla sería una mentira en vez de un "no se perdió nada".
+ */
+function ResumenPerdida({ productos }: { productos: ProductoConciliacion[] }) {
+  const resumen = resumenPerdidaConciliacion(productos, 'SOH')
+  const absoluta = resumen.monto + resumen.montoSobrantes
+  const conPrecio = resumen.faltantesConPrecio + resumen.sobrantesConPrecio
+  const sinPrecio = resumen.faltantesSinPrecio + resumen.sobrantesSinPrecio
+  const descuadrados = conPrecio + sinPrecio
+
+  // Tres estados y no dos: descuadre valorizado (rojo), descuadre que no se
+  // puede valorar porque el producto no vino con precio (ámbar — pintarlo de
+  // verde con "Todo concilia" sería mentir) y descuadre cero (verde).
+  const hayPerdida = absoluta > 0
+  const sinValorar = !hayPerdida && sinPrecio > 0
+  const fondo = hayPerdida ? 'bg-red-50' : sinValorar ? 'bg-amber-50' : 'bg-green-50'
+  const rotulo = hayPerdida ? 'text-red-500' : sinValorar ? 'text-amber-600' : 'text-green-600'
+  const monto = hayPerdida ? 'text-red-700' : sinValorar ? 'text-amber-700' : 'text-green-700'
+  const apunte = hayPerdida ? 'text-red-400' : sinValorar ? 'text-amber-500' : 'text-green-600'
+
+  return (
+    <div className={cn('rounded-xl px-4 py-3', fondo)}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
+        <p className={cn('text-[11px] font-bold uppercase tracking-wide', rotulo)}>Pérdida acumulada</p>
+        <p className={cn('text-[11px] font-semibold', apunte)}>
+          {hayPerdida
+            ? `${descuadrados} de ${productos.length} SKU descuadrados`
+            : sinValorar
+              ? `${sinPrecio} SKU sin precio base`
+              : 'Todo concilia'}
+        </p>
+      </div>
+      <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1">
+        <p className="text-xs font-medium text-slate-500">
+          Real{' '}
+          <strong className={cn('text-base font-extrabold tabular-nums', monto)}>
+            {formatearMontoPerdida(resumen.monto)}
+          </strong>
+        </p>
+        <p className="text-xs font-medium text-slate-500">
+          Absoluta{' '}
+          <strong className={cn('text-base font-extrabold tabular-nums', monto)}>
+            {formatearMontoPerdida(absoluta)}
+          </strong>
+        </p>
+      </div>
+      {hayPerdida && sinPrecio > 0 ? (
+        <p className="mt-1 text-[11px] font-medium text-slate-400">
+          {sinPrecio} SKU sin precio base: no entran en el monto.
+        </p>
+      ) : null}
     </div>
   )
 }
