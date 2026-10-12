@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
+import { logoPie } from './marcaPie'
 
 export interface DatosChofer {
   cedula?: string | null
@@ -162,8 +163,11 @@ export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<
         </div>
       </section>
 
-      <footer style="margin-top:16px;text-align:center;font-size:10px;color:#94a3b8">
-        Generado automáticamente por EvaLuxor · ${fecha}
+      <!-- La misma marca al pie que en los informes: a la izquierda y al lado
+           del texto, para que los tres reportes se lean como una familia. -->
+      <footer style="margin-top:16px;display:flex;align-items:center;gap:12px;font-size:10px;color:#94a3b8">
+        <img src="${logoPie}" alt="EvaLuxor" style="width:104px;height:auto;flex:none" />
+        <span>Generado automáticamente por EvaLuxor · ${fecha}</span>
       </footer>
     </div>
   `

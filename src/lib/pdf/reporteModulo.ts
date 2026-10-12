@@ -23,6 +23,7 @@ import type { ResumenItemModulo } from '../data/indicadores'
 import type { Item } from '../types'
 import { etiquetaTipo } from '../scoring'
 import { formatoFecha } from './graficos'
+import { ponerLogoAlPie, xTextoDelPie } from './marcaPie'
 
 const MARGEN = 14
 const TAMANO_FUENTE = 10
@@ -419,7 +420,8 @@ export function buildReporteModulo(datos: ReporteModuloDatos): jsPDF {
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(7)
     pdf.setTextColor(130, 140, 150)
-    pdf.text(pie, MARGEN, alto - 7)
+    ponerLogoAlPie(pdf, MARGEN, alto - 7)
+    pdf.text(pie, xTextoDelPie(MARGEN), alto - 7)
   }
 
   return pdf

@@ -44,6 +44,7 @@ import { ETIQUETAS_ROL } from '../roles'
 import { supabase } from '../supabase'
 import { ordenarTrabajadores } from '../data/colaboradores'
 import { imprimeBloque, imprimeCargos, imprimeModulo, imprimePortada, type OpcionesPdf } from './opciones'
+import { ponerLogoAlPie, xTextoDelPie } from './marcaPie'
 
 export type FiltroPdfCumplimiento = 'ambos' | 'cumple' | 'no-cumple'
 
@@ -790,7 +791,8 @@ export function buildPdfDocument(
       pdf.setFont('helvetica', 'normal')
       pdf.setFontSize(7)
       pdf.setTextColor(130, 140, 150)
-      pdf.text(pie, MARGEN, alto - 7)
+      ponerLogoAlPie(pdf, MARGEN, alto - 7)
+      pdf.text(pie, xTextoDelPie(MARGEN), alto - 7)
     }
   }
 
