@@ -10,6 +10,7 @@ import { useProgresoCarga } from '../lib/progresoCarga'
 import { formatearValorConsulta } from '../lib/data/apis'
 import { destinoRespaldo } from '../lib/galeria'
 import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar, Modal, ProgressBar } from './ui'
+import { IdCopiable } from './IdCopiable'
 import { COLOR_BADGE_TIPO_ITEM, EYEBROW, HEX_CUMPLE, HEX_NO_CUMPLE, HEX_RIESGO } from '../lib/diseno'
 import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
@@ -396,7 +397,7 @@ function VisorEvidencia({ producto }: { producto: ProductoConciliacion }) {
   const datos = (
     <div className="space-y-0.5 rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] leading-relaxed text-slate-500">
       <p className="font-bold text-slate-700">
-        {producto.apiId != null ? `ID: ${producto.apiId}` : `SKU: ${producto.sku}`}
+        {producto.apiId != null ? <IdCopiable id={producto.apiId} className="text-slate-700" /> : `SKU: ${producto.sku}`}
         {producto.nombre ? ` · ${producto.nombre}` : ''}
       </p>
       {tieneInfoSistema(producto) ? (
@@ -755,7 +756,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
                 descripción sola no alcanza para confirmar cuál se escaneó. */}
             {borrador.apiId != null ? (
               <>
-                <strong className="text-slate-700">ID: {borrador.apiId}</strong> ·{' '}
+                <IdCopiable id={borrador.apiId} className="text-slate-700" /> ·{' '}
               </>
             ) : null}
             SOH (sistema): <strong className="text-slate-600">{borrador.soh ?? '—'}</strong> · Últ. sync:{' '}
@@ -1014,7 +1015,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
                                   <>
                                     {p.apiId != null ? (
                                       <>
-                                        <strong className="font-semibold text-slate-500">ID: {p.apiId}</strong> ·{' '}
+                                        <IdCopiable id={p.apiId} className="text-slate-500" /> ·{' '}
                                       </>
                                     ) : null}
                                     SOH: {p.soh ?? '—'} · Sync: {formatearLastSync(p.lastSync)} · Precio: {formatearPrecioBase(precioVenta(p))}
