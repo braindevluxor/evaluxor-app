@@ -4,6 +4,7 @@ import { Eye, FileDown } from 'lucide-react'
 import type { VistaEvaluacion } from '../../lib/types'
 import { Badge, ButtonIcon, claseBotonIcono, EmptyState, Puntaje, SkeletonTarjetas } from '../../components/ui'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
+import { CompartirEvaluacion } from '../../components/CompartirEvaluacion'
 import { useAuth } from '../../context/AuthContext'
 import { consultarEvaluaciones } from '../../lib/data/indicadores'
 import { descargarInformePdf } from '../../lib/pdf'
@@ -104,6 +105,17 @@ export function MisEvaluaciones() {
                 >
                   <Eye className="h-5 w-5" />
                 </Link>
+                {/* Mismo enlace público que desde el detalle y desde el
+                    historial del dashboard: si el Líder lo puede generar en un
+                    sitio, no tiene sentido que tenga que buscar la otra
+                    pantalla para apagarlo. */}
+                {profile?.rol === 'LIDER' ? (
+                  <CompartirEvaluacion
+                    variante="ficha"
+                    evaluacionId={ev.id}
+                    creadoPor={profile?.id ?? null}
+                  />
+                ) : null}
               </div>
             </div>
           ))}

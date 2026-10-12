@@ -22,6 +22,7 @@ import type { OpcionesPdf } from '../../lib/pdf/opciones'
 import { SelectorPdf } from '../../components/SelectorPdf'
 import { verTodo } from '../../lib/roles'
 import { Badge, Button, ButtonIcon, Card, claseBotonIcono, Confirmar, EmptyState, Field, Input, Modal, Puntaje, Select, Skeleton, SkeletonFilas, Textarea } from '../../components/ui'
+import { CompartirEvaluacion } from '../../components/CompartirEvaluacion'
 import { COLOR_BADGE_ESTADO, ETIQUETA_ESTADO, colorBadgePuntaje } from '../../lib/diseno'
 
 function haceMeses(n: number): string {
@@ -461,6 +462,17 @@ export function Historial() {
                         >
                           <Eye className="h-5 w-5" />
                         </Link>
+                        {/* Compartir la conciliación con un enlace público, para
+                            que el coordinador de inventario siga el conteo sin
+                            tener cuenta. Va después de "Ver detalle" porque es
+                            otra forma de mirar lo mismo, y sólo para Líder. */}
+                        {esLider ? (
+                          <CompartirEvaluacion
+                            variante="ficha"
+                            evaluacionId={ev.id}
+                            creadoPor={profile?.id ?? null}
+                          />
+                        ) : null}
                         <ButtonIcon
                           variant="secondary"
                           disabled={descargando === ev.id}
