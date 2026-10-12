@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Camera, Image as ImageIcon, X } from 'lucide-react'
 import { addPhoto, deletePhoto, getPhotos } from '../lib/offline/db'
 import { comprimirFoto } from '../lib/fotos'
+import { destinoRespaldo, guardarEnGaleria } from '../lib/galeria'
 import { Spinner } from './ui'
 import { ModalImagen } from './ModalImagen'
 
@@ -16,13 +17,23 @@ interface Preview {
   key: number
 }
 
-export async function guardarFotosDe(files: FileList | null): Promise<string[]> {
+/**
+ * Guarda las fotos en la app.
+ *
+ * `respaldar` sólo se enciende cuando vinieron de la cámara: las elegidas desde
+ * la galería ya están en el teléfono y copiarlas de nuevo sólo ensuciaría. La
+ * copia se hace con el archivo original, sin comprimir, para que sirva de
+ * rescate si algún día se pierde lo que hay dentro de la app.
+ */
+export async function guardarFotosDe(files: FileList | null, respaldar = false): Promise<string[]> {
   if (!files || !files.length) return []
+  const originales = Array.from(files)
   const ids: string[] = []
-  for (const f of Array.from(files)) {
+  for (const f of originales) {
     const { blob, mime } = await comprimirFoto(f)
     ids.push(await addPhoto(blob, mime))
   }
+  if (respaldar) await guardarEnGaleria(originales)
   return ids
 }
 
@@ -86,9 +97,9 @@ export function PhotoCapture({ photoIds, onChange }: Props) {
     onChange(photoIds.filter((x) => x !== id))
   }
 
-  async function agregar(input: HTMLInputElement) {
+  async function agregar(input: HTMLInputElement, desdeCamara: boolean) {
     setSubiendo(true)
-    const nuevos = await guardarFotosDe(input.files)
+    const nuevos = await guardarFotosDe(input.files, desdeCamara)
     setSubiendo(false)
     if (nuevos.length) onChange([...photoIds, ...nuevos])
     input.value = ''
@@ -103,7 +114,7 @@ export function PhotoCapture({ photoIds, onChange }: Props) {
         capture="environment"
         multiple
         className="hidden"
-        onChange={(e) => void agregar(e.target)}
+        onChange={(e) => void agregar(e.target, true)}
       />
       <input
         ref={galeriaRef}
@@ -111,7 +122,7 @@ export function PhotoCapture({ photoIds, onChange }: Props) {
         accept="image/*"
         multiple
         className="hidden"
-        onChange={(e) => void agregar(e.target)}
+        onChange={(e) => void agregar(e.target, false)}
       />
       <div className="space-y-2">
         {subiendo ? (
@@ -145,6 +156,14 @@ export function PhotoCapture({ photoIds, onChange }: Props) {
           <span className="truncate">Galería</span>
         </button>
       </div>
+      {/* El respaldo es automático y no avisa en pantalla, así que acá se dice
+          claramente dónde va a estar: no sirve de respaldo si nadie sabe que
+          existe. */}
+      <p className="text-[11px] leading-tight text-slate-400">
+        {destinoRespaldo() === 'fotos'
+          ? 'Cada foto que tomes también se guarda en Fotos.'
+          : 'Cada foto que tomes también se guarda en Descargas.'}
+      </p>
     </div>
   )
 }

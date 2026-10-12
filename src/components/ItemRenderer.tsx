@@ -8,6 +8,7 @@ import { combinarPorDni, aplicarHistorial } from '../lib/data/colaboradoresEstad
 import { estadosDeEvaluacionesAnteriores } from '../lib/data/colaboradoresHistorico'
 import { useProgresoCarga } from '../lib/progresoCarga'
 import { formatearValorConsulta } from '../lib/data/apis'
+import { destinoRespaldo } from '../lib/galeria'
 import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar, Modal, ProgressBar } from './ui'
 import { COLOR_BADGE_TIPO_ITEM, EYEBROW, HEX_CUMPLE, HEX_NO_CUMPLE, HEX_RIESGO } from '../lib/diseno'
 import { SwipeAcciones } from './SwipeAcciones'
@@ -2146,9 +2147,9 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
   const galeriaRef = useRef<HTMLInputElement>(null)
   const [subiendo, setSubiendo] = useState(false)
 
-  async function agregar(input: HTMLInputElement) {
+  async function agregar(input: HTMLInputElement, desdeCamara: boolean) {
     setSubiendo(true)
-    const nuevos = await guardarFotosDe(input.files)
+    const nuevos = await guardarFotosDe(input.files, desdeCamara)
     setSubiendo(false)
     if (nuevos.length) onChange([...photoIds, ...nuevos])
     input.value = ''
@@ -2163,7 +2164,7 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
         capture="environment"
         multiple
         className="hidden"
-        onChange={(e) => void agregar(e.target)}
+        onChange={(e) => void agregar(e.target, true)}
       />
       <input
         ref={galeriaRef}
@@ -2171,13 +2172,14 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
         accept="image/*"
         multiple
         className="hidden"
-        onChange={(e) => void agregar(e.target)}
+        onChange={(e) => void agregar(e.target, false)}
       />
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={subiendo}
         aria-label="Tomar foto de evidencia"
+        title={`Tomar foto · también se guarda en ${destinoRespaldo() === 'fotos' ? 'Fotos' : 'Descargas'}`}
         className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
       >
         {subiendo ? <Spinner size={16} light /> : <Camera className="h-4 w-4" />}
