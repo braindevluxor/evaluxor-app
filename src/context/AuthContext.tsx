@@ -168,7 +168,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(s)
     if (!s) {
       setTotpPendiente(false)
-      setPerfilListo(false)
+      // Sin sesión no hay rol que averiguar ni TOTP que pedir: es el estado más
+      // "listo" que hay. Poner `false` acá dejaba a `RequireAuth` clavado en el
+      // skeleton para siempre, porque el `<Navigate to="/login">` está DESPUÉS
+      // de esa condición y nada vuelve a encender el flag: el arranque corre una
+      // sola vez. Por eso cerrar sesión parecía arreglarse con F5.
+      setPerfilListo(true)
       setProfile(null)
       guardarPerfil(null)
       // El dato cacheado es de la cuenta que acaba de salir: no se hereda al
@@ -295,10 +300,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           : { pending: true }
       },
       async signOut() {
-        await supabase.auth.signOut()
+        try {
+          // Scope global: además de cerrar acá, avisa al servidor. Con la red
+          // caída no se completa, así que abajo se limpia igual.
+          await supabase.auth.signOut()
+        } catch {
+          await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
+        }
+        // El estado se pinta acá mismo y no se espera al evento SIGNED_OUT:
+        // salir es una decisión del usuario y no debería depender de que una
+        // promesa de red llegue a buen puerto.
         setTotpPendiente(false)
         setProfile(null)
         guardarPerfil(null)
+        setSession(null)
+        setPerfilListo(true)
       },
       async refreshProfile() {
         if (session?.user?.id) await cargarPerfil(session.user.id)

@@ -52,10 +52,17 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      // Los iconos y el logo de acceso van en webp: el isotipo pesa la décima
+      // Los iconos y los logos de marca van en webp: el isotipo pesa la décima
       // parte que el png y se ve igual. `includeAssets` es el listado exacto que
       // se pre-cachea, así que el resto de los webp de public no entra.
-      includeAssets: ['icons/icon-192.webp', 'icons/icon-512.webp', 'icons/maskable-512.webp', 'completo.webp'],
+      includeAssets: [
+        'favicon.webp',
+        'icons/icon-192.webp',
+        'icons/icon-512.webp',
+        'icons/maskable-512.webp',
+        'completo.webp',
+        'isotipo.webp'
+      ],
       manifest: {
         name: 'EvaLuxor - Evaluaciones 360 Supermercados',
         short_name: 'EvaLuxor',

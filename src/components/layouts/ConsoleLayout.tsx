@@ -119,11 +119,21 @@ function ConsoleLayoutContenido() {
         )}
       >
         <div className={cn('flex items-center justify-between px-5 py-5', colapsado && 'lg:justify-center lg:px-1')}>
+          {/* La marca se adapta al ancho del menú: desplegado entra el logo
+              completo (isotipo + nombre) y cerrado queda sólo el isotipo, que es
+              lo único que cabe en los 64px sin recortarse. El título sigue
+              siendo un <h1>, aunque oculto, para que el nombre de la app no
+              desaparezca del árbol accesible. */}
+          <h1 className="sr-only">EvaLuxor</h1>
           <div className={cn(colapsado && 'lg:hidden')}>
-            <h1 className="text-xl font-extrabold text-primary">EvaLuxor</h1>
-            <p className="text-xs text-slate-500">Indicadores de gestión</p>
+            <img src="/completo.webp" alt="" className="h-auto w-40 max-w-full" />
+            <p className="mt-1 text-xs text-slate-500">Indicadores de gestión</p>
           </div>
-          <div className={cn('hidden text-lg font-extrabold text-primary', colapsado && 'lg:block')}>E</div>
+          <img
+            src="/isotipo.webp"
+            alt=""
+            className={cn('hidden h-9 w-auto', colapsado && 'lg:block')}
+          />
           <button onClick={() => setAbierto(false)} className="grid h-9 w-9 place-items-center rounded-full text-slate-400 hover:bg-slate-100 lg:hidden"><X className="h-5 w-5" /></button>
         </div>
 
