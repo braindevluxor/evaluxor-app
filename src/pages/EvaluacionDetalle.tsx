@@ -14,7 +14,7 @@ import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
 import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionComparable, agruparPorDepartamento, esSinHablador, productosParaConciliar, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, montoSobranteConciliacion, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Foto, Item, Opcion, SucursalOpcion } from '../lib/types'
-import { Badge, Button, Card, InfoTooltip, Modal, ProgressBar, Skeleton, cn, colorFondoBadge } from '../components/ui'
+import { Badge, BOTON_CABECERA, Button, Card, InfoTooltip, Modal, ProgressBar, Skeleton, cn, colorFondoBadge } from '../components/ui'
 
 import { IncidenciasEvaluacion, ListaIncidencias, incidenciaEsDeCargo, useIncidenciasEvaluacion } from '../components/IncidenciasEvaluacion'
 import { SelectorPdf } from '../components/SelectorPdf'
@@ -29,22 +29,6 @@ import { ordenarTrabajadores } from '../lib/data/colaboradores'
  *  número, la etiqueta y el texto de "faltan N" no puedan quedar con umbrales
  *  distintos: son tres lecturas del mismo veredicto y se contradicen en pantalla. */
 const UMBRAL_CUMPLE = 80
-
-/**
- * La cara de los botones del encabezado del detalle: **sólo icono, sin fondo**,
- * y un poco por encima del tamaño estándar (`h-10`/`h-5` contra los `h-9`/`h-4`
- * de `CLASE_ICONO`).
- *
- * Sin fondo porque sobre el azul de la cabecera un disco translúcido se lee como
- * un contorno alrededor del icono, y cinco botones seguidos así vuelven ruidosa
- * una barra que tendría que quedar silenciosa. Sólo el hover conserva un tinte,
- * que es lo único que dice en escritorio que eso se puede tocar.
- *
- * Más grandes porque ya no hay disco que ayude a leerlos: el icono es todo lo
- * que hay.
- */
-const BOTON_CABECERA =
-  'grid h-10 w-10 shrink-0 place-items-center rounded-full text-white transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60'
 
 /**
  * El veredicto del puntaje. Solo devuelve el índice de la paleta y el texto: el

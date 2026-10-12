@@ -82,6 +82,12 @@ describe('CompartirEvaluacion · el indicador verde', () => {
     // Y el color se aplica cambiando la cara entera, no apilando clases:
     // Tailwind no garantiza que la última gane.
     expect(codigo).toContain('activo ? cara.activo : cara.boton')
+    // La cara de cabecera es `BOTON_CABECERA` literal —la misma que sus
+    // vecinos de la barra— y la verde es la misma con el color cambiado por
+    // `replace`, no por `cn`: si el día de mañana la barra cambia de medida,
+    // este botón no se queda atrás midiendo otra cosa.
+    expect(codigo).toContain('boton: BOTON_CABECERA')
+    expect(codigo).toContain("BOTON_CABECERA.replace('text-white', 'text-green-400')")
   })
 
   it('el estado sale de un lote, no de una petición por fila', () => {

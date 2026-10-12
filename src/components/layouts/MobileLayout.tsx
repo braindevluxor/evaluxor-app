@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useOffline } from '../../context/OfflineContext'
 import { useVersion } from '../../context/VersionContext'
 import { versionCorta } from '../../lib/version'
-import { cn, Spinner } from '../ui'
+import { BOTON_CABECERA, cn, Spinner } from '../ui'
 
 export function SyncBanner() {
   const { online, pendientes, sincronizando, ultimoResultado, sync } = useOffline()
@@ -75,6 +75,11 @@ export function HeaderMini({
   const { profile } = useAuth()
   // Sin `shadow-sm`: el diseño quedó plano y el header se separa del contenido
   // por su propio color, no por una sombra.
+  //
+  // Los botones van con `BOTON_CABECERA`, que es la misma cara que usa el
+  // encabezado del detalle de evaluación: puro icono y sin disco, porque sobre
+  // `bg-primary` ese disco translúcido se leía como un contorno y esta barra
+  // cargó cuatro o cinco botones seguidos.
   return (
     <header className="sticky top-0 z-30 bg-primary text-white">
       <div className="flex items-center justify-between gap-2 px-4 py-3">
@@ -82,7 +87,7 @@ export function HeaderMini({
           {onClickMenu ? (
             <button
               onClick={onClickMenu}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 hover:bg-white/20"
+              className={BOTON_CABECERA}
               aria-label="Abrir menú"
             >
               <Menu className="h-5 w-5" />
@@ -98,10 +103,11 @@ export function HeaderMini({
           <span className="hidden max-w-[140px] truncate text-xs text-primary-200 sm:block">{profile?.nombre}</span>
           <NavLink
             to="/dashboard"
-            className="grid h-9 w-9 place-items-center rounded-full bg-white/10 hover:bg-white/20"
+            className={BOTON_CABECERA}
             title="Ir al dashboard"
+            aria-label="Ir al dashboard"
           >
-            <LayoutDashboard className="h-4 w-4" />
+            <LayoutDashboard className="h-5 w-5" />
           </NavLink>
         </div>
       </div>

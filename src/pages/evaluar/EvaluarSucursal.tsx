@@ -23,7 +23,7 @@ import { apiDisponible, esColorHex, etiquetaDeCampo, formatearValorConsulta, sel
 import { supabase } from '../../lib/supabase'
 import { ItemRenderer } from '../../components/ItemRenderer'
 import { ReportarIncidencia } from '../../components/ReportarIncidencia'
-import { Button, ButtonIcon, EmptyState, Modal, cn } from '../../components/ui'
+import { BOTON_CABECERA, Button, ButtonIcon, EmptyState, Modal, cn } from '../../components/ui'
 import { BarcodeScanner } from '../../components/BarcodeScanner'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import { yaExisteRegistroConEtiqueta } from '../../lib/registro'
@@ -889,6 +889,13 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
     </button>
   )
 
+  // Mismo `BOTON_CABECERA` que los botones de al lado en la barra de
+  // `MobileLayout`: puro icono y sin disco. `relative` se agrega aparte porque
+  // sólo este botón tiene la burbuja de pendientes flotando en la esquina.
+  //
+  // La burbuja de progreso de abajo sí conserva su fondo: no es un botón de
+  // acciones, es la lectura del avance, y sin relleno queda un "1 · 10%"
+  // suelto sobre el azul que no se sabe qué es.
   const botonSync = (
     <button
       type="button"
@@ -896,9 +903,9 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       disabled={sincronizando}
       title="Sincronizar: sube lo pendiente y recarga los datos"
       aria-label="Sincronizar evaluación"
-      className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-60"
+      className={cn(BOTON_CABECERA, 'relative')}
     >
-      <RefreshCw className={cn('h-4 w-4', sincronizando && 'animate-spin')} />
+      <RefreshCw className={cn('h-5 w-5', sincronizando && 'animate-spin')} />
       {pendientes > 0 && !sincronizando ? (
         <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-amber-300 px-1 text-[10px] font-black text-amber-950">
           {pendientes}

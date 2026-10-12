@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, Copy, Link2, Lock, RefreshCw } from 'lucide-react'
-import { Button, Modal, Spinner, claseBotonIcono, cn } from './ui'
+import { BOTON_CABECERA, Button, Modal, Spinner, claseBotonIcono, cn } from './ui'
 import { avisar } from '../lib/aviso'
 import { copiarAlPortapapeles } from '../lib/copiar'
 import {
@@ -44,14 +44,17 @@ import { formatearFechaHora } from '../lib/tiempo'
 export type VarianteCompartir = 'header' | 'ficha'
 
 const CARAS: Record<VarianteCompartir, { boton: string; activo: string; icono: string }> = {
-  // La cara de cabecera sigue `BOTON_CABECERA` del detalle: puro icono, sin
-  // disco y un poco más grande que el estándar, para que la barra no quede
-  // sembrada de contornos sobre el azul.
+  // La cara de cabecera es literalmente `BOTON_CABECERA`, la misma que los
+  // botones del resto de la barra: puro icono, sin disco y un escalón más
+  // grande que el estándar, para que la barra no quede sembrada de contornos
+  // sobre el azul.
+  //
+  // El verde se deriva con `replace` y no con `cn(BOTON_CABECERA,
+  // 'text-green-400')`: la clase trae `text-white`, y Tailwind resuelve ese
+  // empate por el orden del CSS, no por el de las clases. Así no hay empate.
   header: {
-    boton:
-      'grid h-10 w-10 shrink-0 place-items-center rounded-full text-white transition-colors hover:bg-white/10',
-    activo:
-      'grid h-10 w-10 shrink-0 place-items-center rounded-full text-green-400 transition-colors hover:bg-white/10',
+    boton: BOTON_CABECERA,
+    activo: BOTON_CABECERA.replace('text-white', 'text-green-400'),
     icono: 'h-5 w-5'
   },
   ficha: {

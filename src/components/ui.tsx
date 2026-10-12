@@ -77,6 +77,23 @@ const variantesIcono: Record<IconVariant, string> = {
 /** Clases de la base de un botón-icono, para los casos que deben ser un `<Link>`. */
 export const CLASE_ICONO = 'inline-grid h-9 w-9 shrink-0 place-items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50'
 
+/**
+ * La cara de los botones de las **barras de navegación superiores sobre azul**:
+ * la del detalle de evaluación y la de `MobileLayout`, que es la misma barra en
+ * el teléfono. Un solo nombre para las dos, para que no se puedan desarmar
+ * tocando una pantalla por separado.
+ *
+ * Puro icono y **sin fondo**: sobre `bg-primary` un disco translúcido se lee
+ * como un contorno alrededor del icono, y cuatro o cinco seguidos vuelven
+ * ruidosa una barra que tendría que quedar silenciosa. Sólo el hover conserva
+ * un tinte, que es lo único que en escritorio dice que eso se puede tocar.
+ *
+ * Un escalón por encima de `CLASE_ICONO` (`h-10`/`h-5` contra `h-9`/`h-4`):
+ * sin disco que ayude a leerlos, el icono es todo lo que hay.
+ */
+export const BOTON_CABECERA =
+  'grid h-10 w-10 shrink-0 place-items-center rounded-full text-white transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60'
+
 /** Clases completas de un botón-icono según su variante (útil para `<Link>`). */
 export function claseBotonIcono(variant: IconVariant = 'ghost', className?: string): string {
   return cn(CLASE_ICONO, variantesIcono[variant], className)
