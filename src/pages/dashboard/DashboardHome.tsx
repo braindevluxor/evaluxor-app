@@ -17,6 +17,7 @@ import {
 import type { AlcanceDrilldown, ConjuntoDatos } from '../../lib/data/indicadores'
 import { Card, Field, Input, Select, Skeleton } from '../../components/ui'
 import { MedidorModulo } from '../../components/dashboard/MedidorModulo'
+import { subtituloMedidor } from '../../components/dashboard/subtituloMedidor'
 import { ModalDrilldown, DetalleEvalCabecera, DetalleRespuestasLista } from '../../components/dashboard/ModalDrilldown'
 import { verTodo } from '../../lib/roles'
 import { setKpisGlobal } from '../../lib/kpisGlobal'
@@ -299,13 +300,17 @@ export function DashboardHome() {
     setKpisGlobal(kpis)
   }, [kpis])
 
-  // Un reloj por módulo activo: promedio de la última evaluación de cada sucursal con ese módulo activo.
+  // Un reloj por módulo activo: promedio de la última evaluación de cada
+  // UNIDAD —sucursal o departamento— que midió ese módulo.
   const medidores = useMemo(() => {
     if (!datos) return []
     const listaModulos = modulos.filter((m) => m.activo && (!moduloSel || m.id === moduloSel))
-    return medidoresPorModulo(datos, listaModulos, sucursalesVisibles, sucursalModulos)
-  }, [datos, modulos, moduloSel, sucursalesVisibles, sucursalModulos])
+    return medidoresPorModulo(datos, listaModulos, sucursalesVisibles, sucursalModulos, departamentosVisibles)
+  }, [datos, modulos, moduloSel, sucursalesVisibles, sucursalModulos, departamentosVisibles])
 
+  // El rótulo debajo del reloj vive en `subtituloMedidor`, compartido con el
+  // dashboard del módulo: eran dos textos distintos para la misma pieza.
+  // "ver detalle" va acá y no adentro, porque es propio de esta pantalla.
   return (
     <div className="space-y-6">
       <DashboardFiltersPortal>
@@ -353,7 +358,7 @@ export function DashboardHome() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <Card className="lg:col-span-2 border-0!">
             <h3 className="mb-1 font-bold text-primary-900">Cumplimiento por módulo</h3>
-            <p className="mb-3 text-xs text-slate-400">Promedio de la última evaluación de cada sucursal que tenga el módulo activo, en el rango seleccionado · haz clic en un módulo para ver su dashboard por ítem</p>
+            <p className="mb-3 text-xs text-slate-400">Promedio de la última evaluación de cada sucursal con el módulo activo y de cada departamento que lo midió, en el rango seleccionado · haz clic en un módulo para ver su dashboard por ítem</p>
             {medidores.length ? (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
                 {medidores.map((m) => (
@@ -367,13 +372,7 @@ export function DashboardHome() {
                       <MedidorModulo
                         nombre={m.nombre}
                         valor={m.promedio}
-                        sub={
-                          m.sucursales
-                            ? `${m.sucursales} de ${m.sucursales + m.sinDatos} sucursales · ver detalle`
-                            : m.sinDatos
-                              ? `${m.sinDatos} sucursales sin evaluación · ver detalle`
-                              : 'Sin sucursales activas'
-                        }
+                        sub={`${subtituloMedidor(m)} · ver detalle`}
                       />
                     </div>
                   </Link>

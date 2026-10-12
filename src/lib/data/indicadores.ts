@@ -435,10 +435,12 @@ export function puntajePorModulo(
 export interface MedidorModulo {
   modulo_id: string
   nombre: string
-  /** Promedio del puntaje (0-100) de la última evaluación de cada sucursal con el módulo activo, o null si no hay datos. */
+  /** Promedio del puntaje (0-100) de la última evaluación de cada UNIDAD (sucursal o departamento) que midió el módulo, o null si no hay datos. */
   promedio: number | null
   /** Sucursales que entraron al promedio. */
   sucursales: number
+  /** Departamentos que entraron al promedio. Se cuentan aparte porque el rótulo de abajo no puede decir "sucursales" si lo que hay son departamentos. */
+  departamentos: number
   /** Sucursales con el módulo activo sin evaluación con puntaje (o sin ítems del módulo respondidos) en el rango. */
   sinDatos: number
 }
@@ -512,13 +514,32 @@ export function sucursalesConModuloEvaluado(
   return resultado.size
 }
 
+/**
+ * Un reloj por módulo activo.
+ *
+ * Cada evaluación mide su **unidad** —la sucursal o el departamento, ver
+ * `unidadDe`— y de cada unidad se toma la evaluación más reciente que haya
+ * medido el módulo. Las sucursales pasan por `sucursal_modulos`: si el módulo
+ * no está activo en una sucursal, esa sucursal no cuenta.
+ *
+ * Los departamentos no tienen `sucursal_modulos`, así que no pueden estar
+ * "configurados y sin datos": o midieron el módulo o no aparecen. Por eso
+ * entran siempre que midan. Sin esto, un módulo que sólo se evalúa por
+ * departamento —Flota Vehicular, por ejemplo— quedaba en blanco aunque tuviera
+ * evaluaciones encima.
+ *
+ * Se cuentan por separado porque el rótulo debajo no puede decir "sucursales"
+ * si lo que entró al promedio fue un departamento.
+ */
 export function medidoresPorModulo(
   datos: ConjuntoDatos,
   modulos: { id: string; nombre: string }[],
   sucursalesVisibles: { id: string }[],
-  sucursalModulos: SucursalModulo[]
+  sucursalModulos: SucursalModulo[],
+  departamentosVisibles: { id: string }[] = []
 ): MedidorModulo[] {
   const visibles = new Set(sucursalesVisibles.map((s) => s.id))
+  const visiblesDep = new Set(departamentosVisibles.map((d) => d.id))
   const itemDe = new Map<string, Item>()
   const moduloDeItem = new Map<string, string>()
   for (const i of datos.items) {
@@ -531,16 +552,18 @@ export function medidoresPorModulo(
     arr.push(r)
     respuestasDe.set(r.evaluacion_id, arr)
   }
-  const evalsPorSucursal = new Map<string, Evaluacion[]>()
+  const evalsPorUnidad = new Map<string, Evaluacion[]>()
+  const esDepartamento = new Set<string>()
   for (const e of datos.evaluaciones) {
     if (e.puntuacion == null) continue
-    // El medidor es por sucursal: las de departamento se miden aparte.
-    if (!e.sucursal_id) continue
-    const arr = evalsPorSucursal.get(e.sucursal_id) ?? []
+    const unidad = unidadDe(e)
+    if (!unidad) continue
+    if (e.departamento_id) esDepartamento.add(unidad)
+    const arr = evalsPorUnidad.get(unidad) ?? []
     arr.push(e)
-    evalsPorSucursal.set(e.sucursal_id, arr)
+    evalsPorUnidad.set(unidad, arr)
   }
-  for (const arr of evalsPorSucursal.values()) {
+  for (const arr of evalsPorUnidad.values()) {
     arr.sort((a, b) => b.fecha.localeCompare(a.fecha) || b.created_at.localeCompare(a.created_at))
   }
   const activosPorModulo = new Map<string, string[]>()
@@ -555,17 +578,30 @@ export function medidoresPorModulo(
 
   return modulos.map((m) => {
     const miembros = activosPorModulo.get(m.id) ?? []
+    // Sin configuración de sucursales para el módulo: no se puede adivinar qué
+    // sucursales aplican, así que entran las que lo midieron.
     if (!miembros.length) {
-      for (const [sucursalId, arr] of evalsPorSucursal) {
-        if (!visibles.has(sucursalId)) continue
-        if (arr.some((ev) => evaluaModulo(ev.id, m.id))) miembros.push(sucursalId)
+      for (const [unidad, arr] of evalsPorUnidad) {
+        if (esDepartamento.has(unidad)) continue
+        if (!visibles.has(unidad)) continue
+        if (arr.some((ev) => evaluaModulo(ev.id, m.id))) miembros.push(unidad)
       }
     }
+    // Los departamentos entran aunque haya configuración de sucursales: no hay
+    // `sucursal_modulos` que los deje afuera, y dejarlos fuera era lo que
+    // apagaba el reloj de un módulo evaluado sólo por departamento.
+    for (const [unidad, arr] of evalsPorUnidad) {
+      if (!esDepartamento.has(unidad)) continue
+      if (!visiblesDep.has(unidad)) continue
+      if (arr.some((ev) => evaluaModulo(ev.id, m.id))) miembros.push(unidad)
+    }
     let suma = 0
+    let conDatos = 0
     let sucursales = 0
+    let departamentos = 0
     let sinDatos = 0
-    for (const sucursalId of new Set(miembros)) {
-      const arr = evalsPorSucursal.get(sucursalId)
+    for (const unidad of new Set(miembros)) {
+      const arr = evalsPorUnidad.get(unidad)
       let puntaje: number | null = null
       if (arr) {
         for (const ev of arr) {
@@ -581,13 +617,16 @@ export function medidoresPorModulo(
         continue
       }
       suma += puntaje
-      sucursales++
+      conDatos++
+      if (esDepartamento.has(unidad)) departamentos++
+      else sucursales++
     }
     return {
       modulo_id: m.id,
       nombre: m.nombre,
-      promedio: sucursales ? Math.round((suma / sucursales) * 100) / 100 : null,
+      promedio: conDatos ? Math.round((suma / conDatos) * 100) / 100 : null,
       sucursales,
+      departamentos,
       sinDatos
     }
   })

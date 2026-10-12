@@ -97,7 +97,7 @@ export function HeaderMini({
                   `brightness-0 invert`: primero lo vuelve todo negro y después
                   lo invierte. Los dos pasos hacen falta y el canal alfa se
                   respeta, así que no aparece un cuadro sólido detrás. */}
-              <img src="/isotipo.webp" alt="" className="h-6 w-auto brightness-0 invert" />
+              <img src="/isotipo.webp" alt="" className="h-7 w-auto brightness-0 invert" />
             </button>
           ) : null}
           <div className="min-w-0">

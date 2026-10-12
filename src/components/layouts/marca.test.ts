@@ -46,7 +46,7 @@ describe('marca en la barra del evaluador', () => {
     // siendo "Abrir menú". Y el `alt` queda vacío para no duplicar ese rótulo
     // en el lector de pantalla.
     expect(movil).toContain('aria-label="Abrir menú"')
-    expect(movil).toContain('<img src="/isotipo.webp" alt="" className="h-6 w-auto brightness-0 invert" />')
+    expect(movil).toContain('<img src="/isotipo.webp" alt="" className="h-7 w-auto brightness-0 invert" />')
   })
 })
 

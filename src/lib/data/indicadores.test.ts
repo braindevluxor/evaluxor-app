@@ -331,6 +331,146 @@ describe('medidoresPorModulo', () => {
     expect(m2?.sucursales).toBe(1)
     expect(m2?.sinDatos).toBe(0)
   })
+
+  // Flota Vehicular: un módulo que sólo se evalúa por departamento. Antes el
+  // reloj quedaba en blanco aunque tuviera evaluaciones encima, porque la
+  // función miraba únicamente `sucursal_id`.
+  const departamento = (id: string, depId: string, fecha: string, puntaje: number | null): VistaEvaluacion => ({
+    ...mkEvaluacion(id, '', fecha, puntaje),
+    sucursal_id: null,
+    departamento_id: depId
+  })
+
+  it('un módulo evaluado sólo por departamento deja de quedar en blanco', () => {
+    const datos = {
+      evaluaciones: [departamento('evD', 'd1', '2026-09-15', 80)],
+      respuestas: [respuesta('evD', 'i1', true)], // i1 → módulo 1
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const resultado = medidoresPorModulo(
+      datos,
+      [{ id: 'm1', nombre: 'Módulo 1' }],
+      sucursales,
+      [], // ninguna sucursal tiene el módulo configurado
+      [{ id: 'd1' }]
+    )
+
+    expect(resultado[0].promedio).toBe(100)
+    expect(resultado[0].departamentos).toBe(1)
+    expect(resultado[0].sucursales).toBe(0)
+  })
+
+  it('entra aunque SÍ haya configuración de sucursales para el módulo', () => {
+    // Éste era el caso que se colaba: si una sucursal tenía el módulo activo,
+    // `miembros` no quedaba vacío y el fallback no corría, así que el
+    // departamento seguía afuera.
+    const sucModulos: SucursalModulo[] = [
+      { id: 'sm1', sucursal_id: 's1', modulo_id: 'm1', activa: true, created_at: '' }
+    ]
+    const datos = {
+      evaluaciones: [departamento('evD', 'd1', '2026-09-15', 60)],
+      respuestas: [respuesta('evD', 'i1', true)], // i1 → módulo 1
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const resultado = medidoresPorModulo(
+      datos,
+      [{ id: 'm1', nombre: 'Módulo 1' }],
+      sucursales,
+      sucModulos,
+      [{ id: 'd1' }]
+    )
+
+    // s1 está configurada pero no evaluó: cuenta como sin datos. El
+    // departamento sí entró al promedio.
+    expect(resultado[0].promedio).toBe(100)
+    expect(resultado[0].departamentos).toBe(1)
+    expect(resultado[0].sucursales).toBe(0)
+    expect(resultado[0].sinDatos).toBe(1)
+  })
+
+  it('promedia sucursales y departamentos juntos, pero los cuenta aparte', () => {
+    const datos = {
+      evaluaciones: [
+        mkEvaluacion('evS', 's1', '2026-09-10', 85),
+        departamento('evD', 'd1', '2026-09-15', 80)
+      ],
+      respuestas: [respuesta('evS', 'i1', true), respuesta('evD', 'i1', false)], // 100 y 0
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const resultado = medidoresPorModulo(
+      datos,
+      [{ id: 'm1', nombre: 'Módulo 1' }],
+      sucursales,
+      [],
+      [{ id: 'd1' }]
+    )
+
+    expect(resultado[0].promedio).toBe(50)
+    expect(resultado[0].sucursales).toBe(1)
+    expect(resultado[0].departamentos).toBe(1)
+    expect(resultado[0].sinDatos).toBe(0)
+  })
+
+  it('un departamento fuera del filtro sigue sin entrar', () => {
+    const datos = {
+      evaluaciones: [departamento('evD', 'd1', '2026-09-15', 80)],
+      respuestas: [respuesta('evD', 'i1', true)],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const resultado = medidoresPorModulo(
+      datos,
+      [{ id: 'm1', nombre: 'Módulo 1' }],
+      sucursales,
+      [],
+      [] // sin departamentos visibles
+    )
+
+    expect(resultado[0].promedio).toBeNull()
+    expect(resultado[0].departamentos).toBe(0)
+  })
+
+  it('una evaluación sin unidad no cuenta para nada', () => {
+    const huerfana = { ...departamento('evX', '', '2026-09-15', 80), departamento_id: null }
+    const datos = {
+      evaluaciones: [huerfana],
+      respuestas: [respuesta('evX', 'i1', true)],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const resultado = medidoresPorModulo(
+      datos,
+      [{ id: 'm1', nombre: 'Módulo 1' }],
+      sucursales,
+      [],
+      [{ id: 'd1' }]
+    )
+
+    expect(resultado[0].promedio).toBeNull()
+  })
 })
 
 const MOD_RESUMEN = 'mres'

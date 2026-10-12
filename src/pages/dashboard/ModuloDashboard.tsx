@@ -21,6 +21,7 @@ import { Card, EmptyState, Field, Input, Select, Skeleton, Button } from '../../
 import { descargarReporteModulo } from '../../lib/pdf/reporteModulo'
 import { GraficoItem } from '../../components/dashboard/GraficoItem'
 import { MedidorModulo } from '../../components/dashboard/MedidorModulo'
+import { subtituloMedidor } from '../../components/dashboard/subtituloMedidor'
 import { ModalDrilldown, DetalleEvalCabecera, DetalleRespuestasLista } from '../../components/dashboard/ModalDrilldown'
 import { etiquetaTipo, pesoItem } from '../../lib/scoring'
 import { setKpisGlobal, type EstadoKpis } from '../../lib/kpisGlobal'
@@ -48,7 +49,7 @@ const COLORES_BARRA = [HEX_CUMPLE, HEX_RIESGO, HEX_NO_CUMPLE, HEX_SIN_DATO]
 export function ModuloDashboard() {
   const { moduloId = '' } = useParams()
   const { profile } = useAuth()
-  const { sucursales, modulos, items, sucursalModulos } = useCatalog()
+  const { sucursales, departamentos, modulos, items, sucursalModulos } = useCatalog()
 
   const scope = useMemo(() => {
     if (!profile) return null
@@ -67,6 +68,9 @@ export function ModuloDashboard() {
   const [errorPdf, setErrorPdf] = useState<string | null>(null)
 
   const sucursalesVisibles = scope ? sucursales.filter((s) => scope.includes(s.id)) : sucursales
+  // Un gerente de sucursal no ve departamentos, igual que en el dashboard
+  // principal.
+  const departamentosVisibles = useMemo(() => (scope ? [] : departamentos), [scope, departamentos])
 
   useEffect(() => {
     let activo = true
@@ -154,8 +158,8 @@ export function ModuloDashboard() {
 
   const medidor = useMemo(() => {
     if (!datos || !modulo) return null
-    return medidoresPorModulo(datos, [modulo], sucursalesVisibles, sucursalModulos)[0] ?? null
-  }, [datos, modulo, sucursalesVisibles, sucursalModulos])
+    return medidoresPorModulo(datos, [modulo], sucursalesVisibles, sucursalModulos, departamentosVisibles)[0] ?? null
+  }, [datos, modulo, sucursalesVisibles, sucursalModulos, departamentosVisibles])
 
   // El módulo de vehículos se agrupa por placa (instancia) en lugar de por sucursal.
   const porPlaca = catalogoItems.some((i) => i.tipo === 'CONTENEDOR' && i.api_id === 'vehiculos')
@@ -279,13 +283,7 @@ export function ModuloDashboard() {
                 <MedidorModulo
                   nombre={moduloNombre}
                   valor={medidor.promedio}
-                  sub={
-                    medidor.sucursales
-                      ? `${medidor.sucursales} de ${medidor.sucursales + medidor.sinDatos} sucursales`
-                      : medidor.sinDatos
-                        ? `${medidor.sinDatos} sucursales sin evaluación`
-                        : 'Sin sucursales en el rango'
-                  }
+                  sub={subtituloMedidor(medidor, 'Sin sucursales en el rango')}
                 />
               </div>
             ) : (
