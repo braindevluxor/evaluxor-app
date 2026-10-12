@@ -133,3 +133,85 @@ export async function obtenerConciliacionPublica(token: string): Promise<Concili
   if (!paquete?.evaluacion) return null
   return paquete as unknown as ConciliacionPublica
 }
+
+/* --- Caché de enlaces: el indicador verde del botón -------------------------
+ * El botón se pinta de verde cuando el enlace está activo, y eso hay que
+ * saberlo ANTES de abrir el modal. En una pantalla de historial eso es una
+ * fila por evaluación, así que consultar una a una sería N requests para N
+ * filas — el mismo problema que tenía el modal cuando se pintaba por fila.
+ *
+ * Acá los pedidos que llegan en el mismo tick de render se acumulan y salen
+ * en UNA sola petición, y el resultado queda en caché. `suscribirEnlace` hay
+ * que llamarlo desde un `useEffect`: si el enlace ya está en caché avisa
+ * sincrónicamente.
+ *
+ * La caché es un indicador, no la verdad: el modal vuelve a leer al abrir.
+ */
+
+type OyenteEnlace = (enlace: EnlaceCompartido | null) => void
+
+const enlacesEnCache = new Map<string, EnlaceCompartido | null>()
+const oyentes = new Map<string, Set<OyenteEnlace>>()
+const pedidosEnElLote = new Set<string>()
+let relojDeLote: ReturnType<typeof setTimeout> | null = null
+
+function avisarOyentes(evaluacionId: string, enlace: EnlaceCompartido | null): void {
+  oyentes.get(evaluacionId)?.forEach((oyente) => oyente(enlace))
+}
+
+async function vaciarElLote(): Promise<void> {
+  relojDeLote = null
+  const ids = [...pedidosEnElLote]
+  pedidosEnElLote.clear()
+  if (!ids.length) return
+
+  const { data, error } = await supabase
+    .from('evaluaciones_compartidas')
+    .select('evaluacion_id, token, activo, creado_at')
+    .in('evaluacion_id', ids)
+
+  // Sin red no hay indicador: el botón se queda en su color normal. Y el
+  // fallo NO se cachea, para que el próximo render vuelva a pedir.
+  if (error) return
+
+  const porId = new Map((data ?? []).map((f) => [f.evaluacion_id, f as EnlaceCompartido]))
+  for (const id of ids) {
+    const enlace = porId.get(id) ?? null
+    enlacesEnCache.set(id, enlace)
+    avisarOyentes(id, enlace)
+  }
+}
+
+/**
+ * Suscribe a una evaluación a su enlace, pidiéndolo en lote si nadie lo pidió.
+ *
+ * Devuelve la función de baja. Si la evaluación ya está en caché avisa
+ * sincrónicamente, así que esto va dentro de un `useEffect` y no del render.
+ */
+export function suscribirEnlace(evaluacionId: string, oyente: OyenteEnlace): () => void {
+  const conjunto = oyentes.get(evaluacionId) ?? new Set<OyenteEnlace>()
+  conjunto.add(oyente)
+  oyentes.set(evaluacionId, conjunto)
+
+  if (enlacesEnCache.has(evaluacionId)) {
+    oyente(enlacesEnCache.get(evaluacionId) ?? null)
+  } else {
+    pedidosEnElLote.add(evaluacionId)
+    if (relojDeLote == null) relojDeLote = setTimeout(() => void vaciarElLote(), 0)
+  }
+
+  return () => {
+    conjunto.delete(oyente)
+    if (!conjunto.size) oyentes.delete(evaluacionId)
+  }
+}
+
+/**
+ * Guarda un enlace ya conocido —tras generar, apagar o una lectura fresca del
+ * modal— sin volver a pedirlo, para que el icono cambie de color al instante
+ * en la fila que lo acaba de tocar.
+ */
+export function guardarEnlaceEnCache(evaluacionId: string, enlace: EnlaceCompartido | null): void {
+  enlacesEnCache.set(evaluacionId, enlace)
+  avisarOyentes(evaluacionId, enlace)
+}

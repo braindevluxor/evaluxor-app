@@ -37,9 +37,52 @@ describe('CompartirEvaluacion · botón', () => {
     const html = renderToStaticMarkup(
       <CompartirEvaluacion variante="ficha" evaluacionId="ev-1" creadoPor={null} />
     )
-    expect(html).toContain('Compartir conciliación')
+    expect(html).toContain('aria-label="Compartir la conciliación con un enlace público"')
     expect(html).not.toContain('Generar enlace público')
     expect(html).not.toContain('sólo lectura')
+  })
+})
+
+describe('CompartirEvaluacion · el indicador verde', () => {
+  it('en reposo el icono no es verde', () => {
+    // El verde sólo tiene que aparecer cuando se sabe que el enlace está
+    // activo: un verde de mentira mientras se consulta sería peor que gris.
+    for (const variante of ['header', 'ficha'] as const) {
+      const html = renderToStaticMarkup(
+        <CompartirEvaluacion variante={variante} evaluacionId="ev-1" creadoPor={null} />
+      )
+      expect(html, variante).not.toContain('text-green-')
+    }
+  })
+
+  it('cada cara trae su verde: sobre azul y sobre blanco no son el mismo', () => {
+    const codigo = fuente('./CompartirEvaluacion.tsx')
+    // El encabezado del detalle es azul, ahi va un verde claro; en las listas
+    // va el verde de `variantesIcono.success`, el mismo que usan los demás
+    // botones activos de la app.
+    expect(codigo).toContain('text-green-400')
+    expect(codigo).toContain("claseBotonIcono('success')")
+    // Y el color se aplica cambiando la cara entera, no apilando clases:
+    // Tailwind no garantiza que la última gane.
+    expect(codigo).toContain('activo ? cara.activo : cara.boton')
+  })
+
+  it('el estado sale de un lote, no de una petición por fila', () => {
+    const codigo = fuente('./CompartirEvaluacion.tsx')
+    expect(codigo).toContain('suscribirEnlace(evaluacionId')
+    // El lote va a la base con `.in(...)`: una sola petición por página.
+    const datos = fuente('../lib/data/compartir.ts')
+    expect(datos).toMatch(/\.in\('evaluacion_id', ids\)/)
+    // Generar y apagar actualizan el indicador al instante, sin releer.
+    expect(datos).toContain('export function guardarEnlaceEnCache')
+    expect(codigo).toContain('guardarEnlaceEnCache(evaluacionId')
+  })
+
+  it('si la petición falla, el botón no se queda en verde de mentira', () => {
+    const datos = fuente('../lib/data/compartir.ts')
+    // El fallo no se cachea, para que el próximo render vuelva a pedir en vez
+    // de dar por sentado que no hay enlace.
+    expect(datos).toMatch(/if \(error\) return/)
   })
 })
 
@@ -61,11 +104,11 @@ describe('CompartirEvaluacion · dónde se usa', () => {
     expect(fuente('../pages/evaluar/MisEvaluaciones.tsx')).toContain('variante="ficha"')
   })
 
-  it('no consulta el enlace hasta que alguien abre el modal', () => {
-    // En una lista esto se renderiza una vez por evaluación: una petición por
-    // fila al montar la página es tráfico que nadie pidió.
+  it('el modal vuelve a leer al abrir, aunque el indicador ya sepa', () => {
+    // La caché es un indicador, no la verdad: el modal consulta fresco cada
+    // vez que se abre, porque el enlace pudo apagarse desde el detalle.
     const codigo = fuente('./CompartirEvaluacion.tsx')
     expect(codigo).toMatch(/if \(!abierto\) return/)
-    expect(codigo).toContain("obtenerEnlace(evaluacionId)")
+    expect(codigo).toContain('obtenerEnlace(evaluacionId)')
   })
 })

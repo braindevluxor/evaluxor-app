@@ -62,7 +62,9 @@ describe('compartir.ts · la única puerta es el RPC', () => {
   it('apagar no borra nada', () => {
     const codigo = fuente('./compartir.ts')
     expect(codigo).toMatch(/\.update\(\{\s*activo:\s*false\s*\}\)/)
-    expect(codigo).not.toMatch(/\.delete\(/)
+    // Ningún delete sobre la tabla de enlaces. (El `.delete(` de un Set no
+    // cuenta: por eso la regex mira el builder de supabase, no la palabra.)
+    expect(codigo).not.toMatch(/\.from\('evaluaciones_compartidas'\)[\s\S]{0,200}\.delete\(/)
   })
 
   it('el RPC es de sólo lectura', () => {

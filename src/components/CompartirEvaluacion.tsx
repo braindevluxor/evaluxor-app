@@ -6,7 +6,9 @@ import { copiarAlPortapapeles } from '../lib/copiar'
 import {
   apagarEnlace,
   compartirEvaluacion,
+  guardarEnlaceEnCache,
   obtenerEnlace,
+  suscribirEnlace,
   urlCompartida,
   type EnlaceCompartido
 } from '../lib/data/compartir'
@@ -32,16 +34,27 @@ import { formatearFechaHora } from '../lib/tiempo'
  * detalle de evaluación (fondo translúcido, icono chico) y la fila de acciones
  * del historial, donde tiene que verse igual que el Eye y el FileDown de al
  * lado. `variante` elige una; `className` es para ajustes sueltos encima.
+ *
+ * Y cambia de color: **verde cuando el enlace está activo**, así el Líder sabe
+ * de un vistazo, sin abrir nada, qué evaluaciones tiene compartidas. Cada cara
+ * trae la suya porque el verde sobre azul y el verde sobre blanco no son el
+ * mismo verde.
  */
 export type VarianteCompartir = 'header' | 'ficha'
 
-const CARAS: Record<VarianteCompartir, { boton: string; icono: string }> = {
+const CARAS: Record<VarianteCompartir, { boton: string; activo: string; icono: string }> = {
   header: {
     boton:
       'grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20',
+    activo:
+      'grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 text-green-400 transition-colors hover:bg-white/20',
     icono: 'h-4 w-4'
   },
-  ficha: { boton: claseBotonIcono('neutral'), icono: 'h-5 w-5' }
+  ficha: {
+    boton: claseBotonIcono('neutral'),
+    activo: claseBotonIcono('success'),
+    icono: 'h-5 w-5'
+  }
 }
 
 export function CompartirEvaluacion({
@@ -62,6 +75,16 @@ export function CompartirEvaluacion({
   // estado viejo de la fila anterior.
   const [leyendo, setLeyendo] = useState(true)
   const [ocupado, setOcupado] = useState(false)
+  // Verde en el icono cuando el enlace está activo. Se suscribe al lote que
+  // arma la página en vez de pedir el suyo: en un historial esto es una fila
+  // por evaluación, y N requests para N filas era el problema del commit
+  // anterior. El aviso llega por `suscribirEnlace`, que desde un efecto puede
+  // ser síncrono si ya está en caché.
+  const [activo, setActivo] = useState(false)
+
+  useEffect(() => {
+    return suscribirEnlace(evaluacionId, (e) => setActivo(e?.activo === true))
+  }, [evaluacionId])
 
   useEffect(() => {
     // Sólo al abrir. En el historial esto se renderiza una vez por evaluación,
@@ -72,7 +95,11 @@ export function CompartirEvaluacion({
     setLeyendo(true)
     void obtenerEnlace(evaluacionId)
       .then((e) => {
-        if (vivo) setEnlace(e)
+        // La lectura fresca del modal actualiza también el indicador: si
+        // alguien apagó el enlace desde el detalle, la fila se entera acá.
+        if (!vivo) return
+        setEnlace(e)
+        guardarEnlaceEnCache(evaluacionId, e)
       })
       // Sin enlace no hay nada que mostrar y no es un error: el botón simplemente
       // ofrece generar uno. Una caída de red tampoco debe romper la lista.
@@ -90,6 +117,7 @@ export function CompartirEvaluacion({
     try {
       const nuevo = await compartirEvaluacion(evaluacionId, creadoPor)
       setEnlace(nuevo)
+      guardarEnlaceEnCache(evaluacionId, nuevo)
       avisar('Enlace generado. El anterior dejó de funcionar.')
     } catch {
       avisar('No se pudo generar el enlace', 'error')
@@ -102,14 +130,16 @@ export function CompartirEvaluacion({
     setOcupado(true)
     try {
       await apagarEnlace(evaluacionId)
-      setEnlace((e) => (e ? { ...e, activo: false } : e))
+      const apagado = enlace ? { ...enlace, activo: false } : null
+      setEnlace(apagado)
+      guardarEnlaceEnCache(evaluacionId, apagado)
       avisar('Enlace apagado. Ya no se puede abrir.')
     } catch {
       avisar('No se pudo apagar el enlace', 'error')
     } finally {
       setOcupado(false)
     }
-  }, [evaluacionId])
+  }, [evaluacionId, enlace])
 
   const copiar = useCallback(async () => {
     if (!enlace) return
@@ -119,6 +149,11 @@ export function CompartirEvaluacion({
 
   const cara = CARAS[variante]
   const url = enlace?.activo ? urlCompartida(enlace.token) : null
+  // Verde sólo con el enlace activo. Mientras se consulta se queda en el
+  // color normal: un verde de mentira durante el primer cuadro sería peor.
+  const rotulo = activo
+    ? 'Conciliación compartida con un enlace público · gestionar'
+    : 'Compartir la conciliación con un enlace público'
 
   return (
     <>
@@ -128,9 +163,9 @@ export function CompartirEvaluacion({
           setLeyendo(true)
           setAbierto(true)
         }}
-        title="Compartir la conciliación con un enlace público"
-        aria-label="Compartir conciliación"
-        className={cn(cara.boton, className)}
+        title={rotulo}
+        aria-label={rotulo}
+        className={cn(activo ? cara.activo : cara.boton, className)}
       >
         <Link2 className={cara.icono} />
       </button>
