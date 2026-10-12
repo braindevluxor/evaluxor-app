@@ -112,8 +112,12 @@ as $$
     where c.activo and c.token = p_token
   ),
   ev as (
-    select e.id, e.sucursal_id, e.departamento_id, e.aperturada_por, e.fecha,
-           e.estado, e.puntuacion, e.comentario_general, e.cerrada_en, e.created_at
+    -- Sólo columnas que la app escribe o lee por nombre en otros lados, y que
+    -- la pantalla pública usa. `created_at` y `aperturada_por` quedaron fuera
+    -- a propósito: la primera no está en la tabla real de algunas bases y la
+    -- segunda expondría al evaluador, que el enlace no debe mostrar.
+    select e.id, e.sucursal_id, e.departamento_id, e.fecha,
+           e.estado, e.puntuacion, e.comentario_general, e.cerrada_en
     from public.evaluaciones e
     where e.id in (select evaluacion_id from enlace)
   ),

@@ -330,6 +330,23 @@ describe('schema.sql · el enlace público de conciliación', () => {
     expect(sql).toMatch(/using\s*\(\s*public\.es_lider\(\)\s*\)\s*with\s+check\s*\(\s*public\.es_lider\(\)\s*\)/i)
   })
 
+  it('la evaluación sale sólo con columnas que la tabla real tiene', () => {
+    const sql = sinComentarios(fuente('../../supabase/compartir-evaluacion.sql'))
+    const cuerpo = sql.match(/ev as \(([\s\S]*?)\),\s*resp as/)?.[1] ?? ''
+    expect(cuerpo.length).toBeGreaterThan(0)
+    // `schema.sql` declara `evaluaciones.created_at`, pero hay bases creadas
+    // antes de que existiera ese campo y `create table if not exists` no lo
+    // agregó después: nombrarlo hacía fallar la función entera con 42703.
+    // `aperturada_por` se cayó en la misma limpieza y de paso cumple la
+    // promesa del enlace: no muestra quién evaluó.
+    expect(cuerpo).not.toMatch(/created_at/)
+    expect(cuerpo).not.toMatch(/aperturada_por/)
+    // Estas sí están: `indicadores.ts` las escribe o filtra por nombre.
+    for (const col of ['estado', 'puntuacion', 'comentario_general', 'cerrada_en', 'fecha']) {
+      expect(cuerpo, col).toContain(col)
+    }
+  })
+
   it('el enlace se apaga sin borrar la evaluación', () => {
     const sql = sinComentarios(fuente('../../supabase/compartir-evaluacion.sql'))
     // `activo` es lo que hace reversible el enlace: apagarlo no depende de
