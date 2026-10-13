@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Item, Modulo, Opcion, Respuesta, Sucursal, SucursalModulo, VistaEvaluacion } from '../types'
-import { medidoresPorModulo, puntajePorSucursalModulo, puntajePorUnidadModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, unidadDe, type ConjuntoDatos } from './indicadores'
+import { medidoresPorModulo, puntajePorSucursalModulo, puntajePorUnidadModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, unidadDe, seguimientoResponsables, hallazgosDeCargo, type ConjuntoDatos } from './indicadores'
 
 const sucursales: Sucursal[] = [
   { id: 's1', nombre: 'Sucursal Norte', shop_id: null, branch_id: null, direccion: null, gerente_id: null, activa: true, created_at: '' },
@@ -1059,5 +1059,171 @@ describe('unidadDe · una evaluación mide una sola unidad', () => {
 
   it('sin unidad no inventa una: devuelve vacío', () => {
     expect(unidadDe({ sucursal_id: null, departamento_id: null })).toBe('')
+  })
+})
+
+/* --- Seguimiento por cargo ------------------------------------------------ */
+
+function itemSeg(id: string, texto: string): Item {
+  return {
+    id,
+    modulo_id: 'm-seg',
+    tipo: 'CUMPLE_NO_CUMPLE',
+    texto,
+    opciones: [],
+    orden: 0,
+    requerido: false,
+    activo: true,
+    puntaje: 100,
+    created_at: ''
+  }
+}
+
+function respuestaSeg(
+  evaluacionId: string,
+  itemId: string,
+  cumple: boolean,
+  responsables: string[]
+): Respuesta {
+  return {
+    id: `${evaluacionId}-${itemId}`,
+    evaluacion_id: evaluacionId,
+    item_id: itemId,
+    instancia_id: null,
+    valor: { value: cumple, responsables },
+    respondido_por: null,
+    created_at: ''
+  }
+}
+
+function evSeg(
+  id: string,
+  sucursalId: string | null,
+  departamentoId: string | null,
+  nombre: string,
+  fecha: string
+): VistaEvaluacion {
+  return {
+    id,
+    offline_uuid: id,
+    sucursal_id: sucursalId,
+    departamento_id: departamentoId,
+    aperturada_por: 'user-test',
+    fecha,
+    estado: 'CERRADA',
+    puntuacion: null,
+    comentario_general: null,
+    abierta_en: null,
+    cerrada_en: null,
+    created_at: '',
+    sucursal: sucursalId
+      ? { id: sucursalId, nombre, shop_id: null, branch_id: null, direccion: null }
+      : null,
+    departamento: departamentoId ? { id: departamentoId, nombre } : null,
+    aperturador: null
+  }
+}
+
+/**
+ * Norte falla el ítem 1 con «Encargado de turno», Sur repite ese mismo cargo
+ * escrito distinto y suma un segundo cargo, y Contabilidad —departamento, sin
+ * sucursal— falla con un cargo propio.
+ */
+function conjuntoSeguimiento(): ConjuntoDatos {
+  const modulos: Modulo[] = [
+    {
+      id: 'm-seg',
+      nombre: 'Higiene y seguridad',
+      descripcion: '',
+      orden: 0,
+      activo: true,
+      created_at: ''
+    }
+  ]
+  const items: Item[] = [itemSeg('i-seg-1', 'EPP completo'), itemSeg('i-seg-2', 'Piso limpio')]
+  const evaluaciones: VistaEvaluacion[] = [
+    evSeg('evN', 'sN', null, 'Sucursal Norte', '2026-09-01'),
+    evSeg('evS', 'sS', null, 'Sucursal Sur', '2026-09-15'),
+    evSeg('evD', null, 'dC', 'Contabilidad', '2026-09-20')
+  ]
+  const respuestas: Respuesta[] = [
+    respuestaSeg('evN', 'i-seg-1', false, ['Encargado de turno']),
+    respuestaSeg('evS', 'i-seg-1', false, ['encargado de Turno']),
+    respuestaSeg('evS', 'i-seg-2', false, ['Depositaría']),
+    respuestaSeg('evD', 'i-seg-1', false, ['Líder TH'])
+  ]
+  return { evaluaciones, respuestas, items, modulos, fotos: [], sucursalOpciones: [], instancias: [] }
+}
+
+describe('seguimientoResponsables', () => {
+  it('agrupa por clave normalizada: el mismo cargo escrito distinto es UNA fila', () => {
+    const s = seguimientoResponsables(conjuntoSeguimiento())
+
+    expect(s.filas.map((f) => f.cargo)).toEqual(['Encargado de turno', 'Depositaría', 'Líder TH'])
+
+    const encargado = s.filas[0]
+    expect(encargado.clave).toBe('encargadodeturno')
+    expect(encargado.puntos).toBe(2)
+    expect(encargado.evaluaciones).toBe(2)
+    expect(encargado.unidades).toBe(2)
+    expect(encargado.ultima).toBe('2026-09-15')
+  })
+
+  it('reparte los puntos por unidad y ordena las sucursales por lo peor', () => {
+    const s = seguimientoResponsables(conjuntoSeguimiento())
+
+    expect(s.filas[0].porUnidad).toEqual({ sN: 1, sS: 1 })
+    expect(s.unidades).toEqual([
+      { id: 'sS', nombre: 'Sucursal Sur', puntos: 2 },
+      { id: 'dC', nombre: 'Contabilidad', puntos: 1 },
+      { id: 'sN', nombre: 'Sucursal Norte', puntos: 1 }
+    ])
+  })
+
+  it('la evaluación de departamento entra con su nombre, no como una sucursal sin nombre', () => {
+    const s = seguimientoResponsables(conjuntoSeguimiento())
+
+    expect(s.filas.find((f) => f.clave === 'liderth')?.porUnidad).toEqual({ dC: 1 })
+  })
+
+  it('una respuesta cumplida no suma ningún punto', () => {
+    const datos = conjuntoSeguimiento()
+    datos.respuestas.push(respuestaSeg('evN', 'i-seg-2', true, ['Limpieza']))
+
+    expect(seguimientoResponsables(datos).filas.some((f) => f.clave === 'limpieza')).toBe(false)
+  })
+
+  it('una respuesta sin responsables no inventa un cargo', () => {
+    const datos = conjuntoSeguimiento()
+    datos.respuestas.push(respuestaSeg('evN', 'i-seg-2', false, []))
+
+    expect(seguimientoResponsables(datos).filas.map((f) => f.clave)).not.toContain('')
+  })
+})
+
+describe('hallazgosDeCargo', () => {
+  it('devuelve el detalle con evaluación, unidad, módulo e ítem', () => {
+    const h = hallazgosDeCargo(conjuntoSeguimiento(), 'encargado de turno')
+
+    expect(h).toHaveLength(2)
+    expect(h[0]).toMatchObject({
+      evaluacion_id: 'evS',
+      unidad: 'Sucursal Sur',
+      modulo: 'Higiene y seguridad',
+      item: 'EPP completo',
+      puntos: 1
+    })
+    expect(h[1].evaluacion_id).toBe('evN')
+  })
+
+  it('acepta cualquier forma del cargo: usa la misma clave que la matriz', () => {
+    expect(hallazgosDeCargo(conjuntoSeguimiento(), 'ENCARGADO DE TURNO')).toHaveLength(2)
+  })
+
+  it('filtra por unidad, como cuando se pulsa una celda de la matriz', () => {
+    const h = hallazgosDeCargo(conjuntoSeguimiento(), 'Encargado de turno', 'sN')
+
+    expect(h).toHaveLength(1)
+    expect(h[0].unidad).toBe('Sucursal Norte')
   })
 })

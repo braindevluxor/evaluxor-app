@@ -18,6 +18,7 @@ interface EnlaceMenu {
 const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
   { seccion: 'Resultados', items: [
     { to: '/dashboard', label: 'Indicadores', end: true, icon: <Gauge className="h-5 w-5" /> },
+    { to: '/dashboard/responsables', label: 'Seguimiento por cargo', icon: <Users className="h-5 w-5" /> },
     { to: '/dashboard/historial', label: 'Historial', icon: <History className="h-5 w-5" /> }
   ]},
   { seccion: 'Biblioteca', items: [
@@ -30,6 +31,7 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/dashboard': { titulo: 'Indicadores de gestión', subtitulo: 'Desempeño de las evaluaciones 360' },
   '/dashboard/historial': { titulo: 'Historial de evaluaciones', subtitulo: 'Programación, seguimiento y cierre de evaluaciones' },
   '/dashboard/comparativas': { titulo: 'Comparativas', subtitulo: 'Analiza el desempeño por evaluador, mes o sucursal' },
+  '/dashboard/responsables': { titulo: 'Seguimiento por cargo', subtitulo: 'Puntos no cumplidos por responsable y por sucursal' },
   '/config/sucursales': { titulo: 'Sucursales', subtitulo: 'Registro de supermercados a evaluar' },
   '/config/departamentos': { titulo: 'Departamentos', subtitulo: 'Áreas de la organización que se evalúan por separado' },
   '/config/modulos': { titulo: 'Módulos', subtitulo: 'Áreas que se evalúan en cada visita' },
@@ -289,7 +291,11 @@ function ConsoleLayoutContenido() {
           </div>
         ) : null}
         </div>
-        {pathname === '/dashboard' || pathname.startsWith('/dashboard/modulo/') ? <BarraKpis /> : null}
+        {pathname === '/dashboard' ||
+        pathname === '/dashboard/responsables' ||
+        pathname.startsWith('/dashboard/modulo/') ? (
+          <BarraKpis />
+        ) : null}
         <SyncBanner />
         <main className="mx-auto max-w-7xl px-4 py-6 lg:px-8">
           <Outlet />

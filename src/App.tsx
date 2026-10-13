@@ -26,6 +26,7 @@ const IncidenciasPage = lazy(() => import('./pages/evaluar/IncidenciasPage').the
 const DashboardHome = lazy(() => import('./pages/dashboard/DashboardHome').then((m) => ({ default: m.DashboardHome })))
 const Historial = lazy(() => import('./pages/dashboard/Historial').then((m) => ({ default: m.Historial })))
 const Comparativas = lazy(() => import('./pages/dashboard/Comparativas').then((m) => ({ default: m.Comparativas })))
+const Responsables = lazy(() => import('./pages/dashboard/Responsables').then((m) => ({ default: m.Responsables })))
 const ModuloDashboard = lazy(() => import('./pages/dashboard/ModuloDashboard').then((m) => ({ default: m.ModuloDashboard })))
 const SucursalesPage = lazy(() => import('./pages/config/Sucursales').then((m) => ({ default: m.SucursalesPage })))
 const DepartamentosPage = lazy(() => import('./pages/config/Departamentos').then((m) => ({ default: m.DepartamentosPage })))
@@ -196,6 +197,14 @@ function Rutas() {
                           <RequireRol roles={ROLES_DASHBOARD}>
                             <Comparativas />
                           </RequireRol>
+                        }
+                      />
+                      <Route
+                        path="/dashboard/responsables"
+                        element={
+                          <SoloLider>
+                            <Responsables />
+                          </SoloLider>
                         }
                       />
                       <Route

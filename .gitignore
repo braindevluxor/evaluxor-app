@@ -18,3 +18,8 @@ supabase/.temp
 .agents/
 *.bak
 *.bak[0-9]*
+
+# Skill Impeccable de OpenCode: trae un binario de ~20 MB (el motor impeccable.exe)
+# que no debe pesar en cada clone. Los artefactos de diseno que genera viven en
+# .impeccable/ y SI se versionan.
+.opencode/

@@ -9,6 +9,8 @@ import {
 import { desdeAhora, formatearFechaHora } from '../../lib/tiempo'
 import {
   agruparPorDepartamento,
+  conciliacionComparable,
+  diferenciaConciliacion,
   esMatchConciliacion,
   esSinHablador,
   estadoConciliacion,
@@ -247,17 +249,22 @@ function TarjetaConciliacion({
       {contraDato === 'SOH' ? <Perdida productos={ps} /> : null}
 
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full table-fixed text-xs sm:text-sm">
+        {/* min-w: siete columnas no entran en un teléfono sin partir los números.
+            Con ancho mínimo la tabla se desplaza en vez de aplastarse, que es
+            para lo que ya está el overflow-x-auto. */}
+        <table className="w-full min-w-[700px] table-fixed text-xs sm:text-sm">
           <thead>
             <tr className="bg-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-500">
-              <th scope="col" className="w-[26%] break-words px-2 py-2 font-bold">SKU</th>
-              <th scope="col" className="w-[30%] break-words px-2 py-2 font-bold">Producto</th>
-              <th scope="col" className="w-[14%] break-words px-2 py-2 text-right font-bold">
+              <th scope="col" className="w-[16%] break-words px-2 py-2 font-bold">SKU</th>
+              <th scope="col" className="w-[11%] break-words px-2 py-2 font-bold">ID</th>
+              <th scope="col" className="w-[21%] break-words px-2 py-2 font-bold">Producto</th>
+              <th scope="col" className="w-[12%] break-words px-2 py-2 text-right font-bold">
                 {esPrecio ? 'Sistema' : 'Teórica'}
               </th>
-              <th scope="col" className="w-[14%] break-words px-2 py-2 text-right font-bold">
+              <th scope="col" className="w-[12%] break-words px-2 py-2 text-right font-bold">
                 {esPrecio ? 'Hablador' : 'Física'}
               </th>
+              <th scope="col" className="w-[12%] break-words px-2 py-2 text-right font-bold">Diferencia</th>
               <th scope="col" className="w-[16%] break-words px-2 py-2 text-right font-bold">Estado</th>
             </tr>
           </thead>
@@ -298,7 +305,7 @@ function GrupoTabla({
   return (
     <>
       <tr className="bg-slate-200/70">
-        <th scope="colgroup" colSpan={5} className="px-2 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
+        <th scope="colgroup" colSpan={7} className="px-2 py-1.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
           {nombre ?? 'Sin departamento'}
           {perdida > 0 ? (
             <span className="ml-2 font-semibold normal-case tracking-normal text-red-600">
@@ -310,6 +317,13 @@ function GrupoTabla({
       {productos.map((p, i) => {
         const hablador = esSinHablador(p)
         const estado = estadoConciliacion(p)
+        // El id de la API es con lo que se cruza la fila contra el sistema; el
+        // sku es sólo el código escaneado. Sin datos el hueco queda con guion,
+        // no en cero: un "0" leería como id de verdad.
+        const idApi = p.apiId != null ? String(p.apiId) : '—'
+        // El signo va aparte de la magnitud: el distintivo ya dice Match/Falta,
+        // y acá lo que se agrega es cuánto y para qué lado.
+        const tono = estado === 'falta' ? 'text-red-700' : estado === 'sobra' ? 'text-amber-700' : 'text-slate-500'
         const chip = hablador
           ? { texto: 'Sin hablador', clase: 'bg-amber-100 text-amber-800' }
           : estado === 'concilia'
@@ -322,12 +336,16 @@ function GrupoTabla({
         return (
           <tr key={`${p.sku}-${i}`} className={i % 2 === 1 ? 'bg-white' : 'bg-white/60'}>
             <td className="break-all px-2 py-1.5 font-medium tabular-nums text-slate-700">{p.sku}</td>
+            <td className="px-2 py-1.5 tabular-nums text-slate-500">{idApi}</td>
             <td className="break-words px-2 py-1.5 text-slate-600">{p.nombre ?? '—'}</td>
             <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">
               {cantidad(p.teorica, esPrecio)}
             </td>
             <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">
               {cantidad(p.fisica, esPrecio)}
+            </td>
+            <td className={cn('px-2 py-1.5 text-right font-semibold tabular-nums', tono)}>
+              {diferencia(p, esPrecio)}
             </td>
             <td className="px-2 py-1.5 text-right">
               <span className={cn('inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', chip.clase)}>
@@ -413,6 +431,24 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
 function cantidad(n: number | null, esPrecio: boolean): string {
   if (n == null) return '—'
   return esPrecio ? formatearPrecioBase(n) : String(n)
+}
+
+/**
+ * Cuánto se desvía la fila y para qué lado: `-` cuando falta en la góndola,
+ * `+` cuando sobra. En precio la diferencia es plata y lleva `$`; en conteo
+ * son unidades peladas.
+ *
+ * Sin dos números comparables no hay diferencia que mostrar y va un guion, no
+ * un `0`: el cero afirmaría que todo concilia cuando en realidad no hay con
+ * qué comparar (producto sin hablador, sin conteo). Por eso el `0` sólo
+ * aparece cuando las dos medidas existen y dan igual.
+ */
+function diferencia(p: ProductoConciliacion, esPrecio: boolean): string {
+  if (!conciliacionComparable(p)) return '—'
+  const monto = diferenciaConciliacion(p)
+  if (monto === 0) return esPrecio ? formatearPrecioBase(0) : '0'
+  const signo = p.fisica > p.teorica ? '+' : '-'
+  return `${signo}${esPrecio ? formatearPrecioBase(monto) : monto}`
 }
 
 function fechaLarga(fecha: string): string {

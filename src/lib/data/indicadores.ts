@@ -1,5 +1,6 @@
 import { supabase } from '../supabase'
 import type { Evaluacion, Respuesta, Item, Foto, Modulo, Opcion, VistaEvaluacion, EstadoEvaluacion, Rol, SucursalOpcion, DepartamentoOpcion, InstanciaGrupo, SucursalModulo, TipoItem } from '../types'
+import { claveNormalizada } from './responsables'
 import {
   proporcionItem,
   puntajePonderado,
@@ -1148,6 +1149,177 @@ export function acumuladoResponsables(datos: ConjuntoDatos): AcumuladoResponsabl
   return Array.from(acum.entries())
     .map(([responsable, puntos]) => ({ responsable, puntos }))
     .sort((a, b) => b.puntos - a.puntos || a.responsable.localeCompare(b.responsable))
+}
+
+/** Un punto no cumplido concreto: en qué evaluación, de qué unidad, en qué módulo e ítem. */
+export interface HallazgoResponsable {
+  evaluacion_id: string
+  fecha: string
+  unidad: string
+  modulo: string
+  item: string
+  puntos: number
+}
+
+export interface FilaSeguimientoCargo {
+  /** Clave normalizada: es con la que se vuelve a pedir el detalle (`hallazgosDeCargo`). */
+  clave: string
+  /** Nombre tal como aparece en los ítems; la primera forma vista gana. */
+  cargo: string
+  puntos: number
+  /** Evaluaciones distintas en las que acumó al menos un punto. */
+  evaluaciones: number
+  /** Unidades (sucursales o departamentos) en las que acumó al menos un punto. */
+  unidades: number
+  /** Fecha de la última evaluación en la que acumó: el histórico es de todo, pero la fila tiene que decir si sigue pasando. */
+  ultima: string | null
+  /** Puntos por unidad: `unidad_id` → puntos. */
+  porUnidad: Record<string, number>
+}
+
+export interface SeguimientoResponsables {
+  /** Unidades con al menos un punto, ordenadas por total (lo peor primero). */
+  unidades: { id: string; nombre: string; puntos: number }[]
+  filas: FilaSeguimientoCargo[]
+}
+
+/**
+ * El seguimiento por cargo: cuántos puntos no cumplidos acumuló cada cargo y en
+ * qué sucursal, sobre TODO el histórico (no recorta por fechas: así se ve quién
+ * acumula, no quién falló el mes pasado).
+ *
+ * Dos detalles que no son cosméticos:
+ *
+ * · Se agrupa por `claveNormalizada`, no por el texto crudo. «Encargado de
+ *   turno» y «encargado de Turno» son el mismo cargo y si se agruparan por
+ *   texto la fila se partiría en dos mitades que sumadas no coinciden con
+ *   ningún total.
+ * · La unidad sale de `unidadDe`, igual que en el resto de los indicadores:
+ *   una evaluación de departamento no tiene sucursal y meter su `null` en la
+ *   matriz la dejaría sin celda, con los puntos contados en la fila pero en
+ *   ninguna columna.
+ */
+export function seguimientoResponsables(datos: ConjuntoDatos): SeguimientoResponsables {
+  const evalDe = new Map(datos.evaluaciones.map((e) => [e.id, e]))
+  const itemDe = new Map(datos.items.map((i) => [i.id, i]))
+  const unidades = new Map<string, { nombre: string; puntos: number }>()
+  const cargos = new Map<
+    string,
+    {
+      nombre: string
+      puntos: number
+      evaluaciones: Set<string>
+      unidades: Set<string>
+      ultima: string | null
+      porUnidad: Map<string, number>
+    }
+  >()
+
+  for (const r of datos.respuestas) {
+    const ev = evalDe.get(r.evaluacion_id)
+    const item = itemDe.get(r.item_id)
+    if (!ev || !item) continue
+    const unidadId = unidadDe(ev)
+    const incs = incumplimientosPorResponsable(
+      aplicarOpcionesSucursal(item, unidadId, datos.sucursalOpciones),
+      r.valor
+    )
+    if (!incs.length) continue
+
+    const nombreUnidad = ev.sucursal?.nombre ?? ev.departamento?.nombre ?? 'Sin unidad'
+    const u = unidades.get(unidadId) ?? { nombre: nombreUnidad, puntos: 0 }
+
+    for (const a of incs) {
+      const clave = claveNormalizada(a.responsable)
+      if (!clave) continue
+      const c = cargos.get(clave) ?? {
+        nombre: a.responsable,
+        puntos: 0,
+        evaluaciones: new Set<string>(),
+        unidades: new Set<string>(),
+        ultima: null,
+        porUnidad: new Map<string, number>()
+      }
+      c.puntos += a.puntos
+      c.evaluaciones.add(ev.id)
+      c.unidades.add(unidadId)
+      c.porUnidad.set(unidadId, (c.porUnidad.get(unidadId) ?? 0) + a.puntos)
+      if (!c.ultima || ev.fecha > c.ultima) c.ultima = ev.fecha
+      cargos.set(clave, c)
+
+      u.puntos += a.puntos
+    }
+    unidades.set(unidadId, u)
+  }
+
+  const filas: FilaSeguimientoCargo[] = Array.from(cargos.entries())
+    .map(([clave, c]) => ({
+      clave,
+      cargo: c.nombre,
+      puntos: c.puntos,
+      evaluaciones: c.evaluaciones.size,
+      unidades: c.unidades.size,
+      ultima: c.ultima,
+      porUnidad: Object.fromEntries(c.porUnidad)
+    }))
+    .sort((a, b) => b.puntos - a.puntos || a.cargo.localeCompare(b.cargo, 'es'))
+
+  const listaUnidades = Array.from(unidades.entries())
+    .map(([id, u]) => ({ id, nombre: u.nombre, puntos: u.puntos }))
+    .sort((a, b) => b.puntos - a.puntos || a.nombre.localeCompare(b.nombre, 'es'))
+
+  return { unidades: listaUnidades, filas }
+}
+
+/**
+ * Los puntos no cumplidos de UN cargo, uno por uno: en qué evaluación, de qué
+ * unidad, en qué módulo e ítem.
+ *
+ * `cargo` puede venir con cualquier forma («encargado de turno»): se compara con
+ * la misma clave normalizada con la que se agrupó, si no el detalle de una fila
+ * saldría vacío.
+ */
+export function hallazgosDeCargo(
+  datos: ConjuntoDatos,
+  cargo: string,
+  unidadId?: string
+): HallazgoResponsable[] {
+  const clave = claveNormalizada(cargo)
+  if (!clave) return []
+  const itemDe = new Map(datos.items.map((i) => [i.id, i]))
+  const moduloDe = new Map(datos.modulos.map((m) => [m.id, m.nombre]))
+  const respuestasPorEval = new Map<string, Respuesta[]>()
+  for (const r of datos.respuestas) {
+    const arr = respuestasPorEval.get(r.evaluacion_id) ?? []
+    arr.push(r)
+    respuestasPorEval.set(r.evaluacion_id, arr)
+  }
+
+  const salida: HallazgoResponsable[] = []
+  for (const ev of datos.evaluaciones) {
+    if (unidadId && unidadDe(ev) !== unidadId) continue
+    const unidadIdReal = unidadDe(ev)
+    for (const r of respuestasPorEval.get(ev.id) ?? []) {
+      const item = itemDe.get(r.item_id)
+      if (!item) continue
+      const incs = incumplimientosPorResponsable(
+        aplicarOpcionesSucursal(item, unidadIdReal, datos.sucursalOpciones),
+        r.valor
+      )
+      const propio = incs.find((a) => claveNormalizada(a.responsable) === clave)
+      if (!propio) continue
+      salida.push({
+        evaluacion_id: ev.id,
+        fecha: ev.fecha,
+        unidad: ev.sucursal?.nombre ?? ev.departamento?.nombre ?? 'Sin unidad',
+        modulo: moduloDe.get(item.modulo_id) ?? 'Sin módulo',
+        item: item.texto,
+        puntos: propio.puntos
+      })
+    }
+  }
+
+  return salida.sort((a, b) => b.puntos - a.puntos || b.fecha.localeCompare(a.fecha))
 }
 
 export function porEvaluador(datos: ConjuntoDatos): { evaluador_id: string; nombre: string; puntaje: number | null; evaluaciones: number }[] {
