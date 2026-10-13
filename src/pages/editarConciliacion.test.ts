@@ -98,21 +98,3 @@ describe('la conciliación se edita por par (ítem, registro)', () => {
     expect(codigo).toContain('Registro · {b.etiqueta}')
   })
 })
-
-/**
- * Borrar durante la evaluación: el gesto de deslizar existía, pero en el
- * teléfono era imposible de encontrar, así que el evaluador no tenía forma de
- * sacarse un escaneo equivocado de encima.
- */
-describe('la papelera de un producto escaneado', () => {
-  it('está a la vista en la fila, no sólo detrás del deslizamiento', () => {
-    const codigo = fuente('../components/ItemRenderer.tsx')
-    // Se ancla en el propio botón y no en la barra: `rounded-b-xl bg-white px-3
-    // py-1.5` aparece antes en el archivo, en otra barra que no es ésta.
-    const i = codigo.indexOf('aria-label={`Eliminar ${p.sku}`}')
-    expect(i, 'no encontré la papelera de la fila').toBeGreaterThan(-1)
-    expect(codigo.slice(i - 500, i)).toContain('setAEliminar({ producto: p, index: i })')
-    // Y el texto de ayuda ya no manda a deslizar para las dos cosas.
-    expect(codigo).toContain('toca la papelera para eliminarlo')
-  })
-})

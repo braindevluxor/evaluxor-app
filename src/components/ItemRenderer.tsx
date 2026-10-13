@@ -914,7 +914,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
             {verLista ? (
               <>
                 <p className="px-3 pt-2 text-[11px] font-medium text-slate-400">
-                  Desliza un producto para editar, o toca la papelera para eliminarlo.
+                  Desliza un producto: derecha para editar · izquierda para eliminar.
                 </p>
                 <ul className="space-y-2 p-3">
                   {productos.map((p, i) => {
@@ -1085,19 +1085,6 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
                             photoIds={p.photoIds ?? []}
                             onChange={(ids) => actualizarProducto(i, { photoIds: ids })}
                           />
-                          {/* La papelera va a la vista y no sólo detrás del gesto:
-                              borrar un producto escaneado por error era imposible
-                              de encontrar en el teléfono. Fuera del área de
-                              deslizar por lo mismo que la cámara. */}
-                          <button
-                            type="button"
-                            onClick={() => setAEliminar({ producto: p, index: i })}
-                            aria-label={`Eliminar ${p.sku}`}
-                            title="Eliminar producto"
-                            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-red-500 hover:bg-red-50 hover:text-red-700"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
                         </div>
                       </li>
                     )
