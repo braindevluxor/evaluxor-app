@@ -14,6 +14,11 @@ supabase/.temp
 .vercel
 .env*
 
+# Procesos locales de vite: logs y pid de un dev server que quedó corriendo.
+vite.log
+vite.err.log
+vite.pid
+
 # Herramientas locales del agente y respaldos manuales: no son código del proyecto.
 .agents/
 *.bak
