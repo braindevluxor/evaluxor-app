@@ -31,7 +31,7 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/dashboard': { titulo: 'Indicadores de gestión', subtitulo: 'Desempeño de las evaluaciones 360' },
   '/dashboard/historial': { titulo: 'Historial de evaluaciones', subtitulo: 'Programación, seguimiento y cierre de evaluaciones' },
   '/dashboard/comparativas': { titulo: 'Comparativas', subtitulo: 'Analiza el desempeño por evaluador, mes o sucursal' },
-  '/dashboard/responsables': { titulo: 'Seguimiento por cargo', subtitulo: 'Puntos no cumplidos por responsable y por sucursal' },
+  '/dashboard/responsables': { titulo: 'Seguimiento por cargo', subtitulo: 'Nota promedio de cada responsable por sucursal' },
   '/config/sucursales': { titulo: 'Sucursales', subtitulo: 'Registro de supermercados a evaluar' },
   '/config/departamentos': { titulo: 'Departamentos', subtitulo: 'Áreas de la organización que se evalúan por separado' },
   '/config/modulos': { titulo: 'Módulos', subtitulo: 'Áreas que se evalúan en cada visita' },

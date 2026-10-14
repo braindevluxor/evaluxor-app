@@ -1064,7 +1064,16 @@ describe('unidadDe · una evaluación mide una sola unidad', () => {
 
 /* --- Seguimiento por cargo ------------------------------------------------ */
 
-function itemSeg(id: string, texto: string): Item {
+/**
+ * `responsables` es lo que hay que configurarle al ítem para que un check
+ * CUMPIDO le acredite la nota a alguien: cuando la respuesta sale bien no hay
+ * selección del evaluador que repartir, el punto se acredita al cargo que tiene
+ * asignado el ítem. Las fallas, en cambio, van a quien eligió el evaluador.
+ *
+ * `puntaje` 0 = ítem sin peso: no entra en el denominador de nadie, aunque una
+ * falla ahí igual se registre.
+ */
+function itemSeg(id: string, texto: string, responsables?: string[], puntaje = 100): Item {
   return {
     id,
     modulo_id: 'm-seg',
@@ -1074,7 +1083,8 @@ function itemSeg(id: string, texto: string): Item {
     orden: 0,
     requerido: false,
     activo: true,
-    puntaje: 100,
+    puntaje,
+    ...(responsables ? { responsables } : {}),
     created_at: ''
   }
 }
@@ -1125,9 +1135,14 @@ function evSeg(
 }
 
 /**
- * Norte falla el ítem 1 con «Encargado de turno», Sur repite ese mismo cargo
- * escrito distinto y suma un segundo cargo, y Contabilidad —departamento, sin
- * sucursal— falla con un cargo propio.
+ * Norte falla el ítem 1 con «Encargado de turno» pero acierta el ítem 2, que
+ * está configurado para «Depositaría»; Sur repite ese primer cargo escrito
+ * distinto y suma a Depositaría, que ahí falla; y Contabilidad —departamento,
+ * sin sucursal— falla con un cargo propio.
+ *
+ * Ese acierto de Norte es lo que hace que las notas no sean todas 0: Depositaría
+ * queda en 50% (100 de 200) y cierra la lista, mientras que los que sólo
+ * fallaron van primero.
  */
 function conjuntoSeguimiento(): ConjuntoDatos {
   const modulos: Modulo[] = [
@@ -1140,7 +1155,12 @@ function conjuntoSeguimiento(): ConjuntoDatos {
       created_at: ''
     }
   ]
-  const items: Item[] = [itemSeg('i-seg-1', 'EPP completo'), itemSeg('i-seg-2', 'Piso limpio')]
+  const items: Item[] = [
+    itemSeg('i-seg-1', 'EPP completo', ['Encargado de turno']),
+    itemSeg('i-seg-2', 'Piso limpio', ['Depositaría']),
+    // Sin responsables configurados: para el test de «no inventa un cargo».
+    itemSeg('i-seg-3', 'Producto en góndola')
+  ]
   const evaluaciones: VistaEvaluacion[] = [
     evSeg('evN', 'sN', null, 'Sucursal Norte', '2026-09-01'),
     evSeg('evS', 'sS', null, 'Sucursal Sur', '2026-09-15'),
@@ -1148,6 +1168,7 @@ function conjuntoSeguimiento(): ConjuntoDatos {
   ]
   const respuestas: Respuesta[] = [
     respuestaSeg('evN', 'i-seg-1', false, ['Encargado de turno']),
+    respuestaSeg('evN', 'i-seg-2', true, ['Depositaría']),
     respuestaSeg('evS', 'i-seg-1', false, ['encargado de Turno']),
     respuestaSeg('evS', 'i-seg-2', false, ['Depositaría']),
     respuestaSeg('evD', 'i-seg-1', false, ['Líder TH'])
@@ -1159,20 +1180,37 @@ describe('seguimientoResponsables', () => {
   it('agrupa por clave normalizada: el mismo cargo escrito distinto es UNA fila', () => {
     const s = seguimientoResponsables(conjuntoSeguimiento())
 
-    expect(s.filas.map((f) => f.cargo)).toEqual(['Encargado de turno', 'Depositaría', 'Líder TH'])
+    // Lo peor primero: nota 0 con más puntos, luego nota 0 con menos, y el que
+    // acertó en alguna sucursal cierra la lista.
+    expect(s.filas.map((f) => f.cargo)).toEqual(['Encargado de turno', 'Líder TH', 'Depositaría'])
 
     const encargado = s.filas[0]
     expect(encargado.clave).toBe('encargadodeturno')
     expect(encargado.puntos).toBe(2)
+    expect(encargado.nota).toBe(0)
     expect(encargado.evaluaciones).toBe(2)
     expect(encargado.unidades).toBe(2)
     expect(encargado.ultima).toBe('2026-09-15')
   })
 
-  it('reparte los puntos por unidad y ordena las sucursales por lo peor', () => {
+  it('la nota de la fila se pondera con logrado y posible, no promediando celdas', () => {
+    const s = seguimientoResponsables(conjuntoSeguimiento())
+    const depositaria = s.filas.find((f) => f.clave === 'depositaria')
+
+    // Acertó en Norte (100 de 100) y falló en Sur (0 de 100): 50%, que es
+    // 100/200 y no el promedio de 100% y 0% disfrazado de lo mismo.
+    expect(depositaria?.porUnidad.sN).toEqual({ logrado: 100, posible: 100 })
+    expect(depositaria?.porUnidad.sS).toEqual({ logrado: 0, posible: 100 })
+    expect(depositaria?.nota).toBe(50)
+  })
+
+  it('reparte la base de la nota por unidad y ordena las sucursales por lo peor', () => {
     const s = seguimientoResponsables(conjuntoSeguimiento())
 
-    expect(s.filas[0].porUnidad).toEqual({ sN: 1, sS: 1 })
+    expect(s.filas[0].porUnidad).toEqual({
+      sN: { logrado: 0, posible: 100 },
+      sS: { logrado: 0, posible: 100 }
+    })
     expect(s.unidades).toEqual([
       { id: 'sS', nombre: 'Sucursal Sur', puntos: 2 },
       { id: 'dC', nombre: 'Contabilidad', puntos: 1 },
@@ -1180,13 +1218,35 @@ describe('seguimientoResponsables', () => {
     ])
   })
 
+  it('la nota global es ponderada y cierra con la matriz', () => {
+    const s = seguimientoResponsables(conjuntoSeguimiento())
+
+    expect(s.nota).toBe(20) // 100 logrados sobre 500 posibles
+    expect(s.puntos).toBe(4)
+  })
+
   it('la evaluación de departamento entra con su nombre, no como una sucursal sin nombre', () => {
     const s = seguimientoResponsables(conjuntoSeguimiento())
 
-    expect(s.filas.find((f) => f.clave === 'liderth')?.porUnidad).toEqual({ dC: 1 })
+    expect(s.filas.find((f) => f.clave === 'liderth')?.porUnidad).toEqual({
+      dC: { logrado: 0, posible: 100 }
+    })
   })
 
-  it('una respuesta cumplida no suma ningún punto', () => {
+  it('un cargo sin base medible queda sin nota y va al final de la lista', () => {
+    const datos = conjuntoSeguimiento()
+    datos.items.push(itemSeg('i-seg-9', 'Sin peso', [], 0))
+    datos.respuestas.push(respuestaSeg('evD', 'i-seg-9', false, ['Jefe de depósito']))
+
+    const s = seguimientoResponsables(datos)
+    const ultima = s.filas[s.filas.length - 1]
+
+    expect(ultima.cargo).toBe('Jefe de depósito')
+    expect(ultima.nota).toBeNull()
+    expect(ultima.puntos).toBe(1)
+  })
+
+  it('una respuesta cumplida le da nota al cargo configurado, no a la selección', () => {
     const datos = conjuntoSeguimiento()
     datos.respuestas.push(respuestaSeg('evN', 'i-seg-2', true, ['Limpieza']))
 
@@ -1195,9 +1255,13 @@ describe('seguimientoResponsables', () => {
 
   it('una respuesta sin responsables no inventa un cargo', () => {
     const datos = conjuntoSeguimiento()
-    datos.respuestas.push(respuestaSeg('evN', 'i-seg-2', false, []))
+    datos.respuestas.push(respuestaSeg('evN', 'i-seg-3', false, []))
 
-    expect(seguimientoResponsables(datos).filas.map((f) => f.clave)).not.toContain('')
+    expect(seguimientoResponsables(datos).filas.map((f) => f.clave)).toEqual([
+      'encargadodeturno',
+      'liderth',
+      'depositaria'
+    ])
   })
 })
 

@@ -13,33 +13,37 @@ import {
 import {
   consultarEvaluaciones,
   hallazgosDeCargo,
+  notaDe,
   seguimientoResponsables,
   type ConjuntoDatos,
   type HallazgoResponsable,
   type SeguimientoResponsables
 } from '../../lib/data/indicadores'
 import { claveNormalizada } from '../../lib/data/responsables'
-import { valorPorResponsable } from '../../lib/scoring'
 import { setKpisGlobal, type EstadoKpis } from '../../lib/kpisGlobal'
 
 /**
  * SEGUIMIENTO POR CARGO
  * ---------------------
  * Responde a dos preguntas que hasta ahora sólo se podían contestar evaluación
- * por evaluación: «¿qué cargo acumula más puntos sin cumplir?» y «¿en qué
- * sucursal se le acumulan?».
+ * por evaluación: «¿qué cargo está sacando peor nota?» y «¿en qué sucursal se
+ * le va?».
+ *
+ * La matriz muestra el PROMEDIO PORCENTUAL de la nota de cada cargo —logrado
+ * sobre posible, ponderado con los mismos pesos que usa el resto de la app— y
+ * no el conteo de incidencias: a un gerente le sirve «87%» antes que «14
+ * puntos», porque el número ya viene comparado con lo que había que hacer. Las
+ * incidencias no desaparecen, quedan para el detalle: al pulsar una celda se
+ * abre la lista concreta de qué le está quitando nota en ese cargo.
  *
  * Es una superficie NUEVA del dashboard, no una variante de Indicadores: esa
- * pantalla mide unidades (sucursales, módulos), ésta mide responsables. El
- * cálculo es el mismo de siempre (`incumplimientosPorResponsable`, el de las
- * tarjetas «Puntaje por responsable» de EvaluacionDetalle), sólo que agregado
- * sobre TODO el histórico en vez de sobre una sola evaluación.
+ * pantalla mide unidades (sucursales, módulos), ésta mide responsables.
  *
  * Visible sólo para el LÍDER: un gerente de sucursal no tiene por qué leer el
  * ranking de cargos de las tiendas ajenas.
  */
 
-type Orden = 'puntos' | 'nombre' | 'cobertura'
+type Orden = 'nota' | 'nombre' | 'cobertura'
 
 /** `2025-03-08` → `8/3/2025`. La fecha llega como string ISO desde Postgres. */
 function fechaCorta(iso: string): string {
@@ -49,23 +53,43 @@ function fechaCorta(iso: string): string {
 }
 
 /**
- * La banda de color de una celda: el rojo es intenso proporcional a lo peor de
- * la matriz, no a un número fijo. Con un máximo fijo, el día que mejoren todas
- * juntas la matriz se volvería toda verde aunque siguiera habiendo 20 puntos
- * en una sucursal; escalando contra el pico de la propia tabla, el color
- * siempre señala DÓNDE está el problema dentro de lo que hay hoy.
- *
- * El pico (rojo sólido con cifra blanca) es aparte: es la celda que concentra
- * la mirada, y si estuviera sólo un escalón por encima del resto la escala se
- * aplanaría y no habría lugar adonde ir a mirar.
+ * `87` → `87%`; sin nota, un guion largo. Nunca `0%`: eso sería decir «sacó
+ * cero» de un cargo al que no se le midió nada, que es un dato distinto y
+ * bastante más grave.
  */
-function bandaCelda(puntos: number, maximo: number): string {
-  if (!puntos) return 'bg-slate-50 text-slate-500'
-  const r = maximo ? puntos / maximo : 1
-  if (r >= 1) return 'bg-red-700 text-white'
-  if (r <= 0.34) return 'bg-green-50 text-green-700'
-  if (r <= 0.67) return 'bg-amber-100 text-amber-800'
+function pct(nota: number | null): string {
+  return nota == null ? '—' : `${nota}%`
+}
+
+/**
+ * Las bandas son absolutas y no relativas al pico de la matriz. Eso se
+ * resolvía escalando contra lo peor de la tabla cuando la escala eran PUNTOS,
+ * porque «lo peor de hoy» no tenía número propio: dependía de cuánto hubiera
+ * pasado. Un porcentaje sí lo tiene. 79% es malo el día que el resto esté en
+ * 95 y también el día que esté en 60; pintarlo de verde porque sea el mejor de
+ * la tabla sería mentirle al Líder justo cuando peor está.
+ *
+ * Sólo la celda más baja de la matriz —y sólo si de verdad está por debajo de
+ * 80— sube a rojo sólido: es el ancla, el lugar adonde mirar primero.
+ */
+function bandaCelda(nota: number | null, peor: number | null): string {
+  if (nota == null) return 'bg-slate-50 text-slate-500'
+  if (nota >= 90) return 'bg-green-50 text-green-700'
+  if (nota >= 80) return 'bg-amber-100 text-amber-800'
+  if (nota === peor) return 'bg-red-700 text-white'
   return 'bg-red-100 text-red-700'
+}
+
+/**
+ * El color del texto de la nota, para el detalle que se abre bajo la fila.
+ * Sin el rojo sólido: ese recurso es de la celda ancla y usarlo dos veces en
+ * la misma pantalla los diluye.
+ */
+function textoNota(nota: number | null): string {
+  if (nota == null) return 'text-slate-500'
+  if (nota >= 90) return 'text-green-700'
+  if (nota >= 80) return 'text-amber-700'
+  return 'text-red-700'
 }
 
 interface Seleccion {
@@ -99,7 +123,7 @@ export function SeguimientoVista({
   seguimiento
 }: SeguimientoVistaProps) {
   const [busqueda, setBusqueda] = useState('')
-  const [orden, setOrden] = useState<Orden>('puntos')
+  const [orden, setOrden] = useState<Orden>('nota')
   const [sel, setSel] = useState<Seleccion | null>(null)
   const [visibles, setVisibles] = useState(40)
 
@@ -110,35 +134,84 @@ export function SeguimientoVista({
   }, [sel])
 
   // Memoizado: un `[]` nuevo en cada render re-dispara los useMemo que dependen
-  // de las columnas (los totales por unidad y el pico de la escala).
+  // de las columnas (los totales por unidad y la celda ancla de la escala).
   const unidades = useMemo(() => seguimiento?.unidades ?? [], [seguimiento])
 
   const filas = useMemo(() => {
     if (!seguimiento) return []
     const q = claveNormalizada(busqueda.trim())
     const base = q ? seguimiento.filas.filter((f) => f.clave.includes(q)) : [...seguimiento.filas]
-    // 'puntos' ya viene ordenado desde la capa de datos (desempate alfabético).
+    // 'nota' ya viene ordenado desde la capa de datos (lo peor primero, sin
+    // nota al final); sólo los otros dos órdenes reordenan.
     if (orden === 'nombre') base.sort((a, b) => a.cargo.localeCompare(b.cargo, 'es'))
-    if (orden === 'cobertura') base.sort((a, b) => b.unidades - a.unidades || b.puntos - a.puntos)
+    if (orden === 'cobertura')
+      base.sort((a, b) => b.unidades - a.unidades || b.puntos - a.puntos || a.cargo.localeCompare(b.cargo, 'es'))
     return base
   }, [seguimiento, busqueda, orden])
 
-  const maxCelda = useMemo(() => {
-    let m = 0
-    for (const f of filas) for (const u of unidades) m = Math.max(m, f.porUnidad[u.id] ?? 0)
+  // La celda ancla: la nota más baja de lo que se está mirando. Se calcula sobre
+  // las filas visibles para que, con una búsqueda activa, el rojo sólido caiga
+  // en lo peor de lo que el Líder está viendo y no de la matriz entera.
+  const peor = useMemo(() => {
+    let m: number | null = null
+    for (const f of filas) {
+      for (const u of unidades) {
+        const c = f.porUnidad[u.id]
+        if (!c) continue
+        const n = notaDe(c.logrado, c.posible)
+        if (n == null) continue
+        if (m == null || n < m) m = n
+      }
+    }
     return m
   }, [filas, unidades])
 
-  // Los totales por columna salen de las filas VISIBLES: con una búsqueda activa
-  // el pie tiene que cerrar contra la suma de las celdas de arriba, y si cada
-  // columna contara su matriz entera el renglón no cerraría.
-  const totalesPorUnidad = useMemo(() => {
-    const m: Record<string, number> = {}
-    for (const f of filas) for (const u of unidades) m[u.id] = (m[u.id] ?? 0) + (f.porUnidad[u.id] ?? 0)
-    return m
+  // Las notas por columna salen de las filas VISIBLES: con una búsqueda activa
+  // el pie tiene que cerrar contra las celdas de arriba. Se ponderan logrado y
+  // posible por separado —no se promedian los porcentajes— por el mismo motivo
+  // que en la capa de datos: una sucursal con un solo ítem pesaría igual que
+  // otra con cuarenta.
+  const totalesPorUnidad = useMemo<Record<string, number | null>>(() => {
+    const acum: Record<string, { logrado: number; posible: number }> = {}
+    for (const f of filas) {
+      for (const u of unidades) {
+        const c = f.porUnidad[u.id]
+        if (!c) continue
+        const t = acum[u.id] ?? { logrado: 0, posible: 0 }
+        t.logrado += c.logrado
+        t.posible += c.posible
+        acum[u.id] = t
+      }
+    }
+    const out: Record<string, number | null> = {}
+    for (const id of Object.keys(acum)) {
+      const t = acum[id]
+      out[id] = notaDe(t.logrado, t.posible)
+    }
+    return out
   }, [filas, unidades])
 
-  const total = useMemo(() => filas.reduce((a, f) => a + f.puntos, 0), [filas])
+  const notaTotal = useMemo(() => {
+    let logrado = 0
+    let posible = 0
+    for (const f of filas) {
+      logrado += f.logrado
+      posible += f.posible
+    }
+    return notaDe(logrado, posible)
+  }, [filas])
+
+  // La nota de lo que se pulsó: la de la celda si se eligió una sucursal, la
+  // de la fila entera si se eligió el total. El detalle la repite arriba para
+  // que no haya que volver a la matriz para saber qué número se está mirando.
+  const notaSeleccion = useMemo(() => {
+    if (!sel) return null
+    const f = filas.find((x) => x.clave === sel.clave)
+    if (!f) return null
+    if (!sel.unidadId) return f.nota
+    const c = f.porUnidad[sel.unidadId]
+    return c ? notaDe(c.logrado, c.posible) : null
+  }, [sel, filas])
 
   const hallazgos = useMemo(
     () => (datos && sel ? hallazgosDeCargo(datos, sel.clave, sel.unidadId) : []),
@@ -178,28 +251,26 @@ export function SeguimientoVista({
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
               Matriz cargo × sucursal
             </span>
-            <h2 className="mt-1 text-lg font-bold text-primary-900">
-              Puntos no cumplidos acumulados
-            </h2>
+            <h2 className="mt-1 text-lg font-bold text-primary-900">Nota promedio por cargo</h2>
             <p className="text-sm text-slate-500">
-              Tocá una celda para ver los puntos concretos de ese cargo en esa sucursal.
+              Tocá una celda para ver qué le está quitando nota a ese cargo en esa sucursal.
             </p>
             {seguimiento && seguimiento.filas.length > 0 && (
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] font-bold text-slate-500">
                 <span className="flex items-center gap-1.5">
-                  <span aria-hidden className="h-3 w-6 rounded bg-slate-50" /> sin puntos
+                  <span aria-hidden className="h-3 w-6 rounded bg-slate-50" /> sin nota
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span aria-hidden className="h-3 w-6 rounded bg-green-50" /> bajo
+                  <span aria-hidden className="h-3 w-6 rounded bg-green-50" /> 90% o más
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span aria-hidden className="h-3 w-6 rounded bg-amber-100" /> medio
+                  <span aria-hidden className="h-3 w-6 rounded bg-amber-100" /> 80–89%
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span aria-hidden className="h-3 w-6 rounded bg-red-100" /> alto
+                  <span aria-hidden className="h-3 w-6 rounded bg-red-100" /> menos de 80%
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span aria-hidden className="h-3 w-6 rounded bg-red-700" /> crítico
+                  <span aria-hidden className="h-3 w-6 rounded bg-red-700" /> la peor celda
                 </span>
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
                   {filas.length}
@@ -219,7 +290,7 @@ export function SeguimientoVista({
             </Field>
             <Field label="Ordenar" className="w-52">
               <Select value={orden} onChange={(e) => setOrden(e.target.value as Orden)}>
-                <option value="puntos">Puntos acumulados</option>
+                <option value="nota">Nota más baja</option>
                 <option value="cobertura">Sucursales alcanzadas</option>
                 <option value="nombre">Cargo (A-Z)</option>
               </Select>
@@ -244,23 +315,23 @@ export function SeguimientoVista({
         ) : !seguimiento || !seguimiento.filas.length ? (
           <div className="mt-4">
             <EmptyState
-              title="Todavía no hay puntos sin cumplir"
-              subtitle="Cuando se cierre alguna evaluación con ítems asignados a cargos, van a aparecer acá, acumulados por sucursal."
+              title="Todavía no hay notas por cargo"
+              subtitle="Cuando se cierre alguna evaluación con ítems asignados a cargos, van a aparecer acá, con su nota por sucursal."
             />
           </div>
         ) : !filas.length ? (
           <div className="mt-4">
             <EmptyState
               title="Ningún cargo coincide con la búsqueda"
-              subtitle={`«${busqueda}» no está en los ${seguimiento.filas.length} cargos con hallazgos.`}
+              subtitle={`«${busqueda}» no está en los ${seguimiento.filas.length} cargos evaluados.`}
             />
           </div>
         ) : (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[760px] border-separate border-spacing-1">
               <caption className="sr-only">
-                Puntos no cumplidos acumulados por cargo y sucursal. El total de la fila se abre en
-                detalle.
+                Nota promedio de cada cargo por sucursal, en porcentaje. El total de la fila se
+                abre en detalle.
               </caption>
               <thead>
                 <tr>
@@ -283,7 +354,7 @@ export function SeguimientoVista({
                         {u.nombre}
                       </span>
                       <span className="mt-0.5 block text-[11px] font-normal tabular-nums text-white/70">
-                        {totalesPorUnidad[u.id] ?? 0}
+                        {pct(totalesPorUnidad[u.id] ?? null)}
                       </span>
                     </th>
                   ))}
@@ -291,7 +362,7 @@ export function SeguimientoVista({
                     scope="col"
                     className="min-w-[68px] rounded-lg bg-primary-100 px-2 py-2 text-center align-bottom text-[10px] font-bold uppercase tracking-wider text-primary-900"
                   >
-                    Total
+                    Nota total
                   </th>
                 </tr>
               </thead>
@@ -313,18 +384,19 @@ export function SeguimientoVista({
                         </span>
                       </th>
                       {unidades.map((u) => {
-                        const p = f.porUnidad[u.id] ?? 0
+                        const celda = f.porUnidad[u.id]
+                        const n = celda ? notaDe(celda.logrado, celda.posible) : null
                         const activa = sel?.clave === f.clave && sel.unidadId === u.id
-                        if (!p) {
-                          // Vacío no es un botón: con muchas sucursales serían
-                          // cientos de tabulaciones para llegar a la única celda
-                          // que importa.
+                        if (n == null) {
+                          // Sin nota no es un botón: con muchas sucursales serían
+                          // cientos de tabulaciones para atravesar columnas donde
+                          // no hay nada que abrir.
                           return (
                             <td key={u.id} className="p-0">
                               <span className="flex items-center justify-center rounded-lg bg-slate-50 px-2 py-3 text-sm font-medium text-slate-500">
                                 <span aria-hidden>—</span>
                                 <span className="sr-only">
-                                  {f.cargo} en {u.nombre}: sin puntos sin cumplir
+                                  {f.cargo} en {u.nombre}: sin nota, no se lo evaluó
                                 </span>
                               </span>
                             </td>
@@ -343,16 +415,16 @@ export function SeguimientoVista({
                                 })
                               }
                               aria-pressed={activa}
-                              aria-label={`${f.cargo} en ${u.nombre}: ${p} puntos sin cumplir. Ver detalle.`}
+                              aria-label={`${f.cargo} en ${u.nombre}: nota ${n}%. Ver detalle.`}
                               className={cn(
                                 'flex w-full items-center justify-center rounded-lg border-2 px-2 py-3 text-sm font-black tabular-nums transition-colors',
-                                bandaCelda(p, maxCelda),
+                                bandaCelda(n, peor),
                                 activa
                                   ? 'border-primary'
                                   : 'border-transparent hover:border-slate-300'
                               )}
                             >
-                              {p}
+                              {n}%
                             </button>
                           </td>
                         )
@@ -362,7 +434,11 @@ export function SeguimientoVista({
                           type="button"
                           onClick={() => setSel({ clave: f.clave, cargo: f.cargo })}
                           aria-pressed={sel?.clave === f.clave && !sel.unidadId}
-                          aria-label={`${f.cargo}: ${f.puntos} puntos sin cumplir en todas las unidades. Ver detalle.`}
+                          aria-label={
+                            f.nota == null
+                              ? `${f.cargo}: sin nota, nunca se lo evaluó. Ver detalle de sus puntos.`
+                              : `${f.cargo}: nota ${f.nota}% en todas las unidades. Ver detalle.`
+                          }
                           className={cn(
                             'flex w-full items-center justify-center rounded-lg border-2 px-2 py-3 text-sm font-black tabular-nums transition-colors',
                             sel?.clave === f.clave && !sel.unidadId
@@ -370,7 +446,7 @@ export function SeguimientoVista({
                               : 'border-transparent bg-primary-50 text-primary-900 hover:border-slate-300'
                           )}
                         >
-                          {f.puntos}
+                          {pct(f.nota)}
                         </button>
                       </td>
                     </tr>
@@ -385,6 +461,7 @@ export function SeguimientoVista({
                           <DetalleCargo
                             cargo={sel.cargo}
                             alcance={sel.unidadNombre}
+                            nota={notaSeleccion}
                             hallazgos={hallazgos}
                             grupos={grupos}
                             porModulo={porModulo}
@@ -404,18 +481,18 @@ export function SeguimientoVista({
                     scope="row"
                     className="sticky left-0 z-10 bg-white px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500"
                   >
-                    Total por sucursal
+                    Nota por sucursal
                   </th>
                   {unidades.map((u) => (
                     <td
                       key={u.id}
                       className="rounded-lg bg-primary-50 px-2 py-2 text-center text-sm font-black tabular-nums text-primary-900"
                     >
-                      {totalesPorUnidad[u.id] ?? 0}
+                      {pct(totalesPorUnidad[u.id] ?? null)}
                     </td>
                   ))}
                   <td className="rounded-lg bg-primary-100 px-2 py-2 text-center text-sm font-black tabular-nums text-primary-900">
-                    {total}
+                    {pct(notaTotal)}
                   </td>
                 </tr>
               </tfoot>
@@ -431,6 +508,8 @@ interface DetalleCargoProps {
   cargo: string
   /** Sucursal concreta si se pulsó una celda; vacío si se pulsó el total de la fila. */
   alcance?: string
+  /** La nota de lo que se pulsó: la de la celda o la de la fila entera. */
+  nota: number | null
   hallazgos: HallazgoResponsable[]
   /** Subtotales por módulo sobre TODOS los hallazgos, no sobre los visibles. */
   grupos: { modulo: string; puntos: number }[]
@@ -451,6 +530,7 @@ interface DetalleCargoProps {
 export function DetalleCargo({
   cargo,
   alcance,
+  nota,
   hallazgos,
   grupos,
   porModulo,
@@ -467,8 +547,9 @@ export function DetalleCargo({
           </span>
           <h3 className="mt-1 text-base font-bold text-primary-900">{cargo}</h3>
           <p className="text-sm text-slate-600">
-            <strong className="text-red-600">{hallazgos.length}</strong>{' '}
-            {hallazgos.length === 1 ? 'punto sin cumplir' : 'puntos sin cumplir'}
+            <strong className={cn('font-black', textoNota(nota))}>
+              {nota == null ? 'Sin nota' : `${nota}% de nota`}
+            </strong>
             {alcance ? (
               <>
                 {' '}
@@ -477,6 +558,9 @@ export function DetalleCargo({
             ) : (
               ' en todas las unidades'
             )}
+            {' · '}
+            <strong className="text-red-600">{hallazgos.length}</strong>{' '}
+            {hallazgos.length === 1 ? 'punto sin cumplir' : 'puntos sin cumplir'}
           </p>
         </div>
         <Button variant="ghost" onClick={onCerrar}>
@@ -554,8 +638,8 @@ export function Responsables() {
         const d = await consultarEvaluaciones({ sucursal_ids: null, soloCerradas: true })
         if (activo) setDatos(d)
       } catch {
-        // No se deja `datos` como lista vacía: eso se renderiza como «no hay
-        // puntos sin cumplir», que es un falso cuando lo que falló fue la red.
+        // No se deja `datos` como lista vacía: eso se renderiza como «todavía no
+        // hay notas por cargo», que es un falso cuando lo que falló fue la red.
         if (activo) {
           setDatos(null)
           setError(true)
@@ -570,36 +654,29 @@ export function Responsables() {
   }, [recargar])
 
   const seguimiento = useMemo(() => (datos ? seguimientoResponsables(datos) : null), [datos])
-  // Cargos configurados (con al menos un punto posible en la ponderación): de
-  // aquí sale «cuántos cargos no tienen NINGÚN hallazgo», el dato que sólo se
-  // puede saber con el universo completo, no sólo con los que fallaron.
-  const cargosConfigurados = useMemo(
-    () => (datos ? valorPorResponsable(datos.items).filter((v) => v.posible > 0).length : 0),
-    [datos]
-  )
 
   // La franja azul (BarraKpis) muestra los KPIs de esta pantalla en vez de los
-  // globales, igual que Indicadores y el dashboard de módulo.
+  // globales, igual que Indicadores y el dashboard de módulo. El primero es la
+  // nota global PONDERADA —logrado sobre posible de todo junto— y no el
+  // promedio de las notas de las filas: un cargo evaluado en una sola sucursal
+  // con un solo ítem pesaría lo mismo que otro con 40 ítems en 12 tiendas, y el
+  // número no cerraría con la matriz.
   const kpis = useMemo<EstadoKpis | null>(() => {
     if (!seguimiento) return null
-    const puntos = seguimiento.filas.reduce((a, f) => a + f.puntos, 0)
+    const sinHallazgos = seguimiento.filas.filter((f) => f.puntos === 0).length
     return {
       global: null,
       completadas: datos?.evaluaciones.length ?? 0,
       cobertura: 0,
-      incumplimientos: puntos,
+      incumplimientos: seguimiento.puntos,
       items: [
-        { etiqueta: 'Puntos no cumplidos', valor: puntos, icono: 'alerta' },
-        { etiqueta: 'Cargos con desvío', valor: seguimiento.filas.length, icono: 'lista' },
-        { etiqueta: 'Sucursales con desvío', valor: seguimiento.unidades.length, icono: 'store' },
-        {
-          etiqueta: 'Cargos sin hallazgos',
-          valor: Math.max(0, cargosConfigurados - seguimiento.filas.length),
-          icono: 'check'
-        }
+        { etiqueta: 'Nota promedio', valor: seguimiento.nota, sufijo: '%', icono: 'target' },
+        { etiqueta: 'Cargos evaluados', valor: seguimiento.filas.length, icono: 'lista' },
+        { etiqueta: 'Sucursales con datos', valor: seguimiento.unidades.length, icono: 'store' },
+        { etiqueta: 'Cargos sin hallazgos', valor: sinHallazgos, icono: 'check' }
       ]
     }
-  }, [datos, seguimiento, cargosConfigurados])
+  }, [datos, seguimiento])
 
   useEffect(() => {
     setKpisGlobal(kpis)

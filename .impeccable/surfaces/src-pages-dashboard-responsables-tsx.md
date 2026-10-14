@@ -9,7 +9,9 @@ related_targets: ["src/lib/data/indicadores.ts","src/components/layouts/ConsoleL
 
 ### THESIS
 
-Una matriz densa **cargo × sucursal**: filas = cargos, columnas = sucursales, celda = puntos no cumplidos acumulados en todo el histórico. El color de la celda concentra la mirada donde hay que intervenir y una celda pulsada abre el detalle concreto (módulo, ítem, sucursal, evaluación). El Líder detecta el cargo que acumula, ve en qué sucursal se le acumula, y cae al punto sin cumplir que lo explica.
+Una matriz densa **cargo × sucursal**: filas = cargos, columnas = sucursales, celda = **la nota en %** que sacó ese cargo en esa sucursal, acumulada sobre todo el histórico. El color señala dónde está la nota más baja —no dónde hay más incidencias— y una celda pulsada abre el detalle concreto (módulo, ítem, sucursal, evaluación) con la lista de puntos que le están quitando nota. El Líder ve qué cargo está quedando atrás, en qué sucursal, y cae al punto sin cumplir que lo explica.
+
+La matriz mide **rendimiento**, no volumen de fallas: «87%» se compara solo con cualquier otro número de la tabla, mientras que «14 puntos» depende de cuántos ítems tenga ese cargo. Las incidencias no desaparecen, quedan como el drill-down.
 
 Carta ganadora: `matriz cargo × sucursal` (ronda de concept-seed, `--scope surface --mode operate`, roll `aa6d48ce`). Estructuras repartidas: tabla maestra + panel lateral, barras apiladas + hallazgos, matriz cargo × sucursal. Ganó la matriz.
 
@@ -26,11 +28,11 @@ Mundo heredado, no reemplazado: es una pantalla nueva dentro del dashboard de in
 ### STORY
 
 1. El Líder entra por el item «Seguimiento por cargo» de la consola (rol `LIDER` sólo).
-2. La franja azul muestra: puntos no cumplidos, cargos con desvío, sucursales con desvío, cargos sin hallazgos.
-3. La matriz se ordena por puntos acumulados: el peor cargo arriba, la peor sucursal a la izquierda del bloque de columnas.
-4. El pico de la escala (rojo sólido, cifra blanca) es el único punto al que la mirada tiene que ir sin buscar.
-5. Pulsar una celda (o el total de la fila) **despliega el detalle dentro de la tabla**, justo debajo de la fila del cargo elegido: hallazgos agrupados por módulo, con sucursal y fecha. No vive en un card aparte al final de la página, porque ahí el usuario tendría que ir a buscarlo y perdería de vista la matriz que lo seleccionó.
-6. Búsqueda por cargo y orden (puntos / cobertura / A-Z) filtran la matriz; los totales por columna se recalculan sobre lo visible para que el pie cierre.
+2. La franja azul muestra: nota promedio (ponderada sobre todo el histórico), cargos evaluados, sucursales con datos, cargos sin hallazgos.
+3. La matriz se ordena por nota: el cargo más bajo arriba, la sucursal con la nota más baja a la izquierda del bloque de columnas. Los cargos que nunca se midieron **cierran** la lista: sin nota no se puede decir que son los peores.
+4. La celda más baja de la matriz —y sólo si está por debajo de 80%— es el único punto al que la mirada tiene que ir sin buscar: rojo sólido con cifra blanca.
+5. Pulsar una celda (o el total de la fila) **despliega el detalle dentro de la tabla**, justo debajo de la fila del cargo elegido: la nota que se pulsó arriba y debajo la lista de hallazgos agrupados por módulo, con sucursal y fecha. No vive en un card aparte al final de la página, porque ahí el usuario tendría que ir a buscarlo y perdería de vista la matriz que lo seleccionó.
+6. Búsqueda por cargo y orden (nota / cobertura / A-Z) filtran la matriz; las notas por columna se recalculan sobre lo visible —ponderando logrado y posible, nunca promediando porcentajes— para que el pie cierre.
 
 ### FIRST VIEWPORT
 
@@ -39,8 +41,9 @@ A 1440×900, sin scroll: barra lateral de consola (Resultados → Indicadores / 
 ### FORM
 
 - Tabla `border-separate border-spacing-1`, columna de cargo `sticky left-0` en blanco para que la matriz se desplace en horizontal en pantallas angostas (`min-w-[760px]`).
-- Celda: número en `font-black tabular-nums`, fondo de banda. Escala relativa al pico de la propia matriz (no a un número fijo): 0 → `slate-50`; ≤34% → `green-50`; ≤67% → `amber-100`; <100% → `red-100`; pico → `red-700` con cifra blanca.
-- Celda vacía = «—» **sin ser botón**: con muchas sucursales serían cientos de tabulaciones para llegar a la única celda que importa. Texto `sr-only` para lectores de pantalla.
+- Celda: cifra en `font-black tabular-nums` **con su `%`**, fondo de banda. Escala **absoluta** y no relativa al pico: un porcentaje tiene valor propio —79% es malo el día que el resto está en 95 y también el día que está en 60—, así que pintarlo de verde porque sea el mejor de la tabla sería mentirle al Líder justo cuando peor está. Bandas: ≥90% → `green-50`; ≥80% → `amber-100`; <80% → `red-100`; la más baja de la matriz, y sólo si es <80% → `red-700` con cifra blanca (el ancla).
+- Celda **sin nota** = «—» **sin ser botón** (no se lo evaluó en esa sucursal; un 0% diría lo contrario): con muchas sucursales serían cientos de tabulaciones para llegar a la única celda que importa. Texto `sr-only` para lectores de pantalla.
+- La nota de una fila o de una columna se **pondera** con logrado y posible acumulados en crudo. Promediar los porcentajes de las celdas daría otro número —una sucursal con un ítem pesaría igual que otra con cuarenta— y el pie no cerraría con la matriz.
 - Cabecera de columna en `bg-primary-900` con el nombre y el total; fila de pie en `bg-primary-50` / `bg-primary-100`.
 - Detalle: **fila expandida dentro de `<tbody>`** (`<td colSpan={unidades.length + 2}>`), con `<Fragment>` por fila para poder insertarla justo debajo de la elegida. Panel tonal `bg-slate-50` — blanco no se vería sobre la card blanca—, con cabeceras de módulo `bg-white` dentro. Tope de 40 renglones con «Ver más»; el subtotal del módulo se calcula sobre el total, no sobre lo mostrado.
 - Sin sombras ni bordes añadidos: la selección se marca con `border-2 border-primary` (los `<button>` escapan al aplanado de CSS, que sólo alcanza a `div/section/article/aside/nav/li/a`).

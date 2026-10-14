@@ -17,6 +17,7 @@ import {
   puntosMarcadosPlano,
   redondear3,
   tieneRespuesta,
+  valorPorResponsable,
   type AcumuladoResponsable,
   type BinarioConPuntaje,
   type ValorCumple,
@@ -1161,34 +1162,82 @@ export interface HallazgoResponsable {
   puntos: number
 }
 
+/**
+ * Lo que se le pudo medir a un cargo en un alcance (la fila entera o la celda
+ * de una sucursal). De estos dos números sale la nota, y de nada más.
+ */
+export interface BaseNota {
+  /** Puntos de los ítems que le tocaban y logró. */
+  logrado: number
+  /** Puntos de los ítems que le tocaban, cumpla o no: el denominador. */
+  posible: number
+}
+
+/**
+ * La nota en % sobre lo que se le pudo medir, redondeada a entero.
+ *
+ * Devuelve `null` y no `0`: un cargo al que nunca se le evaluó un ítem con peso
+ * no tiene nota mala, tiene ninguna. Pintarlo de 0% lo mandaría al rojo más
+ * fuerte por no haber sido evaluado, que dice exactamente lo contrario de lo
+ * que pasa. En una matriz donde se compara celda con celda el entero es lo
+ * único que se lee de un vistazo; los decimales viven en el detalle.
+ */
+export function notaDe(logrado: number, posible: number): number | null {
+  return posible > 0 ? Math.round((logrado / posible) * 100) : null
+}
+
+/** Para ordenar notas de menor a mayor: sin nota va al final, nunca al frente. */
+function sinNotaAlFinal(nota: number | null): number {
+  return nota == null ? Number.MAX_SAFE_INTEGER : nota
+}
+
 export interface FilaSeguimientoCargo {
   /** Clave normalizada: es con la que se vuelve a pedir el detalle (`hallazgosDeCargo`). */
   clave: string
   /** Nombre tal como aparece en los ítems; la primera forma vista gana. */
   cargo: string
+  /** Nota sobre todo el histórico; `null` si nunca se le midió nada. */
+  nota: number | null
+  /**
+   * Logrado y posible acumulados, en crudo. La nota de una fila con varias
+   * sucursales se pondera con éstos: promediar los porcentajes de las celdas
+   * daría otro número (una sucursal con 1 ítem pesaría igual que otra con 40) y
+   * no cerraría con el total de la columna.
+   */
+  logrado: number
+  posible: number
+  /**
+   * Puntos no cumplidos. La matriz ya no los muestra, pero siguen definiendo si
+   * el cargo quedó limpio y siguen siendo la materia prima del detalle que se
+   * abre al pulsar la celda.
+   */
   puntos: number
-  /** Evaluaciones distintas en las que acumó al menos un punto. */
+  /** Evaluaciones distintas en las que se lo midió (o en las que acumó). */
   evaluaciones: number
-  /** Unidades (sucursales o departamentos) en las que acumó al menos un punto. */
+  /** Unidades (sucursales o departamentos) en las que aparece. */
   unidades: number
-  /** Fecha de la última evaluación en la que acumó: el histórico es de todo, pero la fila tiene que decir si sigue pasando. */
+  /** Fecha de la última evaluación en la que apareció: el histórico es de todo, pero la fila tiene que decir si sigue pasando. */
   ultima: string | null
-  /** Puntos por unidad: `unidad_id` → puntos. */
-  porUnidad: Record<string, number>
+  /** Base de la nota por unidad: `unidad_id` → {logrado, posible}. Sin entrada = sin nota en esa columna. */
+  porUnidad: Record<string, BaseNota>
 }
 
 export interface SeguimientoResponsables {
-  /** Unidades con al menos un punto, ordenadas por total (lo peor primero). */
+  /** Unidades con al menos algo medido, la nota más baja primero: lo peor queda a la izquierda. */
   unidades: { id: string; nombre: string; puntos: number }[]
   filas: FilaSeguimientoCargo[]
+  /** Nota global, ponderada, de todos los cargos juntos: es la de la franja de KPIs. */
+  nota: number | null
+  /** Puntos no cumplidos en todo el histórico. */
+  puntos: number
 }
 
 /**
- * El seguimiento por cargo: cuántos puntos no cumplidos acumuló cada cargo y en
- * qué sucursal, sobre TODO el histórico (no recorta por fechas: así se ve quién
- * acumula, no quién falló el mes pasado).
+ * El seguimiento por cargo: qué nota sacó cada cargo y en qué sucursal, sobre
+ * TODO el histórico (no recorta por fechas: así se ve quién rinde, no quién
+ * rindió el mes pasado).
  *
- * Dos detalles que no son cosméticos:
+ * Tres detalles que no son cosméticos:
  *
  * · Se agrupa por `claveNormalizada`, no por el texto crudo. «Encargado de
  *   turno» y «encargado de Turno» son el mismo cargo y si se agruparan por
@@ -1196,22 +1245,33 @@ export interface SeguimientoResponsables {
  *   ningún total.
  * · La unidad sale de `unidadDe`, igual que en el resto de los indicadores:
  *   una evaluación de departamento no tiene sucursal y meter su `null` en la
- *   matriz la dejaría sin celda, con los puntos contados en la fila pero en
+ *   matriz la dejaría sin celda, con el puntaje contado en la fila pero en
  *   ninguna columna.
+ * · La nota sale de `valorPorResponsable`, el mismo reparto de pesos que usa el
+ *   resto de la app: así un 87% acá es el mismo 87% del «Puntaje por
+ *   responsable» de EvaluacionDetalle. Inventar una fórmula propia daría dos
+ *   notas distintas para el mismo cargo en la misma evaluación.
+ *
+ * Cada respuesta se lee dos veces —una para la nota y otra para las fallas—
+ * porque no son la misma pregunta: la nota necesita también las respuestas que
+ * salieron BIEN (que es donde está el puntaje), y el detalle necesita sólo las
+ * que fallaron.
  */
 export function seguimientoResponsables(datos: ConjuntoDatos): SeguimientoResponsables {
   const evalDe = new Map(datos.evaluaciones.map((e) => [e.id, e]))
   const itemDe = new Map(datos.items.map((i) => [i.id, i]))
-  const unidades = new Map<string, { nombre: string; puntos: number }>()
+  const unidades = new Map<string, { nombre: string; logrado: number; posible: number; puntos: number }>()
   const cargos = new Map<
     string,
     {
       nombre: string
+      logrado: number
+      posible: number
       puntos: number
       evaluaciones: Set<string>
       unidades: Set<string>
       ultima: string | null
-      porUnidad: Map<string, number>
+      porUnidad: Map<string, BaseNota>
     }
   >()
 
@@ -1220,55 +1280,127 @@ export function seguimientoResponsables(datos: ConjuntoDatos): SeguimientoRespon
     const item = itemDe.get(r.item_id)
     if (!ev || !item) continue
     const unidadId = unidadDe(ev)
-    const incs = incumplimientosPorResponsable(
-      aplicarOpcionesSucursal(item, unidadId, datos.sucursalOpciones),
-      r.valor
-    )
-    if (!incs.length) continue
+    const itemAplicado = aplicarOpcionesSucursal(item, unidadId, datos.sucursalOpciones)
+
+    const notas = valorPorResponsable([itemAplicado], [r])
+    const incs = incumplimientosPorResponsable(itemAplicado, r.valor)
+    if (!notas.length && !incs.length) continue
 
     const nombreUnidad = ev.sucursal?.nombre ?? ev.departamento?.nombre ?? 'Sin unidad'
-    const u = unidades.get(unidadId) ?? { nombre: nombreUnidad, puntos: 0 }
+    // Sólo las unidades donde algo se midió: una sucursal en la que sólo hubo
+    // fallas sin base medible no tiene nota, y una columna entera de «—» es
+    // ruido, no información.
+    const obtenerUnidad = (): { nombre: string; logrado: number; posible: number; puntos: number } | undefined => {
+      const existente = unidades.get(unidadId)
+      if (existente) return existente
+      if (!notas.length) return undefined
+      const nueva = { nombre: nombreUnidad, logrado: 0, posible: 0, puntos: 0 }
+      unidades.set(unidadId, nueva)
+      return nueva
+    }
+
+    const u = obtenerUnidad()
+
+    for (const n of notas) {
+      const clave = claveNormalizada(n.responsable)
+      if (!clave) continue
+      const c = cargos.get(clave) ?? {
+        nombre: n.responsable,
+        logrado: 0,
+        posible: 0,
+        puntos: 0,
+        evaluaciones: new Set<string>(),
+        unidades: new Set<string>(),
+        ultima: null,
+        porUnidad: new Map<string, BaseNota>()
+      }
+      c.logrado += n.logrado
+      c.posible += n.posible
+      c.evaluaciones.add(ev.id)
+      c.unidades.add(unidadId)
+      if (!c.ultima || ev.fecha > c.ultima) c.ultima = ev.fecha
+      const p = c.porUnidad.get(unidadId) ?? { logrado: 0, posible: 0 }
+      p.logrado += n.logrado
+      p.posible += n.posible
+      c.porUnidad.set(unidadId, p)
+      cargos.set(clave, c)
+
+      if (u) {
+        u.logrado += n.logrado
+        u.posible += n.posible
+      }
+    }
 
     for (const a of incs) {
       const clave = claveNormalizada(a.responsable)
       if (!clave) continue
       const c = cargos.get(clave) ?? {
         nombre: a.responsable,
+        logrado: 0,
+        posible: 0,
         puntos: 0,
         evaluaciones: new Set<string>(),
         unidades: new Set<string>(),
         ultima: null,
-        porUnidad: new Map<string, number>()
+        porUnidad: new Map<string, BaseNota>()
       }
       c.puntos += a.puntos
+      // Un cargo puede aparecer sólo por una falla (ítem sin peso): se anota
+      // igual para que la fila exista y el detalle se pueda abrir desde su
+      // total, aunque su nota quede en «—».
       c.evaluaciones.add(ev.id)
       c.unidades.add(unidadId)
-      c.porUnidad.set(unidadId, (c.porUnidad.get(unidadId) ?? 0) + a.puntos)
       if (!c.ultima || ev.fecha > c.ultima) c.ultima = ev.fecha
       cargos.set(clave, c)
 
-      u.puntos += a.puntos
+      // Los puntos sólo desempatan entre unidades: si la columna no existe es
+      // porque ahí no se midió nada y no hay nada que desempatar.
+      const uExistente = unidades.get(unidadId)
+      if (uExistente) uExistente.puntos += a.puntos
     }
-    unidades.set(unidadId, u)
   }
 
   const filas: FilaSeguimientoCargo[] = Array.from(cargos.entries())
     .map(([clave, c]) => ({
       clave,
       cargo: c.nombre,
+      nota: notaDe(c.logrado, c.posible),
+      logrado: c.logrado,
+      posible: c.posible,
       puntos: c.puntos,
       evaluaciones: c.evaluaciones.size,
       unidades: c.unidades.size,
       ultima: c.ultima,
       porUnidad: Object.fromEntries(c.porUnidad)
     }))
-    .sort((a, b) => b.puntos - a.puntos || a.cargo.localeCompare(b.cargo, 'es'))
+    // Lo peor primero: nota más baja arriba y, entre notas iguales, el que
+    // acumula más puntos. Sin nota cierra la lista, no la abre.
+    .sort(
+      (a, b) =>
+        sinNotaAlFinal(a.nota) - sinNotaAlFinal(b.nota) ||
+        b.puntos - a.puntos ||
+        a.cargo.localeCompare(b.cargo, 'es')
+    )
 
   const listaUnidades = Array.from(unidades.entries())
+    .sort(
+      ([, a], [, b]) =>
+        sinNotaAlFinal(notaDe(a.logrado, a.posible)) - sinNotaAlFinal(notaDe(b.logrado, b.posible)) ||
+        b.puntos - a.puntos ||
+        a.nombre.localeCompare(b.nombre, 'es')
+    )
     .map(([id, u]) => ({ id, nombre: u.nombre, puntos: u.puntos }))
-    .sort((a, b) => b.puntos - a.puntos || a.nombre.localeCompare(b.nombre, 'es'))
 
-  return { unidades: listaUnidades, filas }
+  const logrado = filas.reduce((a, f) => a + f.logrado, 0)
+  const posible = filas.reduce((a, f) => a + f.posible, 0)
+  const puntos = filas.reduce((a, f) => a + f.puntos, 0)
+
+  return {
+    unidades: listaUnidades,
+    filas,
+    nota: notaDe(logrado, posible),
+    puntos
+  }
 }
 
 /**
