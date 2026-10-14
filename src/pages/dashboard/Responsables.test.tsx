@@ -4,7 +4,7 @@ import { SeguimientoVista, DetalleCargo } from './Responsables'
 import {
   seguimientoResponsables,
   type ConjuntoDatos,
-  type HallazgoResponsable
+  type ResumenItemFalla
 } from '../../lib/data/indicadores'
 import type { Item, Modulo, Respuesta, VistaEvaluacion } from '../../lib/types'
 
@@ -140,50 +140,63 @@ describe('SeguimientoVista', () => {
 })
 
 describe('DetalleCargo', () => {
-  const hallazgos: HallazgoResponsable[] = [
+  // Un mismo ítem en tres evaluaciones y con dos checks concretos fallados: el
+  // detalle tiene que contar las veces y nombrar los checks, no listar renglones
+  // iguales.
+  const items: ResumenItemFalla[] = [
     {
-      evaluacion_id: 'ev1',
-      fecha: '2026-09-15',
-      unidad: 'Sucursal Sur',
-      modulo: 'Higiene y seguridad',
+      item_id: 'i1',
       item: 'EPP completo',
-      puntos: 1
-    },
-    {
-      evaluacion_id: 'ev2',
-      fecha: '2026-09-01',
-      unidad: 'Sucursal Norte',
       modulo: 'Higiene y seguridad',
-      item: 'Piso limpio',
-      puntos: 1
+      veces: 3,
+      checks: [
+        { texto: 'Sin EPP completo', veces: 2 },
+        { texto: 'Guantes de seguridad', veces: 1 }
+      ],
+      unidades: [
+        { nombre: 'Sucursal Norte', veces: 2 },
+        { nombre: 'Sucursal Sur', veces: 1 }
+      ],
+      ultima: '2026-09-15'
     },
     {
-      evaluacion_id: 'ev3',
-      fecha: '2026-08-20',
-      unidad: 'Sucursal Norte',
-      modulo: 'Operación de góndola',
+      item_id: 'i2',
+      item: 'Piso limpio',
+      modulo: 'Higiene y seguridad',
+      veces: 1,
+      checks: [],
+      unidades: [{ nombre: 'Sucursal Sur', veces: 1 }],
+      ultima: '2026-09-01'
+    },
+    {
+      item_id: 'i3',
       item: 'Etiquetas fuera de zona',
-      puntos: 1
+      modulo: 'Operación de góndola',
+      veces: 2,
+      checks: [],
+      unidades: [{ nombre: 'Sucursal Norte', veces: 2 }],
+      ultima: '2026-08-20'
     }
   ]
-  // El subtotal del módulo es 2 aunque en el panel sólo se esté mostrando uno:
+  // El subtotal del módulo es 4 aunque en el panel sólo se esté mostrando uno:
   // la lista se corta, el número de arriba no.
   const grupos = [
-    { modulo: 'Higiene y seguridad', puntos: 2 },
-    { modulo: 'Operación de góndola', puntos: 1 }
+    { modulo: 'Higiene y seguridad', veces: 4 },
+    { modulo: 'Operación de góndola', veces: 2 }
   ]
-  const porModulo = new Map<string, HallazgoResponsable[]>([
-    ['Higiene y seguridad', hallazgos.slice(0, 1)],
-    ['Operación de góndola', hallazgos.slice(2)]
+  const porModulo = new Map<string, ResumenItemFalla[]>([
+    ['Higiene y seguridad', items.slice(0, 1)],
+    ['Operación de góndola', items.slice(2)]
   ])
 
-  it('muestra el cargo, el alcance y el subtotal del módulo', () => {
+  it('nombra los checks concretos que fallaron y cuántas veces', () => {
     const html = renderToStaticMarkup(
       <DetalleCargo
         cargo="Encargado de turno"
         alcance="Sucursal Norte"
         nota={87}
-        hallazgos={hallazgos}
+        items={items}
+        vecesTotal={6}
         grupos={grupos}
         porModulo={porModulo}
         visibles={40}
@@ -196,8 +209,36 @@ describe('DetalleCargo', () => {
     expect(html).toContain('87% de nota')
     expect(html).toContain('Sucursal Norte')
     expect(html).toContain('Higiene y seguridad')
-    expect(html).toContain('2 pts')
+    expect(html).toContain('4 veces sin cumplir')
     expect(html).toContain('EPP completo')
+    // Cada check con su texto y su conteo: es la respuesta a «¿en qué le falló?».
+    expect(html).toContain('Sin EPP completo')
+    expect(html).toContain('2 veces sin cumplir')
+    expect(html).toContain('Guantes de seguridad')
+    expect(html).toContain('1 vez sin cumplir')
+    // Con una celda pulsada la sucursal ya está en el título del panel, así que
+    // el renglón sólo repite la fecha.
+    expect(html).toContain('Última vez: 15/9/2026')
+  })
+
+  it('sin una celda pulsada dice en qué sucursales pasó', () => {
+    const html = renderToStaticMarkup(
+      <DetalleCargo
+        cargo="Encargado de turno"
+        nota={87}
+        items={items}
+        vecesTotal={6}
+        grupos={grupos}
+        porModulo={porModulo}
+        visibles={40}
+        onVerMas={() => {}}
+        onCerrar={() => {}}
+      />
+    )
+
+    expect(html).toContain('en todas las unidades')
+    expect(html).toContain('Sucursal Norte (2)')
+    expect(html).toContain('Sucursal Sur (1)')
   })
 
   it('ofrece ver más cuando la lista está cortada', () => {
@@ -205,7 +246,8 @@ describe('DetalleCargo', () => {
       <DetalleCargo
         cargo="Encargado de turno"
         nota={null}
-        hallazgos={hallazgos}
+        items={items}
+        vecesTotal={6}
         grupos={grupos}
         porModulo={porModulo}
         visibles={1}
@@ -225,7 +267,8 @@ describe('DetalleCargo', () => {
       <DetalleCargo
         cargo="Limpieza"
         nota={100}
-        hallazgos={[]}
+        items={[]}
+        vecesTotal={0}
         grupos={[]}
         porModulo={new Map()}
         visibles={40}

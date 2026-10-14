@@ -7,6 +7,7 @@ import {
   promedioPuntajesModulos,
   conSeccionesPonderadas,
   incumplimientosPorResponsable,
+  checksFallados,
   opcionCumplida,
   colaboradorCumple,
   colaboradoresQueCuentan,
@@ -1152,14 +1153,97 @@ export function acumuladoResponsables(datos: ConjuntoDatos): AcumuladoResponsabl
     .sort((a, b) => b.puntos - a.puntos || a.responsable.localeCompare(b.responsable))
 }
 
-/** Un punto no cumplido concreto: en qué evaluación, de qué unidad, en qué módulo e ítem. */
+/**
+ * Un ítem que le salió mal a UN cargo, en una evaluación concreta: de qué
+ * módulo, de qué unidad y qué fecha.
+ */
 export interface HallazgoResponsable {
   evaluacion_id: string
   fecha: string
   unidad: string
   modulo: string
+  /** Id y texto: el id agrupa (dos ítems pueden llamarse igual) y el texto se muestra. */
+  item_id: string
   item: string
-  puntos: number
+  /**
+   * Los checks concretos que fallaron en esa respuesta y se le atribuyeron a
+   * ESTE cargo. Vacío en los ítems que no son de checks: un CUMPLE_NO_CUMPLE no
+   * tiene nada más que el ítem entero, y repetir «el ítem falló» sería
+   * tautológico. Para una lista de chequeo es la parte que importa: decir
+   * «Checklist de higiene — 3» no explica nada, «sin EPP completo — 3 veces»
+   * sí.
+   */
+  checks: string[]
+}
+
+/** Un ítem agrupado: cuántas veces le falló este cargo, qué checks concretos y en qué unidades. */
+export interface ResumenItemFalla {
+  item_id: string
+  item: string
+  modulo: string
+  /** Evaluaciones distintas en las que le falló. */
+  veces: number
+  /** Los checks concretos que fallaron y en cuántas evaluaciones. Vacío si el ítem no es de checks. */
+  checks: { texto: string; veces: number }[]
+  /** En qué unidades pasó, con cuántas veces cada una. */
+  unidades: { nombre: string; veces: number }[]
+  /** Fecha de la última vez: el histórico es de todo, pero la fila tiene que decir si sigue pasando. */
+  ultima: string | null
+}
+
+/**
+ * Los hallazgos de un cargo, agregados por ítem.
+ *
+ * El detalle venía listando un renglón por evaluación, que con un histórico
+ * largo es una pila de cientos de líneas donde nadie cuenta a mano cuántas veces
+ * se cayó lo mismo. Acá se agrupa: un renglón por ítem, con las veces, los
+ * checks concretos y las unidades.
+ *
+ * Se agrupa por `item_id` y no por el texto: dos ítems distintos pueden llamarse
+ * igual y partirían el conteo en dos mitades que suman menos que el total.
+ */
+export function resumirFallasPorItem(hallazgos: HallazgoResponsable[]): ResumenItemFalla[] {
+  const mapa = new Map<
+    string,
+    ResumenItemFalla & { porCheck: Map<string, number>; porUnidad: Map<string, number> }
+  >()
+
+  for (const h of hallazgos) {
+    const r = mapa.get(h.item_id) ?? {
+      item_id: h.item_id,
+      item: h.item,
+      modulo: h.modulo,
+      veces: 0,
+      checks: [] as { texto: string; veces: number }[],
+      unidades: [] as { nombre: string; veces: number }[],
+      ultima: null as string | null,
+      porCheck: new Map<string, number>(),
+      porUnidad: new Map<string, number>()
+    }
+    r.veces += 1
+    for (const c of h.checks) r.porCheck.set(c, (r.porCheck.get(c) ?? 0) + 1)
+    r.porUnidad.set(h.unidad, (r.porUnidad.get(h.unidad) ?? 0) + 1)
+    if (!r.ultima || h.fecha > r.ultima) r.ultima = h.fecha
+    mapa.set(h.item_id, r)
+  }
+
+  return Array.from(mapa.values())
+    .map((r) => ({
+      item_id: r.item_id,
+      item: r.item,
+      modulo: r.modulo,
+      veces: r.veces,
+      // El check que más se repite arriba: es el hábito que hay que corregir.
+      checks: Array.from(r.porCheck.entries())
+        .map(([texto, veces]) => ({ texto, veces }))
+        .sort((a, b) => b.veces - a.veces || a.texto.localeCompare(b.texto)),
+      unidades: Array.from(r.porUnidad.entries())
+        .map(([nombre, veces]) => ({ nombre, veces }))
+        .sort((a, b) => b.veces - a.veces || a.nombre.localeCompare(b.nombre)),
+      ultima: r.ultima
+    }))
+    // Lo que más veces se cae arriba, que es lo primero que se puede corregir.
+    .sort((a, b) => b.veces - a.veces || a.item.localeCompare(b.item))
 }
 
 /**
@@ -1404,8 +1488,8 @@ export function seguimientoResponsables(datos: ConjuntoDatos): SeguimientoRespon
 }
 
 /**
- * Los puntos no cumplidos de UN cargo, uno por uno: en qué evaluación, de qué
- * unidad, en qué módulo e ítem.
+ * Los ítems que le salió mal a UN cargo, uno por uno: en qué evaluación, de qué
+ * unidad, en qué módulo, y qué checks concretos.
  *
  * `cargo` puede venir con cualquier forma («encargado de turno»): se compara con
  * la misma clave normalizada con la que se agrupó, si no el detalle de una fila
@@ -1434,10 +1518,8 @@ export function hallazgosDeCargo(
     for (const r of respuestasPorEval.get(ev.id) ?? []) {
       const item = itemDe.get(r.item_id)
       if (!item) continue
-      const incs = incumplimientosPorResponsable(
-        aplicarOpcionesSucursal(item, unidadIdReal, datos.sucursalOpciones),
-        r.valor
-      )
+      const itemAplicado = aplicarOpcionesSucursal(item, unidadIdReal, datos.sucursalOpciones)
+      const incs = incumplimientosPorResponsable(itemAplicado, r.valor)
       const propio = incs.find((a) => claveNormalizada(a.responsable) === clave)
       if (!propio) continue
       salida.push({
@@ -1445,13 +1527,20 @@ export function hallazgosDeCargo(
         fecha: ev.fecha,
         unidad: ev.sucursal?.nombre ?? ev.departamento?.nombre ?? 'Sin unidad',
         modulo: moduloDe.get(item.modulo_id) ?? 'Sin módulo',
+        item_id: item.id,
         item: item.texto,
-        puntos: propio.puntos
+        // `incumplimientosPorResponsable` decide QUÉ evaluaciones son fallas de
+        // este cargo —es el mismo criterio con el que se agrupó la matriz— pero
+        // sólo cuenta: no nombra nada. Los checks concretos salen del mismo
+        // criterio de atribución, y se le pasa el nombre tal como lo escribió
+        // el evaluador EN ESTA respuesta porque el scoring busca por texto
+        // exacto y la clave normalizada no le sirve.
+        checks: checksFallados(propio.responsable, itemAplicado, r.valor)
       })
     }
   }
 
-  return salida.sort((a, b) => b.puntos - a.puntos || b.fecha.localeCompare(a.fecha))
+  return salida.sort((a, b) => b.fecha.localeCompare(a.fecha) || a.item.localeCompare(b.item))
 }
 
 export function porEvaluador(datos: ConjuntoDatos): { evaluador_id: string; nombre: string; puntaje: number | null; evaluaciones: number }[] {

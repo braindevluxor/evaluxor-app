@@ -9,7 +9,7 @@ related_targets: ["src/lib/data/indicadores.ts","src/components/layouts/ConsoleL
 
 ### THESIS
 
-Una matriz densa **cargo × sucursal**: filas = cargos, columnas = sucursales, celda = **la nota en %** que sacó ese cargo en esa sucursal, acumulada sobre todo el histórico. El color señala dónde está la nota más baja —no dónde hay más incidencias— y una celda pulsada abre el detalle concreto (módulo, ítem, sucursal, evaluación) con la lista de puntos que le están quitando nota. El Líder ve qué cargo está quedando atrás, en qué sucursal, y cae al punto sin cumplir que lo explica.
+Una matriz densa **cargo × sucursal**: filas = cargos, columnas = sucursales, celda = **la nota en %** que sacó ese cargo en esa sucursal, acumulada sobre todo el histórico. El color señala dónde está la nota más baja —no dónde hay más incidencias— y una celda pulsada abre el detalle concreto (módulo, ítem, sucursal, evaluación) con la lista de lo que le está quitando nota. El Líder ve qué cargo está quedando atrás, en qué sucursal, y cae al ítem que lo explica: **un renglón por ítem** con las veces que cayó y, si es una lista de chequeo, **el nombre de cada check con su conteo** —«sin EPP completo — 3 veces»—, no el título genérico del ítem.
 
 La matriz mide **rendimiento**, no volumen de fallas: «87%» se compara solo con cualquier otro número de la tabla, mientras que «14 puntos» depende de cuántos ítems tenga ese cargo. Las incidencias no desaparecen, quedan como el drill-down.
 
@@ -31,7 +31,7 @@ Mundo heredado, no reemplazado: es una pantalla nueva dentro del dashboard de in
 2. La franja azul muestra: nota promedio (ponderada sobre todo el histórico), cargos evaluados, sucursales con datos, cargos sin hallazgos.
 3. La matriz se ordena por nota: el cargo más bajo arriba, la sucursal con la nota más baja a la izquierda del bloque de columnas. Los cargos que nunca se midieron **cierran** la lista: sin nota no se puede decir que son los peores.
 4. La celda más baja de la matriz —y sólo si está por debajo de 80%— es el único punto al que la mirada tiene que ir sin buscar: rojo sólido con cifra blanca.
-5. Pulsar una celda (o el total de la fila) **despliega el detalle dentro de la tabla**, justo debajo de la fila del cargo elegido: la nota que se pulsó arriba y debajo la lista de hallazgos agrupados por módulo, con sucursal y fecha. No vive en un card aparte al final de la página, porque ahí el usuario tendría que ir a buscarlo y perdería de vista la matriz que lo seleccionó.
+5. Pulsar una celda (o el total de la fila) **despliega el detalle dentro de la tabla**, justo debajo de la fila del cargo elegido: la nota que se pulsó arriba y debajo, agrupado por módulo, **un renglón por ítem** con las veces que cayó, los checks concretos con su conteo y en qué unidades pasó. No vive en un card aparte al final de la página, porque ahí el usuario tendría que ir a buscarlo y perdería de vista la matriz que lo seleccionó.
 6. Búsqueda por cargo y orden (nota / cobertura / A-Z) filtran la matriz; las notas por columna se recalculan sobre lo visible —ponderando logrado y posible, nunca promediando porcentajes— para que el pie cierre.
 
 ### FIRST VIEWPORT
@@ -46,6 +46,7 @@ A 1440×900, sin scroll: barra lateral de consola (Resultados → Indicadores / 
 - La nota de una fila o de una columna se **pondera** con logrado y posible acumulados en crudo. Promediar los porcentajes de las celdas daría otro número —una sucursal con un ítem pesaría igual que otra con cuarenta— y el pie no cerraría con la matriz.
 - Cabecera de columna en `bg-primary-900` con el nombre y el total; fila de pie en `bg-primary-50` / `bg-primary-100`.
 - Detalle: **fila expandida dentro de `<tbody>`** (`<td colSpan={unidades.length + 2}>`), con `<Fragment>` por fila para poder insertarla justo debajo de la elegida. Panel tonal `bg-slate-50` — blanco no se vería sobre la card blanca—, con cabeceras de módulo `bg-white` dentro. Tope de 40 renglones con «Ver más»; el subtotal del módulo se calcula sobre el total, no sobre lo mostrado.
+- Los hallazgos se **agrupan por ítem** (`resumirFallasPorItem`) y no por evaluación: una fila por evaluación son cientos de renglones iguales y nadie cuenta a mano cuántas veces se cayó lo mismo. Cada ítem trae veces, unidades y —si es de checks— el nombre de cada check caído con su conteo (`checks` de `checksFallados`, que va aparte de `fallasDeResponsable` porque ése sólo nombra si le computa puntos, y una respuesta vieja sin selección por check igual tiene nombres). Orden por veces: lo que más se repite es lo primero que se puede corregir.
 - Sin sombras ni bordes añadidos: la selección se marca con `border-2 border-primary` (los `<button>` escapan al aplanado de CSS, que sólo alcanza a `div/section/article/aside/nav/li/a`).
 
 ### FINISH

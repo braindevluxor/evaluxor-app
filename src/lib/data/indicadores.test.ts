@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Item, Modulo, Opcion, Respuesta, Sucursal, SucursalModulo, VistaEvaluacion } from '../types'
-import { medidoresPorModulo, puntajePorSucursalModulo, puntajePorUnidadModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, unidadDe, seguimientoResponsables, hallazgosDeCargo, type ConjuntoDatos } from './indicadores'
+import { medidoresPorModulo, puntajePorSucursalModulo, puntajePorUnidadModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, unidadDe, seguimientoResponsables, hallazgosDeCargo, resumirFallasPorItem, type ConjuntoDatos } from './indicadores'
 
 const sucursales: Sucursal[] = [
   { id: 's1', nombre: 'Sucursal Norte', shop_id: null, branch_id: null, direccion: null, gerente_id: null, activa: true, created_at: '' },
@@ -1176,6 +1176,69 @@ function conjuntoSeguimiento(): ConjuntoDatos {
   return { evaluaciones, respuestas, items, modulos, fotos: [], sucursalOpciones: [], instancias: [] }
 }
 
+/**
+ * Un checklist de tres puntos respondido dos veces (una por sucursal) con sólo
+ * el primero tildado, y SIN selección de responsables: el formato legado, el
+ * que más pesa porque es con el que están las evaluaciones viejas.
+ *
+ * Ahí está el nudo del detalle: `incumplimientosPorResponsable` sabe que al
+ * cargo le fallaron dos cosas pero sólo cuenta «2», y el ítem entero se llama
+ * «Puntos de limpieza». Los nombres concretos —«Góndolas sin polvo», «Zona de
+ * atrás ordenada»— sólo los puede dar el criterio de atribución de checks.
+ */
+function conjuntoChecklist(): ConjuntoDatos {
+  const modulos: Modulo[] = [
+    {
+      id: 'm-seg',
+      nombre: 'Higiene y seguridad',
+      descripcion: '',
+      orden: 0,
+      activo: true,
+      created_at: ''
+    }
+  ]
+  const items: Item[] = [
+    {
+      id: 'i-chk',
+      modulo_id: 'm-seg',
+      tipo: 'CHECKLIST',
+      texto: 'Puntos de limpieza',
+      opciones: [
+        { id: 'op-1', etiqueta: 'Piso lavado', responsable: 'Encargado de turno' },
+        { id: 'op-2', etiqueta: 'Góndolas sin polvo', responsable: 'Encargado de turno' },
+        { id: 'op-3', etiqueta: 'Zona de atrás ordenada', responsable: 'Encargado de turno' }
+      ],
+      orden: 0,
+      requerido: false,
+      activo: true,
+      puntaje: 90,
+      created_at: ''
+    }
+  ]
+  const evaluaciones: VistaEvaluacion[] = [
+    evSeg('evC1', 'sN', null, 'Sucursal Norte', '2026-09-01'),
+    evSeg('evC2', 'sS', null, 'Sucursal Sur', '2026-09-15')
+  ]
+  const respuesta = (evaluacionId: string): Respuesta => ({
+    id: `${evaluacionId}-i-chk`,
+    evaluacion_id: evaluacionId,
+    item_id: 'i-chk',
+    instancia_id: null,
+    valor: { selected: ['op-1'] },
+    respondido_por: null,
+    created_at: ''
+  })
+  return {
+    evaluaciones,
+    respuestas: [respuesta('evC1'), respuesta('evC2')],
+    items,
+    modulos,
+    fotos: [],
+    sucursalOpciones: [],
+    instancias: []
+  }
+}
+
 describe('seguimientoResponsables', () => {
   it('agrupa por clave normalizada: el mismo cargo escrito distinto es UNA fila', () => {
     const s = seguimientoResponsables(conjuntoSeguimiento())
@@ -1274,9 +1337,12 @@ describe('hallazgosDeCargo', () => {
       evaluacion_id: 'evS',
       unidad: 'Sucursal Sur',
       modulo: 'Higiene y seguridad',
-      item: 'EPP completo',
-      puntos: 1
+      item_id: 'i-seg-1',
+      item: 'EPP completo'
     })
+    // Un CUMPLE_NO_CUMPLE no tiene nada más que el ítem entero: no hay checks
+    // que nombrar, y decir «EPP completo» otra vez sería repetir el título.
+    expect(h[0].checks).toEqual([])
     expect(h[1].evaluacion_id).toBe('evN')
   })
 
@@ -1289,5 +1355,51 @@ describe('hallazgosDeCargo', () => {
 
     expect(h).toHaveLength(1)
     expect(h[0].unidad).toBe('Sucursal Norte')
+  })
+
+  it('nombra los checks concretos de un checklist, no sólo el ítem', () => {
+    const h = hallazgosDeCargo(conjuntoChecklist(), 'Encargado de turno')
+
+    expect(h).toHaveLength(2)
+    expect(h[0].item).toBe('Puntos de limpieza')
+    expect(h[0].checks).toEqual(['Góndolas sin polvo', 'Zona de atrás ordenada'])
+  })
+})
+
+describe('resumirFallasPorItem', () => {
+  it('agrupa por ítem y cuenta las veces de cada check y de cada unidad', () => {
+    const filas = resumirFallasPorItem(hallazgosDeCargo(conjuntoChecklist(), 'Encargado de turno'))
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]).toMatchObject({
+      item: 'Puntos de limpieza',
+      modulo: 'Higiene y seguridad',
+      veces: 2,
+      ultima: '2026-09-15'
+    })
+    // Los dos checks cayeron en las dos evaluaciones: con esto alcanza para
+    // decir «se repite», sin listar seis renglones.
+    expect(filas[0].checks).toEqual([
+      { texto: 'Góndolas sin polvo', veces: 2 },
+      { texto: 'Zona de atrás ordenada', veces: 2 }
+    ])
+    expect(filas[0].unidades).toEqual([
+      { nombre: 'Sucursal Norte', veces: 1 },
+      { nombre: 'Sucursal Sur', veces: 1 }
+    ])
+  })
+
+  it('deja un solo renglón por ítem aunque caiga en varias evaluaciones', () => {
+    const filas = resumirFallasPorItem(hallazgosDeCargo(conjuntoSeguimiento(), 'Encargado de turno'))
+
+    // Norte y Sur escriben el cargo distinto pero es el mismo, y las dos
+    // evaluaciones cayeron en el mismo ítem: un renglón, dos veces.
+    expect(filas).toHaveLength(1)
+    expect(filas[0]).toMatchObject({ item_id: 'i-seg-1', item: 'EPP completo', veces: 2 })
+    expect(filas[0].checks).toEqual([])
+    expect(filas[0].unidades).toEqual([
+      { nombre: 'Sucursal Norte', veces: 1 },
+      { nombre: 'Sucursal Sur', veces: 1 }
+    ])
   })
 })

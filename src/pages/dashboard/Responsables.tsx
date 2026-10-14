@@ -14,9 +14,10 @@ import {
   consultarEvaluaciones,
   hallazgosDeCargo,
   notaDe,
+  resumirFallasPorItem,
   seguimientoResponsables,
   type ConjuntoDatos,
-  type HallazgoResponsable,
+  type ResumenItemFalla,
   type SeguimientoResponsables
 } from '../../lib/data/indicadores'
 import { claveNormalizada } from '../../lib/data/responsables'
@@ -59,6 +60,15 @@ function fechaCorta(iso: string): string {
  */
 function pct(nota: number | null): string {
   return nota == null ? '—' : `${nota}%`
+}
+
+/**
+ * `1` → «vez», cualquier otra cosa → «veces». Es un detalle mínimo, pero
+ * «1 veces» es la clase de cosa que hace notar que el texto lo escribió una
+ * máquina y no una persona.
+ */
+function veces(n: number): string {
+  return n === 1 ? 'vez' : 'veces'
 }
 
 /**
@@ -217,31 +227,35 @@ export function SeguimientoVista({
     () => (datos && sel ? hallazgosDeCargo(datos, sel.clave, sel.unidadId) : []),
     [datos, sel]
   )
-  const mostrados = useMemo(() => hallazgos.slice(0, visibles), [hallazgos, visibles])
+  // Un renglón por ítem, no uno por evaluación: con un histórico largo la lista
+  // cruda son cientos de líneas y nadie cuenta a mano cuántas veces se cayó lo
+  // mismo.
+  const itemsFalla = useMemo(() => resumirFallasPorItem(hallazgos), [hallazgos])
+  const vecesTotal = useMemo(() => itemsFalla.reduce((a, f) => a + f.veces, 0), [itemsFalla])
 
-  // El subtotal de cada módulo se calcula sobre TODOS los hallazgos: la lista se
+  // El subtotal de cada módulo se calcula sobre TODOS los ítems: la lista se
   // corta en 40 para no renderizar miles de renglones, pero el número del
-  // encabezado tiene que decir cuántos puntos hay en ese módulo, no cuántos de
-  // los que por ahora se están mostrando.
+  // encabezado tiene que decir cuántas veces se cayó ese módulo, no cuántas de
+  // las que por ahora se están mostrando.
   const grupos = useMemo(() => {
-    const mapa = new Map<string, { modulo: string; puntos: number }>()
-    for (const h of hallazgos) {
-      const g = mapa.get(h.modulo) ?? { modulo: h.modulo, puntos: 0 }
-      g.puntos += h.puntos
-      mapa.set(h.modulo, g)
+    const mapa = new Map<string, { modulo: string; veces: number }>()
+    for (const f of itemsFalla) {
+      const g = mapa.get(f.modulo) ?? { modulo: f.modulo, veces: 0 }
+      g.veces += f.veces
+      mapa.set(f.modulo, g)
     }
-    return Array.from(mapa.values()).sort((a, b) => b.puntos - a.puntos)
-  }, [hallazgos])
+    return Array.from(mapa.values()).sort((a, b) => b.veces - a.veces)
+  }, [itemsFalla])
 
   const porModulo = useMemo(() => {
-    const mapa = new Map<string, typeof mostrados>()
-    for (const h of mostrados) {
-      const arr = mapa.get(h.modulo) ?? []
-      arr.push(h)
-      mapa.set(h.modulo, arr)
+    const mapa = new Map<string, ResumenItemFalla[]>()
+    for (const f of itemsFalla.slice(0, visibles)) {
+      const arr = mapa.get(f.modulo) ?? []
+      arr.push(f)
+      mapa.set(f.modulo, arr)
     }
     return mapa
-  }, [mostrados])
+  }, [itemsFalla, visibles])
 
   return (
     <div className="space-y-6">
@@ -462,7 +476,8 @@ export function SeguimientoVista({
                             cargo={sel.cargo}
                             alcance={sel.unidadNombre}
                             nota={notaSeleccion}
-                            hallazgos={hallazgos}
+                            items={itemsFalla}
+                            vecesTotal={vecesTotal}
                             grupos={grupos}
                             porModulo={porModulo}
                             visibles={visibles}
@@ -510,10 +525,13 @@ interface DetalleCargoProps {
   alcance?: string
   /** La nota de lo que se pulsó: la de la celda o la de la fila entera. */
   nota: number | null
-  hallazgos: HallazgoResponsable[]
-  /** Subtotales por módulo sobre TODOS los hallazgos, no sobre los visibles. */
-  grupos: { modulo: string; puntos: number }[]
-  porModulo: Map<string, HallazgoResponsable[]>
+  /** Los ítems en los que le falló: uno por ítem, con sus checks y sus veces. */
+  items: ResumenItemFalla[]
+  /** Veces sin cumplir en todos los ítems juntos, para el subtítulo del panel. */
+  vecesTotal: number
+  /** Subtotales por módulo sobre TODOS los ítems, no sobre los visibles. */
+  grupos: { modulo: string; veces: number }[]
+  porModulo: Map<string, ResumenItemFalla[]>
   visibles: number
   onVerMas: () => void
   onCerrar: () => void
@@ -531,13 +549,26 @@ export function DetalleCargo({
   cargo,
   alcance,
   nota,
-  hallazgos,
+  items,
+  vecesTotal,
   grupos,
   porModulo,
   visibles,
   onVerMas,
   onCerrar
 }: DetalleCargoProps) {
+  /**
+   * Dónde y cuándo pasó. Con una celda pulsada la sucursal ya está en el título
+   * del panel, así que repetirla en cada renglón sería ruido: allí sólo hace
+   * falta la fecha.
+   */
+  const donde = (f: ResumenItemFalla): string => {
+    const ultima = f.ultima ? fechaCorta(f.ultima) : 'sin fecha'
+    if (alcance) return `Última vez: ${ultima}`
+    const porUnidad = f.unidades.map((u) => `${u.nombre} (${u.veces})`).join(' · ')
+    return `${porUnidad} · última ${ultima}`
+  }
+
   return (
     <div className="rounded-xl bg-slate-50 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -559,8 +590,10 @@ export function DetalleCargo({
               ' en todas las unidades'
             )}
             {' · '}
-            <strong className="text-red-600">{hallazgos.length}</strong>{' '}
-            {hallazgos.length === 1 ? 'punto sin cumplir' : 'puntos sin cumplir'}
+            <strong className="text-red-600">{items.length}</strong>{' '}
+            {items.length === 1 ? 'ítem sin cumplir' : 'ítems sin cumplir'}
+            {' · '}
+            <strong className="text-red-600">{vecesTotal}</strong> {veces(vecesTotal)} sin cumplir
           </p>
         </div>
         <Button variant="ghost" onClick={onCerrar}>
@@ -569,7 +602,7 @@ export function DetalleCargo({
         </Button>
       </div>
 
-      {hallazgos.length === 0 ? (
+      {items.length === 0 ? (
         <p className="mt-3 text-sm text-slate-500">
           Sin hallazgos en este alcance: probá con otra sucursal de la matriz.
         </p>
@@ -582,36 +615,55 @@ export function DetalleCargo({
                   {g.modulo}
                 </span>
                 <span className="text-xs font-bold tabular-nums text-slate-600">
-                  {g.puntos} pts
+                  {g.veces} {veces(g.veces)} sin cumplir
                 </span>
               </div>
               <ul>
-                {(porModulo.get(g.modulo) ?? []).map((h, i) => (
+                {(porModulo.get(g.modulo) ?? []).map((f) => (
                   <li
-                    key={`${h.evaluacion_id}-${i}`}
+                    key={f.item_id}
                     className="flex items-start justify-between gap-4 border-b border-slate-200 py-2.5 last:border-b-0"
                   >
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">{h.item}</p>
-                      <p className="text-xs text-slate-500">
-                        {h.unidad} · {fechaCorta(h.fecha)}
-                      </p>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-800">{f.item}</p>
+                      {/*
+                        Los checks concretos: es la única respuesta posible a
+                        «¿en qué le falló?». Decir «Checklist de higiene — 3» no
+                        dice nada; «sin EPP completo — 3 veces» sí.
+                      */}
+                      {f.checks.length > 0 && (
+                        <ul className="mt-1 space-y-0.5">
+                          {f.checks.map((c) => (
+                            <li key={c.texto} className="flex gap-1.5 text-xs text-slate-600">
+                              <span aria-hidden>·</span>
+                              <span className="min-w-0">
+                                <span className="font-semibold text-slate-700">{c.texto}</span>
+                                <span className="text-slate-500">
+                                  {' — '}
+                                  {c.veces} {veces(c.veces)} sin cumplir
+                                </span>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <p className="mt-1 text-xs text-slate-500">{donde(f)}</p>
                     </div>
                     <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-bold tabular-nums text-red-700">
-                      {h.puntos} pts
+                      {f.veces} {veces(f.veces)}
                     </span>
                   </li>
                 ))}
               </ul>
             </section>
           ))}
-          {hallazgos.length > visibles && (
+          {items.length > visibles && (
             <button
               type="button"
               onClick={onVerMas}
               className="w-full rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-primary-700 transition-colors hover:bg-primary-50"
             >
-              Ver más ({hallazgos.length - visibles} restantes)
+              Ver más ({items.length - visibles} restantes)
             </button>
           )}
         </div>
