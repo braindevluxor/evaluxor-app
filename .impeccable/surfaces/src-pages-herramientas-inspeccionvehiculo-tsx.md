@@ -23,11 +23,12 @@ Mundo heredado, no reemplazado: pantalla nueva dentro del `MobileLayout` existen
 2. Escribe la placa (consulta la API por placa; si no aparece, carga marca/modelo/año/color/kilometraje a mano) y marca el **sistema de combustible** — ahí está el GNV. No elige sucursal: no hay.
 3. Carga al propietario (cédula/RIF, nombre, apellido, teléfono) y su firma, que es **opcional**: la inspección puede hacerse sin el dueño presente.
 4. Recorre las tres secciones; cada punto deja foto o incidencia con comentario. Las cabeceras de sección muestran su propio avance.
-5. «Generar PDF de la inspección» exporta la hoja con evidencias y firma, marca el registro `FINALIZADA` y lo sube si hay señal; sin señal, la cola lo sube sola. El botón cambia a **Nueva inspección** para seguir con el próximo vehículo.
+5. «Generar PDF de la inspección» exporta la hoja con evidencias y firma, marca el registro `FINALIZADA` y lo sube si hay señal; sin señal, la cola lo sube sola. Al finalizar la barra queda con **Descargar PDF** (se puede volver a bajar cuantas veces haga falta) junto a **Nueva inspección**.
+6. El botón **Historial** (en el renglón de arriba) abre `/evaluar/inspeccion-vehiculo/historial`: lista cada inspección con placa, vehículo, propietario, fecha y estado (Borrador / Finalizada / Por subir), juntando lo que sigue en el equipo con lo ya subido al servidor. Tocar una fila reabre la inspección con `?registro=<id>` —desde el equipo si aún está allí, desde el servidor si ya se borró al subirla— para regenerar su PDF.
 
 ### FIRST VIEWPORT
 
-A 390×844, sin scroll: encabezado de MobileLayout («Inspección de vehículo» con el nombre del módulo de subtítulo), y dentro el renglón **Volver + avance** («n/m · %»), el resumen («N puntos a revisar») y el arranque de la tarjeta de vehículo (placa con su botón de búsqueda). El checklist queda a un scroll, agrupado por sección; la barra de acción queda pegada abajo.
+A 390×844, sin scroll: encabezado de MobileLayout («Inspección de vehículo» con el nombre del módulo de subtítulo), y dentro el renglón **Volver + Historial + avance** («n/m · %»), el resumen («N puntos a revisar») y el arranque de la tarjeta de vehículo (placa con su botón de búsqueda). El checklist queda a un scroll, agrupado por sección; la barra de acción queda pegada abajo.
 
 ### FORM
 

@@ -24,6 +24,10 @@ interface Preview {
  * la galería ya están en el teléfono y copiarlas de nuevo sólo ensuciaría. La
  * copia se hace con el archivo original, sin comprimir, para que sirva de
  * rescate si algún día se pierde lo que hay dentro de la app.
+ *
+ * En PC de escritorio no hay copia: la guardaría en *Descargas* en cada foto
+ * (eso lo reportó el usuario como ruido). La guarda vive dentro de
+ * `guardarEnGaleria`, así que ningún llamador tiene que acordársela.
  */
 export async function guardarFotosDe(files: FileList | null, respaldar = false): Promise<string[]> {
   if (!files || !files.length) return []
@@ -91,6 +95,9 @@ export function PhotoCapture({ photoIds, onChange }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const galeriaRef = useRef<HTMLInputElement>(null)
   const [subiendo, setSubiendo] = useState(false)
+  // En PC no hay respaldo automático (sólo ensuciaría la carpeta Descargas),
+  // así que el destino sólo se promete donde de verdad existe.
+  const destino = destinoRespaldo()
 
   function quitar(id: string) {
     void deletePhoto(id)
@@ -158,12 +165,14 @@ export function PhotoCapture({ photoIds, onChange }: Props) {
       </div>
       {/* El respaldo es automático y no avisa en pantalla, así que acá se dice
           claramente dónde va a estar: no sirve de respaldo si nadie sabe que
-          existe. */}
-      <p className="text-[11px] leading-tight text-slate-400">
-        {destinoRespaldo() === 'fotos'
-          ? 'Cada foto que tomes también se guarda en Fotos.'
-          : 'Cada foto que tomes también se guarda en Descargas.'}
-      </p>
+          existe. En PC no hay respaldo y no se promete ningún destino. */}
+      {destino !== 'ninguno' ? (
+        <p className="text-[11px] leading-tight text-slate-400">
+          {destino === 'fotos'
+            ? 'Cada foto que tomes también se guarda en Fotos.'
+            : 'Cada foto que tomes también se guarda en Descargas.'}
+        </p>
+      ) : null}
     </div>
   )
 }

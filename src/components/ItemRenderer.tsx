@@ -2250,6 +2250,9 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
   const inputRef = useRef<HTMLInputElement>(null)
   const galeriaRef = useRef<HTMLInputElement>(null)
   const [subiendo, setSubiendo] = useState(false)
+  // En PC no se respalda fuera de la app, así que el título sólo promete el
+  // destino en los equipos donde de verdad hay copia (teléfono/tablet).
+  const destino = destinoRespaldo()
 
   async function agregar(input: HTMLInputElement, desdeCamara: boolean) {
     setSubiendo(true)
@@ -2283,7 +2286,7 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
         onClick={() => inputRef.current?.click()}
         disabled={subiendo}
         aria-label="Tomar foto de evidencia"
-        title={`Tomar foto · también se guarda en ${destinoRespaldo() === 'fotos' ? 'Fotos' : 'Descargas'}`}
+        title={destino === 'ninguno' ? 'Tomar foto' : `Tomar foto · también se guarda en ${destino === 'fotos' ? 'Fotos' : 'Descargas'}`}
         className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
       >
         {subiendo ? <Spinner size={16} light /> : <Camera className="h-4 w-4" />}

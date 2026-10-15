@@ -466,6 +466,24 @@ async function listPreEntregas(): Promise<PreEntregaRecord[]> {
   return all.sort((a, b) => a.created_at - b.created_at)
 }
 
+/**
+ * Una revisión concreta por id: cómo se reabre una inspección vieja desde el
+ * historial cuando todavía está en el equipo (borrador o finalizada no subida).
+ */
+export async function getPreEntrega(id: string): Promise<PreEntregaRecord | undefined> {
+  const db = await getDB()
+  return db.get('preentrega', id)
+}
+
+/**
+ * Todas las revisiones del equipo, para el historial. A diferencia de
+ * `preEntregasPendientes` no filtra por `sync`: el historial quiere ver
+ * también las que ya se subieron y siguen guardadas acá.
+ */
+export async function listarPreEntregas(): Promise<PreEntregaRecord[]> {
+  return listPreEntregas()
+}
+
 /** Las que todavía no llegaron al servidor (para la subida y los avisos). */
 export async function preEntregasPendientes(): Promise<PreEntregaRecord[]> {
   return (await listPreEntregas()).filter((r) => r.sync === 'pendiente')

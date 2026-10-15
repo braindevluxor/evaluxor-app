@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { evidenciasDe, evidenciasDeRespuestas, seccionarItems } from './inspeccionVehiculo'
-import type { Item, Opcion } from './types'
+import {
+  RUTA_HISTORIAL,
+  evidenciasDe,
+  evidenciasDeRespuestas,
+  fechaLegible,
+  filaHistorial,
+  fusionarHistorial,
+  registroDesdeServidor,
+  seccionarItems
+} from './inspeccionVehiculo'
+import type { Item, Opcion, RevisionPreEntrega } from './types'
 
 function item(parcial: Partial<Item> & Pick<Item, 'tipo' | 'texto'>): Item {
   return {
@@ -99,5 +108,86 @@ describe('evidenciasDeRespuestas', () => {
     })
     expect(evs).toHaveLength(1)
     expect(evs[0].pie).toBe('Carrocería · Sin abolladuras')
+  })
+})
+
+describe('historial de inspecciones', () => {
+  const base = {
+    id: 'r1',
+    fecha: '2026-10-15',
+    placa: ' abc-123 ',
+    vehiculo: { marca: 'TOYOTA', modelo: 'HILUX', anio: 2020 },
+    chofer: { nombre: 'Ana', apellido: 'Pérez' },
+    estado: 'FINALIZADA',
+    updated_at: 1000
+  }
+
+  it('resume un registro en una fila legible, con la placa en mayúsculas', () => {
+    const f = filaHistorial(base)
+    expect(f.placa).toBe('ABC-123')
+    expect(f.vehiculo).toBe('TOYOTA HILUX 2020')
+    expect(f.propietario).toBe('Ana Pérez')
+    expect(f.estado).toBe('FINALIZADA')
+    expect(fechaLegible(f.fecha)).toBe('15 oct 2026')
+    // Sin datos no se rompe: sólo queda vacío el campo.
+    expect(filaHistorial({ ...base, vehiculo: {}, chofer: {}, fecha: 'x' }).vehiculo).toBe('')
+    expect(fechaLegible('x')).toBe('x')
+  })
+
+  it('una fila del servidor no está pendiente: sin `sync` ya subió', () => {
+    const servidor = filaHistorial({ ...base, updated_at: '2026-10-15T10:00:00.000Z' })
+    expect(servidor.pendiente).toBe(false)
+    expect(servidor.ms).toBe(Date.parse('2026-10-15T10:00:00.000Z'))
+    // La del equipo sí puede estarlo, y eso se muestra en la lista.
+    expect(filaHistorial({ ...base, sync: 'pendiente' }).pendiente).toBe(true)
+    expect(filaHistorial({ ...base, sync: 'enviado' }).pendiente).toBe(false)
+  })
+
+  it('junta equipo y servidor sin repetir; si coinciden, manda el equipo', () => {
+    const servidor = [{ ...base, id: 'r1', updated_at: '2026-10-15T10:00:00.000Z' }]
+    const local = [
+      { ...base, id: 'r2', estado: 'BORRADOR', sync: 'pendiente', updated_at: 2000 },
+      // La misma inspección r1, pero con cambios que todavía no subieron.
+      { ...base, id: 'r1', sync: 'pendiente', updated_at: 5000, placa: 'XYZ-999' }
+    ]
+    const filas = fusionarHistorial(local, servidor)
+    expect(filas.map((f) => f.id)).toEqual(['r1', 'r2'])
+    expect(filas).toHaveLength(2)
+    // La copia local pisa a la remota: es la que lleva lo último.
+    expect(filas[0].placa).toBe('XYZ-999')
+    expect(filas[0].pendiente).toBe(true)
+  })
+
+  it('una finalizada subida se puede abrir de nuevo desde el servidor', () => {
+    const fila: RevisionPreEntrega = {
+      id: 'r9',
+      evaluador_id: 'u1',
+      sucursal_id: null,
+      modulo_id: 'm1',
+      placa: 'ABC-123',
+      vehiculo: { marca: 'MAZDA', modelo: 'CX-5' },
+      chofer: { nombre: 'Ana' },
+      chofer_firma: null,
+      observaciones: null,
+      respuestas: { c1: { evidencias: { o1: { paths: ['pre-entrega/r9/f1.jpg'] } } } },
+      estado: 'FINALIZADA',
+      fecha: '2026-10-15',
+      created_at: '2026-10-15T09:00:00.000Z',
+      updated_at: '2026-10-15T10:00:00.000Z'
+    }
+    const reg = registroDesdeServidor(fila)
+    expect(reg.created_at).toBe(Date.parse('2026-10-15T09:00:00.000Z'))
+    expect(reg.updated_at).toBe(Date.parse('2026-10-15T10:00:00.000Z'))
+    // El registro local no admite observaciones null.
+    expect(reg.observaciones).toBe('')
+    expect(reg.sync).toBe('enviado')
+    expect(reg.photoIds).toEqual([])
+    // Las respuestas conservan las rutas del bucket: el PDF vuelve a salir con
+    // las fotos aunque el equipo las haya borrado al subir la inspección.
+    expect(reg.respuestas).toEqual(fila.respuestas)
+  })
+
+  it('la ruta del historial cuelga de la de la herramienta', () => {
+    expect(RUTA_HISTORIAL).toBe('/evaluar/inspeccion-vehiculo/historial')
   })
 })

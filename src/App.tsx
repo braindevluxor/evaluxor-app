@@ -47,6 +47,11 @@ const ConciliacionPublica = lazy(() =>
 const InspeccionVehiculo = lazy(() =>
   import('./pages/herramientas/InspeccionVehiculo').then((m) => ({ default: m.InspeccionVehiculo }))
 )
+// Su historial: misma puerta y mismo flujo móvil; de ahí se reabre cualquier
+// inspección anterior para regenerar su PDF.
+const InspeccionHistorial = lazy(() =>
+  import('./pages/herramientas/InspeccionHistorial').then((m) => ({ default: m.InspeccionHistorial }))
+)
 // Revisión Pre-Entrega: fuera del menú y de las rutas por decisión de producto;
 // el módulo (`pages/herramientas/RevisionPreEntrega`) sigue en el repo.
 
@@ -136,6 +141,18 @@ function Rutas() {
                         <RequireAuth>
                           <RequireRol roles={['EVALUADOR', 'LIDER']}>
                             <InspeccionVehiculo />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    {/* El historial de esas inspecciones: misma puerta. Las
+                        filas reabren la herramienta con ?registro=<id>. */}
+                    <Route
+                      path="/evaluar/inspeccion-vehiculo/historial"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <InspeccionHistorial />
                           </RequireRol>
                         </RequireAuth>
                       }

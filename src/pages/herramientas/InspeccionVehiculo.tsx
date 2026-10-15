@@ -1,20 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, FileDown, FolderOpen, Plus, RefreshCw, Search } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { ArrowLeft, FileDown, FolderOpen, History, Plus, RefreshCw, Search } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog, useModuloHerramienta } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
+import { obtenerRevisionPreEntrega } from '../../lib/data/revisionPreEntrega'
 import { buscarVehiculo } from '../../lib/data/vehicles'
 import { exportarRevisionPreEntrega } from '../../lib/pdf/exportarRevisionPreEntrega'
 import { resolverPregunta } from '../../lib/pdf/preguntasRevision'
-import { getPhotos, getPreEntregaAbierta, putPreEntrega, type PreEntregaRecord } from '../../lib/offline/db'
+import {
+  getPhotos,
+  getPreEntrega,
+  getPreEntregaAbierta,
+  putPreEntrega,
+  type PreEntregaRecord
+} from '../../lib/offline/db'
 import { subirRevisionPreEntrega } from '../../lib/offline/syncPreEntrega'
 import { tieneRespuesta } from '../../lib/scoring'
 import { supabase } from '../../lib/supabase'
 import {
   CLAVE_INSPECCION,
   COMBUSTIBLES,
+  RUTA_HISTORIAL,
   evidenciasDeRespuestas,
+  registroDesdeServidor,
   seccionarItems
 } from '../../lib/inspeccionVehiculo'
 import { FirmaCanvas } from '../../components/FirmaCanvas'
@@ -107,6 +116,11 @@ export function InspeccionVehiculo() {
   const { online, sync: syncCola } = useOffline()
   const { modulo, items } = useModuloHerramienta(CLAVE_INSPECCION)
 
+  // El historial pide una inspección concreta con `?registro=<id>`; sin ese
+  // parámetro la pantalla se comporta como siempre (borrador abierto o nuevo).
+  const [params, setParams] = useSearchParams()
+  const registroBuscado = params.get('registro')
+
   const [reg, setReg] = useState<PreEntregaRecord | null>(null)
   const [cargando, setCargando] = useState(true)
 
@@ -124,12 +138,44 @@ export function InspeccionVehiculo() {
   // El checklist, partido en Estética / Mecánica / Gas vehicular.
   const grupos = useMemo(() => seccionarItems(items), [items])
 
+  /* --- Abrir una inspección del historial (?registro=<id>) ------------------ */
+
+  useEffect(() => {
+    // El módulo hace de guarda: el id pedido tiene que ser una inspección
+    // (misma herramienta), no cualquier revisión suelta que haya en el servidor.
+    if (!cargado || !modulo || !registroBuscado) return
+    void (async () => {
+      // Primero el equipo: si la inspección sigue acá (borrador, o finalizada
+      // que todavía no subió/borró), se abre con sus fotos locales.
+      const local = await getPreEntrega(registroBuscado).catch(() => undefined)
+      let registro = local
+      if (!registro) {
+        // Ya no está en el equipo: se trae la fila del servidor y con ella se
+        // puede regenerar el PDF aunque las fotos originales hayan salido del
+        // teléfono (el PDF las toma del bucket por las `paths` de las respuestas).
+        const fila = await obtenerRevisionPreEntrega(registroBuscado).catch(() => null)
+        registro = fila ? registroDesdeServidor(fila) : undefined
+      }
+      // Un id de otra herramienta no se abre: se sigue el flujo normal de la
+      // pantalla (borrador abierto o inspección nueva).
+      if (registro && registro.modulo_id === modulo.id) {
+        regRef.current = registro
+        setReg(registro)
+        setPersona(personaDe(registro.chofer))
+      }
+      setCargando(false)
+    })()
+    // Sólo interesa el id del módulo, no el objeto módulo completo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cargado, modulo?.id, registroBuscado])
+
   /* --- Carga inicial: retomar la inspección a medias, si quedó una ---------- */
 
   useEffect(() => {
     // El módulo llega del caché del catálogo; sin él no hay registro que
     // retomar (el registro guarda el id del módulo con el que se abrió).
-    if (!cargado || !profile || !modulo) return
+    // Si el historial pidió una inspección concreta, ésta no se mezcla.
+    if (!cargado || !profile || !modulo || registroBuscado) return
     void (async () => {
       const abierta = await getPreEntregaAbierta(profile.id, modulo.id).catch(() => undefined)
       if (abierta) {
@@ -148,7 +194,7 @@ export function InspeccionVehiculo() {
     // ids: si el catálogo vuelve a traer los mismos objetos, retomar el borrador
     // otra vez sólo reescribe en IndexedDB lo que ya estaba escrito.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cargado, profile?.id, modulo?.id])
+  }, [cargado, profile?.id, modulo?.id, registroBuscado])
 
   /* --- Guardado: siempre local; la cola global lo sube sola ---------------- */
 
@@ -379,7 +425,7 @@ export function InspeccionVehiculo() {
   }
 
   /** Arranca otra inspección dejando la anterior intacta (ya subida o en cola). */
-  function nuevaInspeccion() {
+  async function nuevaInspeccion() {
     if (!modulo || !profile?.id) return
     const nueva = registroVacio(profile.id, modulo.id)
     regRef.current = nueva
@@ -387,7 +433,10 @@ export function InspeccionVehiculo() {
     setPersona(PERSONA_VACIA)
     setErrorVehiculo(null)
     setAviso(null)
-    void putPreEntrega(nueva).catch(() => undefined)
+    // El registro nuevo queda escrito antes de soltar el `?registro=`: si se
+    // limpiara primero, la carga automática crearía una segunda inspección vacía.
+    await putPreEntrega(nueva).catch(() => undefined)
+    if (registroBuscado) setParams({}, { replace: true })
   }
 
   /* --- Render ---------------------------------------------------------------- */
@@ -445,7 +494,18 @@ export function InspeccionVehiculo() {
     <MobileLayout titulo="Inspección de vehículo" subtitulo={modulo.nombre}>
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-2">
-          {volver}
+          <div className="flex items-center">
+            {volver}
+            <Button
+              variant="ghost"
+              onClick={() => navigate(RUTA_HISTORIAL)}
+              className="-ml-2"
+              title="Inspecciones anteriores"
+            >
+              <History className="mr-1 h-4 w-4" />
+              Historial
+            </Button>
+          </div>
           <span className="text-xs font-semibold tabular-nums text-slate-400">
             {respondidas}/{itemsEvaluables.length} · {avance}%
           </span>
@@ -642,10 +702,26 @@ export function InspeccionVehiculo() {
               <RefreshCw className="h-4 w-4" />
             </Button>
             {reg.estado === 'FINALIZADA' ? (
-              <Button type="button" onClick={nuevaInspeccion} className="flex-1">
-                <Plus className="h-4 w-4" />
-                Nueva inspección
-              </Button>
+              /* Una inspección finalizada se puede descargar cuantas veces haga
+                 falta: el PDF se regenera desde el registro (y las fotos se
+                 toman del bucket si el equipo ya las borró al subir). */
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void exportarPDF()}
+                  disabled={!puedeExportar || exportando}
+                  className="flex-1"
+                  title="Volver a descargar el PDF de esta inspección"
+                >
+                  {exportando ? <Spinner size={16} /> : <FileDown className="h-4 w-4" />}
+                  {exportando ? 'Generando…' : 'Descargar PDF'}
+                </Button>
+                <Button type="button" onClick={() => void nuevaInspeccion()} className="flex-1">
+                  <Plus className="h-4 w-4" />
+                  Nueva inspección
+                </Button>
+              </>
             ) : (
               <Button
                 type="button"

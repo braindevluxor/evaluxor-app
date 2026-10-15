@@ -199,3 +199,73 @@ describe('Inspección de vehículo · el PDF', () => {
     expect(pagina).not.toMatch(/puedeExportar[\s\S]{0,120}chofer_firma/)
   })
 })
+
+describe('Inspección de vehículo · reabrir y descargar otra vez', () => {
+  const pagina = fuente('./InspeccionVehiculo.tsx')
+
+  it('una finalizada puede volver a descargar su PDF sin abrir otra nueva', () => {
+    // Síntoma real: al finalizar, el botón de PDF desaparecía y sólo quedaba
+    // «Nueva inspección», sin forma de recuperar el PDF de esa inspección.
+    expect(pagina).toContain("'Descargar PDF'")
+    expect(pagina).toContain('Volver a descargar el PDF de esta inspección')
+    expect(pagina).toContain('Nueva inspección')
+    // Los dos botones conviven en la rama finalizada.
+    expect(pagina).toMatch(/reg\.estado === 'FINALIZADA' \? \{?[\s\S]*?Descargar PDF[\s\S]*?Nueva inspección/)
+  })
+
+  it('el historial puede pedir una inspección concreta y ésta se abre', () => {
+    expect(pagina).toContain("params.get('registro')")
+    expect(pagina).toContain('getPreEntrega(registroBuscado)')
+    // Si ya no está en el equipo (las finalizadas subidas se borran de local),
+    // se trae la fila del servidor y con ella se regenera el PDF.
+    expect(pagina).toContain('obtenerRevisionPreEntrega(registroBuscado)')
+    expect(pagina).toContain('registroDesdeServidor(fila)')
+    // Sólo se abre si es una inspección: un id de otra herramienta no secuestra
+    // la pantalla, que sigue su flujo normal.
+    expect(pagina).toContain('registro.modulo_id === modulo.id')
+    // Mientras el historial manda un id, la retomada automática no se entromete.
+    expect(pagina).toContain('if (!cargado || !profile || !modulo || registroBuscado) return')
+  })
+
+  it('«Nueva inspección» suelta el id del historial sin duplicar registros', () => {
+    expect(pagina).toMatch(/async function nuevaInspeccion\(\)/)
+    // El registro nuevo queda escrito antes de limpiar el `?registro=`: si se
+    // limpiara primero, la carga crearía una segunda inspección vacía.
+    expect(pagina).toMatch(/await putPreEntrega\(nueva\)[\s\S]{0,80}setParams\(\{\}, \{ replace: true \}\)/)
+  })
+})
+
+describe('Inspección de vehículo · el historial', () => {
+  const pagina = fuente('./InspeccionVehiculo.tsx')
+  const historial = fuente('./InspeccionHistorial.tsx')
+  const app = fuente('../../App.tsx')
+
+  it('su ruta vive en /evaluar con la misma puerta que la herramienta', () => {
+    expect(app).toContain('path="/evaluar/inspeccion-vehiculo/historial"')
+    expect(app).toMatch(
+      /path="\/evaluar\/inspeccion-vehiculo\/historial"[\s\S]{0,220}roles={\['EVALUADOR', 'LIDER'\]}/
+    )
+    // También en el bloque móvil, antes de la consola de escritorio.
+    expect(app.indexOf('path="/evaluar/inspeccion-vehiculo/historial"')).toBeLessThan(
+      app.indexOf('<ConsoleLayout />')
+    )
+  })
+
+  it('se entra desde un botón en la propia pantalla de la inspección', () => {
+    expect(pagina).toContain('navigate(RUTA_HISTORIAL)')
+    expect(pagina).toContain('<History className="mr-1 h-4 w-4" />')
+  })
+
+  it('junta lo del equipo con lo del servidor, y sólo lo de esta herramienta', () => {
+    expect(historial).toContain('listarPreEntregas()')
+    expect(historial).toContain('listarRevisionesPreEntrega()')
+    // Las dos orillas se filtran por módulo: el mismo equipo guarda también el
+    // borrador de otras herramientas.
+    expect(historial.match(/r\.modulo_id === modulo\.id/g)?.length).toBe(2)
+    expect(historial).toContain('fusionarHistorial(')
+  })
+
+  it('tocar una fila reabre esa inspección en su pantalla', () => {
+    expect(historial).toContain('${RUTA_INSPECCION}?registro=${f.id}')
+  })
+})

@@ -1,4 +1,5 @@
-import type { Item, Opcion } from './types'
+import type { PreEntregaRecord } from './offline/db'
+import type { Item, Opcion, RevisionPreEntrega } from './types'
 
 /**
  * Helpers puros de la herramienta de Inspección de Vehículo.
@@ -10,6 +11,10 @@ import type { Item, Opcion } from './types'
 
 /** Marca del módulo-herramienta en `modulos.herramienta`. */
 export const CLAVE_INSPECCION = 'INSPECCION_VEHICULO'
+
+/** Dónde vive la herramienta dentro de `/evaluar` y la de su historial. */
+export const RUTA_INSPECCION = '/evaluar/inspeccion-vehiculo'
+export const RUTA_HISTORIAL = `${RUTA_INSPECCION}/historial`
 
 /** Sistemas de combustible que se ofrecen en la ficha del vehículo. */
 export const COMBUSTIBLES = [
@@ -124,4 +129,112 @@ export function evidenciasDeRespuestas(items: Item[], respuestas: Record<string,
     salida.push(...evidenciasDe(item, respuestas[item.id]))
   }
   return salida
+}
+
+/* --- Historial --------------------------------------------------------------- */
+
+/**
+ * El historial se alimenta de las dos orillas: lo que sigue en el equipo
+ * (borradores y finalizadas aún sin subir) y lo que ya está en el servidor
+ * (donde acaban las finalizadas: al subir salen de IndexedDB con sus fotos).
+ * Sin las dos, un teléfono nuevo no vería nada de lo hecho antes.
+ */
+
+/** Fila del historial: la inspección vista como «qué, cuándo y en qué estado». */
+export interface FilaHistorial {
+  id: string
+  /** Fecha calendario de la inspección (YYYY-MM-DD). */
+  fecha: string
+  placa: string
+  /** «TOYOTA HILUX 2020»; vacío si el vehículo no se pudo traer. */
+  vehiculo: string
+  /** Nombre del propietario; vacío si no se capturó. */
+  propietario: string
+  estado: 'BORRADOR' | 'FINALIZADA'
+  /** La copia del equipo todavía no llegó al servidor. */
+  pendiente: boolean
+  /** Última edición en ms: de ahí sale el orden (más nueva, arriba). */
+  ms: number
+}
+
+/** Forma mínima que comparten el registro del equipo y la fila del servidor. */
+export interface BaseHistorial {
+  id: string
+  fecha: string
+  placa: string
+  vehiculo: Record<string, unknown>
+  chofer: Record<string, unknown>
+  estado: string
+  /** Sólo existe en el registro local; el servidor ya está subido. */
+  sync?: string
+  /** ms en el equipo, ISO en el servidor: de ahí sale el orden. */
+  updated_at: string | number
+}
+
+function msDe(t: string | number): number {
+  const n = typeof t === 'number' ? t : Date.parse(t)
+  return Number.isFinite(n) ? n : 0
+}
+
+/** Una fila del historial a partir de un registro (del equipo o del servidor). */
+export function filaHistorial(r: BaseHistorial): FilaHistorial {
+  const v = r.vehiculo ?? {}
+  const carro = [v.marca, v.modelo, v.anio]
+    .map((x) => String(x ?? '').trim())
+    .filter(Boolean)
+    .join(' ')
+  const c = r.chofer ?? {}
+  const dueno = [c.nombre, c.apellido]
+    .map((x) => String(x ?? '').trim())
+    .filter(Boolean)
+    .join(' ')
+  return {
+    id: r.id,
+    fecha: r.fecha,
+    placa: String(r.placa ?? '').trim().toUpperCase(),
+    vehiculo: carro,
+    propietario: dueno,
+    estado: r.estado === 'FINALIZADA' ? 'FINALIZADA' : 'BORRADOR',
+    // El servidor no trae `sync`: una fila remota, por definición, ya subió.
+    pendiente: r.sync === 'pendiente',
+    ms: msDe(r.updated_at)
+  }
+}
+
+/**
+ * Historial unido sin repetir. Si una inspección está en las dos orillas manda
+ * la del equipo: es la que lleva los cambios que todavía no se subieron.
+ */
+export function fusionarHistorial(local: BaseHistorial[], servidor: BaseHistorial[]): FilaHistorial[] {
+  const porId = new Map<string, FilaHistorial>()
+  for (const s of servidor) porId.set(s.id, filaHistorial(s))
+  for (const l of local) porId.set(l.id, filaHistorial(l))
+  return [...porId.values()].sort((a, b) => b.ms - a.ms)
+}
+
+/**
+ * Fila del servidor → registro del equipo, para reabrir una inspección ya
+ * subida y regenerar su PDF aunque el original se haya borrado del teléfono.
+ */
+export function registroDesdeServidor(r: RevisionPreEntrega): PreEntregaRecord {
+  return {
+    ...r,
+    // El servidor admite observaciones vacías como null; el registro local no.
+    observaciones: r.observaciones ?? '',
+    // Las fotos ya no están en el equipo: el PDF las toma del bucket, por las
+    // `paths` que quedaron guardadas en las respuestas.
+    photoIds: [],
+    created_at: msDe(r.created_at),
+    updated_at: msDe(r.updated_at),
+    sync: 'enviado'
+  }
+}
+
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+
+/** «15 oct 2026» a partir de la fecha calendario, sin depender del ICU del equipo. */
+export function fechaLegible(fecha: string): string {
+  const [y, m, d] = String(fecha ?? '').split('-').map((n) => Number(n))
+  if (!y || !m || !d) return fecha
+  return `${d} ${MESES[m - 1]} ${y}`
 }
