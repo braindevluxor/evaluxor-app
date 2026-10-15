@@ -115,6 +115,7 @@ export function InspeccionVehiculo() {
     () => sucursales.find((s) => s.id === sucursalId) ?? null,
     [sucursales, sucursalId]
   )
+  const sucursalesActivas = useMemo(() => sucursales.filter((s) => s.activa), [sucursales])
 
   const itemsEvaluables = useMemo(() => items.filter((i) => i.tipo !== 'CONTENEDOR'), [items])
   // El checklist, partido en Estética / Mecánica / Gas vehicular.
@@ -247,6 +248,17 @@ export function InspeccionVehiculo() {
     setSucursalId(id)
     setPersona(PERSONA_VACIA)
     setErrorVehiculo(null)
+    const actual = regRef.current
+    // Perfil sin sucursal (el de un Líder, por ejemplo): la inspección se abre
+    // recién con la que se elija acá. Nunca se abre con la sucursal vacía,
+    // porque la cola sube el registro por su cuenta y el servidor exige el id.
+    if (!actual) {
+      if (!profile?.id || !modulo || !id) return
+      const nuevo = registroVacio(profile.id, id, modulo.id)
+      regRef.current = nuevo
+      setReg(nuevo)
+      return
+    }
     patch({ sucursal_id: id, chofer: {}, chofer_firma: null, vehiculo: {} })
   }
 
@@ -384,8 +396,10 @@ export function InspeccionVehiculo() {
 
   /** Arranca otra inspección dejando la anterior intacta (ya subida o en cola). */
   function nuevaInspeccion() {
-    if (!modulo || !profile?.id) return
-    const nueva = registroVacio(profile.id, sucursalId || profile.sucursal_id || '', modulo.id)
+    // Con la sucursal de la inspección que se acaba de cerrar, que es la que ya
+    // eligió el usuario: nunca se abre una con la sucursal vacía.
+    if (!modulo || !profile?.id || !sucursalId) return
+    const nueva = registroVacio(profile.id, sucursalId, modulo.id)
     regRef.current = nueva
     setReg(nueva)
     setPersona(PERSONA_VACIA)
@@ -396,7 +410,9 @@ export function InspeccionVehiculo() {
 
   /* --- Render ---------------------------------------------------------------- */
 
-  if (!cargado || cargando) {
+  // El checklist vacío sólo se sabe después de tener el catálogo; el registro
+  // se busca en paralelo, así que mientras el módulo exista se espera un poco.
+  if (!cargado || (cargando && !!modulo)) {
     return (
       <div className="py-20 text-center text-slate-400">
         <Spinner className="mx-auto" />
@@ -414,8 +430,42 @@ export function InspeccionVehiculo() {
     )
   }
 
+  // Sin sucursal no se puede abrir la inspección, pero tampoco se esconde la
+  // puerta: el perfil de un Líder no trae sucursal, y el selector es el que la
+  // pone. Esto pasa también si no hay ninguna sucursal activa creada.
+  if (!sucursalesActivas.length) {
+    return (
+      <EmptyState
+        title="No hay sucursales configuradas"
+        subtitle="Crea la sucursal desde Configuración → Sucursales y vuelve a entrar: ahí es donde se hace la inspección."
+      />
+    )
+  }
+
   if (!reg) {
-    return <EmptyState title="Elige una sucursal" subtitle="Selecciona dónde se hace la inspección para empezar." />
+    return (
+      <div className="mx-auto max-w-3xl space-y-4">
+        <Card className="space-y-3">
+          <h2 className="text-sm font-bold text-primary-900">Empezar inspección</h2>
+          <Field
+            label="Sucursal"
+            hint="El lugar donde se hace la inspección. Va en el PDF y es la que define quién puede verla."
+          >
+            <Select value={sucursalId} onChange={(e) => cambiarSucursal(e.target.value)}>
+              <option value="">Selecciona una sucursal…</option>
+              {sucursalesActivas.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.nombre}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <p className="text-xs text-slate-500">
+            Tu perfil no tiene sucursal asignada, así que la eliges acá al empezar.
+          </p>
+        </Card>
+      </div>
+    )
   }
 
   const respondidas = itemsEvaluables.filter((i) => tieneRespuesta(i, reg.respuestas[i.id])).length
@@ -456,13 +506,11 @@ export function InspeccionVehiculo() {
         <Field label="Sucursal" hint="Lugar donde se hace la inspección. Cambiarla descarta el vehículo y el propietario cargados.">
           <Select value={sucursalId} onChange={(e) => cambiarSucursal(e.target.value)}>
             <option value="">Selecciona una sucursal…</option>
-            {sucursales
-              .filter((s) => s.activa)
-              .map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.nombre}
-                </option>
-              ))}
+            {sucursalesActivas.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nombre}
+              </option>
+            ))}
           </Select>
         </Field>
       </Card>

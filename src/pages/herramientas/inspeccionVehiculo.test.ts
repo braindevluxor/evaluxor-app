@@ -78,6 +78,34 @@ describe('Inspección de vehículo · borrador local', () => {
   })
 })
 
+describe('Inspección de vehículo · perfil sin sucursal', () => {
+  const pagina = fuente('./InspeccionVehiculo.tsx')
+
+  it('muestra el selector aunque todavía no haya registro', () => {
+    // El perfil de un Líder no trae sucursal. Antes eso dejaba la pantalla en
+    // un estado muerto («Elige una sucursal») sin ninguna forma de elegirla,
+    // porque el selector vivía dentro de la ficha que nunca se abría.
+    expect(pagina).not.toContain('Elige una sucursal')
+    expect(pagina).toMatch(/if \(!reg\) \{[\s\S]*?Empezar inspección/)
+    expect(pagina).toMatch(/if \(!reg\) \{[\s\S]*?<Select value=\{sucursalId\}/)
+  })
+
+  it('la inspección se abre con la sucursal que se elija, nunca con una vacía', () => {
+    // La cola sube el registro por su cuenta y el servidor exige el id: un
+    // registro con sucursal vacía sería una fila que nunca puede subirse.
+    expect(pagina).toMatch(/if \(!actual\) \{[\s\S]{0,200}if \(!profile\?\.id \|\| !modulo \|\| !id\) return/)
+    expect(pagina).toMatch(/function nuevaInspeccion\(\) \{[\s\S]{0,200}!sucursalId\) return/)
+  })
+
+  it('sin checklist no se queda esperando en el spinner', () => {
+    // El módulo sólo llega con el catálogo; si no existe, esperar el registro
+    // es esperar para siempre.
+    expect(pagina).toContain('if (!cargado || (cargando && !!modulo))')
+    // Y si no hay sucursales creadas, se dice en vez de quedarse en el selector vacío.
+    expect(pagina).toContain('No hay sucursales configuradas')
+  })
+})
+
 describe('Inspección de vehículo · el PDF', () => {
   const pagina = fuente('./InspeccionVehiculo.tsx')
   const pdf = fuente('../../lib/pdf/exportarRevisionPreEntrega.ts')

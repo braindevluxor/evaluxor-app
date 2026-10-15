@@ -39,7 +39,7 @@ A 1440×900, sin scroll: barra lateral de consola, título «Inspección de veh�
 
 ### FINISH
 
-- Estados cubiertos: carga, **sin módulo configurado** (con la semilla SQL que hay que correr), sin sucursal, borrador retomado, sin conexión, PDF generado con/sin señal, export incompleto.
+- Estados cubiertos: carga, **sin módulo configurado** (con la semilla SQL que hay que correr), **perfil sin sucursal** (el selector se muestra igual y la inspección se abre al elegir —un Líder no tiene sucursal—; nunca con sucursal vacía, porque la cola sube el registro por su cuenta y el servidor exige el id), sin sucursales configuradas, borrador retomado, sin conexión, PDF generado con/sin señal, export incompleto.
 - La firma es opcional **a propósito**; el PDF imprime «Sin firma» en vez de bloquear la salida.
 - El borrador se retoma **filtrando por `modulo_id`**: un borrador de otra herramienta en el mismo equipo no se cuela en esta pantalla.
 - Las fotos se resuelven de las dos procedencias (IndexedDB con `getPhotos`, bucket con `createSignedUrls`) y todas las `blob:` URL se revocan al terminar; una foto marcada `.local/` (nunca subida) se descarta en vez de romper el PDF con un 404.
