@@ -24,11 +24,20 @@ describe('Inspección de vehículo · la clave de la herramienta', () => {
     expect(sql).toContain(`'${CLAVE_ESPERADA}'`)
   })
 
-  it('la semilla no toca el esquema: reaprovecha lo de la pre-entrega', () => {
+  it('se sostiene sola: trae el andamiaje de la pre-entrega con sus guardas', () => {
     const sql = fuente('../../../supabase/inspeccion-vehiculo.sql')
-    expect(sql).toContain('revision_pre_entrega')
-    expect(sql).not.toMatch(/create table/i)
-    expect(sql).not.toMatch(/add column/i)
+    // En una base donde revision-pre-entrega.sql nunca se corrió no existen ni
+    // la columna ni la tabla: sin esto, el archivo muere en la primera línea.
+    expect(sql).toContain('add column if not exists herramienta')
+    expect(sql).toContain('create table if not exists public.revision_pre_entrega')
+    expect(sql).toContain('pre-entrega/')
+    // Cada política se declara tras su `drop policy if exists`: poder correrla
+    // en cualquier orden respecto de la otra semilla, sin duplicados ni choques.
+    const creadas = [...sql.matchAll(/create policy (\w+)/g)].map((m) => m[1])
+    expect(creadas.length).toBeGreaterThanOrEqual(8)
+    for (const nombre of creadas) {
+      expect(sql).toContain(`drop policy if exists ${nombre}`)
+    }
   })
 })
 

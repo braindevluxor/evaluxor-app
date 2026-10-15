@@ -4,17 +4,20 @@
 -- Inspección de vehículo PARTICULAR: estética, mecánica y sistema de gas
 -- vehicular (GNV), con fotos/incidencias por punto y salida a PDF.
 --
--- NO TOCA EL ESQUEMA. Reaprovecha las dos piezas que ya existen para la
--- Revisión Pre-Entrega (`supabase/revision-pre-entrega.sql`):
+-- ES AUTOSUFICIENTE: trae el andamiaje de la Revisión Pre-Entrega
+-- (`supabase/revision-pre-entrega.sql`) con guardas `if not exists`, porque en
+-- una base donde esa semilla nunca se corrió no existen ni la columna
+-- `modulos.herramienta` ni la tabla `revision_pre_entrega`. Así se aplica con
+-- un solo archivo y en cualquier orden respecto de la otra semilla:
 --
 --   * `modulos.herramienta`  → marca este módulo como herramienta, así no
 --     aparece nunca en /evaluar ni puntúa en ninguna evaluación.
 --   * `revision_pre_entrega` → guarda la inspección. Es la misma tabla porque
 --     la ficha es la misma (placa, vehículo, persona, respuestas jsonb, firma,
---     estado, sync) y porque así las políticas de RLS y de storage que ya
---     existen siguen cubriéndola sin escritura nueva. Lo que distingue una
---     inspección de una pre-entrega es `modulo_id`, que apunta a este módulo.
---     Las fotos suben a la misma carpeta `pre-entrega/<registro_id>/`.
+--     estado, sync) y porque así RLS y storage la cubren sin reglas nuevas.
+--     Lo que distingue una inspección de una pre-entrega es `modulo_id`, que
+--     apunta a este módulo; las fotos suben a la misma carpeta
+--     `pre-entrega/<registro_id>/`.
 --
 -- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
 -- nuevo sin pisar lo que el Líder haya editado después desde Ítems de
@@ -25,6 +28,158 @@
 -- como informativas desde la pantalla o esa sección se desactiva en Ítems de
 -- evaluación; no hace falta tocar este archivo.
 -- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 0. Andamiaje de la herramienta (idempotente)
+--
+-- Todo con guarda: si la semilla de la pre-entrega ya se corrió, esto no toca
+-- nada; si nunca se corrió, la trae igual para que la inspección funcione sola.
+-- ----------------------------------------------------------------------------
+
+-- Marca de herramienta en los módulos. NULL = módulo de evaluación (el normal).
+alter table public.modulos add column if not exists herramienta text;
+
+drop index if exists idx_modulos_herramienta;
+create unique index if not exists uniq_modulos_herramienta
+  on public.modulos(herramienta) where herramienta is not null;
+
+comment on column public.modulos.herramienta is
+  'Identifica un módulo como herramienta externa (ej. REVISION_PRE_ENTREGA, INSPECCION_VEHICULO). NULL = módulo normal de evaluación.';
+
+-- Cabecera de la revisión + respuestas del check list.
+--
+-- Las respuestas van en un jsonb `{ item_id: valor }` porque el valor ya es
+-- jsonb en `respuestas.valor` (lo produce ItemRenderer) y así la herramienta
+-- no necesita una tabla hija ni entrar en el flujo de `evaluaciones`.
+create table if not exists public.revision_pre_entrega (
+  id uuid primary key default gen_random_uuid(),
+  evaluador_id uuid not null references auth.users(id) on delete cascade,
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  modulo_id uuid references public.modulos(id) on delete set null,
+  placa text not null,
+  -- Datos del vehículo: de la API por placa o capturados a mano.
+  vehiculo jsonb not null default '{}'::jsonb,
+  -- Datos de la persona (chofer en la pre-entrega, propietario aquí).
+  chofer jsonb not null default '{}'::jsonb,
+  -- Firma como data URL (la imprime el PDF). Se firma en el dispositivo.
+  chofer_firma text,
+  observaciones text,
+  -- Respuestas del check list: `{ [item_id]: <valor de ItemRenderer> }`.
+  respuestas jsonb not null default '{}'::jsonb,
+  estado text not null default 'BORRADOR' check (estado in ('BORRADOR', 'FINALIZADA')),
+  fecha date not null default current_date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_revision_pre_entrega_evaluador
+  on public.revision_pre_entrega(evaluador_id, created_at desc);
+create index if not exists idx_revision_pre_entrega_sucursal
+  on public.revision_pre_entrega(sucursal_id, created_at desc);
+
+-- ----------------------------------------------------------------------------
+-- RLS
+--
+-- La herramienta la usan el LÍDER y el EVALUADOR. Cada uno ve y edita las
+-- suyas; el LÍDER ve todas. No se exige que haya `evaluaciones` abierta: la
+-- revisión se hace aunque la sucursal no tenga ninguna evaluación en curso.
+-- ----------------------------------------------------------------------------
+alter table public.revision_pre_entrega enable row level security;
+
+create or replace function public.puede_usar_revision_pre_entrega()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.activo and p.rol in ('LIDER', 'EVALUADOR')
+  );
+$$;
+
+drop policy if exists revision_pre_entrega_select on public.revision_pre_entrega;
+create policy revision_pre_entrega_select on public.revision_pre_entrega
+  for select using (evaluador_id = auth.uid() or public.es_lider());
+
+drop policy if exists revision_pre_entrega_insert on public.revision_pre_entrega;
+create policy revision_pre_entrega_insert on public.revision_pre_entrega
+  for insert with check (evaluador_id = auth.uid() and public.puede_usar_revision_pre_entrega());
+
+drop policy if exists revision_pre_entrega_update on public.revision_pre_entrega;
+create policy revision_pre_entrega_update on public.revision_pre_entrega
+  for update using (evaluador_id = auth.uid() or public.es_lider())
+  with check (evaluador_id = auth.uid() or public.es_lider());
+
+drop policy if exists revision_pre_entrega_delete on public.revision_pre_entrega;
+create policy revision_pre_entrega_delete on public.revision_pre_entrega
+  for delete using (evaluador_id = auth.uid() or public.es_lider());
+
+-- ----------------------------------------------------------------------------
+-- Fotos de la revisión: bucket `evidencias`, ruta `pre-entrega/<registro_id>/<foto_id>`.
+-- ----------------------------------------------------------------------------
+drop policy if exists storage_pre_entrega_insert on storage.objects;
+create policy storage_pre_entrega_insert on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1 from public.revision_pre_entrega r
+      where r.evaluador_id = auth.uid()
+        and name like 'pre-entrega/' || r.id::text || '/%'
+    )
+  );
+
+drop policy if exists storage_pre_entrega_update on storage.objects;
+create policy storage_pre_entrega_update on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1 from public.revision_pre_entrega r
+      where r.evaluador_id = auth.uid()
+        and name like 'pre-entrega/' || r.id::text || '/%'
+    )
+  )
+  with check (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1 from public.revision_pre_entrega r
+      where r.evaluador_id = auth.uid()
+        and name like 'pre-entrega/' || r.id::text || '/%'
+    )
+  );
+
+drop policy if exists storage_pre_entrega_select on storage.objects;
+create policy storage_pre_entrega_select on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and (
+      public.es_lider()
+      or exists (
+        select 1 from public.revision_pre_entrega r
+        where r.evaluador_id = auth.uid()
+          and name like 'pre-entrega/' || r.id::text || '/%'
+      )
+    )
+  );
+
+drop policy if exists storage_pre_entrega_delete on storage.objects;
+create policy storage_pre_entrega_delete on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1 from public.revision_pre_entrega r
+      where r.evaluador_id = auth.uid()
+        and name like 'pre-entrega/' || r.id::text || '/%'
+    )
+  );
+
+-- ----------------------------------------------------------------------------
+-- Módulo y check list de la inspección.
+--
+-- Se inserta solo lo que falta (por `herramienta` y por `texto` dentro del
+-- módulo): correrlo de nuevo no toca lo que el LÍDER ya haya editado, así que
+-- las respuestas guardadas siguen apuntando a ítems que no desaparecen.
+-- ----------------------------------------------------------------------------
 
 do $$
 declare
@@ -172,6 +327,3 @@ begin
     select 1 from public.items where modulo_id = v_mod and texto = '¿El vehículo queda en condiciones de circular?'
   );
 end $$;
-
-comment on column public.modulos.herramienta is
-  'Identifica un módulo como herramienta externa (ej. REVISION_PRE_ENTREGA, INSPECCION_VEHICULO). NULL = módulo normal de evaluación.';
