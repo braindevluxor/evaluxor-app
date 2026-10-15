@@ -108,7 +108,11 @@ export interface IncidenteRecord {
 export interface PreEntregaRecord {
   id: string
   evaluador_id: string
-  sucursal_id: string
+  /**
+   * La pre-entrega es de una sucursal; la inspección no tiene (se hace donde
+   * esté el vehículo), así que va en null y el servidor la acepta.
+   */
+  sucursal_id: string | null
   modulo_id: string | null
   placa: string
   vehiculo: Record<string, unknown>

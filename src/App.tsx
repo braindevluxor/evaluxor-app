@@ -126,6 +126,20 @@ function Rutas() {
                         </RequireAuth>
                       }
                     />
+                    {/* Inspección de vehículo particular: misma puerta que la
+                        evaluación y en el mismo flujo móvil (se llena desde el
+                        teléfono), pero sin evaluación detrás — se llena y se
+                        imprime. No tiene sucursal: no es de ninguna unidad. */}
+                    <Route
+                      path="/evaluar/inspeccion-vehiculo"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <InspeccionVehiculo />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
 
                     {/* La herramienta Revisión Pre-Entrega quedó fuera del menú y
                         de las rutas: se rearmará aparte. El código y la tabla
@@ -229,17 +243,6 @@ function Rutas() {
                       <Route path="/proyectos" element={<ProyectosHome />} />
                       <Route path="/proyectos/biometrico" element={<BiometricoProyecto />} />
                       <Route path="/proyectos/:id" element={<ProyectoDetalle />} />
-                      {/* Herramienta de inspección de vehículo: mismo público
-                          que la evaluación (LÍDER y EVALUADOR), pero sin
-                          evaluación detrás — se llena y se imprime. */}
-                      <Route
-                        path="/herramientas/inspeccion-vehiculo"
-                        element={
-                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
-                            <InspeccionVehiculo />
-                          </RequireRol>
-                        }
-                      />
                     </Route>
 
                     <Route path="*" element={<HomeRedirect />} />

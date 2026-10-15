@@ -17,7 +17,9 @@
 --     estado, sync) y porque así RLS y storage la cubren sin reglas nuevas.
 --     Lo que distingue una inspección de una pre-entrega es `modulo_id`, que
 --     apunta a este módulo; las fotos suben a la misma carpeta
---     `pre-entrega/<registro_id>/`.
+--     `pre-entrega/<registro_id>/`. Una inspección va **sin sucursal**
+--     (`sucursal_id` null): el vehículo no es de ninguna unidad, y el paso 0
+--     suelta el `NOT NULL` con que la pre-entrega creó la tabla.
 --
 -- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
 -- nuevo sin pisar lo que el Líder haya editado después desde Ítems de
@@ -54,7 +56,9 @@ comment on column public.modulos.herramienta is
 create table if not exists public.revision_pre_entrega (
   id uuid primary key default gen_random_uuid(),
   evaluador_id uuid not null references auth.users(id) on delete cascade,
-  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  -- Sucursal: la pre-entrega siempre es de una; la inspección no tiene (se hace
+  -- donde esté el vehículo), por eso la columna admite null.
+  sucursal_id uuid references public.sucursales(id) on delete cascade,
   modulo_id uuid references public.modulos(id) on delete set null,
   placa text not null,
   -- Datos del vehículo: de la API por placa o capturados a mano.
@@ -77,12 +81,16 @@ create index if not exists idx_revision_pre_entrega_evaluador
 create index if not exists idx_revision_pre_entrega_sucursal
   on public.revision_pre_entrega(sucursal_id, created_at desc);
 
+-- Instalaciones donde la tabla ya existía (la pre-entrega la creó como NOT
+-- NULL): la inspección se hace sin sucursal, así que la columna se suelta.
+alter table public.revision_pre_entrega alter column sucursal_id drop not null;
+
 -- ----------------------------------------------------------------------------
 -- RLS
 --
 -- La herramienta la usan el LÍDER y el EVALUADOR. Cada uno ve y edita las
--- suyas; el LÍDER ve todas. No se exige que haya `evaluaciones` abierta: la
--- revisión se hace aunque la sucursal no tenga ninguna evaluación en curso.
+-- suyas; el LÍDER ve todas. No se exige que haya `evaluaciones` abierta ni que
+-- la fila tenga sucursal: la inspección se hace donde esté el vehículo.
 -- ----------------------------------------------------------------------------
 alter table public.revision_pre_entrega enable row level security;
 

@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url'
 /**
  * Pruebas de fuente, como las de `ItemRenderer.test.tsx`: el proyecto no tiene
  * `@testing-library/react` y el `renderToStaticMarkup` (SSR) no ejecuta
- * `useEffect`. Acá se cubre el cableado —clave, ruta, menú, borrador y PDF—
- * que es lo que se rompe sin que ningún test de lógica lo note.
+ * `useEffect`. Acá se cubre el cableado —clave, ruta, tarjeta de entrada,
+ * borrador y PDF— que es lo que se rompe sin que ningún test de lógica lo note.
  */
 const fuente = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
@@ -42,23 +42,75 @@ describe('Inspección de vehículo · la clave de la herramienta', () => {
 })
 
 describe('Inspección de vehículo · acceso', () => {
-  it('la ruta está dentro de la consola y sólo admite Líder y evaluador', () => {
+  it('la ruta vive en /evaluar, junto a la evaluación, y sólo admite Líder y evaluador', () => {
     const app = fuente('../../App.tsx')
-    expect(app).toContain('path="/herramientas/inspeccion-vehiculo"')
+    expect(app).toContain('path="/evaluar/inspeccion-vehiculo"')
     expect(app).toMatch(/roles={\['EVALUADOR', 'LIDER'\]}/)
-    // Dentro del bloque de ConsoleLayout (que es el menú que la invoca).
-    expect(app.indexOf('path="/herramientas/inspeccion-vehiculo"')).toBeGreaterThan(
-      app.indexOf('ConsoleLayout />')
+    // Se llena desde el teléfono, así que va en el bloque móvil que precede a
+    // ConsoleLayout, no detrás de la consola de escritorio.
+    const ruta = app.indexOf('path="/evaluar/inspeccion-vehiculo"')
+    expect(ruta).toBeGreaterThan(-1)
+    expect(ruta).toBeLessThan(app.indexOf('<ConsoleLayout />'))
+    // La entrada vieja en la consola ya no existe.
+    expect(app).not.toContain('/herramientas/inspeccion-vehiculo')
+  })
+
+  it('se entra desde la tarjeta de EvaluarHome, visible sin evaluación abierta', () => {
+    const home = fuente('../evaluar/EvaluarHome.tsx')
+    expect(home).toContain('to="/evaluar/inspeccion-vehiculo"')
+    // La tarjeta queda después de los EmptyState: se puede inspeccionar aunque
+    // el Líder no haya abierto ninguna unidad (no es evaluación).
+    const vacio = home.indexOf('No hay evaluaciones abiertas')
+    expect(vacio).toBeGreaterThan(-1)
+    expect(home.indexOf('to="/evaluar/inspeccion-vehiculo"')).toBeGreaterThan(vacio)
+  })
+
+  it('ya no figura en el menú ni en los títulos de la consola', () => {
+    const layout = fuente('../../components/layouts/ConsoleLayout.tsx')
+    expect(layout).not.toContain('inspeccion-vehiculo')
+    expect(layout).not.toContain('Car ')
+  })
+})
+
+describe('Inspección de vehículo · sin sucursal', () => {
+  const pagina = fuente('./InspeccionVehiculo.tsx')
+
+  it('el registro se abre solo, sin selector ni unidad que elegir', () => {
+    // La inspección no es de ninguna unidad: no se elige sucursal y el registro
+    // nace apenas hay perfil y módulo (antes un perfil sin sucursal dejaba la
+    // pantalla en un estado muerto sin forma de salir).
+    expect(pagina).toContain('sucursal_id: null')
+    expect(pagina).not.toContain('cambiarSucursal')
+    expect(pagina).not.toContain('sucursalActual')
+    expect(pagina).not.toContain('Elige una sucursal')
+    // Sin registro todavía sólo se espera: nunca hay pantalla a la que llegar.
+    expect(pagina).toMatch(/if \(!reg\) \{[\s\S]{0,400}<Spinner/)
+  })
+
+  it('sin checklist no se queda esperando en el spinner', () => {
+    // El módulo sólo llega con el catálogo; si no existe, esperar el registro
+    // es esperar para siempre.
+    expect(pagina).toContain('if (!cargado || (cargando && !!modulo))')
+  })
+
+  it('el servidor la acepta sin sucursal en instalaciones ya creadas', () => {
+    // La tabla la creó la pre-entrega como NOT NULL: hay que soltarla aparte,
+    // porque `create table if not exists` no cambia una tabla que ya existe.
+    const sql = fuente('../../../supabase/inspeccion-vehiculo.sql')
+    expect(sql).toContain('alter column sucursal_id drop not null')
+    expect(sql).not.toMatch(/sucursal_id uuid not null/)
+    expect(fuente('../../lib/types.ts')).toMatch(
+      /interface RevisionPreEntrega \{[\s\S]{0,400}sucursal_id: string \| null/
+    )
+    expect(fuente('../../lib/offline/db.ts')).toMatch(
+      /interface PreEntregaRecord \{[\s\S]{0,400}sucursal_id: string \| null/
     )
   })
 
-  it('el menú lateral sólo se la muestra a quien puede evaluar', () => {
-    const layout = fuente('../../components/layouts/ConsoleLayout.tsx')
-    expect(layout).toContain("to: '/herramientas/inspeccion-vehiculo'")
-    expect(layout).toContain("'/herramientas/inspeccion-vehiculo': {")
-    // Sin permiso no hay entrada: la ruta le negaría el paso y el menú no
-    // puede prometer una pantalla a la que no se puede entrar.
-    expect(layout).toMatch(/= puedeEvaluar\s*\n?\s*\? \[/)
+  it('se llena con MobileLayout y su botón de volver', () => {
+    expect(pagina).toContain('<MobileLayout titulo="Inspección de vehículo"')
+    expect(pagina).toMatch(/navigate\(-1\)/)
+    expect(pagina).toContain('<ArrowLeft className="mr-1 h-4 w-4" />')
   })
 })
 
@@ -70,39 +122,8 @@ describe('Inspección de vehículo · borrador local', () => {
     const pagina = fuente('./InspeccionVehiculo.tsx')
     // El registro sólo se arma cuando el módulo ya llegó: guarda su id.
     expect(pagina).toContain('getPreEntregaAbierta(profile.id, modulo.id)')
-  })
-
-  it('el formulario se limpia cuando cambia la sucursal', () => {
-    const pagina = fuente('./InspeccionVehiculo.tsx')
-    expect(pagina).toMatch(/function cambiarSucursal[\s\S]*?vehiculo: \{\}/)
-  })
-})
-
-describe('Inspección de vehículo · perfil sin sucursal', () => {
-  const pagina = fuente('./InspeccionVehiculo.tsx')
-
-  it('muestra el selector aunque todavía no haya registro', () => {
-    // El perfil de un Líder no trae sucursal. Antes eso dejaba la pantalla en
-    // un estado muerto («Elige una sucursal») sin ninguna forma de elegirla,
-    // porque el selector vivía dentro de la ficha que nunca se abría.
-    expect(pagina).not.toContain('Elige una sucursal')
-    expect(pagina).toMatch(/if \(!reg\) \{[\s\S]*?Empezar inspección/)
-    expect(pagina).toMatch(/if \(!reg\) \{[\s\S]*?<Select value=\{sucursalId\}/)
-  })
-
-  it('la inspección se abre con la sucursal que se elija, nunca con una vacía', () => {
-    // La cola sube el registro por su cuenta y el servidor exige el id: un
-    // registro con sucursal vacía sería una fila que nunca puede subirse.
-    expect(pagina).toMatch(/if \(!actual\) \{[\s\S]{0,200}if \(!profile\?\.id \|\| !modulo \|\| !id\) return/)
-    expect(pagina).toMatch(/function nuevaInspeccion\(\) \{[\s\S]{0,200}!sucursalId\) return/)
-  })
-
-  it('sin checklist no se queda esperando en el spinner', () => {
-    // El módulo sólo llega con el catálogo; si no existe, esperar el registro
-    // es esperar para siempre.
-    expect(pagina).toContain('if (!cargado || (cargando && !!modulo))')
-    // Y si no hay sucursales creadas, se dice en vez de quedarse en el selector vacío.
-    expect(pagina).toContain('No hay sucursales configuradas')
+    // «Nueva inspección» no depende de ninguna unidad: sólo de perfil y módulo.
+    expect(pagina).toMatch(/function nuevaInspeccion\(\) \{[\s\S]{0,160}registroVacio\(profile\.id, modulo\.id\)/)
   })
 })
 
@@ -116,6 +137,8 @@ describe('Inspección de vehículo · el PDF', () => {
     expect(pagina).toContain('combustible:')
     expect(pdf).toContain('Sistema de combustible')
     expect(pdf).toContain('etiquetaPersona')
+    // Sin sucursal no hay renglón de unidad en la hoja (ni en la llamada).
+    expect(pagina).not.toMatch(/^\s+sucursal: /m)
   })
 
   it('abre una banda por sección sobre sus filas', () => {

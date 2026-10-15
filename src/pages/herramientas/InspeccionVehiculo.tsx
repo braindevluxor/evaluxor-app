@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FileDown, FolderOpen, Plus, RefreshCw, Search } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { ArrowLeft, FileDown, FolderOpen, Plus, RefreshCw, Search } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { useCatalog, useModuloHerramienta } from '../../context/CatalogContext'
+import { useModuloHerramienta } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
 import { buscarVehiculo } from '../../lib/data/vehicles'
 import { exportarRevisionPreEntrega } from '../../lib/pdf/exportarRevisionPreEntrega'
@@ -18,12 +19,19 @@ import {
 } from '../../lib/inspeccionVehiculo'
 import { FirmaCanvas } from '../../components/FirmaCanvas'
 import { ItemRenderer } from '../../components/ItemRenderer'
+import { MobileLayout } from '../../components/layouts/MobileLayout'
 import { Button, Card, EmptyState, Field, Input, Select, Spinner, Textarea, cn } from '../../components/ui'
 import type { Item } from '../../lib/types'
 
 /**
  * Inspección de vehículo particular: estética, mecánica y sistema de gas
  * vehicular, con fotos/incidencias por punto y salida a PDF.
+ *
+ * Vive en `/evaluar`, con `MobileLayout`: se llena desde el teléfono, con el
+ * vehículo en el taller o en la calle. **No tiene sucursal** —a diferencia de
+ * la pre-entrega, que entrega una flota en una unidad— porque no hay unidad a
+ * la que pertenezca el vehículo: el registro se sube con `sucursal_id` null y
+ * lo ven el evaluador que lo hizo y el Líder.
  *
  * Reutiliza la máquina de la Revisión Pre-Entrega —registro local, cola de
  * subida, fotos en el bucket y el mismo exportador— cambiando el módulo y la
@@ -44,11 +52,12 @@ function hoy(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-function registroVacio(evaluador_id: string, sucursal_id: string, modulo_id: string): PreEntregaRecord {
+function registroVacio(evaluador_id: string, modulo_id: string): PreEntregaRecord {
   return {
     id: crypto.randomUUID(),
     evaluador_id,
-    sucursal_id,
+    // Sin sucursal: la inspección no pertenece a ninguna unidad.
+    sucursal_id: null,
     modulo_id,
     placa: '',
     vehiculo: {},
@@ -93,11 +102,11 @@ function fotosDe(respuestas: Record<string, unknown>): string[] {
 
 export function InspeccionVehiculo() {
   const { profile } = useAuth()
-  const { sucursales, cargado } = useCatalog()
+  const navigate = useNavigate()
+  const { cargado } = useCatalog()
   const { online, sync: syncCola } = useOffline()
   const { modulo, items } = useModuloHerramienta(CLAVE_INSPECCION)
 
-  const [sucursalId, setSucursalId] = useState(profile?.sucursal_id ?? '')
   const [reg, setReg] = useState<PreEntregaRecord | null>(null)
   const [cargando, setCargando] = useState(true)
 
@@ -110,12 +119,6 @@ export function InspeccionVehiculo() {
   const [aviso, setAviso] = useState<{ texto: string; ok: boolean } | null>(null)
 
   const regRef = useRef<PreEntregaRecord | null>(null)
-
-  const sucursalActual = useMemo(
-    () => sucursales.find((s) => s.id === sucursalId) ?? null,
-    [sucursales, sucursalId]
-  )
-  const sucursalesActivas = useMemo(() => sucursales.filter((s) => s.activa), [sucursales])
 
   const itemsEvaluables = useMemo(() => items.filter((i) => i.tipo !== 'CONTENEDOR'), [items])
   // El checklist, partido en Estética / Mecánica / Gas vehicular.
@@ -132,10 +135,10 @@ export function InspeccionVehiculo() {
       if (abierta) {
         regRef.current = abierta
         setReg(abierta)
-        setSucursalId(abierta.sucursal_id)
         setPersona(personaDe(abierta.chofer))
-      } else if (profile.sucursal_id) {
-        const nuevo = registroVacio(profile.id, profile.sucursal_id, modulo.id)
+      } else {
+        // Siempre hay registro: no hace falta elegir unidad para empezar.
+        const nuevo = registroVacio(profile.id, modulo.id)
         regRef.current = nuevo
         setReg(nuevo)
       }
@@ -145,7 +148,7 @@ export function InspeccionVehiculo() {
     // ids: si el catálogo vuelve a traer los mismos objetos, retomar el borrador
     // otra vez sólo reescribe en IndexedDB lo que ya estaba escrito.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cargado, profile?.id, profile?.sucursal_id, modulo?.id])
+  }, [cargado, profile?.id, modulo?.id])
 
   /* --- Guardado: siempre local; la cola global lo sube sola ---------------- */
 
@@ -244,24 +247,6 @@ export function InspeccionVehiculo() {
     }
   }
 
-  function cambiarSucursal(id: string) {
-    setSucursalId(id)
-    setPersona(PERSONA_VACIA)
-    setErrorVehiculo(null)
-    const actual = regRef.current
-    // Perfil sin sucursal (el de un Líder, por ejemplo): la inspección se abre
-    // recién con la que se elija acá. Nunca se abre con la sucursal vacía,
-    // porque la cola sube el registro por su cuenta y el servidor exige el id.
-    if (!actual) {
-      if (!profile?.id || !modulo || !id) return
-      const nuevo = registroVacio(profile.id, id, modulo.id)
-      regRef.current = nuevo
-      setReg(nuevo)
-      return
-    }
-    patch({ sucursal_id: id, chofer: {}, chofer_firma: null, vehiculo: {} })
-  }
-
   /* --- PDF ------------------------------------------------------------------- */
 
   const vehiculo = reg?.vehiculo ?? {}
@@ -342,7 +327,6 @@ export function InspeccionVehiculo() {
       await exportarRevisionPreEntrega({
         titulo: modulo.nombre,
         fecha: r.fecha,
-        sucursal: sucursalActual?.nombre ?? null,
         evaluador: profile?.nombre ?? null,
         observaciones: r.observaciones.trim() || null,
         vehiculo: {
@@ -396,10 +380,8 @@ export function InspeccionVehiculo() {
 
   /** Arranca otra inspección dejando la anterior intacta (ya subida o en cola). */
   function nuevaInspeccion() {
-    // Con la sucursal de la inspección que se acaba de cerrar, que es la que ya
-    // eligió el usuario: nunca se abre una con la sucursal vacía.
-    if (!modulo || !profile?.id || !sucursalId) return
-    const nueva = registroVacio(profile.id, sucursalId, modulo.id)
+    if (!modulo || !profile?.id) return
+    const nueva = registroVacio(profile.id, modulo.id)
     regRef.current = nueva
     setReg(nueva)
     setPersona(PERSONA_VACIA)
@@ -410,61 +392,49 @@ export function InspeccionVehiculo() {
 
   /* --- Render ---------------------------------------------------------------- */
 
+  const volver = (
+    <Button variant="ghost" onClick={() => navigate(-1)} className="-ml-2">
+      <ArrowLeft className="mr-1 h-4 w-4" />
+      Volver
+    </Button>
+  )
+
   // El checklist vacío sólo se sabe después de tener el catálogo; el registro
   // se busca en paralelo, así que mientras el módulo exista se espera un poco.
   if (!cargado || (cargando && !!modulo)) {
     return (
-      <div className="py-20 text-center text-slate-400">
-        <Spinner className="mx-auto" />
-        <p className="mt-3 text-sm">Cargando inspección…</p>
-      </div>
+      <MobileLayout titulo="Inspección de vehículo">
+        <div className="py-20 text-center text-slate-400">
+          <Spinner className="mx-auto" />
+          <p className="mt-3 text-sm">Cargando inspección…</p>
+        </div>
+      </MobileLayout>
     )
   }
 
   if (!modulo || !itemsEvaluables.length) {
     return (
-      <EmptyState
-        title="No hay checklist configurado"
-        subtitle="Ejecuta supabase/inspeccion-vehiculo.sql en el SQL Editor (crea el módulo «Inspección de vehículo» con sus secciones) o créalo desde Ítems de evaluación."
-      />
+      <MobileLayout titulo="Inspección de vehículo">
+        <EmptyState
+          title="No hay checklist configurado"
+          subtitle="Ejecuta supabase/inspeccion-vehiculo.sql en el SQL Editor (crea el módulo «Inspección de vehículo» con sus secciones) o créalo desde Ítems de evaluación."
+        />
+        <div className="text-center">{volver}</div>
+      </MobileLayout>
     )
   }
 
-  // Sin sucursal no se puede abrir la inspección, pero tampoco se esconde la
-  // puerta: el perfil de un Líder no trae sucursal, y el selector es el que la
-  // pone. Esto pasa también si no hay ninguna sucursal activa creada.
-  if (!sucursalesActivas.length) {
-    return (
-      <EmptyState
-        title="No hay sucursales configuradas"
-        subtitle="Crea la sucursal desde Configuración → Sucursales y vuelve a entrar: ahí es donde se hace la inspección."
-      />
-    )
-  }
-
+  // No se elige sucursal (la inspección no es de ninguna unidad), así que el
+  // registro se abre solo apenas hay perfil y módulo. Pasar de acá es sólo
+  // esperar a que el perfil termine de cargar.
   if (!reg) {
     return (
-      <div className="mx-auto max-w-3xl space-y-4">
-        <Card className="space-y-3">
-          <h2 className="text-sm font-bold text-primary-900">Empezar inspección</h2>
-          <Field
-            label="Sucursal"
-            hint="El lugar donde se hace la inspección. Va en el PDF y es la que define quién puede verla."
-          >
-            <Select value={sucursalId} onChange={(e) => cambiarSucursal(e.target.value)}>
-              <option value="">Selecciona una sucursal…</option>
-              {sucursalesActivas.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.nombre}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <p className="text-xs text-slate-500">
-            Tu perfil no tiene sucursal asignada, así que la eliges acá al empezar.
-          </p>
-        </Card>
-      </div>
+      <MobileLayout titulo="Inspección de vehículo">
+        <div className="py-20 text-center text-slate-400">
+          <Spinner className="mx-auto" />
+          <p className="mt-3 text-sm">Cargando inspección…</p>
+        </div>
+      </MobileLayout>
     )
   }
 
@@ -472,239 +442,225 @@ export function InspeccionVehiculo() {
   const avance = Math.round((respondidas / itemsEvaluables.length) * 100)
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-slate-600">
-          <strong className="font-black text-primary-900">{modulo.nombre}</strong>
-          {' · '}
-          {itemsEvaluables.length} puntos a revisar
-        </p>
-        <span className="text-xs font-semibold tabular-nums text-slate-400">
-          {respondidas}/{itemsEvaluables.length} · {avance}%
-        </span>
-      </div>
-
-      {aviso ? (
-        <div
-          className={cn(
-            'rounded-xl border px-3 py-2 text-xs font-semibold',
-            aviso.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-800'
-          )}
-        >
-          {aviso.texto}
+    <MobileLayout titulo="Inspección de vehículo" subtitulo={modulo.nombre}>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          {volver}
+          <span className="text-xs font-semibold tabular-nums text-slate-400">
+            {respondidas}/{itemsEvaluables.length} · {avance}%
+          </span>
         </div>
-      ) : null}
 
-      {!online ? (
-        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
-          Sin conexión: la inspección se guarda en el equipo y sube sola cuando vuelva la señal.
+        <p className="text-sm text-slate-600">
+          <strong className="font-black text-primary-900">{itemsEvaluables.length}</strong>
+          {' puntos a revisar'}
         </p>
-      ) : null}
 
-      {/* Sucursal ---------------------------------------------------------- */}
-      <Card className="space-y-3">
-        <Field label="Sucursal" hint="Lugar donde se hace la inspección. Cambiarla descarta el vehículo y el propietario cargados.">
-          <Select value={sucursalId} onChange={(e) => cambiarSucursal(e.target.value)}>
-            <option value="">Selecciona una sucursal…</option>
-            {sucursalesActivas.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nombre}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </Card>
-
-      {/* Vehículo ---------------------------------------------------------- */}
-      <Card className="space-y-3">
-        <h2 className="text-sm font-bold text-primary-900">Vehículo particular</h2>
-
-        <Field label="Placa" hint="Consulta los datos por placa; si no aparecen, escríbelos a mano.">
-          <div className="flex gap-2">
-            <Input
-              value={reg.placa}
-              onChange={(e) => patch({ placa: e.target.value.toUpperCase() })}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void buscarVehiculoPorPlaca()
-              }}
-              placeholder="ABC-123"
-              autoCapitalize="characters"
-            />
-            <Button
-              type="button"
-              onClick={() => void buscarVehiculoPorPlaca()}
-              disabled={buscandoVehiculo || !reg.placa.trim()}
-              className="shrink-0"
-            >
-              {buscandoVehiculo ? <Spinner size={16} light /> : <Search className="h-4 w-4" />}
-            </Button>
+        {aviso ? (
+          <div
+            className={cn(
+              'rounded-xl border px-3 py-2 text-xs font-semibold',
+              aviso.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-800'
+            )}
+          >
+            {aviso.texto}
           </div>
-        </Field>
-
-        {errorVehiculo ? (
-          <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">{errorVehiculo}</p>
         ) : null}
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Marca">
-            <Input
-              value={String(vehiculo.marca ?? '')}
-              onChange={(e) => patchVehiculo({ marca: e.target.value })}
-            />
-          </Field>
-          <Field label="Modelo">
-            <Input
-              value={String(vehiculo.modelo ?? '')}
-              onChange={(e) => patchVehiculo({ modelo: e.target.value })}
-            />
-          </Field>
-          <Field label="Año">
-            <Input
-              value={String(vehiculo.anio ?? '')}
-              onChange={(e) => patchVehiculo({ anio: e.target.value })}
-              inputMode="numeric"
-              placeholder="2020"
-            />
-          </Field>
-          <Field label="Color">
-            <Input
-              value={String(vehiculo.color ?? '')}
-              onChange={(e) => patchVehiculo({ color: e.target.value })}
-            />
-          </Field>
-          <Field label="Kilometraje">
-            <Input
-              value={String(vehiculo.kilometraje ?? '')}
-              onChange={(e) => patchVehiculo({ kilometraje: e.target.value })}
-              inputMode="numeric"
-              placeholder="85000"
-            />
-          </Field>
-          <Field label="Combustible">
-            <Select
-              value={String(vehiculo.combustible ?? '')}
-              onChange={(e) => patchVehiculo({ combustible: e.target.value })}
-            >
-              <option value="">Selecciona…</option>
-              {COMBUSTIBLES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-      </Card>
-
-      {/* Propietario ------------------------------------------------------- */}
-      <Card className="space-y-3">
-        <h2 className="text-sm font-bold text-primary-900">Propietario</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Cédula / RIF">
-            <Input
-              value={persona.cedula}
-              onChange={(e) => cambiarPersona({ cedula: e.target.value })}
-              inputMode="numeric"
-              placeholder="V-12345678"
-            />
-          </Field>
-          <Field label="Teléfono">
-            <Input
-              value={persona.telefono}
-              onChange={(e) => cambiarPersona({ telefono: e.target.value })}
-              inputMode="tel"
-              placeholder="0412 000 0000"
-            />
-          </Field>
-          <Field label="Nombre">
-            <Input value={persona.nombre} onChange={(e) => cambiarPersona({ nombre: e.target.value })} />
-          </Field>
-          <Field label="Apellido">
-            <Input value={persona.apellido} onChange={(e) => cambiarPersona({ apellido: e.target.value })} />
-          </Field>
-        </div>
-
-        <FirmaCanvas
-          valor={reg.chofer_firma}
-          onChange={(v) => patch({ chofer_firma: v })}
-          label="Firma del propietario (opcional)"
-        />
-      </Card>
-
-      {/* Checklist por sección --------------------------------------------- */}
-      {grupos.map((g) => (
-        <section key={g.seccion ?? 'sin-seccion'} className="space-y-3">
-          <div className="flex items-center gap-2 rounded-xl bg-primary-50 px-3 py-2">
-            <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
-            <h2 className="min-w-0 text-sm font-bold text-primary-900">{g.seccion ?? 'Dictamen'}</h2>
-            <span className="ml-auto text-xs font-semibold tabular-nums text-slate-500">
-              {g.items.filter((i) => tieneRespuesta(i, reg.respuestas[i.id])).length}/{g.items.length}
-            </span>
-          </div>
-          {g.items.map((item: Item) => (
-            <ItemRenderer
-              key={item.id}
-              item={item}
-              index={itemsEvaluables.indexOf(item)}
-              total={itemsEvaluables.length}
-              valor={reg.respuestas[item.id]}
-              shopId={sucursalActual?.shop_id}
-              branchId={sucursalActual?.branch_id}
-              gerente={sucursalActual?.gerente?.nombre ?? null}
-              onChange={(v) => cambiarRespuesta(item.id, v)}
-            />
-          ))}
-        </section>
-      ))}
-
-      {/* Observaciones ------------------------------------------------------ */}
-      <Card className="space-y-2">
-        <h2 className="text-sm font-bold text-primary-900">Observaciones e incidencias</h2>
-        <Textarea
-          value={reg.observaciones}
-          onChange={(e) => patch({ observaciones: e.target.value })}
-          rows={4}
-          placeholder="Daños observados, recomendaciones, estado del sistema de gas…"
-        />
-      </Card>
-
-      {/* Acción ------------------------------------------------------------ */}
-      <div className="sticky bottom-0 -mx-4 border-t border-slate-200 bg-slate-100/95 px-4 py-3 backdrop-blur">
-        {!puedeExportar && reg.estado !== 'FINALIZADA' ? (
-          <p className="mb-2 text-center text-xs text-slate-500">
-            Completa placa, cédula y nombre del propietario para exportar.
+        {!online ? (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+            Sin conexión: la inspección se guarda en el equipo y sube sola cuando vuelva la señal.
           </p>
         ) : null}
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => void syncCola()}
-            className="shrink-0"
-            title="Subir lo pendiente"
-            aria-label="Sincronizar"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          {reg.estado === 'FINALIZADA' ? (
-            <Button type="button" onClick={nuevaInspeccion} className="flex-1">
-              <Plus className="h-4 w-4" />
-              Nueva inspección
-            </Button>
-          ) : (
+
+        {/* Vehículo ---------------------------------------------------------- */}
+        <Card className="space-y-3">
+          <h2 className="text-sm font-bold text-primary-900">Vehículo particular</h2>
+
+          <Field label="Placa" hint="Consulta los datos por placa; si no aparecen, escríbelos a mano.">
+            <div className="flex gap-2">
+              <Input
+                value={reg.placa}
+                onChange={(e) => patch({ placa: e.target.value.toUpperCase() })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void buscarVehiculoPorPlaca()
+                }}
+                placeholder="ABC-123"
+                autoCapitalize="characters"
+              />
+              <Button
+                type="button"
+                onClick={() => void buscarVehiculoPorPlaca()}
+                disabled={buscandoVehiculo || !reg.placa.trim()}
+                className="shrink-0"
+              >
+                {buscandoVehiculo ? <Spinner size={16} light /> : <Search className="h-4 w-4" />}
+              </Button>
+            </div>
+          </Field>
+
+          {errorVehiculo ? (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">{errorVehiculo}</p>
+          ) : null}
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Marca">
+              <Input
+                value={String(vehiculo.marca ?? '')}
+                onChange={(e) => patchVehiculo({ marca: e.target.value })}
+              />
+            </Field>
+            <Field label="Modelo">
+              <Input
+                value={String(vehiculo.modelo ?? '')}
+                onChange={(e) => patchVehiculo({ modelo: e.target.value })}
+              />
+            </Field>
+            <Field label="Año">
+              <Input
+                value={String(vehiculo.anio ?? '')}
+                onChange={(e) => patchVehiculo({ anio: e.target.value })}
+                inputMode="numeric"
+                placeholder="2020"
+              />
+            </Field>
+            <Field label="Color">
+              <Input
+                value={String(vehiculo.color ?? '')}
+                onChange={(e) => patchVehiculo({ color: e.target.value })}
+              />
+            </Field>
+            <Field label="Kilometraje">
+              <Input
+                value={String(vehiculo.kilometraje ?? '')}
+                onChange={(e) => patchVehiculo({ kilometraje: e.target.value })}
+                inputMode="numeric"
+                placeholder="85000"
+              />
+            </Field>
+            <Field label="Combustible">
+              <Select
+                value={String(vehiculo.combustible ?? '')}
+                onChange={(e) => patchVehiculo({ combustible: e.target.value })}
+              >
+                <option value="">Selecciona…</option>
+                {COMBUSTIBLES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+        </Card>
+
+        {/* Propietario ------------------------------------------------------- */}
+        <Card className="space-y-3">
+          <h2 className="text-sm font-bold text-primary-900">Propietario</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Cédula / RIF">
+              <Input
+                value={persona.cedula}
+                onChange={(e) => cambiarPersona({ cedula: e.target.value })}
+                inputMode="numeric"
+                placeholder="V-12345678"
+              />
+            </Field>
+            <Field label="Teléfono">
+              <Input
+                value={persona.telefono}
+                onChange={(e) => cambiarPersona({ telefono: e.target.value })}
+                inputMode="tel"
+                placeholder="0412 000 0000"
+              />
+            </Field>
+            <Field label="Nombre">
+              <Input value={persona.nombre} onChange={(e) => cambiarPersona({ nombre: e.target.value })} />
+            </Field>
+            <Field label="Apellido">
+              <Input value={persona.apellido} onChange={(e) => cambiarPersona({ apellido: e.target.value })} />
+            </Field>
+          </div>
+
+          <FirmaCanvas
+            valor={reg.chofer_firma}
+            onChange={(v) => patch({ chofer_firma: v })}
+            label="Firma del propietario (opcional)"
+          />
+        </Card>
+
+        {/* Checklist por sección --------------------------------------------- */}
+        {grupos.map((g) => (
+          <section key={g.seccion ?? 'sin-seccion'} className="space-y-3">
+            <div className="flex items-center gap-2 rounded-xl bg-primary-50 px-3 py-2">
+              <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
+              <h2 className="min-w-0 text-sm font-bold text-primary-900">{g.seccion ?? 'Dictamen'}</h2>
+              <span className="ml-auto text-xs font-semibold tabular-nums text-slate-500">
+                {g.items.filter((i) => tieneRespuesta(i, reg.respuestas[i.id])).length}/{g.items.length}
+              </span>
+            </div>
+            {g.items.map((item: Item) => (
+              <ItemRenderer
+                key={item.id}
+                item={item}
+                index={itemsEvaluables.indexOf(item)}
+                total={itemsEvaluables.length}
+                valor={reg.respuestas[item.id]}
+                onChange={(v) => cambiarRespuesta(item.id, v)}
+              />
+            ))}
+          </section>
+        ))}
+
+        {/* Observaciones ------------------------------------------------------ */}
+        <Card className="space-y-2">
+          <h2 className="text-sm font-bold text-primary-900">Observaciones e incidencias</h2>
+          <Textarea
+            value={reg.observaciones}
+            onChange={(e) => patch({ observaciones: e.target.value })}
+            rows={4}
+            placeholder="Daños observados, recomendaciones, estado del sistema de gas…"
+          />
+        </Card>
+
+        {/* Acción ------------------------------------------------------------ */}
+        <div className="sticky bottom-0 -mx-4 border-t border-slate-200 bg-slate-100/95 px-4 py-3 backdrop-blur">
+          {!puedeExportar && reg.estado !== 'FINALIZADA' ? (
+            <p className="mb-2 text-center text-xs text-slate-500">
+              Completa placa, cédula y nombre del propietario para exportar.
+            </p>
+          ) : null}
+          <div className="flex gap-2">
             <Button
               type="button"
-              variant="success"
-              onClick={() => void exportarPDF()}
-              disabled={!puedeExportar || exportando}
-              className="flex-1"
+              variant="secondary"
+              onClick={() => void syncCola()}
+              className="shrink-0"
+              title="Subir lo pendiente"
+              aria-label="Sincronizar"
             >
-              {exportando ? <Spinner size={16} light /> : <FileDown className="h-4 w-4" />}
-              {exportando ? 'Generando PDF…' : 'Generar PDF de la inspección'}
+              <RefreshCw className="h-4 w-4" />
             </Button>
-          )}
+            {reg.estado === 'FINALIZADA' ? (
+              <Button type="button" onClick={nuevaInspeccion} className="flex-1">
+                <Plus className="h-4 w-4" />
+                Nueva inspección
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="success"
+                onClick={() => void exportarPDF()}
+                disabled={!puedeExportar || exportando}
+                className="flex-1"
+              >
+                {exportando ? <Spinner size={16} light /> : <FileDown className="h-4 w-4" />}
+                {exportando ? 'Generando PDF…' : 'Generar PDF de la inspección'}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </MobileLayout>
   )
 }

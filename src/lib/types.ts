@@ -274,7 +274,11 @@ export type VistaEvaluacion = Evaluacion & {
 export interface RevisionPreEntrega {
   id: string
   evaluador_id: string
-  sucursal_id: string
+  /**
+   * La pre-entrega siempre es de una sucursal; la inspección no tiene (se hace
+   * en el taller, en la calle, donde esté el vehículo), así que va en null.
+   */
+  sucursal_id: string | null
   modulo_id: string | null
   placa: string
   /** Datos del vehículo traídos de la API de flota (o capturados a mano). */
