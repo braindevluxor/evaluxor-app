@@ -42,6 +42,11 @@ const ProyectoDetalle = lazy(() => import('./pages/proyectos/ProyectoDetalle').t
 const ConciliacionPublica = lazy(() =>
   import('./pages/publico/ConciliacionPublica').then((m) => ({ default: m.ConciliacionPublica }))
 )
+// Inspección de vehículo (estética + mecánica + gas vehicular): herramienta
+// fuera de la evaluación, con fotos, registro local y PDF.
+const InspeccionVehiculo = lazy(() =>
+  import('./pages/herramientas/InspeccionVehiculo').then((m) => ({ default: m.InspeccionVehiculo }))
+)
 // Revisión Pre-Entrega: fuera del menú y de las rutas por decisión de producto;
 // el módulo (`pages/herramientas/RevisionPreEntrega`) sigue en el repo.
 
@@ -224,6 +229,17 @@ function Rutas() {
                       <Route path="/proyectos" element={<ProyectosHome />} />
                       <Route path="/proyectos/biometrico" element={<BiometricoProyecto />} />
                       <Route path="/proyectos/:id" element={<ProyectoDetalle />} />
+                      {/* Herramienta de inspección de vehículo: mismo público
+                          que la evaluación (LÍDER y EVALUADOR), pero sin
+                          evaluación detrás — se llena y se imprime. */}
+                      <Route
+                        path="/herramientas/inspeccion-vehiculo"
+                        element={
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <InspeccionVehiculo />
+                          </RequireRol>
+                        }
+                      />
                     </Route>
 
                     <Route path="*" element={<HomeRedirect />} />

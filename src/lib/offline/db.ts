@@ -436,10 +436,23 @@ export async function putPreEntrega(registro: PreEntregaRecord): Promise<void> {
 /**
  * Solo se retoma una `BORRADOR`; una `FINALIZADA` que quedó sin confirmar es
  * cosa de la cola de subida, no del formulario.
+ *
+ * Con `moduloId` sólo se devuelve la de esa herramienta: el mismo dispositivo
+ * puede tener el borrador de otra herramienta (pre-entrega, inspección) y no
+ * hay que meterlo en la pantalla equivocada. Sin `moduloId` se comporta como
+ * siempre (cualquier borrador del evaluador).
  */
-export async function getPreEntregaAbierta(evaluadorId: string): Promise<PreEntregaRecord | undefined> {
+export async function getPreEntregaAbierta(
+  evaluadorId: string,
+  moduloId?: string | null
+): Promise<PreEntregaRecord | undefined> {
   const todas = await listPreEntregas()
-  const abiertas = todas.filter((r) => r.evaluador_id === evaluadorId && r.estado === 'BORRADOR')
+  const abiertas = todas.filter(
+    (r) =>
+      r.evaluador_id === evaluadorId &&
+      r.estado === 'BORRADOR' &&
+      (moduloId == null || r.modulo_id === moduloId)
+  )
   return abiertas[abiertas.length - 1]
 }
 

@@ -1,4 +1,4 @@
-import { Gauge, FolderOpen, FolderKanban, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen, Building2 } from 'lucide-react'
+import { Gauge, FolderOpen, FolderKanban, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen, Building2, Car } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -38,6 +38,10 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/config/items': { titulo: 'Ítems de evaluación', subtitulo: 'Preguntas y criterios de cada módulo' },
   '/config/usuarios': { titulo: 'Usuarios', subtitulo: 'Gestión de roles y accesos' },
   '/biblioteca': { titulo: 'Biblioteca', subtitulo: 'Procesos de evaluación y documentación por KPI' },
+  '/herramientas/inspeccion-vehiculo': {
+    titulo: 'Inspección de vehículo',
+    subtitulo: 'Revisión estética y mecánica de vehículos particulares, con evidencias y PDF'
+  },
   '/proyectos': { titulo: 'Proyectos', subtitulo: 'Carpetas de trabajo de la organización' },
   '/proyectos/biometrico': { titulo: 'Biométrico D100', subtitulo: 'Marcajes del lector Anviz conectado por USB' }
 }
@@ -82,7 +86,21 @@ function ConsoleLayoutContenido() {
     }
   ] : []
 
-  const secciones = [...enlaces, ...config]
+  // La inspección la hace quien evalúa (LÍDER y EVALUADOR), igual que en
+  // /evaluar: al resto no le dice nada y el menú no puede prometer una
+  // pantalla a la que la ruta no va a dejar entrar.
+  const herramientas: { seccion: string; items: EnlaceMenu[] }[] = puedeEvaluar
+    ? [
+        {
+          seccion: 'Herramientas',
+          items: [
+            { to: '/herramientas/inspeccion-vehiculo', label: 'Inspección de vehículo', icon: <Car className="h-5 w-5" /> }
+          ]
+        }
+      ]
+    : []
+
+  const secciones = [...enlaces, ...herramientas, ...config]
 
   useEffect(() => {
     function actualizar() {
