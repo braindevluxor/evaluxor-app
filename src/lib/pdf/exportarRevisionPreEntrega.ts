@@ -1,6 +1,15 @@
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import { logoPie } from './marcaPie'
+import { cortesDePagina } from './paginarRevision'
+
+/**
+ * Márgenes de impresión, en mm. La primera página ya trae el padding del HTML
+ * (40px arriba), así que sólo se le descuenta el de abajo; las de continuación
+ * abren con un margen para que el contenido no pegue con el borde.
+ */
+const MARGEN_INFERIOR_MM = 10
+const MARGEN_CONTINUACION_MM = 12
 
 export interface DatosChofer {
   cedula?: string | null
@@ -256,11 +265,47 @@ export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<
       useCORS: true,
       backgroundColor: '#ffffff'
     })
-    const imgData = canvas.toDataURL('image/png')
     const pdf = new jsPDF('p', 'mm', 'a4')
     const pdfWidth = pdf.internal.pageSize.getWidth()
-    const pdfHeight = (canvas.height * pdfWidth) / canvas.width
-    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight)
+    const pdfHeight = pdf.internal.pageSize.getHeight()
+    const pxPorMm = canvas.width / pdfWidth
+
+    // Cortes seguros: el borde de cada bloque, fila de la tabla o foto, para
+    // que ninguna quede partida en dos hojas.
+    const caja = contenedor.getBoundingClientRect()
+    const escala = canvas.width / (caja.width || 1)
+    const limitesPx = Array.from(contenedor.querySelectorAll('section, tr, figure, footer')).map(
+      (el) => (el.getBoundingClientRect().top - caja.top) * escala
+    )
+    const cortes = cortesDePagina(
+      canvas.height,
+      pxPorMm,
+      limitesPx,
+      { altoMm: pdfHeight - MARGEN_INFERIOR_MM, topMm: 0 },
+      { altoMm: pdfHeight - MARGEN_INFERIOR_MM - MARGEN_CONTINUACION_MM, topMm: MARGEN_CONTINUACION_MM }
+    )
+    if (!cortes.length) cortes.push(canvas.height)
+
+    // Cada porción del canvas en su propia página: el contenido completo, hoja
+    // tras hoja (antes se pegaba entero en la primera y jsPDF sólo recortaba).
+    let inicio = 0
+    for (let i = 0; i < cortes.length; i++) {
+      const altoPx = cortes[i] - inicio
+      const topMm = i === 0 ? 0 : MARGEN_CONTINUACION_MM
+      const porcion = document.createElement('canvas')
+      porcion.width = canvas.width
+      porcion.height = Math.max(altoPx, 1)
+      const ctx = porcion.getContext('2d')
+      if (ctx) {
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, porcion.width, porcion.height)
+        ctx.drawImage(canvas, 0, inicio, canvas.width, altoPx, 0, 0, canvas.width, altoPx)
+      }
+      if (i > 0) pdf.addPage()
+      pdf.addImage(porcion, 'PNG', 0, topMm, pdfWidth, altoPx / pxPorMm)
+      inicio = cortes[i]
+    }
+
     const nombreArchivo = `${enc.titulo.replace(/\s+/g, '_')}_${enc.numero}.pdf`
     pdf.save(nombreArchivo)
   } finally {

@@ -183,6 +183,17 @@ describe('Inspección de vehículo · el PDF', () => {
     expect(pagina).toMatch(/for \(const u of creadas\) URL\.revokeObjectURL\(u\)/)
   })
 
+  it('pagina la hoja: ninguna A4 se corta con el contenido entero dentro', () => {
+    // Síntoma real: un PDF de una sola página, cortado a la altura de A4.
+    // jsPDF no parte la imagen que se le pega, la recorta, así que la hoja
+    // larga hay que partirla antes.
+    expect(pdf).toContain('cortesDePagina(')
+    expect(pdf).toContain('pdf.addPage()')
+    expect(pdf).not.toContain('pdfWidth, pdfHeight)')
+    // Y los cortes se pegan a los bordes de fila/foto para no partirlos.
+    expect(fuente('../../lib/pdf/paginarRevision.ts')).toContain('limitesPx')
+  })
+
   it('el export no exige firma (la inspección puede hacerse sin el dueño)', () => {
     expect(pagina).toMatch(/const puedeExportar = Boolean\([\s\S]*?persona\.nombre\.trim\(\)/)
     expect(pagina).not.toMatch(/puedeExportar[\s\S]{0,120}chofer_firma/)
