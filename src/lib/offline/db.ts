@@ -368,6 +368,20 @@ export async function getPhotos(ids: string[]): Promise<PhotoRecord[]> {
   return out
 }
 
+/**
+ * Reemplaza el blob de una foto conservando su id.
+ *
+ * Así el trazo (marcas de daño) se **quema** sobre la misma foto: el PDF, la
+ * nube y cualquier registro que ya apunte a ese id quedan marcados sin tener
+ * que regenerar nada ni cambiar la referencia.
+ */
+export async function updatePhotoBlob(id: string, blob: Blob, mime: string): Promise<void> {
+  const db = await getDB()
+  const previa = await db.get('photos', id)
+  const record: PhotoRecord = { id, mime, blob, created_at: previa?.created_at ?? Date.now() }
+  await db.put('photos', record, id)
+}
+
 export async function deletePhoto(id: string): Promise<void> {
   const db = await getDB()
   await db.delete('photos', id)
