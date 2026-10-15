@@ -1,0 +1,14 @@
+{
+  "name": "evaluxor-biometrico-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "App puente de escritorio: lee el biométrico Anviz D100 (USB) y expone sus marcajes por HTTP local para EvaLuxor.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

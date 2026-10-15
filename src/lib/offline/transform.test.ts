@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { photoPath, convertirValor, extraerPhotoIds } from './transform'
+import { photoPath, convertirValor, extraerPhotoIds, idsFotosRespuesta, valorSinFotos } from './transform'
 
 describe('photoPath', () => {
   it('construye ruta estable', () => {
@@ -21,6 +21,114 @@ describe('extraerPhotoIds', () => {
     ).toEqual(['a', 'b', 'c'])
     expect(extraerPhotoIds({ value: false, evidencias: [] })).toEqual([])
     expect(extraerPhotoIds({ value: true })).toEqual([])
+  })
+  it('extrae evidencia aunque aún no se haya elegido Cumple o No cumple', () => {
+    expect(extraerPhotoIds({ value: null, evidencias: [{ photoIds: ['captura-1'] }] })).toEqual(['captura-1'])
+    expect(extraerPhotoIds({ evidencias: [{ photoIds: ['captura-2'] }] })).toEqual(['captura-2'])
+  })
+  it('extrae photoIds de evidencias de checklist', () => {
+    expect(
+      extraerPhotoIds({ selected: ['a', 'b'], evidencias: { a: { photoIds: ['x'] }, b: { photoIds: ['y', 'z'] } } })
+    ).toEqual(['x', 'y', 'z'])
+    expect(extraerPhotoIds({ selected: ['a', 'b'], evidencias: {} })).toEqual([])
+    expect(extraerPhotoIds({ selected: [] })).toEqual([])
+  })
+  it('extrae las imágenes de los planos de un ítem Cumplimiento XY', () => {
+    const valor = {
+      planos: [
+        { id: 'p1', nombre: 'Planta baja', photoIds: ['a', 'b'] },
+        { id: 'p2', nombre: 'Mezanine', photoIds: [] }
+      ],
+      puntos: [{ id: 'x', planoId: 'p1', x: 0.5, y: 0.5, cumple: false, comentario: '' }]
+    }
+    expect(extraerPhotoIds(valor)).toEqual(['a', 'b'])
+    // Un valor con `planos` pero sin fotos (o vacío) no aporta ids.
+    expect(extraerPhotoIds({ planos: [], puntos: [] })).toEqual([])
+    expect(extraerPhotoIds({ planos: [{ id: 'p', nombre: 'x' }], puntos: [] })).toEqual([])
+  })
+})
+
+describe('idsFotosRespuesta', () => {
+  it('reconstruye la lista de fotos de un checklist además de conservar ids guardados en cola', () => {
+    expect(idsFotosRespuesta([
+      {
+        valor: {
+          selected: [],
+          evidencias: {
+            limpieza: { photoIds: ['foto-local-1', 'foto-local-2'] },
+            otra: { photoIds: ['foto-local-1'] }
+          }
+        }
+      }
+    ], ['foto-guardada'])).toEqual(['foto-guardada', 'foto-local-1', 'foto-local-2'])
+  })
+  it('recoge fotos de respuestas Checklist y Cumple/No cumple dentro de registros de grupo', () => {
+    const respuestasDeGrupo = [
+      {
+        item_id: 'checklist-hijo',
+        instancia_id: 'registro-1',
+        valor: {
+          selected: [],
+          evidencias: { limpieza: { photoIds: ['foto-checklist'] } }
+        }
+      },
+      {
+        item_id: 'cumple-hijo',
+        instancia_id: 'registro-1',
+        valor: {
+          value: false,
+          evidencias: [{ comentario: 'Falla', photoIds: ['foto-cumple'] }]
+        }
+      },
+      {
+        item_id: 'otro-registro',
+        instancia_id: 'registro-2',
+        valor: {
+          selected: ['x'],
+          evidencias: { x: { photoIds: ['foto-otro-registro'] } }
+        }
+      }
+    ]
+    expect(idsFotosRespuesta(respuestasDeGrupo)).toEqual(['foto-checklist', 'foto-cumple', 'foto-otro-registro'])
+  })
+})
+
+describe('valorSinFotos', () => {
+  it('conserva los valores numéricos de opciones RANGO del checklist', () => {
+    expect(
+      valorSinFotos({ selected: ['a', 'b'], valores: { a: 40 }, evidencias: { a: { photoIds: ['f1'] } }, informativos: ['b'] })
+    ).toEqual({ selected: ['a', 'b'], valores: { a: 40 }, informativos: ['b'] })
+  })
+  it('omite valores vacíos y pasa intactos los demás tipos', () => {
+    expect(valorSinFotos({ selected: ['a'], valores: {}, evidencias: {} })).toEqual({ selected: ['a'] })
+    expect(valorSinFotos({ value: true, evidencias: [] })).toEqual({ value: true, evidencias: [] })
+    expect(valorSinFotos('texto')).toBe('texto')
+  })
+  it('quita fotos locales de evidencias Cumple / No cumple sin perderlas al sincronizar', () => {
+    expect(valorSinFotos({
+      value: null,
+      evidencias: [{ photoIds: ['captura-1'], comentario: 'Evidencia pendiente' }]
+    })).toEqual({
+      value: null,
+      evidencias: [{ comentario: 'Evidencia pendiente' }]
+    })
+  })
+  it('en un plano conserva planos y pines pero quita las fotos locales', () => {
+    // El auto-guardado en nube va sin fotos (se suben al enviar); los pines se conservan.
+    expect(
+      valorSinFotos({
+        planos: [{ id: 'p1', nombre: 'Planta baja', photoIds: ['a'] }],
+        puntos: [{ id: 'x', planoId: 'p1', x: 0.25, y: 0.75, cumple: false, comentario: 'falta góndola' }]
+      })
+    ).toEqual({
+      planos: [{ id: 'p1', nombre: 'Planta baja', photoIds: [] }],
+      puntos: [{ id: 'x', planoId: 'p1', x: 0.25, y: 0.75, cumple: false, comentario: 'falta góndola' }]
+    })
+    expect(valorSinFotos({ planos: [{ id: 'p1', nombre: 'X', photoIds: ['a'] }], puntos: [], informativo: true })).toEqual({
+      planos: [{ id: 'p1', nombre: 'X', photoIds: [] }],
+      puntos: [],
+      informativo: true
+    })
   })
 })
 
@@ -46,10 +154,120 @@ describe('convertirValor', () => {
       ]
     })
   })
+  it('convierte las evidencias a paths aunque el veredicto esté pendiente', () => {
+    const map = new Map([['captura-1', 'ev/x/y/captura-1.jpg']])
+    expect(convertirValor({
+      value: null,
+      evidencias: [{ photoIds: ['captura-1'], comentario: 'Pendiente' }]
+    }, map)).toEqual({
+      value: null,
+      evidencias: [{ comentario: 'Pendiente', paths: ['ev/x/y/captura-1.jpg'] }]
+    })
+  })
+  it('convierte evidencias de checklist a paths', () => {
+    const map = new Map([['x', 'ev/c/d/x.jpg']])
+    expect(
+      convertirValor(
+        { selected: ['a', 'b'], evidencias: { a: { photoIds: ['x'] }, b: { photoIds: ['y'] } } },
+        map
+      )
+    ).toEqual({
+      selected: ['a', 'b'],
+      evidencias: {
+        a: { paths: ['ev/c/d/x.jpg'] },
+        b: { paths: ['.local/y'] }
+      }
+    })
+  })
+  it('convierte las imágenes de los planos y deja los pines intactos', () => {
+    const map = new Map([['a', 'ev/job/evidencia/a.jpg']])
+    const puntos = [{ id: 'x', planoId: 'p1', x: 0.25, y: 0.75, cumple: false, comentario: 'falta góndola' }]
+    expect(
+      convertirValor(
+        {
+          planos: [
+            { id: 'p1', nombre: 'Planta baja', photoIds: ['a'] },
+            { id: 'p2', nombre: 'Mezanine', photoIds: ['b'] }
+          ],
+          puntos,
+          responsables: ['Caro'],
+          responsablesGerente: 'Elena'
+        },
+        map
+      )
+    ).toEqual({
+      planos: [
+        { id: 'p1', nombre: 'Planta baja', paths: ['ev/job/evidencia/a.jpg'] },
+        { id: 'p2', nombre: 'Mezanine', paths: ['.local/b'] }
+      ],
+      puntos,
+      responsables: ['Caro'],
+      responsablesGerente: 'Elena'
+    })
+  })
+  it('conserva los valores numéricos de opciones RANGO del checklist', () => {
+    const map = new Map<string, string>()
+    expect(
+      convertirValor(
+        { selected: ['a', 'b'], valores: { a: 40, b: 25 }, evidencias: { a: { photoIds: ['x'] } } },
+        map
+      )
+    ).toEqual({
+      selected: ['a', 'b'],
+      valores: { a: 40, b: 25 },
+      evidencias: { a: { paths: ['.local/x'] } }
+    })
+  })
   it('deja pasar otros valores', () => {
     const map = new Map<string, string>()
     expect(convertirValor({ value: true }, map)).toEqual({ value: true })
     expect(convertirValor('texto', map)).toBe('texto')
     expect(convertirValor(5, map)).toBe(5)
+  })
+})
+
+describe('conciliación con evidencia fotográfica casada al producto', () => {
+  const producto = { sku: 'SKU-1', nombre: 'Pan', teorica: 2, fisica: 1 }
+  const otro = { sku: 'SKU-2', nombre: 'Queso', teorica: 1, fisica: 1 }
+
+  it('extrae los photoIds locales de cada producto', () => {
+    expect(extraerPhotoIds({ productos: [{ ...producto, photoIds: ['a', 'b'] }, { ...otro, photoIds: ['c'] }] })).toEqual(['a', 'b', 'c'])
+    expect(extraerPhotoIds({ productos: [producto] })).toEqual([])
+    expect(extraerPhotoIds({ productos: [{ ...producto, photoIds: [1] }] })).toEqual([])
+    // Una version vieja del valor podía traer fotos arriba del valor.
+    expect(extraerPhotoIds({ productos: [producto], photoIds: ['legacy'] })).toEqual(['legacy'])
+  })
+
+  it('al convertir conserva los productos y une las paths de la nube con las locales de cada sku', () => {
+    const map = new Map([['nueva', 'ev/x/y/nueva.jpg']])
+    const out = convertirValor(
+      {
+        productos: [
+          { ...producto, paths: ['ev/x/y/vieja.jpg'], photoIds: ['nueva'] },
+          { ...otro, photoIds: ['no-subida'] }
+        ]
+      },
+      map
+    ) as { productos: Record<string, unknown>[] }
+    // Un valor con fotos también encajaría en el formato "foto directo": los
+    // productos tienen que ganar, si no, la subida los perdería.
+    expect(out.productos).toHaveLength(2)
+    expect(out.productos[0].paths).toEqual(['ev/x/y/vieja.jpg', 'ev/x/y/nueva.jpg'])
+    expect(out.productos[0].photoIds).toBeUndefined()
+    expect(out.productos[1].paths).toEqual(['.local/no-subida'])
+  })
+
+  it('sin fotos sube los productos intactos', () => {
+    expect(convertirValor({ productos: [producto] }, new Map())).toEqual({ productos: [producto] })
+  })
+
+  it('valorSinFotos deja los productos y quita las fotos de cada uno', () => {
+    expect(valorSinFotos({ productos: [{ ...producto, photoIds: ['a'], paths: ['p'] }, { ...otro, paths: ['q'] }] })).toEqual({
+      productos: [producto, otro]
+    })
+  })
+
+  it('idsFotosRespuesta incluye las fotos de los productos', () => {
+    expect(idsFotosRespuesta([{ valor: { productos: [{ ...producto, photoIds: ['foto-sku'] }] } }])).toEqual(['foto-sku'])
   })
 })

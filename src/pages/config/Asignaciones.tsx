@@ -4,6 +4,7 @@ import { listarUsuarios, listarAsignacionasAdmin, asignarEvaluador, desasignarEv
 import { listarSucursalesAdmin } from '../../lib/data/catalog'
 import type { Profile, Sucursal } from '../../lib/types'
 import { Spinner, cn } from '../../components/ui'
+import { useTituloVista } from '../../components/layouts/tituloVista'
 
 export function AsignacionesPage() {
   const [params] = useSearchParams()
@@ -14,6 +15,8 @@ export function AsignacionesPage() {
   const [guardando, setGuardando] = useState(false)
   const [filtro, setFiltro] = useState('*')
   const preseleccion = params.get('evaluador') ?? ''
+
+  useTituloVista('Asignaciones', 'Asigna sucursales a evaluadores (evidencias del flujo móvil)')
 
   const cargar = useCallback(async () => {
     const [users, suc] = await Promise.all([listarUsuarios(), listarSucursalesAdmin()])
@@ -59,11 +62,6 @@ export function AsignacionesPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-extrabold text-primary-900">Asignaciones</h2>
-        <p className="text-sm text-slate-500">Asigna sucursales a evaluadores (evidencias del flujo móvil)</p>
-      </div>
-
       <div className="flex flex-wrap gap-1.5">
         <button
           onClick={() => seleccionar('*')}
