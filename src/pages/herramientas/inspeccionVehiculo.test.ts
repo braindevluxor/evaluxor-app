@@ -114,6 +114,34 @@ describe('Inspección de vehículo · sin sucursal', () => {
   })
 })
 
+describe('Inspección de vehículo · los imports del cableado', () => {
+  it('importa cada hook y componente que llama en el cuerpo', () => {
+    // Un import borrado pasó todas las puertas: `tsc --noEmit -p tsconfig.json`
+    // no revisa ningún archivo (tsconfig.json es un proyecto de referencias con
+    // `files: []`) y ESLint no aplica `no-undef` en TS (eso lo cubre el
+    // compilador). El resultado fue una pantalla que revienta en caliente con
+    // «useCatalog is not defined». Este test cierra esa puerta.
+    const pagina = fuente('./InspeccionVehiculo.tsx')
+    const importados = new Set(
+      [...pagina.matchAll(/import\s+(?:type\s+)?\{([\s\S]*?)\}\s+from\s+'/g)].flatMap((m) =>
+        m[1]
+          .split(',')
+          .map((s) => s.replace(/\btype\b/g, '').trim().split(/\s+as\s+/)[0].trim())
+          .filter(Boolean)
+      )
+    )
+    const usados = new Set(
+      [...pagina.matchAll(/\b(use[A-Z]\w*|MobileLayout|ItemRenderer|FirmaCanvas|EmptyState|Spinner)\(/g)].map(
+        (m) => m[1]
+      )
+    )
+    expect(usados.size).toBeGreaterThan(5)
+    for (const nombre of usados) {
+      expect(importados.has(nombre), `falta importar ${nombre}`).toBe(true)
+    }
+  })
+})
+
 describe('Inspección de vehículo · borrador local', () => {
   it('se retoma filtrando por herramienta, para no mezclar con otra pre-entrega', () => {
     const db = fuente('../../lib/offline/db.ts')
