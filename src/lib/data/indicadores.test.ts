@@ -911,9 +911,40 @@ describe('detalleDeEvaluacion', () => {
     expect(detalle[0].cumple).toBe(true)
     expect(detalle[0].resumen).toBe('Cumple')
     expect(detalle[0].modulo).toBe('Módulo 1')
+    expect(detalle[0].modulo_id).toBe('m1')
     expect(detalle[0].peso).toBe(100)
+    expect(detalle[0].veredicto).toBe('cumple')
+    expect(detalle[0].comentarios).toBe('')
+    expect(detalle[0].respondido_por).toBe(null)
     expect(detalle[1].cumple).toBe(false)
     expect(detalle[1].resumen).toBe('No cumple')
+    expect(detalle[1].veredicto).toBe('no-cumple')
+  })
+
+  it('sube el veredicto, los comentarios de evidencia y quién respondió', () => {
+    const datos = {
+      evaluaciones,
+      respuestas: [
+        {
+          ...respuesta('ev1', 'i1', true),
+          respondido_por: 'user-7',
+          valor: { value: true, evidencias: [{ photoIds: [], comentario: 'Vidrio roto en cámara 3' }] }
+        },
+        { ...respuesta('ev1', 'i2', true), valor: { value: true, informativo: true } }
+      ],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const detalle = detalleDeEvaluacion(datos, 'ev1')
+    expect(detalle[0].comentarios).toBe('Vidrio roto en cámara 3')
+    expect(detalle[0].respondido_por).toBe('user-7')
+    expect(detalle[0].veredicto).toBe('cumple')
+    expect(detalle[1].veredicto).toBe('no-aplica')
+    expect(detalle[1].proporcion).toBe(null)
   })
 
   it('acota el detalle al ítem clickeado', () => {

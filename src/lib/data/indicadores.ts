@@ -19,6 +19,7 @@ import {
   redondear3,
   tieneRespuesta,
   valorPorResponsable,
+  veredictoItem,
   type AcumuladoResponsable,
   type BinarioConPuntaje,
   type ValorCumple,
@@ -26,7 +27,8 @@ import {
   type ValorConciliacion,
   type ValorListaColaboradores,
   type ValorPlano,
-  type ValorUnidadChecklist
+  type ValorUnidadChecklist,
+  type VeredictoItem
 } from '../scoring'
 
 export interface FiltrosIndicadores {
@@ -1724,15 +1726,27 @@ export interface FilaDrilldownEval {
 export interface DetalleRespuestaEval {
   item_id: string
   texto: string
+  /** Nombre del módulo, tal como lo muestra la pantalla. */
   modulo: string | null
+  /** Id del módulo: el nombre puede repetirse entre catálogos. */
+  modulo_id: string
   tipo: TipoItem
   peso: number
   /** 0..1 o null si la respuesta no puntúa. */
   proporcion: number | null
   cumple: boolean | null
+  /**
+   * Mismo veredicto que el filtro del detalle: separa «No aplica» de «Sin
+   * veredicto», que `cumple` deja juntos en null.
+   */
+  veredicto: VeredictoItem
   resumen: string
+  /** Comentarios que el evaluador dejó en las evidencias, unidos en una línea. */
+  comentarios: string
   instancia: string | null
   fotos: number
+  /** Quién respondió (id de perfil); se muestra con el nombre del perfil. */
+  respondido_por: string | null
 }
 
 /**
@@ -1812,6 +1826,19 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
     default:
       return { proporcion: p, resumen: p != null ? `${Math.round(p * 100)}% de cumplimiento` : 'Sin responder' }
   }
+}
+
+/**
+ * Comentarios que el evaluador escribió junto a las fotos de evidencia. Sólo el
+ * tipo CUMPLE_NO_CUMPLE tiene campo de comentario; los demás tipos devuelven
+ * cadena vacía.
+ */
+function comentariosDeRespuesta(valor: unknown): string {
+  const evidencias = (valor as { evidencias?: { comentario?: string | null }[] } | null)?.evidencias ?? []
+  return evidencias
+    .map((evidencia) => evidencia.comentario?.trim() ?? '')
+    .filter(Boolean)
+    .join(' · ')
 }
 
 /**
@@ -1919,13 +1946,17 @@ export function detalleDeEvaluacion(datos: ConjuntoDatos, evaluacionId: string, 
       item_id: item.id,
       texto: item.texto,
       modulo: datos.modulos.find((m) => m.id === item.modulo_id)?.nombre ?? null,
+      modulo_id: item.modulo_id,
       tipo: item.tipo,
       peso: pesoItem(item),
       proporcion,
       cumple: proporcion == null ? null : proporcion >= 1,
+      veredicto: veredictoItem(aplicado, r.valor),
       resumen,
+      comentarios: comentariosDeRespuesta(r.valor),
       instancia: r.instancia_id ? instanciaEtiqueta.get(r.instancia_id) ?? null : null,
-      fotos: fotoPor.get(`${evaluacionId}|${item.id}|${r.instancia_id ?? ''}`) ?? 0
+      fotos: fotoPor.get(`${evaluacionId}|${item.id}|${r.instancia_id ?? ''}`) ?? 0,
+      respondido_por: r.respondido_por
     })
   }
 
