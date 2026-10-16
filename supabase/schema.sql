@@ -2526,15 +2526,15 @@ select
   case p.proname
     -- Se invocan desde las politicas RLS (`using (public.es_lider())`). Revocar
     -- EXECUTE no es endurecimiento: rompe toda la base con "permission denied".
-    when in ('es_lider','puede_ver_evaluacion','puede_responder',
+    when p.proname in ('es_lider','puede_ver_evaluacion','puede_responder',
              'puede_manejar_instancia','puede_reportar_incidencia',
              'puede_ver_incidencia')
       then 'ayudante de politica RLS -> NO revocar'
     -- Pantalla de login: corre antes de autenticar, necesita anon.
-    when in ('intento_login','email_por_usuario')
+    when p.proname in ('intento_login','email_por_usuario')
       then 'login sin sesion -> anon OK, authenticated innecesario'
     -- Solo un usuario con sesion (y para desbloquear, ademas un Lider).
-    when in ('desbloquear_usuario','registrar_sync')
+    when p.proname in ('desbloquear_usuario','registrar_sync')
       then 'solo authenticated'
     -- Trigger: `returns trigger` ya impide llamarla por RPC.
     else 'trigger -> sin uso por RPC'
