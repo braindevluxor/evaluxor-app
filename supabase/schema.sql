@@ -2523,7 +2523,8 @@ select
   coalesce(p.proconfig::text, '(sin search_path)')  as search_path,
   has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede,
   has_function_privilege('authenticated', p.oid, 'EXECUTE') as autenticado_puede,
-  case p.proname
+  -- CASE buscado: cada rama es una condición, no un valor contra `proname`.
+  case
     -- Se invocan desde las politicas RLS (`using (public.es_lider())`). Revocar
     -- EXECUTE no es endurecimiento: rompe toda la base con "permission denied".
     when p.proname in ('es_lider','puede_ver_evaluacion','puede_responder',
