@@ -121,9 +121,14 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
       const value = v.value ?? null
       const evidencias = v.evidencias ?? []
       const noAplica = v.informativo ?? false
-      const setValue = (valor2: boolean) => guardar({ ...v, value: valor2 })
-      const setEvidencias = (evs: EvidenciaCumple[]) => guardar({ ...v, evidencias: evs })
-      const setNoAplica = (b: boolean) => guardar({ ...v, informativo: b })
+      // Toda escritura va como updater `(prev) => next` y no como `{ ...v, … }`:
+      // `v` es el del render y cualquier otro callback que cierre con un `v`
+      // viejo (la foto que termina segundos después, por ejemplo) repondría el
+      // valor entero y con él los responsables que el evaluador acaba de quitar.
+      const setValue = (valor2: boolean) => guardar((prev: unknown) => ({ ...((prev ?? v) as ValorCumple), value: valor2 }))
+      const setEvidencias = (evs: EvidenciaCumple[]) =>
+        guardar((prev: unknown) => ({ ...((prev ?? v) as ValorCumple), evidencias: evs }))
+      const setNoAplica = (b: boolean) => guardar((prev: unknown) => ({ ...((prev ?? v) as ValorCumple), informativo: b }))
       return (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -141,7 +146,9 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                 responsables={item.responsables ?? []}
                 seleccion={v.responsables ?? []}
                 gerente={gerente}
-                onChange={(sel) => guardar({ ...v, responsables: sel })}
+                onChange={(sel) =>
+                  guardar((prev: unknown) => ({ ...((prev ?? v) as ValorCumple), responsables: sel }))
+                }
               />
             </div>
           ) : null}
@@ -156,29 +163,48 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
       const opts = (item.opciones ?? []) as Opcion[]
       if (!opts.length) return <p className="text-sm text-slate-400">Sin opciones definidas.</p>
       const conPuntos = opts.length > 0 && opts.every((o) => typeof o.puntos === 'number' && o.puntos > 0)
+      // Toda escritura va como updater `(prev) => next`: `value` es el del render
+      // y una escritura concurrente hecha con un `value` viejo repondría el valor
+      // entero, borrando los responsables que el evaluador acaba de elegir.
+      const desde = (prev: unknown): ValorChecklist => (prev ?? value) as ValorChecklist
       const toggle = (id: string) => {
-        const existe = seleccion.includes(id)
-        if (existe) {
-          const valores2 = { ...(value.valores ?? {}) }
-          delete valores2[id]
-          guardar({ ...value, selected: seleccion.filter((x) => x !== id), valores: valores2 })
-        } else {
-          guardar({ ...value, selected: [...seleccion, id] })
-        }
+        guardar((prev: unknown) => {
+          const base = desde(prev)
+          const sel = base.selected ?? []
+          if (sel.includes(id)) {
+            const valores2 = { ...(base.valores ?? {}) }
+            delete valores2[id]
+            return { ...base, selected: sel.filter((x) => x !== id), valores: valores2 }
+          }
+          return { ...base, selected: [...sel, id] }
+        })
       }
       const setValorRango = (id: string, n: number) => {
-        guardar({
-          ...value,
-          selected: seleccion.includes(id) ? seleccion : [...seleccion, id],
-          valores: { ...(value.valores ?? {}), [id]: n }
+        guardar((prev: unknown) => {
+          const base = desde(prev)
+          const sel = base.selected ?? []
+          return {
+            ...base,
+            selected: sel.includes(id) ? sel : [...sel, id],
+            valores: { ...(base.valores ?? {}), [id]: n }
+          }
         })
       }
       const toggleNoAplica = (id: string) => {
-        const existe = noAplican.includes(id)
-        guardar({ ...value, informativos: existe ? noAplican.filter((x) => x !== id) : [...noAplican, id] })
+        guardar((prev: unknown) => {
+          const base = desde(prev)
+          const actuales = base.informativos ?? []
+          return {
+            ...base,
+            informativos: actuales.includes(id) ? actuales.filter((x) => x !== id) : [...actuales, id]
+          }
+        })
       }
       const setEvidencia = (id: string, photoIds: string[]) => {
-        guardar({ ...value, evidencias: { ...evidencias, [id]: { photoIds } } })
+        guardar((prev: unknown) => {
+          const base = desde(prev)
+          return { ...base, evidencias: { ...(base.evidencias ?? {}), [id]: { photoIds } } }
+        })
       }
       return (
         <>
@@ -483,16 +509,22 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
    * SKU, y sólo uno lo hace con la marca en la mano.
    */
   const actualizar = (items: ProductoConciliacion[], quitados: string[] = []) => {
-    const previas = new Set(v.borrados ?? [])
-    for (const sku of quitados) previas.add(sku)
-    const enLista = new Set(items.map((p) => p.sku))
-    const reabrir = [...previas].filter((sku) => enLista.has(sku))
-    const borrados = [...previas].filter((sku) => !enLista.has(sku))
-    onChange({
-      ...v,
-      borrados: borrados.length ? borrados : null,
-      reabrir: reabrir.length ? reabrir : null,
-      productos: items.map((producto) => guardarPerdidaConciliacion(producto, contraDato))
+    // Updater: `v` es el del render y una escritura concurrente con un `v`
+    // viejo repondría el valor entero (responsables incluidos). Se computa
+    // todo contra el draft vivo que entrega `cambiarValor`.
+    onChange((prev: unknown) => {
+      const base = (prev ?? v) as ValorConciliacion
+      const previas = new Set(base.borrados ?? [])
+      for (const sku of quitados) previas.add(sku)
+      const enLista = new Set(items.map((p) => p.sku))
+      const reabrir = [...previas].filter((sku) => enLista.has(sku))
+      const borrados = [...previas].filter((sku) => !enLista.has(sku))
+      return {
+        ...base,
+        borrados: borrados.length ? borrados : null,
+        reabrir: reabrir.length ? reabrir : null,
+        productos: items.map((producto) => guardarPerdidaConciliacion(producto, contraDato))
+      }
     })
   }
   const actualizarProducto = (i: number, patch: Partial<ProductoConciliacion>) =>
@@ -685,7 +717,10 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <BotonNoAplica activo={noAplica} onClick={() => onChange({ ...v, informativo: !noAplica })}>
+        <BotonNoAplica
+          activo={noAplica}
+          onClick={() => onChange((prev: unknown) => ({ ...((prev ?? v) as ValorConciliacion), informativo: !noAplica }))}
+        >
           No aplica · se excluye del puntaje
         </BotonNoAplica>
       </div>
@@ -1178,7 +1213,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
             responsables={item?.responsables ?? []}
             seleccion={v.responsables ?? []}
             gerente={gerente}
-            onChange={(sel) => onChange({ ...v, responsables: sel })}
+            onChange={(sel) => onChange((prev: unknown) => ({ ...((prev ?? v) as ValorConciliacion), responsables: sel }))}
           />
         </div>
       ) : null}
@@ -1381,12 +1416,18 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
   }
 
   const marcarAplica = (dni: number) => {
-    const revisado = colaboradores.find((c) => c.dni === dni) ? esColaboradorRevisado(colaboradores.find((c) => c.dni === dni)!) : false
-    actualizar(colaboradores.map((c) => (c.dni === dni && revisado ? { ...c, aplica: !c.aplica } : c)))
+    // Updater: `colaboradores` es el del render. Armado desde ahí, esta
+    // escritura repondría la lista vieja y con ella los `responsablesPorOpcion`
+    // que el evaluador acaba de elegir en otro punto.
+    actualizar((prev) => {
+      const actual = prev.find((c) => c.dni === dni)
+      const revisado = actual ? esColaboradorRevisado(actual) : false
+      return prev.map((c) => (c.dni === dni && revisado ? { ...c, aplica: !c.aplica } : c))
+    })
   }
 
   const toggleCheck = (dni: number, opcionId: string) => {
-    actualizar(colaboradores.map((c) => {
+    actualizar((prev) => prev.map((c) => {
       if (c.dni !== dni) return c
       const sel = c.selected.includes(opcionId) ? c.selected.filter((x) => x !== opcionId) : [...c.selected, opcionId]
       // Tildar o destildar un punto NO enciende el check general. Ese check es
@@ -1397,7 +1438,7 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
   }
 
   const marcarNoAplica = (dni: number, opcionId: string) => {
-    actualizar(colaboradores.map((c) => {
+    actualizar((prev) => prev.map((c) => {
       if (c.dni !== dni) return c
       const noAplica = c.noAplica ?? []
       const marcar = !noAplica.includes(opcionId)
@@ -1727,20 +1768,32 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
   const unidades = v.unidades ?? []
   const opts = (item.opciones ?? []) as Opcion[]
 
-  const actualizar = (unids: UnidadChecklist[]) => onChange({ ...v, unidades: unids })
+  // Updater: `v` es el del render y una escritura concurrente con un `v` viejo
+  // repondría el valor entero (los responsables de cada check incluidos).
+  const actualizar = (unids: UnidadChecklist[] | ((prev: UnidadChecklist[]) => UnidadChecklist[])) =>
+    onChange((prev: unknown) => {
+      const base = (prev ?? v) as ValorUnidadChecklist
+      const lista = base.unidades ?? []
+      return { ...base, unidades: typeof unids === 'function' ? unids(lista) : unids }
+    })
 
   // Carga única (repetible = false): el checklist se marca una sola vez.
   if (item.repetible === false) {
     const unica = unidades[0] ?? { codigo: 'Única', selected: [] }
     const marcadas = unica.selected ?? []
     const completas = unidadCumple(unica, opts)
-    const toggleCheck = (opcionId: string) => {
-      const sel = marcadas.includes(opcionId) ? marcadas.filter((x) => x !== opcionId) : [...marcadas, opcionId]
-      actualizar([{ ...unica, selected: sel }])
-    }
-    const setCodigoUnica = (codigo: string) => {
-      actualizar([{ ...unica, codigo }])
-    }
+    const toggleCheck = (opcionId: string) =>
+      actualizar((prev) => {
+        const actual = prev[0] ?? unica
+        const sel = actual.selected ?? []
+        return [
+          {
+            ...actual,
+            selected: sel.includes(opcionId) ? sel.filter((x) => x !== opcionId) : [...sel, opcionId]
+          }
+        ]
+      })
+    const setCodigoUnica = (codigo: string) => actualizar((prev) => [{ ...(prev[0] ?? unica), codigo }])
     const codigoVisible = unica.codigo && unica.codigo !== 'Única' ? unica.codigo : ''
     return (
       <div className="space-y-3">
@@ -1855,18 +1908,18 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
       setInfo('Este ítem no tiene checklist definido. El Líder debe configurarlo desde Ítems de evaluación.')
       return
     }
-    actualizar([...unidades, { codigo: c, selected: [] }])
+    actualizar((prev) => [...prev, { codigo: c, selected: [] }])
     setCodigo('')
     setAbiertoIdx(unidades.length)
   }
 
   const quitar = (idx: number) => {
-    actualizar(unidades.filter((_, i) => i !== idx))
+    actualizar((prev) => prev.filter((_, i) => i !== idx))
     setAbiertoIdx(null)
   }
 
   const toggleCheck = (idx: number, opcionId: string) => {
-    actualizar(unidades.map((u, i) => {
+    actualizar((prev) => prev.map((u, i) => {
       if (i !== idx) return u
       const sel0 = u.selected ?? []
       const sel = sel0.includes(opcionId) ? sel0.filter((x) => x !== opcionId) : [...sel0, opcionId]

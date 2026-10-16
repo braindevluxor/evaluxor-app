@@ -1119,3 +1119,27 @@ describe('ItemRenderer · Total conciliación = Match / Total SKU', () => {
     expect(src).not.toContain('conciliacionTotal')
   })
 })
+
+describe('ItemRenderer · toda escritura del valor del ítem es updater', () => {
+  // Regresión del bug de los chips de responsables.
+  //
+  // Las escrituras eran `guardar({ ...v, responsables: sel })`: objetos armados
+  // con el `v` del render. Un callback atrasado —el de "Agregar evidencia",
+  // que vive segundos mientras se hace la foto— reponía ese `v` viejo completo
+  // y con él los responsables que el evaluador recién quitaba: destildaba uno
+  // y volvía a ver los encendidos, sin el aviso de preselección.
+  //
+  // Como updater `(prev) => next` la escritura se resuelve contra el draft
+  // vivo (`cambiarValor` en /evaluar, `cambiarRespuesta` en inspección y
+  // pre-entrega) y compone: nada puede reponer el valor anterior.
+  it('no queda ninguna escritura en forma objeto sobre el valor', () => {
+    const fuente = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
+    expect(fuente).not.toMatch(/guardar\(\{\s*\.\.\.(v|value)\b/)
+    expect(fuente).not.toMatch(/onChange\(\{\s*\.\.\.v\b/)
+  })
+
+  it('PlanoEditor compone el patch con el draft vivo, no con el `v` del render', () => {
+    const fuente = readFileSync(fileURLToPath(new URL('./PlanoEditor.tsx', import.meta.url)), 'utf8')
+    expect(fuente).toContain('onChange((prev: unknown) => ({ ...((prev ?? v) as ValorPlano), ...patch }))')
+  })
+})

@@ -142,7 +142,12 @@ export function PlanoEditor({ item, valor, onChange, gerente }: Props) {
   const fallados = puntosMarcadosPlano(v).filter((p) => p.cumple === false).length
   const cumplidos = puntosMarcadosPlano(v).length - fallados
 
-  const guardar = (patch: Partial<ValorPlano>) => onChange({ ...v, ...patch })
+  // Toda escritura pasa por acá como updater: `v` es el del render y cualquier
+  // otro callback que cierre con un `v` viejo (la foto que termina segundos
+  // después, por ejemplo) repondría el valor entero y con él los responsables
+  // que el evaluador acaba de quitar de los puntos caídos.
+  const guardar = (patch: Partial<ValorPlano>) =>
+    onChange((prev: unknown) => ({ ...((prev ?? v) as ValorPlano), ...patch }))
 
   const agregarPlanos = async (files: FileList | null) => {
     if (!files?.length) return
