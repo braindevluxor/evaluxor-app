@@ -1354,6 +1354,7 @@ export function EvaluacionDetalle() {
                 <ListaIncidencias
                   filas={incidenciasDelCargo}
                   urlsFotos={incidencias.urlsFotos}
+                  marcador={incidencias.marcador}
                 />
               </section>
             ) : null}
@@ -1372,6 +1373,7 @@ export function EvaluacionDetalle() {
             <ListaIncidencias
               filas={filasIncidencias}
               urlsFotos={incidencias.urlsFotos}
+              marcador={incidencias.marcador}
               vacio="Los evaluadores no reportaron incidencias en esta visita."
             />
           </Modal>

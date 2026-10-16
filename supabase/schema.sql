@@ -923,6 +923,30 @@ create policy "evidencias_insert" on storage.objects for insert to authenticated
   bucket_id = 'evidencias'
   and exists (select 1 from public.profiles p where p.id = auth.uid() and p.activo and p.rol in ('EVALUADOR','LIDER'))
 );
+-- Marcar fotos a mano (FotoEditor) re-graba el MISMO path: es un UPDATE, y sin
+-- esta politica la marca volvia con "no tenes permiso". Solo quien puede VER la
+-- evaluacion toca su evidencia (ev/<evaluacion>/...), la misma regla con la que
+-- se lee la tabla.
+drop policy if exists "evidencias_update" on storage.objects;
+create policy "evidencias_update" on storage.objects for update to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and name like 'ev/%'
+    and exists (
+      select 1 from public.evaluaciones e
+      where e.id::text = split_part(storage.objects.name, '/', 2)
+        and public.puede_ver_evaluacion(e)
+    )
+  )
+  with check (
+    bucket_id = 'evidencias'
+    and name like 'ev/%'
+    and exists (
+      select 1 from public.evaluaciones e
+      where e.id::text = split_part(storage.objects.name, '/', 2)
+        and public.puede_ver_evaluacion(e)
+    )
+  );
 
 -- ============================================================================
 -- SEED: catalogo de ejemplo (solo si no existe ningun modulo)
@@ -1147,25 +1171,33 @@ create policy storage_incidencias_insert on storage.objects
     )
   );
 
+-- El Lider tambien puede reescribir: es quien revisa estas fotos desde el
+-- detalle de la evaluacion ajena, y el editor de marcas las re-graba igual.
 drop policy if exists storage_incidencias_update on storage.objects;
 create policy storage_incidencias_update on storage.objects
   for update to authenticated
   using (
     bucket_id = 'evidencias'
-    and exists (
-      select 1
-      from public.incidencias i
-      where i.evaluador_id = auth.uid()
-        and name like 'incidencias/' || i.id::text || '/%'
+    and (
+      public.es_lider()
+      or exists (
+        select 1
+        from public.incidencias i
+        where i.evaluador_id = auth.uid()
+          and name like 'incidencias/' || i.id::text || '/%'
+      )
     )
   )
   with check (
     bucket_id = 'evidencias'
-    and exists (
-      select 1
-      from public.incidencias i
-      where i.evaluador_id = auth.uid()
-        and name like 'incidencias/' || i.id::text || '/%'
+    and (
+      public.es_lider()
+      or exists (
+        select 1
+        from public.incidencias i
+        where i.evaluador_id = auth.uid()
+          and name like 'incidencias/' || i.id::text || '/%'
+      )
     )
   );
 
@@ -2100,7 +2132,7 @@ create policy departamentos_centralizados_select on public.departamentos_central
 drop policy if exists "departamentos_centralizados_lider" on public.departamentos_centralizados;
 create policy departamentos_centralizados_lider on public.departamentos_centralizados for all using (public.es_lider()) with check (public.es_lider());
 
--- storage.objects (6 polÃ­ticas)
+-- storage.objects (7 polÃ­ticas)
 -- (storage.objects ya tiene RLS; solo se reponen sus polÃ­ticas)
 drop policy if exists "evidencias_select" on storage.objects;
 create policy "evidencias_select" on storage.objects for select to authenticated using (bucket_id = 'evidencias');
@@ -2109,6 +2141,27 @@ create policy "evidencias_insert" on storage.objects for insert to authenticated
   bucket_id = 'evidencias'
   and exists (select 1 from public.profiles p where p.id = auth.uid() and p.activo and p.rol in ('EVALUADOR','LIDER'))
 );
+-- Marcar fotos de evidencia (re-graba el mismo path): misma regla que arriba.
+drop policy if exists "evidencias_update" on storage.objects;
+create policy "evidencias_update" on storage.objects for update to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and name like 'ev/%'
+    and exists (
+      select 1 from public.evaluaciones e
+      where e.id::text = split_part(storage.objects.name, '/', 2)
+        and public.puede_ver_evaluacion(e)
+    )
+  )
+  with check (
+    bucket_id = 'evidencias'
+    and name like 'ev/%'
+    and exists (
+      select 1 from public.evaluaciones e
+      where e.id::text = split_part(storage.objects.name, '/', 2)
+        and public.puede_ver_evaluacion(e)
+    )
+  );
 drop policy if exists "storage_incidencias_insert" on storage.objects;
 create policy storage_incidencias_insert on storage.objects
   for insert to authenticated
@@ -2126,20 +2179,26 @@ create policy storage_incidencias_update on storage.objects
   for update to authenticated
   using (
     bucket_id = 'evidencias'
-    and exists (
-      select 1
-      from public.incidencias i
-      where i.evaluador_id = auth.uid()
-        and name like 'incidencias/' || i.id::text || '/%'
+    and (
+      public.es_lider()
+      or exists (
+        select 1
+        from public.incidencias i
+        where i.evaluador_id = auth.uid()
+          and name like 'incidencias/' || i.id::text || '/%'
+      )
     )
   )
   with check (
     bucket_id = 'evidencias'
-    and exists (
-      select 1
-      from public.incidencias i
-      where i.evaluador_id = auth.uid()
-        and name like 'incidencias/' || i.id::text || '/%'
+    and (
+      public.es_lider()
+      or exists (
+        select 1
+        from public.incidencias i
+        where i.evaluador_id = auth.uid()
+          and name like 'incidencias/' || i.id::text || '/%'
+      )
     )
   );
 drop policy if exists "storage_incidencias_select" on storage.objects;
@@ -2584,7 +2643,7 @@ order by c.relrowsecurity, n.nspname || '.' || c.relname;
 -- ----------------------------------------------------------------------------
 -- 2) Las politicas del repo, una por fila
 -- ----------------------------------------------------------------------------
--- Si esta consulta NO devuelve filas, estan las 47. Cada fila que aparezca es
+-- Si esta consulta NO devuelve filas, estan las 48. Cada fila que aparezca es
 -- una politica que falta: se creo la tabla pero no su regla, y queda abierta o
 -- inaccesible segun el caso.
 with esperadas (politica, tabla) as (
@@ -2632,6 +2691,7 @@ with esperadas (politica, tabla) as (
     ('sucursales_select', 'public.sucursales'),
     ('evidencias_insert', 'storage.objects'),
     ('evidencias_select', 'storage.objects'),
+    ('evidencias_update', 'storage.objects'),
     ('storage_incidencias_delete', 'storage.objects'),
     ('storage_incidencias_insert', 'storage.objects'),
     ('storage_incidencias_select', 'storage.objects'),

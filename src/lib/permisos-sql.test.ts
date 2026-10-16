@@ -376,3 +376,34 @@ describe('schema.sql · corre limpio', () => {
     for (const f of firmas) expect(existeEnSupabase(f), `no existe ${f}`).toBe(true)
   })
 })
+
+describe('schema.sql · marcar fotos que ya estan en el bucket', () => {
+  const sql = fuente('../../supabase/schema.sql')
+
+  it('evidencias_update re-graba ev/<evaluacion>/... solo para quien ve la evaluacion', () => {
+    expect(sql).toContain('create policy "evidencias_update" on storage.objects for update')
+    expect(sql).toContain("name like 'ev/%'")
+    expect(sql).toContain('public.puede_ver_evaluacion(e)')
+    // Las dos secciones del archivo (definicion y reponer) la traen.
+    expect(sql.match(/create policy "evidencias_update"/g)?.length).toBe(2)
+    // Y esta en la consulta de verificacion que revisa la base.
+    expect(sql).toContain("('evidencias_update', 'storage.objects')")
+  })
+
+  it('el contador de politicas de storage.objects la incluye', () => {
+    expect(sql).toContain('-- storage.objects (7 pol')
+    expect(sql).toContain('estan las 48')
+  })
+
+  it('el Lider puede reescribir la foto de una incidencia ajena, no solo verla', () => {
+    /* El visor de incidencias del detalle es del Lider y una marca se sube con
+       upsert: sin UPDATE para el Lider, «Dibujar sobre la foto» sobre una
+       incidencia de otro evaluador termina en un 403. */
+    const updates = sql.match(/create policy storage_incidencias_update[\s\S]*?\);/g) ?? []
+    expect(updates.length).toBeGreaterThanOrEqual(2)
+    for (const update of updates) {
+      expect(update).toContain('public.es_lider()')
+      expect(update).toContain('i.evaluador_id = auth.uid()')
+    }
+  })
+})
