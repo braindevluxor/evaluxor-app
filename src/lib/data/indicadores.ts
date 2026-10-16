@@ -1829,14 +1829,16 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
 }
 
 /**
- * Comentarios que el evaluador escribió junto a las fotos de evidencia. Sólo el
- * tipo CUMPLE_NO_CUMPLE tiene campo de comentario; los demás tipos devuelven
- * cadena vacía.
+ * Comentarios que el evaluador escribió junto a las fotos de evidencia. Sólo
+ * el arreglo de evidencias del tipo CUMPLE trae `comentario`; en los
+ * CHECKLIST la misma llave es un objeto por opción —sin comentarios—, así
+ * que cualquier otra forma no aporta nada.
  */
 function comentariosDeRespuesta(valor: unknown): string {
-  const evidencias = (valor as { evidencias?: { comentario?: string | null }[] } | null)?.evidencias ?? []
+  const evidencias = (valor as { evidencias?: unknown } | null)?.evidencias
+  if (!Array.isArray(evidencias)) return ''
   return evidencias
-    .map((evidencia) => evidencia.comentario?.trim() ?? '')
+    .map((evidencia: { comentario?: string | null }) => evidencia.comentario?.trim() ?? '')
     .filter(Boolean)
     .join(' · ')
 }

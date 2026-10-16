@@ -947,6 +947,32 @@ describe('detalleDeEvaluacion', () => {
     expect(detalle[1].proporcion).toBe(null)
   })
 
+  it('ignora las evidencias que vienen como objeto por opción (checklist)', () => {
+    const itemsChecklist: Item[] = [
+      ...items,
+      { id: 'i9', modulo_id: 'm1', tipo: 'CHECKLIST', texto: 'Checklist', opciones: [], orden: 5, requerido: false, activo: true, puntaje: 100, created_at: '' }
+    ]
+    const datos = {
+      evaluaciones,
+      respuestas: [
+        {
+          ...respuesta('ev1', 'i9', false),
+          // En los CHECKLIST `evidencias` es un objeto por opción, sin
+          // comentario: si alguien lo trata como arreglo, esto truena.
+          valor: { selected: [], evidencias: { o1: { photoIds: ['p1'] } } }
+        }
+      ],
+      items: itemsChecklist,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const detalle = detalleDeEvaluacion(datos, 'ev1')
+    expect(detalle[0].comentarios).toBe('')
+  })
+
   it('acota el detalle al ítem clickeado', () => {
     const datos = {
       evaluaciones,
