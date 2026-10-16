@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { bloqueSql } from '../supabaseSql'
 
 function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -70,7 +71,7 @@ describe('revisión pre-entrega · quedó fuera de la app', () => {
 })
 
 describe('revisión pre-entrega · SQL de Supabase', () => {
-  const sql = fuente('../../../supabase/revision-pre-entrega.sql')
+  const sql = bloqueSql('revision-pre-entrega.sql')
 
   it('crea la tabla con RLS y la marca de herramienta', () => {
     expect(sql).toContain('create table if not exists public.revision_pre_entrega')

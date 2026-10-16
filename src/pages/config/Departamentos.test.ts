@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { bloqueSql } from '../../lib/supabaseSql'
 
 function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -72,7 +73,7 @@ describe('departamentos · eliminar', () => {
 })
 
 describe('departamentos · SQL de Supabase', () => {
-  const sql = fuente('../../../supabase/departamentos-centralizados.sql')
+  const sql = bloqueSql('departamentos-centralizados.sql')
 
   it('crea la tabla con RLS: leen los autenticados, gestionan solo el Líder', () => {
     expect(sql).toContain('create table if not exists public.departamentos_centralizados')
@@ -137,7 +138,7 @@ describe('departamentos · configurar módulos, ítems y puntos', () => {
   })
 
   it('el SQL trae las tres tablas, con su única, su cascada y su RLS', () => {
-    const sql = fuente('../../../supabase/departamentos-centralizados.sql')
+    const sql = bloqueSql('departamentos-centralizados.sql')
     for (const tabla of ['departamento_modulos', 'departamento_items', 'departamento_opciones']) {
       expect(sql).toContain(`create table if not exists public.${tabla}`)
       expect(sql).toContain(`policy ${tabla}_select on public.${tabla}`)
@@ -160,7 +161,7 @@ describe('departamentos · configurar módulos, ítems y puntos', () => {
 })
 
 describe('Taller Automotriz · la migración que lo saca de las sucursales', () => {
-  const sql = fuente('../../../supabase/taller-automotriz-a-departamento.sql')
+  const sql = bloqueSql('taller-automotriz-a-departamento.sql')
 
   it('prevea antes de escribir y sobre todo las colisiones de fecha', () => {
     expect(sql).toContain('PREVIEW')

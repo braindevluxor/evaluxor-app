@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { bloqueSql } from '../../lib/supabaseSql'
 
 /**
  * Pruebas de fuente, como las de `ItemRenderer.test.tsx`: el proyecto no tiene
@@ -19,13 +20,13 @@ describe('Inspección de vehículo · la clave de la herramienta', () => {
     // La pantalla la lee del helper: si alguien la escribiera a mano adentro,
     // el módulo de la BD y el de la pantalla dejarían de ser el mismo.
     expect(fuente('./InspeccionVehiculo.tsx')).toContain('CLAVE_INSPECCION')
-    const sql = fuente('../../../supabase/inspeccion-vehiculo.sql')
+    const sql = bloqueSql('inspeccion-vehiculo.sql')
     expect(sql).toContain(`where herramienta = '${CLAVE_ESPERADA}'`)
     expect(sql).toContain(`'${CLAVE_ESPERADA}'`)
   })
 
   it('se sostiene sola: trae el andamiaje de la pre-entrega con sus guardas', () => {
-    const sql = fuente('../../../supabase/inspeccion-vehiculo.sql')
+    const sql = bloqueSql('inspeccion-vehiculo.sql')
     // En una base donde revision-pre-entrega.sql nunca se corrió no existen ni
     // la columna ni la tabla: sin esto, el archivo muere en la primera línea.
     expect(sql).toContain('add column if not exists herramienta')
@@ -96,7 +97,7 @@ describe('Inspección de vehículo · sin sucursal', () => {
   it('el servidor la acepta sin sucursal en instalaciones ya creadas', () => {
     // La tabla la creó la pre-entrega como NOT NULL: hay que soltarla aparte,
     // porque `create table if not exists` no cambia una tabla que ya existe.
-    const sql = fuente('../../../supabase/inspeccion-vehiculo.sql')
+    const sql = bloqueSql('inspeccion-vehiculo.sql')
     expect(sql).toContain('alter column sucursal_id drop not null')
     expect(sql).not.toMatch(/sucursal_id uuid not null/)
     expect(fuente('../../lib/types.ts')).toMatch(

@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { PGlite } from '@electric-sql/pglite'
+import { bloqueSql } from './supabaseSql'
 
 /**
  * La semilla de la Inspección de Vehículo, ejecutada en un Postgres de verdad.
@@ -131,9 +130,8 @@ const DDL = `
     for each row execute function public.validar_suma_puntaje_items();
 `
 
-const archivo = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
-const SQL_INSP = archivo('../../supabase/inspeccion-vehiculo.sql')
-const SQL_PRE = archivo('../../supabase/revision-pre-entrega.sql')
+const SQL_INSP = bloqueSql('inspeccion-vehiculo.sql')
+const SQL_PRE = bloqueSql('revision-pre-entrega.sql')
 
 let db: PGlite
 

@@ -2,37 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { bloqueSql, sinComentarios } from './supabaseSql'
 
 function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
-}
-
-function bloqueSql(nombre: string): string {
-  const lines = fuente('../../supabase/schema.sql').split(/\r?\n/)
-  let capturando = false
-  let yaPasoCabecera = false
-  const partes: string[] = []
-
-  for (const linea of lines) {
-    if (linea.includes(`Archivo consolidado: ${nombre}`)) {
-      capturando = true
-      continue
-    }
-    if (!capturando) continue
-    if (linea.includes('###########################################################################')) {
-      if (yaPasoCabecera) break
-      yaPasoCabecera = true
-      continue
-    }
-    if (yaPasoCabecera) partes.push(linea)
-  }
-
-  return partes.join('\n')
-}
-
-/** Quita comentarios de linea y de bloque para no leer SQL como código. */
-function sinComentarios(sql: string): string {
-  return sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ')
 }
 
 /**
@@ -83,20 +56,14 @@ const remediation = sinComentarios(bloqueSql('permisos-funcion.sql'))
 const schema = sinComentarios(bloqueSql('schema.sql'))
 
 /**
- * ¿Existe la función en algún archivo de `supabase/`?
+ * ¿Existe la función en `supabase/schema.sql`?
  *
- * `schema.sql` es el consolidado de referencia, pero no es el único sitio donde
- * se declara una función: `compartir-evaluacion.sql` añadió una aparte. Un
- * revoke apuntando a una función de un archivo posterior al consolidado no es
- * un error de permisos, y sin esto el chequeo lo marcaría como tal.
+ * Un revoke apuntando a una función que no existe hace fallar el archivo
+ * entero en el SQL Editor, así que el chequeo no es cosmético: es la red que
+ * evita que un `revoke` bien intencionado deje la base a medio camino.
  */
-function existeEnSupabase(nombre: string): boolean {
-  const dir = fileURLToPath(new URL('../../supabase/', import.meta.url))
-  for (const archivo of readdirSync(dir).filter((f) => f.endsWith('.sql'))) {
-    const sql = sinComentarios(readFileSync(join(dir, archivo), 'utf8'))
-    if (new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${nombre}\\s*\\(`).test(sql)) return true
-  }
-  return false
+function existeEnSchema(nombre: string): boolean {
+  return new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${nombre}\\s*\\(`).test(schema)
 }
 
 /** Todo el código de la app, para cruzar qué funciones se llaman por RPC. */
@@ -291,7 +258,7 @@ describe('schema.sql · el enlace público de conciliación', () => {
   })
 
   it('la puerta es el token, y un token malo no devuelve nada', () => {
-    const sql = sinComentarios(fuente('../../supabase/compartir-evaluacion.sql'))
+    const sql = sinComentarios(bloqueSql('compartir-evaluacion.sql'))
     expect(sql).toMatch(/create\s+or\s+replace\s+function\s+public\.ver_conciliacion_compartida\(p_token text\)/i)
     // SECURITY DEFINER es obligatorio (sin permiso de tabla no leería nada), y
     // con él viene la obligación de fijar el search_path.
@@ -307,7 +274,7 @@ describe('schema.sql · el enlace público de conciliación', () => {
   })
 
   it('el enlace no abre más que la conciliación', () => {
-    const sql = sinComentarios(fuente('../../supabase/compartir-evaluacion.sql'))
+    const sql = sinComentarios(bloqueSql('compartir-evaluacion.sql'))
     // Nada de esto puede salir por un enlace público: son las tablas que
     // exponen evidencia física, personas o el resto de la evaluación.
     for (const tabla of ['fotos', 'incidencias', 'profiles', 'asignaciones', 'instancias_grupo']) {
@@ -318,7 +285,7 @@ describe('schema.sql · el enlace público de conciliación', () => {
   })
 
   it('la tabla nace cerrada para anon y con RLS', () => {
-    const sql = sinComentarios(fuente('../../supabase/compartir-evaluacion.sql'))
+    const sql = sinComentarios(bloqueSql('compartir-evaluacion.sql'))
     expect(sql).toMatch(/alter\s+table\s+public\.evaluaciones_compartidas\s+enable\s+row\s+level\s+security/i)
     // Ninguna política es para anon: quien no tiene sesión ni siquiera llega a
     // evaluar políticas porque `cerrar-permisos-anon.sql` le quitó el permiso
@@ -331,7 +298,7 @@ describe('schema.sql · el enlace público de conciliación', () => {
   })
 
   it('la evaluación sale sólo con columnas que la tabla real tiene', () => {
-    const sql = sinComentarios(fuente('../../supabase/compartir-evaluacion.sql'))
+    const sql = sinComentarios(bloqueSql('compartir-evaluacion.sql'))
     const cuerpo = sql.match(/ev as \(([\s\S]*?)\),\s*resp as/)?.[1] ?? ''
     expect(cuerpo.length).toBeGreaterThan(0)
     // `schema.sql` declara `evaluaciones.created_at`, pero hay bases creadas
@@ -348,7 +315,7 @@ describe('schema.sql · el enlace público de conciliación', () => {
   })
 
   it('el enlace se apaga sin borrar la evaluación', () => {
-    const sql = sinComentarios(fuente('../../supabase/compartir-evaluacion.sql'))
+    const sql = sinComentarios(bloqueSql('compartir-evaluacion.sql'))
     // `activo` es lo que hace reversible el enlace: apagarlo no depende de
     // borrar la fila, y borrar la fila no depende de borrar la evaluación.
     expect(sql).toMatch(/activo\s+boolean\s+not\s+null\s+default\s+true/)
@@ -371,9 +338,9 @@ describe('schema.sql · corre limpio', () => {
   it('cada revoke apunta a una función que existe en el schema', () => {
     const firmas = [...remediation.matchAll(/revoke\s+execute\s+on\s+function\s+public\.(\w+)\(/gi)].map((m) => m[1])
     expect(firmas.length).toBeGreaterThan(0)
-    // En `supabase/`, no sólo en el consolidado: `compartir-evaluacion.sql`
-    // declara la suya fuera de schema.sql y su revoke vive acá dentro.
-    for (const f of firmas) expect(existeEnSupabase(f), `no existe ${f}`).toBe(true)
+    // El revoke vive en el bloque `permisos-funcion.sql` y la función en otro:
+    // si se separan demasiado, uno de los dos apunta al vacío.
+    for (const f of firmas) expect(existeEnSchema(f), `no existe ${f}`).toBe(true)
   })
 })
 
@@ -390,9 +357,19 @@ describe('schema.sql · marcar fotos que ya estan en el bucket', () => {
     expect(sql).toContain("('evidencias_update', 'storage.objects')")
   })
 
-  it('el contador de politicas de storage.objects la incluye', () => {
-    expect(sql).toContain('-- storage.objects (7 pol')
-    expect(sql).toContain('estan las 48')
+  it('los contadores de politicas del diagnostico dicen la verdad', () => {
+    // Los dos numeros son el resumen del archivo entero: si alguien agrega una
+    // politica y no los actualiza, dejan de contar nada.
+    const declaradas = Number(sql.match(/-- storage\.objects \((\d+) políticas/)?.[1])
+    const enElArchivo = (sql.match(/create policy[^\n]* on storage\.objects/gi) || []).length
+    expect(enElArchivo).toBeGreaterThan(0)
+    expect(declaradas).toBe(enElArchivo)
+
+    const esperadas = Number(sql.match(/estan las (\d+)/)?.[1])
+    const iLista = sql.indexOf('with esperadas (politica, tabla) as (')
+    const filasDeLaLista = (sql.slice(iLista, sql.indexOf('select', iLista)).match(/^\s*\('/gm) || []).length
+    expect(filasDeLaLista).toBeGreaterThan(0)
+    expect(esperadas).toBe(filasDeLaLista)
   })
 
   it('el Lider puede reescribir la foto de una incidencia ajena, no solo verla', () => {
