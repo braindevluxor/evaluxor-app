@@ -108,7 +108,11 @@ export interface IncidenteRecord {
 export interface PreEntregaRecord {
   id: string
   evaluador_id: string
-  sucursal_id: string
+  /**
+   * La pre-entrega es de una sucursal; la inspección no tiene (se hace donde
+   * esté el vehículo), así que va en null y el servidor la acepta.
+   */
+  sucursal_id: string | null
   modulo_id: string | null
   placa: string
   vehiculo: Record<string, unknown>
@@ -364,6 +368,20 @@ export async function getPhotos(ids: string[]): Promise<PhotoRecord[]> {
   return out
 }
 
+/**
+ * Reemplaza el blob de una foto conservando su id.
+ *
+ * Así el trazo (marcas de daño) se **quema** sobre la misma foto: el PDF, la
+ * nube y cualquier registro que ya apunte a ese id quedan marcados sin tener
+ * que regenerar nada ni cambiar la referencia.
+ */
+export async function updatePhotoBlob(id: string, blob: Blob, mime: string): Promise<void> {
+  const db = await getDB()
+  const previa = await db.get('photos', id)
+  const record: PhotoRecord = { id, mime, blob, created_at: previa?.created_at ?? Date.now() }
+  await db.put('photos', record, id)
+}
+
 export async function deletePhoto(id: string): Promise<void> {
   const db = await getDB()
   await db.delete('photos', id)
@@ -436,10 +454,23 @@ export async function putPreEntrega(registro: PreEntregaRecord): Promise<void> {
 /**
  * Solo se retoma una `BORRADOR`; una `FINALIZADA` que quedó sin confirmar es
  * cosa de la cola de subida, no del formulario.
+ *
+ * Con `moduloId` sólo se devuelve la de esa herramienta: el mismo dispositivo
+ * puede tener el borrador de otra herramienta (pre-entrega, inspección) y no
+ * hay que meterlo en la pantalla equivocada. Sin `moduloId` se comporta como
+ * siempre (cualquier borrador del evaluador).
  */
-export async function getPreEntregaAbierta(evaluadorId: string): Promise<PreEntregaRecord | undefined> {
+export async function getPreEntregaAbierta(
+  evaluadorId: string,
+  moduloId?: string | null
+): Promise<PreEntregaRecord | undefined> {
   const todas = await listPreEntregas()
-  const abiertas = todas.filter((r) => r.evaluador_id === evaluadorId && r.estado === 'BORRADOR')
+  const abiertas = todas.filter(
+    (r) =>
+      r.evaluador_id === evaluadorId &&
+      r.estado === 'BORRADOR' &&
+      (moduloId == null || r.modulo_id === moduloId)
+  )
   return abiertas[abiertas.length - 1]
 }
 
@@ -447,6 +478,24 @@ async function listPreEntregas(): Promise<PreEntregaRecord[]> {
   const db = await getDB()
   const all = await db.getAll('preentrega')
   return all.sort((a, b) => a.created_at - b.created_at)
+}
+
+/**
+ * Una revisión concreta por id: cómo se reabre una inspección vieja desde el
+ * historial cuando todavía está en el equipo (borrador o finalizada no subida).
+ */
+export async function getPreEntrega(id: string): Promise<PreEntregaRecord | undefined> {
+  const db = await getDB()
+  return db.get('preentrega', id)
+}
+
+/**
+ * Todas las revisiones del equipo, para el historial. A diferencia de
+ * `preEntregasPendientes` no filtra por `sync`: el historial quiere ver
+ * también las que ya se subieron y siguen guardadas acá.
+ */
+export async function listarPreEntregas(): Promise<PreEntregaRecord[]> {
+  return listPreEntregas()
 }
 
 /** Las que todavía no llegaron al servidor (para la subida y los avisos). */

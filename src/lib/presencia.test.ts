@@ -51,8 +51,6 @@ describe('presencia · nombre de la pantalla', () => {
     expect(etiquetaPantalla('/config/items')).toBe('Ítems')
     expect(etiquetaPantalla('/config/departamentos')).toBe('Departamentos')
     expect(etiquetaPantalla('/config/cualquier-cosa')).toBe('Configuración')
-    expect(etiquetaPantalla('/proyectos/biometrico')).toBe('Biométrico')
-    expect(etiquetaPantalla('/proyectos/p1')).toBe('Proyectos')
   })
 
   it('ignora query y hash, y nunca muestra un path crudo', () => {

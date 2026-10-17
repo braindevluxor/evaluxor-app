@@ -7,6 +7,12 @@ export interface ItemKpi {
   etiqueta: string
   valor: string | number | null
   icono: IconoKpi
+  /**
+   * Sufijo que se dibuja pegado al número («%»). El número pasa por el
+   * formateador de la franja, que sólo sabe contar: `87%` como texto llegaría
+   * convertido en `NaN` y se pintaría como si no hubiera dato.
+   */
+  sufijo?: string
 }
 
 export interface EstadoKpis {

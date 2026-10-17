@@ -9,8 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
-    "test": "vitest run",
-    "backfill:departamentos": "node scripts/backfill-departamentos.mjs"
+    "test": "vitest run"
   },
   "dependencies": {
     "@fontsource/lato": "^5.3.0",
@@ -36,8 +35,9 @@
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
-    "fake-indexeddb": "^6.2.5",
+    "fake-indexeddb": "^6.2.6",
     "globals": "^17.12.0",
+    "jsdom": "^30.1.3",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.70.1",

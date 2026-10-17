@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Camera, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react'
+import { AlertTriangle, Camera, ChevronLeft, ChevronRight, Image as ImageIcon, Pencil } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { ChipsResponsables } from './EditorResponsablesIncidencia'
 import { normalizarResponsables, type ResponsableIncidencia } from '../lib/data/responsablesIncidencia'
 import { claveNormalizada } from '../lib/data/responsables'
 import { desdeAhora } from '../lib/tiempo'
-import { Skeleton, Spinner } from './ui'
+import { Button, Skeleton, Spinner } from './ui'
 import { ModalImagen } from './ModalImagen'
+import { useMarcadorNube, type MarcadorNube } from './MarcadorNube'
 
 export interface IncidenciaFila {
   id: string
@@ -44,6 +45,9 @@ export function useIncidenciasEvaluacion(evaluacionId: string | null) {
   const [error, setError] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
   const [urlsFotos, setUrlsFotos] = useState<Record<string, Record<string, string>>>({})
+  // Dibujar sobre las fotos de incidencias (que ya subieron y por eso no están
+  // en el equipo): vive acá para que su `version` alimente la recarga de URLs.
+  const marcador = useMarcadorNube()
 
   useEffect(() => {
     let vivo = true
@@ -150,9 +154,12 @@ export function useIncidenciasEvaluacion(evaluacionId: string | null) {
       }
     })()
     return () => { vivo = false }
-  }, [filas])
+    // `marcador.version` no cambia la consulta: sube cuando una marca volvió a
+    // subir, y eso es lo que obliga a pedir URLs firmadas nuevas — la vieja
+    // sigue sirviendo la foto anterior.
+  }, [filas, marcador.version])
 
-  return { filas, error, cargando, urlsFotos }
+  return { filas, error, cargando, urlsFotos, marcador }
 }
 
 /** ¿Esta incidencia es de este cargo? Comparación con la clave normalizada, la
@@ -297,15 +304,19 @@ export function IncidenciasEvaluacion({
 export function ListaIncidencias({
   filas,
   urlsFotos,
+  marcador,
   vacio
 }: {
   filas: IncidenciaFila[]
   urlsFotos: Record<string, Record<string, string>>
+  /** Editor de marcas de la nube: lo crea `useIncidenciasEvaluacion` y pasa el detalle. */
+  marcador: MarcadorNube
   /** Texto para el caso sin incidencias. Opcional: el modal de un cargo solo
    *  monta la lista cuando tiene algo que mostrar, así que ahí nunca se ve. */
   vacio?: string
 }) {
-  const [imagenAbierta, setImagenAbierta] = useState<{ incidenciaId: string; src: string } | null>(null)
+  /** Path (no URL): al marcar y refrescar, la misma foto sigue abierta. */
+  const [imagenAbierta, setImagenAbierta] = useState<{ incidenciaId: string; path: string } | null>(null)
 
   const incidenciasConFoto = filas.filter((fila) => fila.fotos.some((path) => urlsFotos[fila.id]?.[path]))
   const indiceIncidencia = imagenAbierta
@@ -316,8 +327,8 @@ export function ListaIncidencias({
   function navegarIncidencia(direccion: -1 | 1) {
     const siguiente = incidenciasConFoto[indiceIncidencia + direccion]
     if (!siguiente) return
-    const src = siguiente.fotos.map((path) => urlsFotos[siguiente.id]?.[path]).find(Boolean)
-    if (src) setImagenAbierta({ incidenciaId: siguiente.id, src })
+    const path = siguiente.fotos.find((foto) => urlsFotos[siguiente.id]?.[foto])
+    if (path) setImagenAbierta({ incidenciaId: siguiente.id, path })
   }
 
   if (!filas.length) {
@@ -350,17 +361,17 @@ export function ListaIncidencias({
               <FotosIncidencia
                 paths={f.fotos}
                 urls={urlsFotos[f.id] ?? {}}
-                onAbrir={(src) => setImagenAbierta({ incidenciaId: f.id, src })}
+                onAbrir={(path) => setImagenAbierta({ incidenciaId: f.id, path })}
               />
             ) : null}
           </li>
         ))}
       </ul>
       <ModalImagen
-        src={imagenAbierta?.src ?? null}
+        src={imagenAbierta ? (urlsFotos[imagenAbierta.incidenciaId]?.[imagenAbierta.path] ?? null) : null}
         alt="Foto de la incidencia"
         onClose={() => setImagenAbierta(null)}
-        footer={incidenciaAbierta ? (
+        footer={imagenAbierta && incidenciaAbierta ? (
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <button
@@ -393,9 +404,25 @@ export function ListaIncidencias({
               <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Responsable</p>
               <ChipsResponsables valor={incidenciaAbierta.responsables} className="mt-1" />
             </div>
+            {/* Marcar una foto de incidencia que ya está en la nube: la baja,
+                deja dibujar y la vuelve a subir al mismo path. */}
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full"
+              onClick={() => {
+                const path = imagenAbierta.path
+                setImagenAbierta(null)
+                marcador.abrir(path)
+              }}
+            >
+              <Pencil className="h-4 w-4" />
+              Dibujar sobre la foto
+            </Button>
           </div>
         ) : undefined}
       />
+      {marcador.editor}
     </>
   )
 }
@@ -404,7 +431,8 @@ export function ListaIncidencias({
 function FotosIncidencia({ paths, urls, onAbrir }: {
   paths: string[]
   urls: Record<string, string>
-  onAbrir: (src: string) => void
+  /** Pasa el path (no la URL): el visor y el editor trabajan sobre el path. */
+  onAbrir: (path: string) => void
 }) {
   return (
     <div className="mt-2">
@@ -417,7 +445,7 @@ function FotosIncidencia({ paths, urls, onAbrir }: {
             <button
               key={p}
               type="button"
-              onClick={() => onAbrir(urls[p])}
+              onClick={() => onAbrir(p)}
               title="Ver foto de la incidencia"
               aria-label="Ampliar foto de la incidencia"
             >

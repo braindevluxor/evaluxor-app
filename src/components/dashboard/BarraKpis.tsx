@@ -20,7 +20,17 @@ const ICONOS: Record<IconoKpi, LucideIcon> = {
 }
 
 /** Ítem de la franja azul con número animado (para los KPIs de módulo). */
-function ItemKpi({ etiqueta, icono, valor }: { etiqueta: string; icono: LucideIcon; valor: number | null }) {
+function ItemKpi({
+  etiqueta,
+  icono,
+  valor,
+  sufijo
+}: {
+  etiqueta: string
+  icono: LucideIcon
+  valor: number | null
+  sufijo?: string
+}) {
   const animado = useNumeroAnimado(valor, 700)
   const Icono = icono
   return (
@@ -28,7 +38,9 @@ function ItemKpi({ etiqueta, icono, valor }: { etiqueta: string; icono: LucideIc
       <span className="shrink-0 text-white"><Icono className="h-8 w-8" /></span>
       <div className="min-w-0">
         <p className="truncate text-[10px] font-bold uppercase tracking-wider text-primary-100/90">{etiqueta}</p>
-        <p className="text-xl font-black tabular-nums text-white sm:text-2xl">{valor == null ? '—' : textoNumero(animado)}</p>
+        <p className="text-xl font-black tabular-nums text-white sm:text-2xl">
+          {valor == null ? '—' : textoNumero(animado, 0, sufijo ?? '')}
+        </p>
       </div>
     </div>
   )
@@ -51,7 +63,15 @@ export function BarraKpis() {
   const items = k?.items?.length
     ? k.items.map((it) => {
         const num = typeof it.valor === 'number' ? it.valor : it.valor == null ? null : Number(it.valor) || null
-        return <ItemKpi key={it.etiqueta} etiqueta={it.etiqueta} icono={ICONOS[it.icono] ?? Target} valor={num} />
+        return (
+          <ItemKpi
+            key={it.etiqueta}
+            etiqueta={it.etiqueta}
+            icono={ICONOS[it.icono] ?? Target}
+            valor={num}
+            sufijo={it.sufijo}
+          />
+        )
       })
     : porDefecto.map((it) => (
         <div key={it.etiqueta} className="barra-kpis-item flex items-center justify-center gap-3">

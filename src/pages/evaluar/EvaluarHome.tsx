@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { CalendarClock, ChevronRight, Trash2 } from 'lucide-react'
+import { CalendarClock, Car, ChevronRight, Trash2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
@@ -192,6 +192,28 @@ export function EvaluarHome() {
           </div>
         )}
       </div>
+
+      {/* Herramienta sin evaluación detrás: se llena con el vehículo en el
+          taller o en la calle, y no depende de que el Líder abra una unidad. */}
+      <div>
+        <h2 className="mb-2 text-sm font-bold text-primary-900">Herramientas</h2>
+        <Link
+          to="/evaluar/inspeccion-vehiculo"
+          className="sup flex items-center justify-between gap-3 p-4 focus:outline-none focus:ring-2 focus:ring-primary-300"
+        >
+          <span className="flex min-w-0 items-center gap-3">
+            <Car className="h-5 w-5 shrink-0 text-primary-900" />
+            <span className="min-w-0">
+              <span className="block font-bold text-primary-900">Inspección de vehículo</span>
+              <span className="block text-xs text-slate-500">
+                Estética, mecánica y gas vehicular · fotos, incidencias y PDF
+              </span>
+            </span>
+          </span>
+          <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
+        </Link>
+      </div>
+
       <Confirmar
         open={!!confirmarBorrador}
         texto={confirmarBorrador

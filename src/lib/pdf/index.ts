@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { ocultarCentroCodigoEvaluacion } from '../codigoEvaluacion'
 import type { DetalleEvaluacion } from '../data/indicadores'
 import { listarPerfilesSync, obtenerEvaluacion, resumirEvaluacion } from '../data/indicadores'
 import {
@@ -85,13 +86,6 @@ export function clasificarResultadosCargos(
 
 function claveCargo(cargo: string): string {
   return cargo.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
-}
-
-function ocultarCentroCodigoEvaluacion(codigo: string): string {
-  const compacto = codigo.replace(/-/g, '')
-  if (!/^[\da-f]{32}$/i.test(compacto)) return codigo
-  const enmascarado = `${compacto.slice(0, 12)}********${compacto.slice(20)}`
-  return `${enmascarado.slice(0, 8)}-${enmascarado.slice(8, 12)}-${enmascarado.slice(12, 16)}-${enmascarado.slice(16, 20)}-${enmascarado.slice(20)}`
 }
 
 const MARGEN = 14

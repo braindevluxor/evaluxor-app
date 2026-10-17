@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Item, Modulo, Opcion, Respuesta, Sucursal, SucursalModulo, VistaEvaluacion } from '../types'
-import { medidoresPorModulo, puntajePorSucursalModulo, puntajePorUnidadModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, unidadDe, type ConjuntoDatos } from './indicadores'
+import { medidoresPorModulo, puntajePorSucursalModulo, puntajePorUnidadModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, unidadDe, seguimientoResponsables, hallazgosDeCargo, resumirFallasPorItem, type ConjuntoDatos } from './indicadores'
 
 const sucursales: Sucursal[] = [
   { id: 's1', nombre: 'Sucursal Norte', shop_id: null, branch_id: null, direccion: null, gerente_id: null, activa: true, created_at: '' },
@@ -911,9 +911,66 @@ describe('detalleDeEvaluacion', () => {
     expect(detalle[0].cumple).toBe(true)
     expect(detalle[0].resumen).toBe('Cumple')
     expect(detalle[0].modulo).toBe('Módulo 1')
+    expect(detalle[0].modulo_id).toBe('m1')
     expect(detalle[0].peso).toBe(100)
+    expect(detalle[0].veredicto).toBe('cumple')
+    expect(detalle[0].comentarios).toBe('')
+    expect(detalle[0].respondido_por).toBe(null)
     expect(detalle[1].cumple).toBe(false)
     expect(detalle[1].resumen).toBe('No cumple')
+    expect(detalle[1].veredicto).toBe('no-cumple')
+  })
+
+  it('sube el veredicto, los comentarios de evidencia y quién respondió', () => {
+    const datos = {
+      evaluaciones,
+      respuestas: [
+        {
+          ...respuesta('ev1', 'i1', true),
+          respondido_por: 'user-7',
+          valor: { value: true, evidencias: [{ photoIds: [], comentario: 'Vidrio roto en cámara 3' }] }
+        },
+        { ...respuesta('ev1', 'i2', true), valor: { value: true, informativo: true } }
+      ],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const detalle = detalleDeEvaluacion(datos, 'ev1')
+    expect(detalle[0].comentarios).toBe('Vidrio roto en cámara 3')
+    expect(detalle[0].respondido_por).toBe('user-7')
+    expect(detalle[0].veredicto).toBe('cumple')
+    expect(detalle[1].veredicto).toBe('no-aplica')
+    expect(detalle[1].proporcion).toBe(null)
+  })
+
+  it('ignora las evidencias que vienen como objeto por opción (checklist)', () => {
+    const itemsChecklist: Item[] = [
+      ...items,
+      { id: 'i9', modulo_id: 'm1', tipo: 'CHECKLIST', texto: 'Checklist', opciones: [], orden: 5, requerido: false, activo: true, puntaje: 100, created_at: '' }
+    ]
+    const datos = {
+      evaluaciones,
+      respuestas: [
+        {
+          ...respuesta('ev1', 'i9', false),
+          // En los CHECKLIST `evidencias` es un objeto por opción, sin
+          // comentario: si alguien lo trata como arreglo, esto truena.
+          valor: { selected: [], evidencias: { o1: { photoIds: ['p1'] } } }
+        }
+      ],
+      items: itemsChecklist,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const detalle = detalleDeEvaluacion(datos, 'ev1')
+    expect(detalle[0].comentarios).toBe('')
   })
 
   it('acota el detalle al ítem clickeado', () => {
@@ -1059,5 +1116,347 @@ describe('unidadDe · una evaluación mide una sola unidad', () => {
 
   it('sin unidad no inventa una: devuelve vacío', () => {
     expect(unidadDe({ sucursal_id: null, departamento_id: null })).toBe('')
+  })
+})
+
+/* --- Seguimiento por cargo ------------------------------------------------ */
+
+/**
+ * `responsables` es lo que hay que configurarle al ítem para que un check
+ * CUMPIDO le acredite la nota a alguien: cuando la respuesta sale bien no hay
+ * selección del evaluador que repartir, el punto se acredita al cargo que tiene
+ * asignado el ítem. Las fallas, en cambio, van a quien eligió el evaluador.
+ *
+ * `puntaje` 0 = ítem sin peso: no entra en el denominador de nadie, aunque una
+ * falla ahí igual se registre.
+ */
+function itemSeg(id: string, texto: string, responsables?: string[], puntaje = 100): Item {
+  return {
+    id,
+    modulo_id: 'm-seg',
+    tipo: 'CUMPLE_NO_CUMPLE',
+    texto,
+    opciones: [],
+    orden: 0,
+    requerido: false,
+    activo: true,
+    puntaje,
+    ...(responsables ? { responsables } : {}),
+    created_at: ''
+  }
+}
+
+function respuestaSeg(
+  evaluacionId: string,
+  itemId: string,
+  cumple: boolean,
+  responsables: string[]
+): Respuesta {
+  return {
+    id: `${evaluacionId}-${itemId}`,
+    evaluacion_id: evaluacionId,
+    item_id: itemId,
+    instancia_id: null,
+    valor: { value: cumple, responsables },
+    respondido_por: null,
+    created_at: ''
+  }
+}
+
+function evSeg(
+  id: string,
+  sucursalId: string | null,
+  departamentoId: string | null,
+  nombre: string,
+  fecha: string
+): VistaEvaluacion {
+  return {
+    id,
+    offline_uuid: id,
+    sucursal_id: sucursalId,
+    departamento_id: departamentoId,
+    aperturada_por: 'user-test',
+    fecha,
+    estado: 'CERRADA',
+    puntuacion: null,
+    comentario_general: null,
+    abierta_en: null,
+    cerrada_en: null,
+    created_at: '',
+    sucursal: sucursalId
+      ? { id: sucursalId, nombre, shop_id: null, branch_id: null, direccion: null }
+      : null,
+    departamento: departamentoId ? { id: departamentoId, nombre } : null,
+    aperturador: null
+  }
+}
+
+/**
+ * Norte falla el ítem 1 con «Encargado de turno» pero acierta el ítem 2, que
+ * está configurado para «Depositaría»; Sur repite ese primer cargo escrito
+ * distinto y suma a Depositaría, que ahí falla; y Contabilidad —departamento,
+ * sin sucursal— falla con un cargo propio.
+ *
+ * Ese acierto de Norte es lo que hace que las notas no sean todas 0: Depositaría
+ * queda en 50% (100 de 200) y cierra la lista, mientras que los que sólo
+ * fallaron van primero.
+ */
+function conjuntoSeguimiento(): ConjuntoDatos {
+  const modulos: Modulo[] = [
+    {
+      id: 'm-seg',
+      nombre: 'Higiene y seguridad',
+      descripcion: '',
+      orden: 0,
+      activo: true,
+      created_at: ''
+    }
+  ]
+  const items: Item[] = [
+    itemSeg('i-seg-1', 'EPP completo', ['Encargado de turno']),
+    itemSeg('i-seg-2', 'Piso limpio', ['Depositaría']),
+    // Sin responsables configurados: para el test de «no inventa un cargo».
+    itemSeg('i-seg-3', 'Producto en góndola')
+  ]
+  const evaluaciones: VistaEvaluacion[] = [
+    evSeg('evN', 'sN', null, 'Sucursal Norte', '2026-09-01'),
+    evSeg('evS', 'sS', null, 'Sucursal Sur', '2026-09-15'),
+    evSeg('evD', null, 'dC', 'Contabilidad', '2026-09-20')
+  ]
+  const respuestas: Respuesta[] = [
+    respuestaSeg('evN', 'i-seg-1', false, ['Encargado de turno']),
+    respuestaSeg('evN', 'i-seg-2', true, ['Depositaría']),
+    respuestaSeg('evS', 'i-seg-1', false, ['encargado de Turno']),
+    respuestaSeg('evS', 'i-seg-2', false, ['Depositaría']),
+    respuestaSeg('evD', 'i-seg-1', false, ['Líder TH'])
+  ]
+  return { evaluaciones, respuestas, items, modulos, fotos: [], sucursalOpciones: [], instancias: [] }
+}
+
+/**
+ * Un checklist de tres puntos respondido dos veces (una por sucursal) con sólo
+ * el primero tildado, y SIN selección de responsables: el formato legado, el
+ * que más pesa porque es con el que están las evaluaciones viejas.
+ *
+ * Ahí está el nudo del detalle: `incumplimientosPorResponsable` sabe que al
+ * cargo le fallaron dos cosas pero sólo cuenta «2», y el ítem entero se llama
+ * «Puntos de limpieza». Los nombres concretos —«Góndolas sin polvo», «Zona de
+ * atrás ordenada»— sólo los puede dar el criterio de atribución de checks.
+ */
+function conjuntoChecklist(): ConjuntoDatos {
+  const modulos: Modulo[] = [
+    {
+      id: 'm-seg',
+      nombre: 'Higiene y seguridad',
+      descripcion: '',
+      orden: 0,
+      activo: true,
+      created_at: ''
+    }
+  ]
+  const items: Item[] = [
+    {
+      id: 'i-chk',
+      modulo_id: 'm-seg',
+      tipo: 'CHECKLIST',
+      texto: 'Puntos de limpieza',
+      opciones: [
+        { id: 'op-1', etiqueta: 'Piso lavado', responsable: 'Encargado de turno' },
+        { id: 'op-2', etiqueta: 'Góndolas sin polvo', responsable: 'Encargado de turno' },
+        { id: 'op-3', etiqueta: 'Zona de atrás ordenada', responsable: 'Encargado de turno' }
+      ],
+      orden: 0,
+      requerido: false,
+      activo: true,
+      puntaje: 90,
+      created_at: ''
+    }
+  ]
+  const evaluaciones: VistaEvaluacion[] = [
+    evSeg('evC1', 'sN', null, 'Sucursal Norte', '2026-09-01'),
+    evSeg('evC2', 'sS', null, 'Sucursal Sur', '2026-09-15')
+  ]
+  const respuesta = (evaluacionId: string): Respuesta => ({
+    id: `${evaluacionId}-i-chk`,
+    evaluacion_id: evaluacionId,
+    item_id: 'i-chk',
+    instancia_id: null,
+    valor: { selected: ['op-1'] },
+    respondido_por: null,
+    created_at: ''
+  })
+  return {
+    evaluaciones,
+    respuestas: [respuesta('evC1'), respuesta('evC2')],
+    items,
+    modulos,
+    fotos: [],
+    sucursalOpciones: [],
+    instancias: []
+  }
+}
+
+describe('seguimientoResponsables', () => {
+  it('agrupa por clave normalizada: el mismo cargo escrito distinto es UNA fila', () => {
+    const s = seguimientoResponsables(conjuntoSeguimiento())
+
+    // Lo peor primero: nota 0 con más puntos, luego nota 0 con menos, y el que
+    // acertó en alguna sucursal cierra la lista.
+    expect(s.filas.map((f) => f.cargo)).toEqual(['Encargado de turno', 'Líder TH', 'Depositaría'])
+
+    const encargado = s.filas[0]
+    expect(encargado.clave).toBe('encargadodeturno')
+    expect(encargado.puntos).toBe(2)
+    expect(encargado.nota).toBe(0)
+    expect(encargado.evaluaciones).toBe(2)
+    expect(encargado.unidades).toBe(2)
+    expect(encargado.ultima).toBe('2026-09-15')
+  })
+
+  it('la nota de la fila se pondera con logrado y posible, no promediando celdas', () => {
+    const s = seguimientoResponsables(conjuntoSeguimiento())
+    const depositaria = s.filas.find((f) => f.clave === 'depositaria')
+
+    // Acertó en Norte (100 de 100) y falló en Sur (0 de 100): 50%, que es
+    // 100/200 y no el promedio de 100% y 0% disfrazado de lo mismo.
+    expect(depositaria?.porUnidad.sN).toEqual({ logrado: 100, posible: 100 })
+    expect(depositaria?.porUnidad.sS).toEqual({ logrado: 0, posible: 100 })
+    expect(depositaria?.nota).toBe(50)
+  })
+
+  it('reparte la base de la nota por unidad y ordena las sucursales por lo peor', () => {
+    const s = seguimientoResponsables(conjuntoSeguimiento())
+
+    expect(s.filas[0].porUnidad).toEqual({
+      sN: { logrado: 0, posible: 100 },
+      sS: { logrado: 0, posible: 100 }
+    })
+    expect(s.unidades).toEqual([
+      { id: 'sS', nombre: 'Sucursal Sur', puntos: 2 },
+      { id: 'dC', nombre: 'Contabilidad', puntos: 1 },
+      { id: 'sN', nombre: 'Sucursal Norte', puntos: 1 }
+    ])
+  })
+
+  it('la nota global es ponderada y cierra con la matriz', () => {
+    const s = seguimientoResponsables(conjuntoSeguimiento())
+
+    expect(s.nota).toBe(20) // 100 logrados sobre 500 posibles
+    expect(s.puntos).toBe(4)
+  })
+
+  it('la evaluación de departamento entra con su nombre, no como una sucursal sin nombre', () => {
+    const s = seguimientoResponsables(conjuntoSeguimiento())
+
+    expect(s.filas.find((f) => f.clave === 'liderth')?.porUnidad).toEqual({
+      dC: { logrado: 0, posible: 100 }
+    })
+  })
+
+  it('un cargo sin base medible queda sin nota y va al final de la lista', () => {
+    const datos = conjuntoSeguimiento()
+    datos.items.push(itemSeg('i-seg-9', 'Sin peso', [], 0))
+    datos.respuestas.push(respuestaSeg('evD', 'i-seg-9', false, ['Jefe de depósito']))
+
+    const s = seguimientoResponsables(datos)
+    const ultima = s.filas[s.filas.length - 1]
+
+    expect(ultima.cargo).toBe('Jefe de depósito')
+    expect(ultima.nota).toBeNull()
+    expect(ultima.puntos).toBe(1)
+  })
+
+  it('una respuesta cumplida le da nota al cargo configurado, no a la selección', () => {
+    const datos = conjuntoSeguimiento()
+    datos.respuestas.push(respuestaSeg('evN', 'i-seg-2', true, ['Limpieza']))
+
+    expect(seguimientoResponsables(datos).filas.some((f) => f.clave === 'limpieza')).toBe(false)
+  })
+
+  it('una respuesta sin responsables no inventa un cargo', () => {
+    const datos = conjuntoSeguimiento()
+    datos.respuestas.push(respuestaSeg('evN', 'i-seg-3', false, []))
+
+    expect(seguimientoResponsables(datos).filas.map((f) => f.clave)).toEqual([
+      'encargadodeturno',
+      'liderth',
+      'depositaria'
+    ])
+  })
+})
+
+describe('hallazgosDeCargo', () => {
+  it('devuelve el detalle con evaluación, unidad, módulo e ítem', () => {
+    const h = hallazgosDeCargo(conjuntoSeguimiento(), 'encargado de turno')
+
+    expect(h).toHaveLength(2)
+    expect(h[0]).toMatchObject({
+      evaluacion_id: 'evS',
+      unidad: 'Sucursal Sur',
+      modulo: 'Higiene y seguridad',
+      item_id: 'i-seg-1',
+      item: 'EPP completo'
+    })
+    // Un CUMPLE_NO_CUMPLE no tiene nada más que el ítem entero: no hay checks
+    // que nombrar, y decir «EPP completo» otra vez sería repetir el título.
+    expect(h[0].checks).toEqual([])
+    expect(h[1].evaluacion_id).toBe('evN')
+  })
+
+  it('acepta cualquier forma del cargo: usa la misma clave que la matriz', () => {
+    expect(hallazgosDeCargo(conjuntoSeguimiento(), 'ENCARGADO DE TURNO')).toHaveLength(2)
+  })
+
+  it('filtra por unidad, como cuando se pulsa una celda de la matriz', () => {
+    const h = hallazgosDeCargo(conjuntoSeguimiento(), 'Encargado de turno', 'sN')
+
+    expect(h).toHaveLength(1)
+    expect(h[0].unidad).toBe('Sucursal Norte')
+  })
+
+  it('nombra los checks concretos de un checklist, no sólo el ítem', () => {
+    const h = hallazgosDeCargo(conjuntoChecklist(), 'Encargado de turno')
+
+    expect(h).toHaveLength(2)
+    expect(h[0].item).toBe('Puntos de limpieza')
+    expect(h[0].checks).toEqual(['Góndolas sin polvo', 'Zona de atrás ordenada'])
+  })
+})
+
+describe('resumirFallasPorItem', () => {
+  it('agrupa por ítem y cuenta las veces de cada check y de cada unidad', () => {
+    const filas = resumirFallasPorItem(hallazgosDeCargo(conjuntoChecklist(), 'Encargado de turno'))
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]).toMatchObject({
+      item: 'Puntos de limpieza',
+      modulo: 'Higiene y seguridad',
+      veces: 2,
+      ultima: '2026-09-15'
+    })
+    // Los dos checks cayeron en las dos evaluaciones: con esto alcanza para
+    // decir «se repite», sin listar seis renglones.
+    expect(filas[0].checks).toEqual([
+      { texto: 'Góndolas sin polvo', veces: 2 },
+      { texto: 'Zona de atrás ordenada', veces: 2 }
+    ])
+    expect(filas[0].unidades).toEqual([
+      { nombre: 'Sucursal Norte', veces: 1 },
+      { nombre: 'Sucursal Sur', veces: 1 }
+    ])
+  })
+
+  it('deja un solo renglón por ítem aunque caiga en varias evaluaciones', () => {
+    const filas = resumirFallasPorItem(hallazgosDeCargo(conjuntoSeguimiento(), 'Encargado de turno'))
+
+    // Norte y Sur escriben el cargo distinto pero es el mismo, y las dos
+    // evaluaciones cayeron en el mismo ítem: un renglón, dos veces.
+    expect(filas).toHaveLength(1)
+    expect(filas[0]).toMatchObject({ item_id: 'i-seg-1', item: 'EPP completo', veces: 2 })
+    expect(filas[0].checks).toEqual([])
+    expect(filas[0].unidades).toEqual([
+      { nombre: 'Sucursal Norte', veces: 1 },
+      { nombre: 'Sucursal Sur', veces: 1 }
+    ])
   })
 })

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState, Fragment, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, ChevronRight, FileDown, FolderOpen, Pencil, RefreshCw, Tag, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, FileDown, FileSpreadsheet, FolderOpen, Pencil, RefreshCw, Tag, X } from 'lucide-react'
 import { useOffline } from '../context/OfflineContext'
 import { useAuth } from '../context/AuthContext'
 import { obtenerEvaluacion, resumirEvaluacion, puntajeModuloDeRespuestas, unidadDe, type DetalleEvaluacion } from '../lib/data/indicadores'
 import { cargosDelCentro, centroDisponible, separacionDisponible, useCargosPorCentro, type CatalogosCentro, type CentroOperaciones } from '../lib/data/cargosCentro'
 import { descargarInformePdf } from '../lib/pdf'
 import type { OpcionesPdf } from '../lib/pdf/opciones'
+import { descargarExcelEvaluacion } from '../lib/excelEvaluacion'
 import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { raicesDeModulo } from '../lib/pasos'
@@ -991,6 +992,30 @@ export function EvaluacionDetalle() {
     }
   }
 
+  /**
+   * El Excel va con lo mismo que se ve en pantalla. Las incidencias llegan del
+   * hook como filas de componente y acá se pasan a la forma plana que espera la
+   * capa `lib`: descripción, cargos, fecha, módulo y conteo de fotos.
+   */
+  const descargarExcel = async () => {
+    setError('')
+    setDescargando(true)
+    try {
+      const incidenciasExcel = (incidencias.filas ?? []).map((fila) => ({
+        descripcion: fila.descripcion,
+        responsables: fila.responsables,
+        fecha: fila.created_at,
+        modulo: fila.modulo?.[0]?.nombre ?? null,
+        fotos: fila.fotos.length
+      }))
+      await descargarExcelEvaluacion(detalle, incidenciasExcel)
+    } catch (error) {
+      setError(`No se pudo descargar el Excel: ${detalleTecnico(error)}`)
+    } finally {
+      setDescargando(false)
+    }
+  }
+
   const mostrarTipModulo = (label: string, el: HTMLElement) => {
     const rect = el.getBoundingClientRect()
     setModuloTip({ label, top: rect.top - 8, left: rect.left + rect.width / 2 })
@@ -1060,6 +1085,19 @@ export function EvaluacionDetalle() {
               aria-label="Descargar PDF"
             >
               <FileDown className="h-5 w-5" />
+            </button>
+            {/* El Excel es el hermano del PDF para quien quiere filtrar o cruzar
+                los resultados en una hoja de cálculo: mismos datos, sin selector,
+                un solo clic y cuatro pestañas. Mismo botón de icono sólo. */}
+            <button
+              type="button"
+              className={BOTON_CABECERA}
+              disabled={descargando}
+              onClick={() => void descargarExcel()}
+              title="Descargar resultados en Excel"
+              aria-label="Descargar Excel"
+            >
+              <FileSpreadsheet className="h-5 w-5" />
             </button>
           </div>
         </div>
@@ -1354,6 +1392,7 @@ export function EvaluacionDetalle() {
                 <ListaIncidencias
                   filas={incidenciasDelCargo}
                   urlsFotos={incidencias.urlsFotos}
+                  marcador={incidencias.marcador}
                 />
               </section>
             ) : null}
@@ -1372,6 +1411,7 @@ export function EvaluacionDetalle() {
             <ListaIncidencias
               filas={filasIncidencias}
               urlsFotos={incidencias.urlsFotos}
+              marcador={incidencias.marcador}
               vacio="Los evaluadores no reportaron incidencias en esta visita."
             />
           </Modal>

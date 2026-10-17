@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { generarToken, urlCompartida } from './compartir'
+import { bloqueSql } from '../supabaseSql'
 
 function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -54,7 +55,7 @@ describe('compartir.ts · la única puerta es el RPC', () => {
     // Una fila por evaluación (PK = evaluacion_id) y un upsert contra esa
     // clave: el token viejo deja de servir sin que nadie tenga que borrarlo.
     expect(codigo).toMatch(/onConflict:\s*'evaluacion_id'/)
-    expect(fuente('../../../supabase/compartir-evaluacion.sql')).toMatch(
+    expect(bloqueSql('compartir-evaluacion.sql')).toMatch(
       /evaluacion_id\s+uuid\s+primary\s+key/
     )
   })
@@ -71,7 +72,7 @@ describe('compartir.ts · la única puerta es el RPC', () => {
     // Tampoco se escribe desde el enlace: el cuerpo de la función no puede tener
     // ninguna sentencia de escritura. Se mira el cuerpo y no el archivo entero
     // porque el DDL de la tabla (`on delete cascade`) es legítimo y está fuera.
-    const sql = sinComentarios(fuente('../../../supabase/compartir-evaluacion.sql'))
+    const sql = sinComentarios(bloqueSql('compartir-evaluacion.sql'))
     const cuerpo = sql.match(/as\s*\$\$([\s\S]*?)\$\$;/i)?.[1] ?? ''
     expect(cuerpo.length).toBeGreaterThan(0)
     expect(cuerpo).not.toMatch(/\b(insert|update|delete|truncate|create|alter|drop)\b/i)

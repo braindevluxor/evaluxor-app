@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Camera, Image as ImageIcon, X } from 'lucide-react'
-import { addPhoto, deletePhoto, getPhotos } from '../lib/offline/db'
+import { Camera, Image as ImageIcon, Pencil, X } from 'lucide-react'
+import { addPhoto, deletePhoto, getPhotos, updatePhotoBlob } from '../lib/offline/db'
 import { comprimirFoto } from '../lib/fotos'
 import { destinoRespaldo, guardarEnGaleria } from '../lib/galeria'
-import { Spinner } from './ui'
+import { Button, Spinner } from './ui'
+import { FotoEditor } from './FotoEditor'
 import { ModalImagen } from './ModalImagen'
 
 interface Props {
@@ -14,6 +15,7 @@ interface Props {
 interface Preview {
   id: string
   url: string
+  blob: Blob
   key: number
 }
 
@@ -24,6 +26,10 @@ interface Preview {
  * la galería ya están en el teléfono y copiarlas de nuevo sólo ensuciaría. La
  * copia se hace con el archivo original, sin comprimir, para que sirva de
  * rescate si algún día se pierde lo que hay dentro de la app.
+ *
+ * En PC de escritorio no hay copia: la guardaría en *Descargas* en cada foto
+ * (eso lo reportó el usuario como ruido). La guarda vive dentro de
+ * `guardarEnGaleria`, así que ningún llamador tiene que acordársela.
  */
 export async function guardarFotosDe(files: FileList | null, respaldar = false): Promise<string[]> {
   if (!files || !files.length) return []
@@ -39,7 +45,8 @@ export async function guardarFotosDe(files: FileList | null, respaldar = false):
 
 export function MinaFotos({ photoIds, onQuitar }: { photoIds: string[]; onQuitar?: (id: string) => void }) {
   const [previews, setPreviews] = useState<Preview[]>([])
-  const [imagenAbierta, setImagenAbierta] = useState<string | null>(null)
+  const [imagenAbierta, setImagenAbierta] = useState<Preview | null>(null)
+  const [editando, setEditando] = useState<Preview | null>(null)
   const keyRef = useRef(0)
 
   const cargarPreviews = useCallback(async () => {
@@ -47,6 +54,7 @@ export function MinaFotos({ photoIds, onQuitar }: { photoIds: string[]; onQuitar
     const prevs = recs.map((r) => ({
       id: r.id,
       url: URL.createObjectURL(r.blob),
+      blob: r.blob,
       key: keyRef.current++
     }))
     setPreviews((old) => {
@@ -54,6 +62,17 @@ export function MinaFotos({ photoIds, onQuitar }: { photoIds: string[]; onQuitar
       return prevs
     })
   }, [photoIds])
+
+  // La marca se quema sobre el mismo id: al recargar, la miniatura y el PDF
+  // ven la foto ya marcada, sin tocar ningún registro.
+  function guardarMarca(id: string, blob: Blob, mime: string) {
+    void updatePhotoBlob(id, blob, mime)
+      .then(() => {
+        setEditando(null)
+        return cargarPreviews()
+      })
+      .catch(() => setEditando(null))
+  }
 
   useEffect(() => {
     void cargarPreviews()
@@ -65,8 +84,17 @@ export function MinaFotos({ photoIds, onQuitar }: { photoIds: string[]; onQuitar
     <div className="grid grid-cols-3 gap-2">
       {previews.map((p) => (
         <div key={p.id} className="relative aspect-square overflow-hidden rounded-xl border border-slate-200">
-          <button type="button" onClick={() => setImagenAbierta(p.url)} aria-label="Ampliar evidencia" className="h-full w-full">
+          <button type="button" onClick={() => setImagenAbierta(p)} aria-label="Ampliar evidencia" className="h-full w-full">
             <img src={p.url} alt="Evidencia" className="h-full w-full object-cover" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditando(p)}
+            className="absolute bottom-1 left-1 grid h-7 w-7 place-items-center rounded-full bg-primary-900/80 text-white"
+            aria-label="Marcar daño en la foto"
+            title="Dibujar sobre la foto"
+          >
+            <Pencil className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
@@ -79,9 +107,20 @@ export function MinaFotos({ photoIds, onQuitar }: { photoIds: string[]; onQuitar
         </div>
       ))}
       <ModalImagen
-        src={imagenAbierta}
+        src={imagenAbierta?.url ?? null}
         alt="Evidencia"
         onClose={() => setImagenAbierta(null)}
+        footer={
+          <Button type="button" onClick={() => setEditando(imagenAbierta)} className="w-full">
+            <Pencil className="h-4 w-4" />
+            Dibujar sobre la foto
+          </Button>
+        }
+      />
+      <FotoEditor
+        foto={editando}
+        onGuardar={guardarMarca}
+        onCancel={() => setEditando(null)}
       />
     </div>
   )
@@ -91,6 +130,9 @@ export function PhotoCapture({ photoIds, onChange }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const galeriaRef = useRef<HTMLInputElement>(null)
   const [subiendo, setSubiendo] = useState(false)
+  // En PC no hay respaldo automático (sólo ensuciaría la carpeta Descargas),
+  // así que el destino sólo se promete donde de verdad existe.
+  const destino = destinoRespaldo()
 
   function quitar(id: string) {
     void deletePhoto(id)
@@ -158,12 +200,14 @@ export function PhotoCapture({ photoIds, onChange }: Props) {
       </div>
       {/* El respaldo es automático y no avisa en pantalla, así que acá se dice
           claramente dónde va a estar: no sirve de respaldo si nadie sabe que
-          existe. */}
-      <p className="text-[11px] leading-tight text-slate-400">
-        {destinoRespaldo() === 'fotos'
-          ? 'Cada foto que tomes también se guarda en Fotos.'
-          : 'Cada foto que tomes también se guarda en Descargas.'}
-      </p>
+          existe. En PC no hay respaldo y no se promete ningún destino. */}
+      {destino !== 'ninguno' ? (
+        <p className="text-[11px] leading-tight text-slate-400">
+          {destino === 'fotos'
+            ? 'Cada foto que tomes también se guarda en Fotos.'
+            : 'Cada foto que tomes también se guarda en Descargas.'}
+        </p>
+      ) : null}
     </div>
   )
 }

@@ -1545,6 +1545,20 @@ export interface FallaResponsable {
 }
 
 /**
+ * Los checks concretos que fallaron en UNA respuesta y se le atribuyen a este
+ * responsable, con su nombre.
+ *
+ * Va aparte de `fallasDeResponsable` por un motivo: ése sólo devuelve checks si
+ * el ítem le computa puntos, y un ítem sin peso —o una respuesta en formato
+ * antiguo, sin selección por check— igual tiene checks con nombre. El detalle
+ * del seguimiento por cargo necesita nombrarlos aunque el scoring no le pueda
+ * restar nada por ellos.
+ */
+export function checksFallados(responsable: string, item: ItemFalla, valor: unknown): string[] {
+  return checksDeFalla(item, responsable, [valor])
+}
+
+/**
  * En qué ítems falló un responsable y cuánto puntos le costaron.
  *
  * POR QUÉ ESTE NOMBRE Y NO UN RECUENTO

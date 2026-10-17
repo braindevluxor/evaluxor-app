@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { bloqueSql } from '../../lib/supabaseSql'
 
 function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -156,7 +157,7 @@ describe('evaluaciones de departamento · lo que se ve y lo que se imprime', () 
 })
 
 describe('evaluaciones de departamento · SQL de Supabase', () => {
-  const sql = fuente('../../../supabase/departamentos-evaluaciones.sql')
+  const sql = bloqueSql('departamentos-evaluaciones.sql')
 
   it('la evaluación admite departamento y sigue exigiendo exactamente una unidad', () => {
     expect(sql).toContain('alter table public.evaluaciones alter column sucursal_id drop not null')

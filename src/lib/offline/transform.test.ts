@@ -130,6 +130,37 @@ describe('valorSinFotos', () => {
       informativo: true
     })
   })
+  it('no se traga los responsables al recortar el valor', () => {
+    // Misma trampa que `convertirValor`: la proyección se arma campo por campo
+    // y los responsables no eran un campo que ella recordara.
+    expect(
+      valorSinFotos({
+        value: false,
+        evidencias: [{ photoIds: ['f1'], comentario: '' }],
+        responsables: ['Ana'],
+        responsablesGerente: 'Elena'
+      })
+    ).toEqual({
+      value: false,
+      evidencias: [{ comentario: '' }],
+      responsables: ['Ana'],
+      responsablesGerente: 'Elena'
+    })
+    expect(
+      valorSinFotos({
+        selected: ['a'],
+        evidencias: {},
+        responsables: ['Ana'],
+        responsablesPorOpcion: { a: ['Beto'] },
+        responsablesGerente: 'Elena'
+      })
+    ).toEqual({
+      selected: ['a'],
+      responsables: ['Ana'],
+      responsablesPorOpcion: { a: ['Beto'] },
+      responsablesGerente: 'Elena'
+    })
+  })
 })
 
 describe('convertirValor', () => {
@@ -223,6 +254,51 @@ describe('convertirValor', () => {
     expect(convertirValor({ value: true }, map)).toEqual({ value: true })
     expect(convertirValor('texto', map)).toBe('texto')
     expect(convertirValor(5, map)).toBe(5)
+  })
+  it('sube los responsables del punto incumplido: sin ellos, reabrir volvía a la preselección', () => {
+    // El bug: el valor de CUMPLE se reconstruía campo por campo y se tragaba
+    // `responsables`/`responsablesGerente`. La fila subía "en crudo" y al
+    // reabrir la evaluación los chips volvían a estar todos encendidos, con la
+    // selección del evaluador perdida.
+    const map = new Map<string, string>()
+    const responsables = ['Analista de Talento Humano', 'Coordinador de Reclutamiento y Selección']
+    expect(
+      convertirValor(
+        {
+          value: false,
+          evidencias: [{ photoIds: [], comentario: 'No hay control' }],
+          responsables,
+          responsablesGerente: 'Gerente de Mercadeo'
+        },
+        map
+      )
+    ).toEqual({
+      value: false,
+      evidencias: [{ comentario: 'No hay control', paths: [] }],
+      responsables,
+      responsablesGerente: 'Gerente de Mercadeo'
+    })
+  })
+  it('sube los responsables del checklist y los de cada check', () => {
+    const map = new Map<string, string>()
+    expect(
+      convertirValor(
+        {
+          selected: ['a'],
+          evidencias: {},
+          responsables: ['Ana'],
+          responsablesPorOpcion: { a: ['Beto'] },
+          responsablesGerente: 'Elena'
+        },
+        map
+      )
+    ).toEqual({
+      selected: ['a'],
+      evidencias: {},
+      responsables: ['Ana'],
+      responsablesPorOpcion: { a: ['Beto'] },
+      responsablesGerente: 'Elena'
+    })
   })
 })
 

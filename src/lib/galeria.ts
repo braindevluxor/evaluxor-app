@@ -17,10 +17,35 @@
  * La copia se hace con el archivo **original** de la cámara, sin comprimir: si
  * algún día hay que rescatar material, que esté con toda la calidad. La versión
  * comprimida de 1280 px vive en la app, no sirve para rescate.
+ *
+ * El respaldo corre sólo en **teléfonos y tabletas**. En una PC de escritorio
+ * la copia caería en la carpeta *Descargas* del equipo en cada foto tomada, y
+ * eso el usuario lo reportó como ruido, no como respaldo: en la PC la foto ya
+ * vive en la app y en el bucket, no hace falta duplicarla en disco.
  */
 
-/** ¿Dónde acaba la copia en este teléfono? Se usa en el texto de la pantalla. */
-export function destinoRespaldo(ua?: string): 'fotos' | 'descargas' {
+/**
+ * ¿Este equipo hace el respaldo solo (teléfono/tablet), o es una PC donde la
+ * copia en *Descargas* sólo estorba?
+ *
+ * Se decide por el agente: `Mobi`/`Android`/`iPad` son táctiles; `Windows NT`,
+ * `Macintosh` y `Linux` a secas son escritorio. Lo desconocido se conserva con
+ * respaldo para no quitarle la garantía a ningún teléfono raro.
+ */
+export function respaldoAutomatico(ua?: string): boolean {
+  const texto = ua ?? (typeof navigator === 'undefined' ? '' : navigator.userAgent)
+  if (esIOS(texto)) return true
+  if (/\b(Android|Windows Phone|Mobi|Tablet|iPad|iPod|iPhone)\b/i.test(texto)) return true
+  if (/(Windows NT|Win64|Macintosh|Linux|X11|CrOS)/.test(texto)) return false
+  return true
+}
+
+/**
+ * ¿Dónde acaba la copia en este equipo? Se usa en el texto de la pantalla.
+ * `'ninguno'` = PC de escritorio: no se respalda y no se promete ningún destino.
+ */
+export function destinoRespaldo(ua?: string): 'fotos' | 'descargas' | 'ninguno' {
+  if (!respaldoAutomatico(ua)) return 'ninguno'
   return esIOS(ua) ? 'fotos' : 'descargas'
 }
 
@@ -34,6 +59,9 @@ export function destinoRespaldo(ua?: string): 'fotos' | 'descargas' {
  */
 export async function guardarEnGaleria(files: File[]): Promise<'compartido' | 'descargado' | 'ninguno'> {
   if (!files.length || typeof navigator === 'undefined') return 'ninguno'
+  // Guardia doble: aunque algún llamador se olvide de preguntar, en una PC de
+  // escritorio no se descarga nada (el usuario lo reportó como ruido).
+  if (!respaldoAutomatico()) return 'ninguno'
 
   if (esIOS() && puedeCompartir(files)) {
     try {

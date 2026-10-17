@@ -57,7 +57,6 @@ export function etiquetaPantalla(ruta: string, catalogo: CatalogoNombres = {}): 
   if (partes[0] === 'registro') return 'Registro'
   if (partes[0] === 'perfil') return 'Mi perfil'
   if (partes[0] === 'pendiente') return 'Pendiente de sincronizar'
-  if (partes[0] === 'biblioteca') return 'Biblioteca'
 
   if (partes[0] === 'evaluar') {
     // /evaluar (la lista de sucursales) no lleva id: es "Mis evaluaciones".
@@ -99,11 +98,6 @@ export function etiquetaPantalla(ruta: string, catalogo: CatalogoNombres = {}): 
     if (partes[1] === 'items') return 'Ítems'
     if (partes[1] === 'usuarios') return 'Usuarios'
     return 'Configuración'
-  }
-
-  if (partes[0] === 'proyectos') {
-    if (partes[1] === 'biometrico') return 'Biométrico'
-    return 'Proyectos'
   }
 
   return 'En la app'

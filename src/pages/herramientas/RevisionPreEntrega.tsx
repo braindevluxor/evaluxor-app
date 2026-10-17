@@ -104,11 +104,15 @@ export default function RevisionPreEntrega() {
   useEffect(() => {
     if (!profile) return
     void (async () => {
-      const abierta = await getPreEntregaAbierta(profile.id).catch(() => undefined)
+      // Filtro por módulo para no retomar una inspección de vehículo como si
+      // fuera una pre-entrega (comparten tabla); sin módulo no se filtra.
+      const abierta = await getPreEntregaAbierta(profile.id, modulo?.id ?? undefined).catch(() => undefined)
       if (abierta) {
         regRef.current = abierta
         setReg(abierta)
-        setSucursalId(abierta.sucursal_id)
+        // Sucursal null = es en realidad una inspección de vehículo (misma
+        // tabla, otro módulo): acá queda vacía para que la vuelva a elegir.
+        setSucursalId(abierta.sucursal_id ?? '')
         setCedulaBuscar(String((abierta.chofer.cedula as string) ?? ''))
         if (abierta.chofer.nombre) {
           setModoManualChofer(true)
