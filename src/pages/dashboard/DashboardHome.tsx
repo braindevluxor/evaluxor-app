@@ -1,27 +1,27 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, ChevronDown } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import {
   consultarEvaluaciones,
   detalleDeEvaluacion,
+  incumplimientosEnRango,
   medidoresPorModulo,
-  peoresItems,
   puntajePorSucursalModulo,
-  puntajePorUnidadModulo,
+  rankingDepartamentos,
+  rankingResponsables,
   rankingSucursales,
   renglonesDrilldown
 } from '../../lib/data/indicadores'
 import type { AlcanceDrilldown, ConjuntoDatos } from '../../lib/data/indicadores'
 import { Card, Field, Input, Select, Skeleton } from '../../components/ui'
-import { MedidorModulo } from '../../components/dashboard/MedidorModulo'
 import { subtituloMedidor } from '../../components/dashboard/subtituloMedidor'
 import { ModalDrilldown, DetalleEvalCabecera, DetalleRespuestasLista } from '../../components/dashboard/ModalDrilldown'
 import { verTodo } from '../../lib/roles'
 import { setKpisGlobal } from '../../lib/kpisGlobal'
-import { distribuirPorcentajes, num as numFormateado, pct as pctComa } from '../../lib/numeros'
+import { pct as pctComa } from '../../lib/numeros'
 import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ReferenceLine
 } from 'recharts'
@@ -124,6 +124,89 @@ function GraficoPonderacion({
   )
 }
 
+/**
+ * Lista de promedios por unidad: la misma pieza para sucursales y para
+ * departamentos, porque sólo cambia qué filas recibe y a qué unidad apunta el
+ * clic. Se queda con la fila entera como objetivo para que el listado no tenga
+ * que saber cómo se abre el drilldown.
+ */
+function ListaUnidades({
+  titulo,
+  descripcion,
+  filas,
+  sinDatos,
+  onClic
+}: {
+  titulo: string
+  descripcion: string
+  filas: { nombre: string; puntaje: number | null; completadas: number }[]
+  sinDatos: string
+  onClic: (fila: { nombre: string }) => void
+}) {
+  const max = Math.max(1, ...filas.map((f) => f.puntaje ?? 0))
+  return (
+    <Card className="border-0!">
+      <h3 className="mb-1 font-bold text-primary-900">{titulo}</h3>
+      <p className="mb-3 text-xs text-slate-400">{descripcion}</p>
+      {filas.length ? (
+        <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200">
+          {filas.map((f, i) => (
+            <li key={f.nombre}>
+              <button
+                type="button"
+                onClick={() => onClic(f)}
+                title={`Ver evaluaciones de ${f.nombre} en el rango seleccionado`}
+                className="group flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-primary-50/40"
+              >
+                <span className="w-6 shrink-0 text-center text-xs font-black tabular-nums text-slate-400">{i + 1}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-slate-800">{f.nombre}</span>
+                  <span className="mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                    <span
+                      className="block h-full rounded-full transition-all duration-500"
+                      style={{ width: `${((f.puntaje ?? 0) / max) * 100}%`, background: colorPuntajeHex(f.puntaje) }}
+                    />
+                  </span>
+                </span>
+                <span className="w-24 shrink-0 text-right">
+                  <span className="block text-sm font-black tabular-nums text-slate-900">
+                    {f.puntaje == null ? '—' : pctComa(f.puntaje)}
+                  </span>
+                  <span className="block text-[10px] text-slate-400">{f.completadas} {f.completadas === 1 ? 'evaluación' : 'evaluaciones'}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-slate-400">{sinDatos}</p>
+      )}
+    </Card>
+  )
+}
+
+/**
+ * Cumplimiento por módulo en tarjeta chica: el porcentaje manda y el nombre lo
+ * acompaña. Sin el reloj de antes, que dibujaba media pantalla por módulo y
+ * empujaba los listados para abajo; acá entra todo de un vistazo.
+ */
+function TarjetaModulo({ nombre, promedio, sub }: { nombre: string; promedio: number | null; sub: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+      <span
+        className="shrink-0 text-2xl font-black tabular-nums leading-none"
+        style={{ color: colorPuntajeHex(promedio) }}
+      >
+        {promedio == null ? '—' : pctComa(promedio, 0)}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-bold text-slate-800">{nombre}</span>
+        <span className="block truncate text-[11px] text-slate-400">{sub}</span>
+      </span>
+    </div>
+  )
+}
+
 export function DashboardHome() {
   const { profile } = useAuth()
   const { sucursales, departamentos, modulos, sucursalModulos } = useCatalog()
@@ -140,7 +223,6 @@ export function DashboardHome() {
   const [sucursalSel, setSucursalSel] = useState('')
   const [moduloSel, setModuloSel] = useState('')
   const [lineaActiva, setLineaActiva] = useState<string | null>(null)
-  const [verMasRanking, setVerMasRanking] = useState(false)
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
   const [cargando, setCargando] = useState(true)
 
@@ -160,8 +242,8 @@ export function DashboardHome() {
           hasta: hasta || undefined,
           modulo_id: moduloSel || undefined,
           // Los KPIs y los promedios dicen «completadas»: una evaluación que
-          // sigue abierta no cuenta como tal. Los departamentos sí, porque
-          // este dashboard tiene su propio gráfico por departamento.
+          // sigue abierta no cuenta como tal. Las de departamento también
+          // cuentan, porque este dashboard las lista por su propio promedio.
           soloCerradas: true
         })
         if (activo) setDatos(d)
@@ -175,15 +257,18 @@ export function DashboardHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [desde, hasta, sucursalSel, moduloSel, scope?.join(',')])
 
-  const ranking = useMemo(() => (datos ? rankingSucursales(datos, sucursalesVisibles) : []), [datos, sucursalesVisibles])
+  const sucursalesRanking = useMemo(
+    () => (datos ? rankingSucursales(datos, sucursalesVisibles) : []),
+    [datos, sucursalesVisibles]
+  )
+  const departamentosRanking = useMemo(
+    () => (datos ? rankingDepartamentos(datos, departamentosVisibles) : []),
+    [datos, departamentosVisibles]
+  )
+  const cargosRanking = useMemo(() => (datos ? rankingResponsables(datos, 20) : []), [datos])
   const matrizModulos = useMemo(
     () => (datos ? puntajePorSucursalModulo(datos, sucursalesVisibles) : null),
     [datos, sucursalesVisibles]
-  )
-  // El mismo gráfico por departamento: mismos módulos, otras filas.
-  const matrizDepartamentos = useMemo(
-    () => (datos ? puntajePorUnidadModulo(datos, departamentosVisibles) : null),
-    [datos, departamentosVisibles]
   )
   const modulosOrden = useMemo(() => {
     const base = datos?.modulos.map((m) => ({ modulo_id: m.id, nombre: m.nombre })) ?? []
@@ -191,28 +276,6 @@ export function DashboardHome() {
     // El módulo "hovered" se dibuja al final para quedar encima de los demás (z-index dinámico).
     return [...base].sort((a, b) => (a.nombre === lineaActiva ? 1 : 0) - (b.nombre === lineaActiva ? 1 : 0))
   }, [datos, lineaActiva])
-  const peores = useMemo(() => (datos ? peoresItems(datos) : []), [datos])
-
-  // Dona de ítems con más incumplimientos: cada ítem aporta el equivalente a evaluaciones
-  // completas sin cumplir (total − ok, redondeado a entero). Sin ruido flotante.
-  const donaIncumplidos = useMemo(() => {
-    const items = peores
-      .map((p) => ({ ...p, fallos: Math.max(0, Math.round(p.total - p.ok)) }))
-      .filter((p) => p.fallos > 0)
-      .sort((a, b) => b.fallos - a.fallos || a.ratio - b.ratio)
-      .slice(0, 8)
-    const total = items.reduce((a, b) => a + b.fallos, 0)
-    const shares = distribuirPorcentajes(items.map((p) => p.fallos))
-    let acum = 0
-    const zonas = items.map((p) => {
-      const desde = (acum / Math.max(1, total)) * 360
-      acum += p.fallos
-      const hasta = (acum / Math.max(1, total)) * 360
-      const color = colorPuntajeHex(p.ratio * 100)
-      return `${color} ${desde}deg ${hasta}deg`
-    })
-    return { items, shares, total, fondo: total ? `conic-gradient(${zonas.join(',')})` : '#e2e8f0' }
-  }, [peores])
 
   // Drilldown (modal): alcance clickeado y sus evaluaciones filtradas.
   const [drill, setDrill] = useState<{ titulo: string; subtitulo?: string; alcance: AlcanceDrilldown; etiquetaScope?: string } | null>(null)
@@ -247,13 +310,6 @@ export function DashboardHome() {
     if (id) abrirDrill({ titulo: nombre, subtitulo: 'Evaluaciones de esta sucursal en el rango seleccionado', alcance: { sucursal_id: id } })
   }
 
-  const abrirDrillDepartamento = (data: unknown) => {
-    const nombre = nombreClickeado(data)
-    if (!nombre) return
-    const id = idPorNombreDepartamento.get(nombre)
-    if (id) abrirDrill({ titulo: nombre, subtitulo: 'Evaluaciones de este departamento en el rango seleccionado', alcance: { departamento_id: id } })
-  }
-
   const detalleDe = (id: string) => {
     const r = drillFilas.find((x) => x.id === id)
     return (
@@ -274,6 +330,8 @@ export function DashboardHome() {
     )
   }
 
+  const incumplimientos = useMemo(() => (datos ? incumplimientosEnRango(datos) : 0), [datos])
+
   const kpis = useMemo(() => {
     if (!datos) return { global: null as number | null, completadas: 0, cobertura: 0, incumplimientos: 0 }
     const conPuntaje = datos.evaluaciones.filter((e) => e.puntuacion != null)
@@ -291,9 +349,9 @@ export function DashboardHome() {
       global,
       completadas: datos.evaluaciones.length,
       cobertura: Math.round((cubiertas / totalSuc) * 100),
-      incumplimientos: peores.reduce((a, p) => a + (p.total - p.ok), 0)
+      incumplimientos
     }
-  }, [datos, peores, sucursalesVisibles.length])
+  }, [datos, incumplimientos, sucursalesVisibles.length])
 
   // Publica los KPIs a la barra global (ancho completo, debajo de la barra de navegación).
   useEffect(() => {
@@ -356,25 +414,25 @@ export function DashboardHome() {
         </div>
       ) : datos ? (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {/* 1. Cumplimiento por módulo: tarjeta chica, porcentaje grande a la
+              izquierda y nombre a la derecha. */}
           <Card className="lg:col-span-2 border-0!">
             <h3 className="mb-1 font-bold text-primary-900">Cumplimiento por módulo</h3>
             <p className="mb-3 text-xs text-slate-400">Promedio de la última evaluación de cada sucursal con el módulo activo y de cada departamento que lo midió, en el rango seleccionado · haz clic en un módulo para ver su dashboard por ítem</p>
             {medidores.length ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {medidores.map((m) => (
                   <Link
                     key={m.modulo_id}
                     to={`/dashboard/modulo/${m.modulo_id}`}
                     title={`Ver dashboard del módulo ${m.nombre}`}
-                    className="rounded-xl bg-slate-50/50 p-3 transition-all hover:-translate-y-0.5 hover:bg-primary-50/60 hover:shadow-lg hover:ring-2 hover:ring-primary/30"
+                    className="rounded-xl transition-all hover:-translate-y-0.5 hover:bg-primary-50/60 hover:shadow-md hover:ring-2 hover:ring-primary/30"
                   >
-                    <div className="mx-auto w-full max-w-[150px]">
-                      <MedidorModulo
-                        nombre={m.nombre}
-                        valor={m.promedio}
-                        sub={`${subtituloMedidor(m)} · ver detalle`}
-                      />
-                    </div>
+                    <TarjetaModulo
+                      nombre={m.nombre}
+                      promedio={m.promedio}
+                      sub={`${subtituloMedidor(m)} · ver detalle`}
+                    />
                   </Link>
                 ))}
               </div>
@@ -383,127 +441,34 @@ export function DashboardHome() {
             )}
           </Card>
 
-          <Card className="lg:col-span-2 border-0!">
-            <h3 className="mb-1 font-bold text-primary-900">Ranking de sucursales</h3>
-            <p className="mb-3 text-xs text-slate-400">Posiciones estilo F1: puntaje de cumplimiento de cada sucursal en el rango</p>
-            {ranking.length ? (
-              <div
-                className="bg-white p-3 sm:p-4"
-                style={{ backgroundImage: 'repeating-linear-gradient(135deg, rgb(100 116 139 / 0.12) 0 1px, transparent 1px 12px)' }}
-              >
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {ranking.slice(0, 3).map((r, i) => (
-                    <button
-                      key={r.sucursal_id}
-                      type="button"
-                      onClick={() => abrirDrill({ titulo: r.nombre, subtitulo: 'Evaluaciones de esta sucursal en el rango seleccionado', alcance: { sucursal_id: r.sucursal_id } })}
-                      className="text-left"
-                      title="Ver evaluaciones de esta sucursal"
-                    >
-                      <TarjetaRankingF1
-                        posicion={i + 1}
-                        nombre={r.nombre}
-                        puntaje={r.puntaje}
-                      />
-                    </button>
-                  ))}
-                </div>
+          {/* 2. Promedio por sucursal, en lista. */}
+          <ListaUnidades
+            titulo="Promedio por sucursal"
+            descripcion="Puntaje de cumplimiento promedio de cada sucursal en el rango, ordenado de mayor a menor · haz clic en una fila para ver sus evaluaciones"
+            filas={sucursalesRanking.map((s) => ({ nombre: s.nombre, puntaje: s.puntaje, completadas: s.completadas }))}
+            sinDatos="Sin sucursales en el rango."
+            onClic={(fila) => {
+              const id = idPorNombreSucursal.get(fila.nombre)
+              if (id) abrirDrill({ titulo: fila.nombre, subtitulo: 'Evaluaciones de esta sucursal en el rango seleccionado', alcance: { sucursal_id: id } })
+            }}
+          />
 
-                {ranking.length > 3 ? (
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => setVerMasRanking((v) => !v)}
-                      className="mx-auto flex items-center gap-1.5 rounded-full bg-slate-900 px-4 py-1.5 text-xs font-bold text-white transition-colors hover:bg-slate-700"
-                    >
-                      {verMasRanking ? 'Ocultar resto' : `Ver resto (${ranking.length - 3})`}
-                      <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${verMasRanking ? 'rotate-180' : ''}`} />
-                    </button>
-                    {verMasRanking ? (
-                      <div className="mt-3 border border-slate-200 bg-white">
-                        {ranking.slice(3).map((r, i) => (
-                          <button
-                            key={r.sucursal_id}
-                            type="button"
-                            onClick={() => abrirDrill({ titulo: r.nombre, subtitulo: 'Evaluaciones de esta sucursal en el rango seleccionado', alcance: { sucursal_id: r.sucursal_id } })}
-                            className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-primary-50/40 ${i % 2 ? 'bg-slate-50' : ''}`}
-                          >
-                            <span className="w-8 shrink-0 text-center text-sm font-black tabular-nums text-slate-500">{i + 4}</span>
-                            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-700">{r.nombre}</span>
-                            <span className="shrink-0 text-sm font-bold tabular-nums text-slate-900">
-                              {r.puntaje == null ? '—' : `${r.puntaje} pts`}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            ) : <p className="text-sm text-slate-400">Sin sucursales.</p>}
-          </Card>
+          {/* 3. Promedio por departamento, en lista. El filtro por sucursal no
+              aplica a departamentos: con la sucursal elegida quedaría vacía. */}
+          {!sucursalSel && departamentosVisibles.length ? (
+            <ListaUnidades
+              titulo="Promedio por departamento"
+              descripcion="Puntaje de cumplimiento promedio de cada departamento en el rango, ordenado de mayor a menor · haz clic en una fila para ver sus evaluaciones"
+              filas={departamentosRanking.map((d) => ({ nombre: d.nombre, puntaje: d.puntaje, completadas: d.completadas }))}
+              sinDatos="Sin departamentos evaluados en el rango."
+              onClic={(fila) => {
+                const id = idPorNombreDepartamento.get(fila.nombre)
+                if (id) abrirDrill({ titulo: fila.nombre, subtitulo: 'Evaluaciones de este departamento en el rango seleccionado', alcance: { departamento_id: id } })
+              }}
+            />
+          ) : null}
 
-          <Card className="lg:col-span-2 border-0!">
-            <div className="mb-3 flex items-center gap-2.5">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-600">
-                <AlertTriangle className="h-5 w-5" />
-              </span>
-              <div className="min-w-0">
-                <h3 className="font-bold text-primary-900">Ítems con más incumplimientos</h3>
-                <p className="text-xs text-slate-400">Top 8 por incumplimientos en el rango (cada ítem equivale a evaluaciones completas sin cumplir) · haz clic en uno para ver en qué evaluaciones falló</p>
-              </div>
-            </div>
-            {donaIncumplidos.items.length ? (
-              <div className="flex flex-col gap-6 md:flex-row md:items-center">
-                {/* Dona: cada segmento es un ítem, su tamaño son los fallos en el rango */}
-                <div className="mx-auto flex shrink-0 flex-col items-center gap-3 md:mx-0">
-                  <div
-                    className="relative h-44 w-44 rounded-full shadow-sm ring-1 ring-slate-200"
-                    style={{ background: donaIncumplidos.fondo }}
-                    title="Cada segmento es un ítem; su tamaño es la cantidad de incumplimientos equivalentes en el rango"
-                  >
-                    <div className="absolute inset-[14%] grid place-items-center rounded-full bg-white text-center shadow-inner">
-                      <div className="min-w-0 px-2">
-                        <p className="text-xl font-black tabular-nums text-slate-800">
-                          {numFormateado(donaIncumplidos.total, 0)}
-                        </p>
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          {donaIncumplidos.total === 1 ? 'incumplimiento' : 'incumplimientos'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-center text-[11px] text-slate-400">Top {donaIncumplidos.items.length} ítems · cada segmento es un ítem</p>
-                </div>
-
-                {/* Leyenda clickeable */}
-                <div className="min-w-0 flex-1 space-y-1.5">
-                  {donaIncumplidos.items.map((p, i) => {
-                    const color = colorPuntajeHex(p.ratio * 100)
-                    return (
-                      <button
-                        key={p.item_id}
-                        type="button"
-                        onClick={() => abrirDrill({ titulo: p.texto, subtitulo: 'Evaluaciones del rango donde este ítem quedó sin cumplir', alcance: { item_id: p.item_id, soloNoCumple: true }, etiquetaScope: 'Nivel del ítem' })}
-                        className="group flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-amber-300 hover:bg-amber-50/40"
-                        title="Ver evaluaciones donde falló"
-                      >
-                        <span className="w-5 shrink-0 text-center text-xs font-black tabular-nums text-slate-400">{i + 1}</span>
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
-                        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800 group-hover:text-amber-900">{p.texto}</span>
-                        <span className="shrink-0 text-right text-xs tabular-nums text-slate-500">
-                          <b className="text-slate-800">{p.fallos} {p.fallos === 1 ? 'fallo' : 'fallos'}</b> · {donaIncumplidos.shares[i]}%
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-slate-400">Sin respuestas puntuables en el rango.</p>
-            )}
-          </Card>
-
+          {/* 4. Ponderación por sucursal y módulo: se conserva igual. */}
           <GraficoPonderacion
             titulo="Ponderación por sucursal y módulo"
             descripcion="Curvas por módulo con la barra translúcida del promedio por sucursal; pasa el cursor por la leyenda para elevar una curva y haz clic en una barra o punto para ver las evaluaciones de esa sucursal"
@@ -516,21 +481,31 @@ export function DashboardHome() {
             sinDatos="Sin datos de módulos para mostrar en el rango."
           />
 
-          {/* El filtro por sucursal no aplica a departamentos: con la sucursal
-              elegida el gráfico quedaría vacío, así que no se muestra. */}
-          {!sucursalSel && departamentosVisibles.length ? (
-            <GraficoPonderacion
-              titulo="Ponderación por departamento y módulo"
-              descripcion="Curvas por módulo con la barra translúcida del promedio por departamento; pasa el cursor por la leyenda para elevar una curva y haz clic en una barra o punto para ver las evaluaciones de ese departamento"
-              filas={matrizDepartamentos?.unidades ?? []}
-              modulos={modulosOrden}
-              nombrePromedio="Promedio por departamento"
-              lineaActiva={lineaActiva}
-              setLineaActiva={setLineaActiva}
-              onClic={abrirDrillDepartamento}
-              sinDatos="Sin datos de módulos para mostrar en el rango."
-            />
-          ) : null}
+          {/* 5. Los 20 cargos con más incidencias o fallas en el rango. */}
+          <Card className="lg:col-span-2 border-0!">
+            <div className="mb-3 flex items-center gap-2.5">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-600">
+                <AlertTriangle className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <h3 className="font-bold text-primary-900">20 cargos con más incidencias</h3>
+                <p className="text-xs text-slate-400">Top 20 de cargos por puntos no cumplidos en el rango · el clic abre el detalle de cada evaluación donde fallaron</p>
+              </div>
+            </div>
+            {cargosRanking.length ? (
+              <ol className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+                {cargosRanking.map((c, i) => (
+                  <li key={`${c.responsable}-${i}`} className="flex items-center gap-3 border-b border-slate-100 py-2">
+                    <span className="w-6 shrink-0 text-center text-xs font-black tabular-nums text-slate-400">{i + 1}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">{c.responsable}</span>
+                    <span className="shrink-0 text-right text-sm font-black tabular-nums text-amber-600">{c.puntos}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-slate-400">Sin fallas registradas en el rango.</p>
+            )}
+          </Card>
         </div>
       ) : null}
 
@@ -543,27 +518,6 @@ export function DashboardHome() {
         renderDetalle={detalleDe}
         urlDe={(id) => `/evaluaciones/${id}`}
       />
-    </div>
-  )
-}
-
-function TarjetaRankingF1({ posicion, nombre, puntaje }: { posicion: number; nombre: string; puntaje: number | null }) {
-  return (
-    <div className="flex items-stretch overflow-hidden border border-slate-200 bg-white shadow-sm">
-      {/* Posición */}
-      <div className="flex w-16 shrink-0 items-center justify-center bg-red-600 sm:w-20">
-        <span className="text-2xl font-black text-white sm:text-3xl">{posicion}</span>
-      </div>
-
-      {/* Sucursal */}
-      <div className="flex min-w-0 flex-1 items-center justify-center bg-slate-900 px-3 py-2.5 text-white sm:px-4">
-        <p className="truncate text-xs font-black uppercase tracking-wide text-white sm:text-sm">{nombre}</p>
-      </div>
-
-      {/* Puntaje */}
-      <div className="flex w-16 shrink-0 items-center justify-center bg-amber-400 sm:w-20">
-        <span className="text-2xl font-black text-slate-900 sm:text-3xl">{puntaje == null ? '—' : puntaje}</span>
-      </div>
     </div>
   )
 }

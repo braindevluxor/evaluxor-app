@@ -1039,39 +1039,74 @@ export function puntajePorSucursalModulo(
   }
 }
 
+/**
+ * Promedio por unidad en el rango, agrupando por el campo que corresponde:
+ * `sucursal_id` para las de tienda, `departamento_id` para las de área.
+ *
+ * Ambos cortes son la misma pregunta con otra llave, así que viven en una sola
+ * función: el promedio de las evaluaciones de cada unidad y cuántas evaluaciones
+ * la respaldan (una unidad con 40 ítems no pesa igual que una con 1).
+ */
+function promedioPorUnidad(
+  datos: ConjuntoDatos,
+  todas: { id: string; nombre: string }[] | undefined,
+  por: 'sucursal' | 'departamento'
+): { unidad_id: string; nombre: string; puntaje: number | null; completadas: number }[] {
+  const mapa = new Map<string, { unidad_id: string; puntajes: number[]; completadas: number; nombre: string }>()
+  for (const t of todas ?? []) {
+    mapa.set(t.id, { unidad_id: t.id, puntajes: [], completadas: 0, nombre: t.nombre })
+  }
+  for (const ev of datos.evaluaciones) {
+    // Cada evaluación aporta a su tienda o a su área, nunca a las dos a la vez.
+    const id = por === 'sucursal' ? ev.sucursal_id : ev.departamento_id
+    if (!id) continue
+    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones)
+    const u = mapa.get(id)
+    if (u) {
+      if (puntaje != null) u.puntajes.push(puntaje)
+      u.completadas++
+    } else {
+      mapa.set(id, {
+        unidad_id: id,
+        puntajes: puntaje != null ? [puntaje] : [],
+        completadas: 1,
+        nombre: (por === 'sucursal' ? ev.sucursal?.nombre : ev.departamento?.nombre) ?? id
+      })
+    }
+  }
+  return Array.from(mapa.values())
+    .map((u) => ({
+      unidad_id: u.unidad_id,
+      nombre: u.nombre,
+      puntaje: u.puntajes.length ? Math.round((u.puntajes.reduce((a, b) => a + b, 0) / u.puntajes.length) * 100) / 100 : null,
+      completadas: u.completadas
+    }))
+    .sort((a, b) => (b.puntaje ?? -1) - (a.puntaje ?? -1) || a.nombre.localeCompare(b.nombre))
+}
+
 export function rankingSucursales(
   datos: ConjuntoDatos,
   todas?: { id: string; nombre: string }[]
 ): { sucursal_id: string; nombre: string; puntaje: number | null; completadas: number }[] {
-  const porSuc = new Map<string, { sucursal_id: string; puntajes: number[]; completadas: number; nombre: string }>()
-  for (const t of todas ?? []) {
-    porSuc.set(t.id, { sucursal_id: t.id, puntajes: [], completadas: 0, nombre: t.nombre })
-  }
-  for (const ev of datos.evaluaciones) {
-    // El ranking es por sucursal: las de departamento no tienen fila propia acá.
-    if (!ev.sucursal_id) continue
-    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones)
-    const s = porSuc.get(ev.sucursal_id)
-    if (s) {
-      if (puntaje != null) s.puntajes.push(puntaje)
-      s.completadas++
-    } else {
-      porSuc.set(ev.sucursal_id, {
-        sucursal_id: ev.sucursal_id,
-        puntajes: puntaje != null ? [puntaje] : [],
-        completadas: 1,
-        nombre: ev.sucursal?.nombre ?? ev.sucursal_id
-      })
-    }
-  }
-  return Array.from(porSuc.values())
-    .map((s) => ({
-      sucursal_id: s.sucursal_id,
-      nombre: s.nombre,
-      puntaje: s.puntajes.length ? Math.round((s.puntajes.reduce((a, b) => a + b, 0) / s.puntajes.length) * 100) / 100 : null,
-      completadas: s.completadas
-    }))
-    .sort((a, b) => (b.puntaje ?? -1) - (a.puntaje ?? -1) || a.nombre.localeCompare(b.nombre))
+  return promedioPorUnidad(datos, todas, 'sucursal').map((u) => ({
+    sucursal_id: u.unidad_id,
+    nombre: u.nombre,
+    puntaje: u.puntaje,
+    completadas: u.completadas
+  }))
+}
+
+/** Ídem, pero agrupando las evaluaciones de departamento por su área. */
+export function rankingDepartamentos(
+  datos: ConjuntoDatos,
+  todas?: { id: string; nombre: string }[]
+): { departamento_id: string; nombre: string; puntaje: number | null; completadas: number }[] {
+  return promedioPorUnidad(datos, todas, 'departamento').map((u) => ({
+    departamento_id: u.unidad_id,
+    nombre: u.nombre,
+    puntaje: u.puntaje,
+    completadas: u.completadas
+  }))
 }
 
 export interface SerieMes {
@@ -1109,6 +1144,29 @@ export function evolucionMensual(datos: ConjuntoDatos): SerieMes[] {
     })
 }
 
+/**
+ * Ítems incumplidos en el rango: cuántas respuestas cerraron un ítem en 0,
+ * sin recortar a los peores ni repartir por módulo.
+ *
+ * Antes el KPI de la barra azul salía de `peoresItems`, que devuelve sólo los
+ * 10 peores ítems: el número que se mostraba era la suma de esos 10 y no el
+ * total del rango, así que un rango con 200 fallas en 40 ítems mostraba las
+ * de los 10 primeros.
+ */
+export function incumplimientosEnRango(datos: ConjuntoDatos): number {
+  const sucursalDeEval = new Map(datos.evaluaciones.map((e) => [e.id, unidadDe(e)]))
+  const porItem = new Map(datos.items.map((i) => [i.id, i]))
+  let n = 0
+  for (const r of datos.respuestas) {
+    const item = porItem.get(r.item_id)
+    if (!item) continue
+    const sucursalId = sucursalDeEval.get(r.evaluacion_id)
+    const v = proporcionItem(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item, r.valor)
+    if (v === 0) n++
+  }
+  return n
+}
+
 export function peoresItems(datos: ConjuntoDatos): { item_id: string; texto: string; modulo_id: string; ok: number; total: number; ratio: number }[] {
   const sucursalDeEval = new Map(datos.evaluaciones.map((e) => [e.id, unidadDe(e)]))
   const porItem = new Map<string, { item_id: string; texto: string; modulo_id: string; ok: number; total: number }>()
@@ -1136,6 +1194,18 @@ export function peoresItems(datos: ConjuntoDatos): { item_id: string; texto: str
     .map((x) => ({ ...x, ratio: x.total ? x.ok / x.total : 0 }))
     .sort((a, b) => a.ratio - b.ratio)
     .slice(0, 10)
+}
+
+/**
+ * Top de cargos por fallas en el rango, ya ordenado y cortado para el panel.
+ *
+ * Es el mismo conteo que usa la matriz de la página de seguimiento por cargo:
+ * una falla es un check o ítem no cumplido, atribuida a los responsables que
+ * le tocaban en esa respuesta. No es «cuántas veces apareció el cargo», que
+ * premiaría a los que más se les evalúa; es cuánto incumplió.
+ */
+export function rankingResponsables(datos: ConjuntoDatos, limite = 20): AcumuladoResponsable[] {
+  return acumuladoResponsables(datos).slice(0, limite)
 }
 
 export function acumuladoResponsables(datos: ConjuntoDatos): AcumuladoResponsable[] {
