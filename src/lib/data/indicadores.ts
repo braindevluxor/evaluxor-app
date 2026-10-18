@@ -520,6 +520,29 @@ export function sucursalesConModuloEvaluado(
 }
 
 /**
+ * Ídem para departamentos, que es lo que mide un módulo como Flota Vehicular.
+ *
+ * Van aparte de `sucursalesConModuloEvaluado` porque no hay `sucursal_modulos`
+ * que consultear: los departamentos no se "configuran" por sucursal, así que no
+ * existe el caso «habilitado y sin datos». O midieron el módulo o no aparecen.
+ */
+export function departamentosConModuloEvaluado(datos: ConjuntoDatos, moduloId: string): number {
+  const idsItemsModulo = new Set(datos.items.filter((i) => i.modulo_id === moduloId).map((i) => i.id))
+  const conRespuestas = new Set<string>()
+  for (const r of datos.respuestas) {
+    if (!idsItemsModulo.has(r.item_id)) continue
+    conRespuestas.add(r.evaluacion_id)
+  }
+  const resultado = new Set<string>()
+  for (const e of datos.evaluaciones) {
+    if (!e.departamento_id) continue
+    if (!conRespuestas.has(e.id)) continue
+    resultado.add(e.departamento_id)
+  }
+  return resultado.size
+}
+
+/**
  * Un reloj por módulo activo.
  *
  * Cada evaluación mide su **unidad** —la sucursal o el departamento, ver
@@ -869,27 +892,42 @@ export function resumenItemsModulo(
 }
 
 export interface BarraModulo {
-  /** Id de sucursal o placa (etiqueta de la instancia). */
+  /** Id de la unidad o placa (etiqueta de la instancia). */
   clave: string
-  /** Nombre para mostrar (sucursal o placa). */
+  /** Nombre para mostrar (sucursal, departamento o placa). */
   etiqueta: string
   /** Puntaje ponderado (0-100) agrupando las respuestas del rango. null si no hay datos. */
   puntaje: number | null
   /** Evaluaciones del rango que aportan datos al grupo. */
   muestras: number
+  /**
+   * Clase de unidad que mide el módulo. No es cosmético: un módulo como Flota
+   * Vehicular sólo lo evalúan departamentos, y el gráfico necesita distinguirlo
+   * para separar las barras y para que el clic abra el drilldown correcto.
+   * `'placa'` sólo aparece en los módulos de vehículos, donde la unidad de
+   * análisis es cada vehículo y no una unidad del organigrama.
+   */
+  unidad: 'sucursal' | 'departamento' | 'placa'
 }
 
 /**
- * Barras para el gráfico general del módulo: promedio ponderado por sucursal,
+ * Barras para el gráfico general del módulo: promedio ponderado por unidad
+ * —sucursales y departamentos, en ese orden y cada grupo ordenado por sí mismo—
  * o por placa en el caso de módulos de vehículos (secciones con api 'vehiculos',
- * donde la unidad de análisis es cada placa/instancia en lugar de la sucursal).
+ * donde la unidad de análisis es cada placa/instancia en lugar de una unidad
+ * del organigrama).
+ *
+ * Los departamentos se emiten aparte y no mezclados: un módulo como Flota
+ * Vehicular sólo lo evalúan departamentos, y mezclar las dos clases en un solo
+ * ranking oculta que la mitad de las barras no son tiendas.
  */
 export function barrasModulo(
   datos: ConjuntoDatos,
   moduloId: string,
   sucursalesVisibles: { id: string; nombre: string }[],
-  porPlaca: boolean
-): { grupo: 'sucursal' | 'placa'; barras: BarraModulo[] } {
+  porPlaca: boolean,
+  departamentosVisibles: { id: string; nombre: string }[] = []
+): { grupo: 'unidad' | 'placa'; barras: BarraModulo[] } {
   const sucursalDeEval = new Map<string, string>()
   for (const e of datos.evaluaciones) sucursalDeEval.set(e.id, unidadDe(e))
   const itemDe = new Map<string, Item>()
@@ -900,7 +938,8 @@ export function barrasModulo(
   const agrupado = new Map<string, { binarios: { item: Item; cumple: number }[]; evals: Set<string> }>()
 
   if (!porPlaca) {
-    // Promedio por sucursal: agrupa todas las respuestas del módulo en el rango.
+    // Promedio por unidad: agrupa todas las respuestas del módulo en el rango.
+    // `sucursalDeEval` es en realidad la unidad (sucursal o departamento).
     for (const r of datos.respuestas) {
       const item = itemDe.get(r.item_id)
       if (!item || item.modulo_id !== moduloId) continue
@@ -913,16 +952,26 @@ export function barrasModulo(
       e.evals.add(r.evaluacion_id)
       agrupado.set(suc, e)
     }
-    const barras = sucursalesVisibles.map((s) => {
-      const e = agrupado.get(s.id)
+    const deUnidad = (
+      u: { id: string; nombre: string },
+      clase: 'sucursal' | 'departamento'
+    ): BarraModulo => {
+      const e = agrupado.get(u.id)
       return {
-        clave: s.id,
-        etiqueta: s.nombre,
+        clave: u.id,
+        etiqueta: u.nombre,
         puntaje: e?.binarios.length ? puntajePonderado(conSeccionesPonderadas(datos.items, e.binarios)) : null,
-        muestras: e?.evals.size ?? 0
+        muestras: e?.evals.size ?? 0,
+        unidad: clase
       }
-    })
-    return { grupo: 'sucursal', barras: ordenarBarras(barras) }
+    }
+    // Sucursales primero y departamentos después: dos grupos consecutivos y
+    // ordenados cada uno, no un ranking mezclado.
+    const barras = [
+      ...ordenarBarras(sucursalesVisibles.map((s) => deUnidad(s, 'sucursal'))),
+      ...ordenarBarras(departamentosVisibles.map((d) => deUnidad(d, 'departamento')))
+    ]
+    return { grupo: 'unidad', barras }
   }
 
   // Promedio por placa: agrupa por etiqueta de instancia (placa) dentro del rango.
@@ -953,7 +1002,8 @@ export function barrasModulo(
     clave: placa,
     etiqueta: placa,
     puntaje: e.binarios.length ? puntajePonderado(conSeccionesPonderadas(datos.items, e.binarios)) : null,
-    muestras: e.evals.size
+    muestras: e.evals.size,
+    unidad: 'placa' as const
   }))
   return { grupo: 'placa', barras: ordenarBarras(barras) }
 }

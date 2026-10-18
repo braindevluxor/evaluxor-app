@@ -82,10 +82,12 @@ export function ModuloDashboard() {
           desde: desde || undefined,
           hasta: hasta || undefined,
           modulo_id: moduloId || undefined,
-          // Este dashboard es de sucursales: lo que no está cerrado todavía no
-          // es resultado y lo que es de departamento no tiene fila acá.
-          soloCerradas: true,
-          soloSucursales: true
+          // Este dashboard ya no es sólo de sucursales: un módulo como Flota
+          // Vehicular lo miden departamentos, y sin sus evaluaciones el
+          // dashboard salía vacío aunque la tarjeta del panel principal mostrara
+          // promedio. Con `soloSucursales` la consulta descartaba justo esa
+          // mitad.
+          soloCerradas: true
         })
         if (activo) setDatos(d)
       } catch {
