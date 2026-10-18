@@ -49,7 +49,7 @@ describe('presencia · nombre de la pantalla', () => {
     expect(etiquetaPantalla('/dashboard/modulo/m9', CATALOGO)).toBe('Módulo')
     expect(etiquetaPantalla('/config/usuarios')).toBe('Usuarios')
     expect(etiquetaPantalla('/config/items')).toBe('Ítems')
-    expect(etiquetaPantalla('/config/departamentos')).toBe('Departamentos')
+    expect(etiquetaPantalla('/config/unidades')).toBe('Unidades')
     expect(etiquetaPantalla('/config/cualquier-cosa')).toBe('Configuración')
   })
 

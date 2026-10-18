@@ -10,14 +10,17 @@ function fuente(rel: string): string {
 describe('departamentos · entra desde la Consola y solo el Líder', () => {
   it('la ruta está protegida y el menú la lista junto a Sucursales', () => {
     const app = fuente('../../App.tsx')
+    const unidades = fuente('./Unidades.tsx')
     const consola = fuente('../../components/layouts/ConsoleLayout.tsx')
-    expect(app).toContain('path="/config/departamentos"')
-    expect(app).toContain('<SoloLider><DepartamentosPage /></SoloLider>')
-    expect(consola).toContain("to: '/config/departamentos'")
-    expect(consola).toContain("label: 'Departamentos'")
+    // Sucursales y Departamentos son pestañas de la pantalla única /config/unidades.
+    expect(app).toContain('path="/config/unidades"')
+    expect(app).toContain('<SoloLider><UnidadesPage /></SoloLider>')
+    expect(unidades).toContain('<DepartamentosPage />')
+    expect(consola).toContain("to: '/config/unidades'")
+    expect(consola).toContain("label: 'Unidades'")
     // Cabecera de la vista: rótulo y subtítulo que dicen qué es un departamento.
-    expect(consola).toContain("'/config/departamentos': { titulo: 'Departamentos'")
-    expect(consola).toContain('Áreas de la organización que se evalúan por separado')
+    expect(consola).toContain("'/config/unidades': { titulo: 'Unidades'")
+    expect(consola).toContain('Registro de sucursales y departamentos')
   })
 })
 

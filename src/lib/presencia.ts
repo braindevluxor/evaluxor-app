@@ -92,8 +92,7 @@ export function etiquetaPantalla(ruta: string, catalogo: CatalogoNombres = {}): 
   }
 
   if (partes[0] === 'config') {
-    if (partes[1] === 'sucursales') return 'Sucursales'
-    if (partes[1] === 'departamentos') return 'Departamentos'
+    if (partes[1] === 'unidades') return 'Unidades'
     if (partes[1] === 'modulos') return 'Módulos'
     if (partes[1] === 'items') return 'Ítems'
     if (partes[1] === 'usuarios') return 'Usuarios'
