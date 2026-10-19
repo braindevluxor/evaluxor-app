@@ -47,6 +47,15 @@ export const HEX_PRIMARY_900 = '#0b2545'
 /** Paleta ordenada de los módulos en el ranking/gráficos; el navy de marca va primero. */
 export const COLORES_MODULOS = [HEX_PRIMARY, HEX_PRIMARY_400, HEX_CUMPLE, '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#db2777']
 
+/* --- Color por serie en las tortas del dashboard ---------------------------
+ * Cada torta tiene una porción por sucursal / departamento / cargo: con la
+ * paleta de módulos no alcanza, y los tonos seguidos del arcoíris quedan casi
+ * iguales entre vecinos. Se avanza el ángulo dorado (137,5°), que reparte
+ * cualquier cantidad de series sin repetir tinte ni depender del total. */
+export function colorSerie(i: number): string {
+  return `hsl(${Math.round(i * 137.508) % 360} 65% 48%)`
+}
+
 /* --- Estados de evaluación (PROGRAMADA / ACTIVA / CERRADA) ------------------
  * Semántica decidida:
  *  - PROGRAMADA → azul de marca (1): agendada, disponible en el futuro.
@@ -103,3 +112,11 @@ export const CLASES_TIPO_ITEM: Record<TipoItem, string> = Object.fromEntries(
  * El patrón `text-[10px] font-bold uppercase tracking-* text-slate-*` se copiaba
  * con variantes entre pantallas; una sola clase para todas. */
 export const EYEBROW = 'text-[10px] font-bold uppercase tracking-wider text-slate-500'
+
+/* --- Contenedores de las vistas del dashboard -------------------------------
+ * El `<main>` de ConsoleLayout pinta `bg-slate-100` (y el panel de filtros del
+ * dashboard, también): ahí los contenedores usan ese mismo gris en lugar de
+ * blanco, para que la pantalla no se lea como cajas blancas flotando sobre el
+ * fondo. Si cambia el gris del layout, cambia solo acá.
+ * El `!` es porque `Card` ya trae `bg-white` y esta clase llega después por `cn`. */
+export const CLASE_CONTENEDOR_DASHBOARD = 'bg-slate-100!'

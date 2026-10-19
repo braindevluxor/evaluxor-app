@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Item, Modulo, Opcion, Respuesta, Sucursal, SucursalModulo, VistaEvaluacion } from '../types'
-import { medidoresPorModulo, puntajePorSucursalModulo, puntajePorUnidadModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, unidadDe, seguimientoResponsables, hallazgosDeCargo, resumirFallasPorItem, type ConjuntoDatos } from './indicadores'
+import { medidoresPorModulo, puntajePorSucursalModulo, puntajePorUnidadModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, unidadDe, seguimientoResponsables, rankingResponsables, hallazgosDeCargo, resumirFallasPorItem, type ConjuntoDatos } from './indicadores'
 
 const sucursales: Sucursal[] = [
   { id: 's1', nombre: 'Sucursal Norte', shop_id: null, branch_id: null, direccion: null, gerente_id: null, activa: true, created_at: '' },
@@ -1381,6 +1381,36 @@ describe('seguimientoResponsables', () => {
       'encargadodeturno',
       'liderth',
       'depositaria'
+    ])
+  })
+})
+
+describe('rankingResponsables', () => {
+  it('ordena por porcentaje de resultado, no por puntos no cumplidos', () => {
+    const top = rankingResponsables(conjuntoSeguimiento(), 2)
+
+    // Por puntos el segundo sería Depositaría (1 punto, 50%): acá la lista la
+    // abre el resultado —Encargado 0% y Líder TH 0%—, no la cantidad de fallas.
+    expect(top.map((f) => f.cargo)).toEqual(['Encargado de turno', 'Líder TH'])
+    expect(top[0].nota).toBe(0)
+    expect(top[1].nota).toBe(0)
+  })
+
+  it('es el mismo ranking que la página de seguimiento por cargo', () => {
+    const datos = conjuntoSeguimiento()
+
+    expect(rankingResponsables(datos, 20)).toEqual(seguimientoResponsables(datos).filas)
+  })
+
+  it('el límite corta al final: un cargo sin nota no pasa en el top', () => {
+    const datos = conjuntoSeguimiento()
+    datos.items.push(itemSeg('i-seg-9', 'Sin peso', ['Jefe de depósito'], 0))
+    datos.respuestas.push(respuestaSeg('evD', 'i-seg-9', false, ['Jefe de depósito']))
+
+    expect(rankingResponsables(datos, 3).map((f) => f.cargo)).toEqual([
+      'Encargado de turno',
+      'Líder TH',
+      'Depositaría'
     ])
   })
 })

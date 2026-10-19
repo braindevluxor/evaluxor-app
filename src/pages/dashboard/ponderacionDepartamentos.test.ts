@@ -9,14 +9,14 @@ function fuente(rel: string): string {
 /**
  * El dashboard suma departamentos a sus análisis, pero ya no con un gráfico de
  * ponderación gemelo del de sucursales: el promedio por departamento es una
- * lista. Se pidió explícitamente (2026-01) y el gráfico de ponderación se
- * conserva sólo para sucursales.
+ * torta, con la misma pieza que la de sucursales. El gráfico de ponderación
+ * se conserva sólo para sucursales.
  */
 describe('dashboard · promedio por departamento', () => {
-  it('el promedio por departamento se dibuja como lista, no como gráfico', () => {
+  it('el promedio por departamento se dibuja como torta, con la misma pieza que el de sucursal', () => {
     const pagina = fuente('./DashboardHome.tsx')
-    // La lista es la misma pieza para sucursales y departamentos.
-    expect(pagina).toContain('function ListaUnidades(')
+    // La torta es la misma pieza para sucursales y departamentos.
+    expect(pagina).toContain('function GraficoTorta(')
     expect(pagina).toContain('titulo="Promedio por sucursal"')
     expect(pagina).toContain('titulo="Promedio por departamento"')
     // El gráfico de ponderación sigue siendo sólo de sucursal.
@@ -25,10 +25,13 @@ describe('dashboard · promedio por departamento', () => {
     expect(pagina).not.toContain('titulo="Ponderación por departamento y módulo"')
   })
 
-  it('la lista de departamentos se oculta con el filtro por sucursal', () => {
+  it('la torta de departamentos se oculta con el filtro por sucursal', () => {
     const pagina = fuente('./DashboardHome.tsx')
-    // Con una sucursal elegida la lista de departamentos quedaría vacía.
-    expect(pagina).toContain('{!sucursalSel && departamentosVisibles.length ? (')
+    // Con una sucursal elegida la lista de departamentos quedaría vacía. La
+    // condición vive en `verDepartamentos`, que además decide cuántas columnas
+    // tiene la fila de listas.
+    expect(pagina).toContain('const verDepartamentos = !sucursalSel && departamentosVisibles.length > 0')
+    expect(pagina).toContain('{verDepartamentos ? (')
     // GERENTE_S no ve departamentos, igual que en Historial.
     expect(pagina).toContain('const departamentosVisibles = useMemo(() => (scope ? [] : departamentos), [scope, departamentos])')
   })

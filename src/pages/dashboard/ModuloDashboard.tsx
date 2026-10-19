@@ -28,7 +28,7 @@ import { setKpisGlobal, type EstadoKpis } from '../../lib/kpisGlobal'
 import { cn } from '../../components/ui'
 import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, ReferenceLine, LabelList } from 'recharts'
 import { num, pct as pctComa } from '../../lib/numeros'
-import { CLASES_TIPO_ITEM, EYEBROW, HEX_CUMPLE, HEX_RIESGO, HEX_NO_CUMPLE, HEX_SIN_DATO, colorPuntajeHex } from '../../lib/diseno'
+import { CLASE_CONTENEDOR_DASHBOARD, CLASES_TIPO_ITEM, EYEBROW, HEX_CUMPLE, HEX_RIESGO, HEX_NO_CUMPLE, HEX_SIN_DATO, colorPuntajeHex } from '../../lib/diseno'
 import type { Item } from '../../lib/types'
 
 function haceMeses(n: number): string {
@@ -257,7 +257,7 @@ export function ModuloDashboard() {
         />
       </DashboardFiltersPortal>
 
-      <Card className="border-0!">
+      <Card className={cn('border-0!', CLASE_CONTENEDOR_DASHBOARD)}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <Link
@@ -289,7 +289,7 @@ export function ModuloDashboard() {
                 />
               </div>
             ) : (
-              <div className="grid h-40 w-40 place-items-center rounded-2xl border border-slate-200 bg-slate-50 p-3 text-center">
+              <div className="grid h-40 w-40 place-items-center rounded-2xl border border-slate-200 p-3 text-center">
                 <div>
                   <p className="text-2xl font-black text-slate-300">—</p>
                   <p className="mt-0.5 text-[11px] text-slate-400">Sin evaluaciones en el rango</p>
@@ -319,7 +319,7 @@ export function ModuloDashboard() {
         </div>
       </Card>
 
-      <Card className="border-0!">
+      <Card className={cn('border-0!', CLASE_CONTENEDOR_DASHBOARD)}>
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="font-bold text-primary-900">
@@ -370,7 +370,7 @@ export function ModuloDashboard() {
                 name="Puntaje"
                 radius={[6, 6, 0, 0]}
                 maxBarSize={64}
-                background={{ fill: '#f1f5f9', radius: 6 }}
+                background={{ fill: '#e2e8f0', radius: 6 }}
                 onClick={abrirBarra}
                 activeBar={{ fillOpacity: 0.7 }}
               >
@@ -447,7 +447,7 @@ function TarjetaItem({ resumen, onClick }: { resumen: ResumenItemModulo; onClick
       type="button"
       onClick={onClick}
       title="Ver las evaluaciones donde este ítem fue respondido"
-      className="flex flex-col rounded-xl border border-slate-200 bg-white p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-md"
+      className={cn('flex flex-col rounded-xl border border-slate-200 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-md', CLASE_CONTENEDOR_DASHBOARD)}
     >
       <div className="mb-2 flex items-start justify-between gap-3">
         <p className="min-w-0 flex-1 text-sm font-semibold leading-snug text-slate-800">{r.item.texto}</p>
@@ -470,7 +470,7 @@ function TarjetaItem({ resumen, onClick }: { resumen: ResumenItemModulo; onClick
 
 function TarjetaItemSinDatos({ item }: { item: Item }) {
   return (
-    <div className="flex flex-col rounded-xl border border-dashed border-slate-300 bg-slate-50/50 p-4">
+    <div className="flex flex-col rounded-xl border border-dashed border-slate-300 p-4">
       <div className="mb-2 flex items-start justify-between gap-3">
         <p className="min-w-0 flex-1 text-sm font-semibold leading-snug text-slate-600">{item.texto}</p>
         <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', COLOR_TIPO[item.tipo] ?? 'bg-slate-100 text-slate-600')}>
@@ -490,7 +490,7 @@ function Seccion({ contenedor, resumenes, onAbrirItem }: {
   onAbrirItem: (item: Item) => void
 }) {
   return (
-    <Card className="border-0!">
+    <Card className={cn('border-0!', CLASE_CONTENEDOR_DASHBOARD)}>
       <div className="mb-3 flex items-center gap-2.5">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary-50 text-primary">
           <Layers className="h-5 w-5" />
@@ -524,7 +524,7 @@ function FiltrosModulo(props: {
   soloSucursal: boolean
 }) {
   return (
-    <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className={cn('grid gap-3 rounded-2xl border border-slate-200 p-4 sm:grid-cols-2 lg:grid-cols-3', CLASE_CONTENEDOR_DASHBOARD)}>
       <Field label="Desde">
         <Input type="date" value={props.desde} onChange={(e) => props.setDesde(e.target.value)} />
       </Field>

@@ -20,7 +20,6 @@ import {
   tieneRespuesta,
   valorPorResponsable,
   veredictoItem,
-  type AcumuladoResponsable,
   type BinarioConPuntaje,
   type ValorCumple,
   type ValorChecklist,
@@ -1247,32 +1246,21 @@ export function peoresItems(datos: ConjuntoDatos): { item_id: string; texto: str
 }
 
 /**
- * Top de cargos por fallas en el rango, ya ordenado y cortado para el panel.
+ * Top de cargos por PEOR porcentaje de resultado en el rango, ya ordenado y
+ * cortado para el panel del dashboard.
  *
- * Es el mismo conteo que usa la matriz de la página de seguimiento por cargo:
- * una falla es un check o ítem no cumplido, atribuida a los responsables que
- * le tocaban en esa respuesta. No es «cuántas veces apareció el cargo», que
- * premiaría a los que más se les evalúa; es cuánto incumplió.
+ * Mide lo logrado sobre lo que se le pudo medir al cargo (`notaDe`), no la suma
+ * de fallas: con el mismo criterio de «puntos no cumplidos» un cargo que se
+ * evalúa 40 veces siempre aparecía primero aunque acertara casi todo, y el
+ * panel prometía "incidencias" sin decir qué tan bien o mal salió.
+ *
+ * Reutiliza `seguimientoResponsables`, que ya reparte los pesos con la MISMA
+ * fórmula que la página de seguimiento por cargo y el «Puntaje por responsable»
+ * de EvaluacionDetalle (un 87% acá es el mismo 87% de ahí) y que deja las filas
+ * de menor a mayor nota, con las que nunca se midieron al final.
  */
-export function rankingResponsables(datos: ConjuntoDatos, limite = 20): AcumuladoResponsable[] {
-  return acumuladoResponsables(datos).slice(0, limite)
-}
-
-export function acumuladoResponsables(datos: ConjuntoDatos): AcumuladoResponsable[] {
-  const sucursalDeEval = new Map(datos.evaluaciones.map((e) => [e.id, unidadDe(e)]))
-  const acum = new Map<string, number>()
-  for (const r of datos.respuestas) {
-    const item = datos.items.find((i) => i.id === r.item_id)
-    if (!item) continue
-    const sucursalId = sucursalDeEval.get(r.evaluacion_id)
-    const it = sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item
-    for (const a of incumplimientosPorResponsable(it, r.valor)) {
-      acum.set(a.responsable, (acum.get(a.responsable) ?? 0) + a.puntos)
-    }
-  }
-  return Array.from(acum.entries())
-    .map(([responsable, puntos]) => ({ responsable, puntos }))
-    .sort((a, b) => b.puntos - a.puntos || a.responsable.localeCompare(b.responsable))
+export function rankingResponsables(datos: ConjuntoDatos, limite = 20): FilaSeguimientoCargo[] {
+  return seguimientoResponsables(datos).filas.slice(0, limite)
 }
 
 /**

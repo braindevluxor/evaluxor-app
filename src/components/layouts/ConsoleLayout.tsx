@@ -51,6 +51,10 @@ function ConsoleLayoutContenido() {
       ? { titulo: 'Dashboard del módulo', subtitulo: 'Ítems del módulo con el gráfico más idóneo según su tipo' }
       : undefined)
   const esDashboard = pathname.startsWith('/dashboard')
+  // Las vistas de indicadores (panel principal y el dashboard de un módulo) se
+  // llevan todo el ancho de la pantalla: su grilla de tarjetas y gráficos vive
+  // en columnas y el ancho centrado de 1280px dejaba media pantalla vacía.
+  const anchoTotal = pathname === '/dashboard' || pathname.startsWith('/dashboard/modulo/')
   const puedeEvaluar = profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER'
   const navRef = useRef<HTMLElement | null>(null)
   const [abierto, setAbierto] = useState(false)
@@ -274,7 +278,9 @@ function ConsoleLayoutContenido() {
         </header>
         {esDashboard ? (
           <div className={cn('grid transition-[grid-template-rows] duration-300 ease-out', filtrosAbiertos ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')}>
-            <div className="min-h-0 overflow-hidden border-b border-slate-200 bg-slate-50">
+            {/* El panel de filtros es de las vistas del dashboard: mismo gris
+                que su `<main>` (ver CLASE_CONTENEDOR_DASHBOARD en diseno.ts). */}
+            <div className="min-h-0 overflow-hidden border-b border-slate-200 bg-slate-100">
               <div id="dashboard-filters-panel" />
             </div>
           </div>
@@ -283,10 +289,10 @@ function ConsoleLayoutContenido() {
         {pathname === '/dashboard' ||
         pathname === '/dashboard/responsables' ||
         pathname.startsWith('/dashboard/modulo/') ? (
-          <BarraKpis />
+          <BarraKpis ancho={anchoTotal} />
         ) : null}
         <SyncBanner />
-        <main className="mx-auto max-w-7xl px-4 py-6 lg:px-8">
+        <main className={cn('px-4 py-6 lg:px-8', !anchoTotal && 'mx-auto max-w-7xl')}>
           <Outlet />
         </main>
       </div>

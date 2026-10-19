@@ -1,5 +1,6 @@
 import { AlertTriangle, BadgeCheck, CalendarDays, CheckCircle2, ListChecks, Store, Target, type LucideIcon } from 'lucide-react'
 import { useKpisGlobal, type IconoKpi } from '../../lib/kpisGlobal'
+import { cn } from '../ui'
 import { useNumeroAnimado } from './useAnimacion'
 
 /** Formatea un número animado (puede ir contando de 0 al valor final). */
@@ -46,7 +47,14 @@ function ItemKpi({
   )
 }
 
-export function BarraKpis() {
+/**
+ * Franja azul con los KPIs de la pantalla.
+ *
+ * `ancho` la estira al ancho total de la ventana: la siguen llamando sólo las
+ * vistas del dashboard, y con el `<main>` también ancho los números quedan
+ * alineados con las tarjetas de abajo en vez de centrados en 1280px.
+ */
+export function BarraKpis({ ancho }: { ancho?: boolean }) {
   const k = useKpisGlobal()
   const global = useNumeroAnimado(k?.global ?? null, 700)
   const completadas = useNumeroAnimado(k?.completadas ?? null, 700)
@@ -85,7 +93,7 @@ export function BarraKpis() {
 
   return (
     <div className="barra-kpis bg-primary shadow-md">
-      <div className="mx-auto grid max-w-7xl grid-cols-2 gap-x-4 gap-y-4 px-4 py-4 sm:grid-cols-4 lg:px-8">
+      <div className={cn('mx-auto grid grid-cols-2 gap-x-4 gap-y-4 px-4 py-4 sm:grid-cols-4 lg:px-8', !ancho && 'max-w-7xl')}>
         {items}
       </div>
     </div>
