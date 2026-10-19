@@ -38,6 +38,18 @@ export function colorPuntajeHex(value: number | null): string {
   return value >= 80 ? HEX_CUMPLE : value >= 60 ? HEX_RIESGO : HEX_NO_CUMPLE
 }
 
+/**
+ * Fondo sólido coloreado por puntaje (las tarjetas de «Cumplimiento por
+ * módulo»): mismos umbrales que `colorPuntajeHex`, pero con el «sin dato» más
+ * oscuro (slate-500). Esas tarjetas llevan el porcentaje y el icono en
+ * blanco, y sobre el gris claro de los gráficos no se leerían. Blanco sobre
+ * los tres colores de umbral queda en ≥3:1, que es lo que pide el texto grande.
+ */
+export function colorFondoPuntaje(value: number | null): string {
+  if (value == null) return '#64748b'
+  return colorPuntajeHex(value)
+}
+
 /* --- Colores de marca (el navy EvaLuxor se escribía a mano en ~6 archivos) -- */
 export const HEX_PRIMARY = '#28315F'
 export const HEX_PRIMARY_400 = '#4f87c7'

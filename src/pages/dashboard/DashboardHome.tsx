@@ -27,7 +27,7 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ReferenceLine,
   PieChart, Pie, Cell
 } from 'recharts'
-import { CLASE_CONTENEDOR_DASHBOARD, COLORES_MODULOS, HEX_PRIMARY, HEX_CUMPLE, HEX_RIESGO, colorPuntajeClase, colorPuntajeHex, colorSerie } from '../../lib/diseno'
+import { CLASE_CONTENEDOR_DASHBOARD, COLORES_MODULOS, HEX_PRIMARY, HEX_CUMPLE, HEX_RIESGO, colorFondoPuntaje, colorPuntajeClase, colorSerie } from '../../lib/diseno'
 
 function haceMeses(n: number): string {
   const d = new Date()
@@ -282,21 +282,23 @@ function DatoTorta({ fila, color }: { fila: FilaTorta; color: string }) {
 
 /**
  * Cumplimiento por módulo en su forma mínima: sólo el porcentaje y el icono
- * que identifica al módulo. El nombre y la cobertura no se pintan: van en el
- * tooltip del enlace que envuelve la tarjeta. Es el `title` nativo del HTML y
- * no un tooltip armado con CSS porque la grilla tiene `overflow-y-auto` (se
- * lleva la altura que queda de la ventana) y se lo comería igual.
+ * que identifica al módulo, pintados en blanco sobre el color del puntaje (el
+ * fondo de la tarjeta es verde, ámbar o rojo según la nota, y gris si nunca
+ * se midió). El nombre y la cobertura no se pintan: van en el tooltip del
+ * enlace que envuelve la tarjeta. Es el `title` nativo del HTML y no un
+ * tooltip armado con CSS porque la grilla tiene `overflow-y-auto` (se lleva la
+ * altura que queda de la ventana) y se lo comería igual.
  */
 function TarjetaModulo({ promedio, icono }: { promedio: number | null; icono?: string }) {
   return (
-    <div className={cn('flex items-center justify-center gap-2.5 rounded-xl border border-slate-200 px-3 py-2.5', CLASE_CONTENEDOR_DASHBOARD)}>
-      <span
-        className="shrink-0 text-2xl font-black tabular-nums leading-none"
-        style={{ color: colorPuntajeHex(promedio) }}
-      >
+    <div
+      className="flex items-center justify-center gap-2.5 rounded-xl px-3 py-2.5"
+      style={{ background: colorFondoPuntaje(promedio) }}
+    >
+      <span className="shrink-0 text-2xl font-black tabular-nums leading-none text-white">
         {promedio == null ? '—' : pctComa(promedio, 0)}
       </span>
-      <IconoModulo nombre={icono} className="h-5 w-5 shrink-0 text-primary" />
+      <IconoModulo nombre={icono} className="h-5 w-5 shrink-0 text-white" />
     </div>
   )
 }
