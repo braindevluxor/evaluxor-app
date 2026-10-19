@@ -131,15 +131,15 @@ function GraficoPonderacion({
 
 /**
  * Alto del gráfico de ponderación de la fila de arriba: baja de 380 a 300
- * para que la fila 1 + la de las tortas quepan en la ventana sin scrollear.
+ * para que la fila 1 + la de las donas quepan en la ventana sin scrollear.
  */
 const ALTO_GRAFICO = 300
 
-/** Alto fijo de cada torta de la fila de abajo y de su leyenda al lado. */
-const ALTO_TORTA = 260
+/** Alto fijo de cada dona de la fila de abajo y de su leyenda al lado. */
+const ALTO_DONA = 260
 
-/** Fila de la torta: la misma forma que traían las listas, para no tocar la capa de datos. */
-type FilaTorta = {
+/** Fila de la dona: la misma forma que traían las listas, para no tocar la capa de datos. */
+type FilaDona = {
   nombre: string
   puntaje: number | null
   completadas: number
@@ -148,7 +148,7 @@ type FilaTorta = {
 }
 
 /** Tooltip de la porción: nombre, puntaje con su umbral y evaluaciones que lo respaldan. */
-function TooltipTorta({ active, payload }: { active?: boolean; payload?: readonly { payload?: FilaTorta }[] }) {
+function TooltipDona({ active, payload }: { active?: boolean; payload?: readonly { payload?: FilaDona }[] }) {
   const f = payload?.[0]?.payload
   if (!active || !f) return null
   return (
@@ -163,14 +163,14 @@ function TooltipTorta({ active, payload }: { active?: boolean; payload?: readonl
 }
 
 /**
- * Torta de promedios: reemplazó a la lista con barras (se pidió en 2026-01).
+ * Dona de promedios: reemplazó a la lista con barras (se pidió en 2026-01).
  * Cada porción es la participación de la unidad en el total —su puntaje sobre
  * la suma de todos— y su color la identifica; el puntaje real de la unidad
  * está en el tooltip de la porción y en la leyenda al lado. Esa leyenda además
  * es la forma accesible de recorrer el listado: una porción de recharts no se
  * puede enfocar con el teclado ni leer de corrido.
  */
-function GraficoTorta({
+function GraficoDona({
   titulo,
   descripcion,
   icono,
@@ -184,17 +184,17 @@ function GraficoTorta({
   descripcion: string
   /** Icono junto al título (la tarjeta de cargos trae el de alerta). */
   icono?: ReactNode
-  filas: FilaTorta[]
+  filas: FilaDona[]
   /** Plural para lo que quedó afuera por no tener puntaje: 'sucursales' / 'departamentos' / 'cargos'. */
   etiqueta: string
   sinDatos: string
   /** Sin clic queda sólo informativa: la tarjeta de cargos no tiene drilldown. */
-  onClic?: (fila: FilaTorta) => void
+  onClic?: (fila: FilaDona) => void
   className?: string
 }) {
-  // Una torta no puede dibujar un ángulo sin puntaje: en vez de perder esas
+  // Una dona no puede dibujar un ángulo sin puntaje: en vez de perder esas
   // unidades en silencio se cuentan en el rótulo de abajo.
-  const conPuntaje = filas.filter((f): f is FilaTorta & { puntaje: number } => f.puntaje != null)
+  const conPuntaje = filas.filter((f): f is FilaDona & { puntaje: number } => f.puntaje != null)
   const sinPuntaje = filas.length - conPuntaje.length
   return (
     <Card className={cn('border-0!', CLASE_CONTENEDOR_DASHBOARD, className)}>
@@ -213,16 +213,17 @@ function GraficoTorta({
         <>
           <div className="flex gap-3">
             <div className="w-[45%] shrink-0">
-              <ResponsiveContainer width="100%" height={ALTO_TORTA}>
+              <ResponsiveContainer width="100%" height={ALTO_DONA}>
                 <PieChart>
                   <Pie
                     data={conPuntaje}
                     dataKey="puntaje"
                     nameKey="nombre"
+                    innerRadius="55%"
                     outerRadius="82%"
                     paddingAngle={0.5}
                     onClick={(sector) => {
-                      const fila = (sector as { payload?: FilaTorta } | null)?.payload
+                      const fila = (sector as { payload?: FilaDona } | null)?.payload
                       if (fila) onClic?.(fila)
                     }}
                   >
@@ -230,13 +231,13 @@ function GraficoTorta({
                       <Cell key={f.clave ?? f.nombre} fill={colorSerie(i)} />
                     ))}
                   </Pie>
-                  <Tooltip content={<TooltipTorta />} />
+                  <Tooltip content={<TooltipDona />} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
             <ul
               className="min-w-0 flex-1 divide-y divide-slate-200 overflow-y-auto rounded-xl border border-slate-200"
-              style={{ height: ALTO_TORTA }}
+              style={{ height: ALTO_DONA }}
             >
               {conPuntaje.map((f, i) => (
                 <li key={f.clave ?? f.nombre}>
@@ -247,11 +248,11 @@ function GraficoTorta({
                       title={`${f.nombre}: ${pctComa(f.puntaje)} · ${f.completadas} ${f.completadas === 1 ? 'evaluación' : 'evaluaciones'}`}
                       className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors hover:bg-primary-50/40"
                     >
-                      <DatoTorta fila={f} color={colorSerie(i)} />
+                      <DatoDona fila={f} color={colorSerie(i)} />
                     </button>
                   ) : (
                     <div className="flex w-full items-center gap-2 px-2 py-1.5">
-                      <DatoTorta fila={f} color={colorSerie(i)} />
+                      <DatoDona fila={f} color={colorSerie(i)} />
                     </div>
                   )}
                 </li>
@@ -268,7 +269,7 @@ function GraficoTorta({
 }
 
 /** Renglón de la leyenda de una porción: color, nombre y su puntaje. */
-function DatoTorta({ fila, color }: { fila: FilaTorta; color: string }) {
+function DatoDona({ fila, color }: { fila: FilaDona; color: string }) {
   return (
     <>
       <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: color }} />
@@ -575,11 +576,11 @@ export function DashboardHome() {
             />
           </div>
 
-          {/* Fila de tortas: con departamento son tres columnas; sin él (filtro
+          {/* Fila de donas: con departamento son tres columnas; sin él (filtro
               por sucursal) se reparten en dos y no queda un hueco al final. */}
           <div className={cn('grid grid-cols-1 gap-4 md:grid-cols-2', verDepartamentos ? 'xl:grid-cols-3' : 'xl:grid-cols-2')}>
             {/* 3. Promedio por sucursal. */}
-            <GraficoTorta
+            <GraficoDona
               titulo="Promedio por sucursal"
               descripcion="Puntaje de cumplimiento promedio de cada sucursal en el rango, de mayor a menor · el tamaño de la porción es su participación en el total; el cursor muestra el puntaje y las evaluaciones, y el clic abre las de esa sucursal"
               filas={sucursalesRanking.map((s) => ({ nombre: s.nombre, puntaje: s.puntaje, completadas: s.completadas }))}
@@ -594,7 +595,7 @@ export function DashboardHome() {
             {/* 4. Promedio por departamento. El filtro por sucursal no aplica a
                 departamentos: con la sucursal elegida quedaría vacía. */}
             {verDepartamentos ? (
-              <GraficoTorta
+              <GraficoDona
                 titulo="Promedio por departamento"
                 descripcion="Puntaje de cumplimiento promedio de cada departamento en el rango, de mayor a menor · el tamaño de la porción es su participación en el total; el cursor muestra el puntaje y las evaluaciones, y el clic abre las de ese departamento"
                 filas={departamentosRanking.map((d) => ({ nombre: d.nombre, puntaje: d.puntaje, completadas: d.completadas }))}
@@ -610,7 +611,7 @@ export function DashboardHome() {
             {/* 5. Los 20 cargos con peor porcentaje de resultado en el rango:
                 la nota manda, no la cantidad de fallas. Se queda informativa:
                 el drilldown no tiene alcance por cargo. */}
-            <GraficoTorta
+            <GraficoDona
               icono={
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-600">
                   <AlertTriangle className="h-5 w-5" />

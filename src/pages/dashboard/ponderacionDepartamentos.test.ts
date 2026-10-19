@@ -9,14 +9,14 @@ function fuente(rel: string): string {
 /**
  * El dashboard suma departamentos a sus análisis, pero ya no con un gráfico de
  * ponderación gemelo del de sucursales: el promedio por departamento es una
- * torta, con la misma pieza que la de sucursales. El gráfico de ponderación
+ * dona, con la misma pieza que la de sucursales. El gráfico de ponderación
  * se conserva sólo para sucursales.
  */
 describe('dashboard · promedio por departamento', () => {
-  it('el promedio por departamento se dibuja como torta, con la misma pieza que el de sucursal', () => {
+  it('el promedio por departamento se dibuja como dona, con la misma pieza que el de sucursal', () => {
     const pagina = fuente('./DashboardHome.tsx')
-    // La torta es la misma pieza para sucursales y departamentos.
-    expect(pagina).toContain('function GraficoTorta(')
+    // La dona es la misma pieza para sucursales y departamentos.
+    expect(pagina).toContain('function GraficoDona(')
     expect(pagina).toContain('titulo="Promedio por sucursal"')
     expect(pagina).toContain('titulo="Promedio por departamento"')
     // El gráfico de ponderación sigue siendo sólo de sucursal.
@@ -25,7 +25,7 @@ describe('dashboard · promedio por departamento', () => {
     expect(pagina).not.toContain('titulo="Ponderación por departamento y módulo"')
   })
 
-  it('la torta de departamentos se oculta con el filtro por sucursal', () => {
+  it('la dona de departamentos se oculta con el filtro por sucursal', () => {
     const pagina = fuente('./DashboardHome.tsx')
     // Con una sucursal elegida la lista de departamentos quedaría vacía. La
     // condición vive en `verDepartamentos`, que además decide cuántas columnas

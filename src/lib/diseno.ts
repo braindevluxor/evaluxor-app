@@ -74,8 +74,8 @@ export const HEX_PRIMARY_900 = '#0b2545'
  */
 export const COLORES_MODULOS = ['#818ECF', '#A2C0E2', '#70E199', '#EACC9A', '#E17070', '#B29AEA', '#70D0E1', '#EA9ABE']
 
-/* --- Color por serie en las tortas del dashboard ---------------------------
- * Cada torta tiene una porción por sucursal / departamento / cargo: con la
+/* --- Color por serie en las donas del dashboard ---------------------------
+ * Cada dona tiene una porción por sucursal / departamento / cargo: con la
  * paleta de módulos no alcanza y los tonos seguidos del arcoíris quedan casi
  * iguales entre vecinos, así que se avanza el ángulo dorado (137,5°). La
  * saturación y la luminosidad quedan en clave pastel, igual que las curvas. */
