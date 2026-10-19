@@ -56,16 +56,23 @@ export const HEX_PRIMARY_400 = '#4f87c7'
 export const HEX_PRIMARY_900 = '#0b2545'
 
 /* --- Colores de los módulos del dashboard ---------------------------------- */
-/** Paleta ordenada de los módulos en el ranking/gráficos; el navy de marca va primero. */
-export const COLORES_MODULOS = [HEX_PRIMARY, HEX_PRIMARY_400, HEX_CUMPLE, '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#db2777']
+/**
+ * Paleta ordenada y PASTEL de los módulos en los gráficos (curvas de la
+ * ponderación); el tono de marca va primero. Se pidieron pasteles en 2026-01:
+ * se conservan los matices de la paleta saturada que había antes —cada módulo
+ * seguía siendo reconocible por su matiz— con la saturación acotada entre 45%
+ * y 65% y la luminosidad alternada 66/76, porque dos pasteles seguidos se
+ * confunden si sólo cambia el matiz.
+ */
+export const COLORES_MODULOS = ['#818ECF', '#A2C0E2', '#70E199', '#EACC9A', '#E17070', '#B29AEA', '#70D0E1', '#EA9ABE']
 
 /* --- Color por serie en las tortas del dashboard ---------------------------
  * Cada torta tiene una porción por sucursal / departamento / cargo: con la
- * paleta de módulos no alcanza, y los tonos seguidos del arcoíris quedan casi
- * iguales entre vecinos. Se avanza el ángulo dorado (137,5°), que reparte
- * cualquier cantidad de series sin repetir tinte ni depender del total. */
+ * paleta de módulos no alcanza y los tonos seguidos del arcoíris quedan casi
+ * iguales entre vecinos, así que se avanza el ángulo dorado (137,5°). La
+ * saturación y la luminosidad quedan en clave pastel, igual que las curvas. */
 export function colorSerie(i: number): string {
-  return `hsl(${Math.round(i * 137.508) % 360} 65% 48%)`
+  return `hsl(${Math.round(i * 137.508) % 360} 62% 74%)`
 }
 
 /* --- Estados de evaluación (PROGRAMADA / ACTIVA / CERRADA) ------------------
