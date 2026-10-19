@@ -39,15 +39,23 @@ export function colorPuntajeHex(value: number | null): string {
 }
 
 /**
- * Fondo sólido coloreado por puntaje (las tarjetas de «Cumplimiento por
- * módulo»): mismos umbrales que `colorPuntajeHex`, pero con el «sin dato» más
- * oscuro (slate-500). Esas tarjetas llevan el porcentaje y el icono en
- * blanco, y sobre el gris claro de los gráficos no se leerían. Blanco sobre
- * los tres colores de umbral queda en ≥3:1, que es lo que pide el texto grande.
+ * Tarjeta de «Cumplimiento por módulo»: fondo PASTEL del umbral con el
+ * porcentaje y el icono en el tono profundo del mismo matiz (se pidieron
+ * pasteles en 2026-01). Blanco no se lee sobre pastel —1,3:1 sobre el verde—
+ * así que el texto baja al tono oscuro, y el par queda en ≥5:1.
+ * Los umbrales no se repiten acá: salen de `colorPuntajeHex`, así si cambian
+ * cambian en las dos piezas.
  */
-export function colorFondoPuntaje(value: number | null): string {
-  if (value == null) return '#64748b'
-  return colorPuntajeHex(value)
+const TARJETA_POR_UMBRAL: Record<string, { fondo: string; claseTexto: string }> = {
+  [HEX_CUMPLE]: { fondo: '#C0EDD0', claseTexto: 'text-green-800' },
+  [HEX_RIESGO]: { fondo: '#F7DFB6', claseTexto: 'text-amber-800' },
+  [HEX_NO_CUMPLE]: { fondo: '#F5BCBC', claseTexto: 'text-red-800' },
+  [HEX_SIN_DATO]: { fondo: '#D9DFE8', claseTexto: 'text-slate-700' }
+}
+
+/** Fondo pastel + clase de texto que se lee sobre él (ver `TARJETA_POR_UMBRAL`). */
+export function coloresTarjetaPuntaje(value: number | null): { fondo: string; claseTexto: string } {
+  return TARJETA_POR_UMBRAL[colorPuntajeHex(value)]
 }
 
 /* --- Colores de marca (el navy EvaLuxor se escribía a mano en ~6 archivos) -- */
