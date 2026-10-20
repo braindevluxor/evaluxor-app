@@ -1149,11 +1149,7 @@ function promedioPorUnidad(
     // Cada evaluación aporta a su tienda o a su área, nunca a las dos a la vez.
     const id = por === 'sucursal' ? ev.sucursal_id : ev.departamento_id
     if (!id) continue
-<<<<<<< HEAD
-    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones)
-=======
     const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones, datos.sucursalPermisos)
->>>>>>> 2256a95 (Ultima data)
     const u = mapa.get(id)
     if (u) {
       if (puntaje != null) u.puntajes.push(puntaje)
@@ -1254,11 +1250,7 @@ export function incumplimientosEnRango(datos: ConjuntoDatos): number {
     const item = porItem.get(r.item_id)
     if (!item) continue
     const sucursalId = sucursalDeEval.get(r.evaluacion_id)
-<<<<<<< HEAD
-    const v = proporcionItem(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item, r.valor)
-=======
     const v = proporcionItem(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos) : item, r.valor)
->>>>>>> 2256a95 (Ultima data)
     if (v === 0) n++
   }
   return n
