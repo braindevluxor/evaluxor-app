@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, Pencil, Plus, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
 import { etiquetaTipo, conciliacionPorcentaje, esMatchConciliacion, totalConciliacion, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, formatearMontoPerdida, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, resumenPerdidaConciliacion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
@@ -50,6 +50,34 @@ interface Props {
 function responsablesDeCheck(item: { responsables?: string[] | null }, o: Opcion): string[] {
   const deOpcion = responsablesDeOpcion(o)
   return deOpcion.length ? deOpcion : (item.responsables ?? [])
+}
+
+const ESTILO_PERMISO: Record<string, string> = {
+  VIGENTE: 'bg-emerald-100 text-emerald-800',
+  POR_VENCER: 'bg-amber-100 text-amber-800',
+  VENCIDO: 'bg-red-100 text-red-800',
+  SIN_FECHA: 'bg-slate-100 text-slate-600'
+}
+
+const TEXTO_PERMISO: Record<string, (vence: string | null) => string> = {
+  VIGENTE: (vence) => (vence ? `Vigente hasta ${vence}` : 'Vigente'),
+  POR_VENCER: (vence) => `Vence ${vence}`,
+  VENCIDO: (vence) => `Vencido ${vence}`,
+  SIN_FECHA: () => 'Sin fecha de vencimiento'
+}
+
+/**
+ * Badge del estado de un permiso trado desde la sucursal. Las opciones escritas
+ * a mano no lo traen y no pintan nada, así que el mismo render sirve para los
+ * dos orígenes de lista.
+ */
+function badgePermiso(o: Opcion): ReactNode {
+  if (!o.estado_permiso) return null
+  return (
+    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold', ESTILO_PERMISO[o.estado_permiso])}>
+      {TEXTO_PERMISO[o.estado_permiso](o.vence ?? null)}
+    </span>
+  )
 }
 
 /** ¿Un check NO está cumplido (punto incumplido)? CHECKLIST: no marcado o rango bajo el mínimo. LISTA/UNIDAD: no todas las filas lo tienen. Sin filas puntuables → false. */
@@ -210,9 +238,11 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
         <>
         <div className="space-y-2">
           <p className="text-xs text-slate-400">
-            {conPuntos
-              ? 'El ítem otorga los puntos de las opciones validadas. Marca “No aplica” en las opciones que no corresponden; se excluyen del puntaje.'
-              : 'Marca “No aplica” en las opciones que no corresponden; se excluyen del puntaje.'}
+            {opts.some((o) => o.estado_permiso)
+              ? 'La lista viene de los permisos de la sucursal. Marca los que encontraste presentes en la tienda: un permiso vencido no cuenta aunque esté presente.'
+              : conPuntos
+                ? 'El ítem otorga los puntos de las opciones validadas. Marca “No aplica” en las opciones que no corresponden; se excluyen del puntaje.'
+                : 'Marca “No aplica” en las opciones que no corresponden; se excluyen del puntaje.'}
           </p>
           {opts.map((o) => {
             const activo = seleccion.includes(o.id)
@@ -242,12 +272,13 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                       el ancho del texto entra en el cálculo de línea: si no cabe junto a los
                       badges, ellos bajan y el título lee completo. */}
                   <span className="min-w-0 flex-auto break-words text-sm text-slate-700">{o.etiqueta}</span>
+                  {badgePermiso(o)}
                   {esRango ? (
                     <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
                       Valor (mín. {o.minimo ?? '—'}{o.unidad ? ` ${o.unidad}` : ''})
                     </span>
                   ) : null}
-                  {o.puntos != null && o.puntos > 0 ? (
+                  {o.puntos != null && o.puntos > 0 && !o.estado_permiso ? (
                     <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
                   ) : null}
                   <button

@@ -24,6 +24,50 @@ export interface Sucursal {
   created_at: string
   /** Gerente (perfil) embebido por el join en el catálogo/evaluación. Opcional: solo está cuando se hace el join. */
   gerente?: { id?: string; nombre: string } | null
+  /**
+   * Parámetros operativos: cuántos equipos de cada tipo tiene la tienda. Son
+   * columnas porque son cinco contadores fijos, siempre presentes; los
+   * computadores (con nombre) y los permisos (con vigencia) son listas y viven
+   * en `sucursal_computadores` y `sucursal_permisos`.
+   *
+   * Opcionales en el tipo: el catálogo cacheado offline (IndexedDB) puede tener
+   * filas guardadas antes de la migración; al leerlos usar `?? 0`.
+   */
+  equipos_pos?: number | null
+  verificadores_precio?: number | null
+  pantallas_publicitarias?: number | null
+  cabezales?: number | null
+  pda?: number | null
+}
+
+/** Computador de la sucursal: el puesto importa (RRHH, Recibidor…), por eso lleva nombre. */
+export type TipoComputador = 'ADMINISTRATIVO' | 'OPERATIVO'
+
+export interface SucursalComputador {
+  id: string
+  sucursal_id: string
+  nombre: string
+  tipo: TipoComputador
+  /** Equipos en ese mismo puesto (2 cajas con el mismo nombre no duplican la fila). */
+  cantidad: number
+  created_at: string
+}
+
+/**
+ * Permiso operativo que la tienda debe tener al día: sanitario, de bomberos,
+ * municipal… `vigente` es la marca rápida de «aplica hoy» y `vence` la fecha
+ * con la que se avisa lo que está por vencer o vencido.
+ */
+export interface SucursalPermiso {
+  id: string
+  sucursal_id: string
+  nombre: string
+  numero: string | null
+  vigente: boolean
+  emision: string | null
+  vence: string | null
+  observacion: string | null
+  created_at: string
 }
 
 /**
@@ -156,6 +200,9 @@ export interface Modulo {
   created_at: string
 }
 
+/** Estado de un permiso de sucursal derivado de su fecha de vencimiento contra «hoy». */
+export type EstadoPermiso = 'SIN_FECHA' | 'VIGENTE' | 'POR_VENCER' | 'VENCIDO'
+
 export interface Opcion {
   id: string
   etiqueta: string
@@ -173,6 +220,14 @@ export interface Opcion {
   maximo?: number
   /** Unidad opcional del valor del rango (ej: cm, litros). */
   unidad?: string
+  /**
+   * Opción generada desde los permisos de la sucursal (`item.permisos_sucursal`):
+   * fecha de vencimiento del permiso, como texto `YYYY-MM-DD` para comparar sin
+   * desplazamientos por zona horaria.
+   */
+  vence?: string | null
+  /** Estado del permiso contra la fecha de hoy. Un permiso VENCIDO nunca cuenta como cumplido, aunque el evaluador lo marque. */
+  estado_permiso?: EstadoPermiso
 }
 
 export interface Item {
@@ -200,6 +255,14 @@ export interface Item {
   repetible?: boolean | null
   /** CONCILIACION: dato del sistema que se usa como teórica de referencia al escanear (soh → stock o finalBase → precio de venta, que es la base más el impuesto). Se configura al crear el ítem en Config. */
   contra_dato?: ContraDatoConciliacion | null
+  /**
+   * CHECKLIST: origen de la lista de opciones. `null` = lista manual escrita en
+   * `opciones`. `TODOS` = se genera desde los permisos ACTIVOS de la sucursal
+   * (la marca `vigente`); `VENCIDOS` = sólo los que ya pasaron su fecha. La
+   * lista es viva: se arma en cada render contra los permisos actuales y la
+   * fecha de hoy, por eso un permiso INACTIVO nunca aparece en la evaluación.
+   */
+  permisos_sucursal?: 'TODOS' | 'VENCIDOS' | null
   created_at: string
 }
 

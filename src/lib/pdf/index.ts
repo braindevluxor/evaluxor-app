@@ -2,7 +2,8 @@ import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { ocultarCentroCodigoEvaluacion } from '../codigoEvaluacion'
 import type { DetalleEvaluacion } from '../data/indicadores'
-import { listarPerfilesSync, obtenerEvaluacion, resumirEvaluacion } from '../data/indicadores'
+import { listarPerfilesSync, obtenerEvaluacion, resumirEvaluacion, unidadDe } from '../data/indicadores'
+import { aplicarPermisosChecklist } from '../permisosChecklist'
 import {
   colaboradorCumple,
   conciliacionPorcentaje,
@@ -111,7 +112,12 @@ function opcionesDeSucursal(detalle: DetalleEvaluacion): Map<string, string[]> {
   return opciones
 }
 
-function aplicarOpciones(item: Item, opciones: Map<string, string[]>): Item {
+function aplicarOpciones(item: Item, opciones: Map<string, string[]>, detalle: DetalleEvaluacion): Item {
+  // Mismo orden que en el detalle y en el tablero: primero la lista que se
+  // genera desde los permisos de la sucursal, y sólo si no pasó por ahí el
+  // recorte a las opciones marcadas a mano.
+  const conPermisos = aplicarPermisosChecklist(item, unidadDe(detalle.evaluacion), { sucursalPermisos: detalle.sucursalPermisos })
+  if (conPermisos !== item) return conPermisos
   if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
   const ids = opciones.get(item.id)
   return ids?.length ? { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) } : item
@@ -123,7 +129,7 @@ export function filtrarDetallePdf(
 ): DetalleEvaluacion {
   const opciones = opcionesDeSucursal(detalle)
   const itemsPorId = new Map(detalle.items.map((item) => {
-    const aplicado = aplicarOpciones(item, opciones)
+    const aplicado = aplicarOpciones(item, opciones, detalle)
     return [item.id, aplicado] as const
   }))
   const respuestas = detalle.respuestas.filter((respuesta) => {
@@ -153,7 +159,7 @@ export function filtrarDetallePdf(
 
 function puntajeModulo(detalle: DetalleEvaluacion, moduloId: string, opciones: Map<string, string[]>): number | null {
   const itemsModulo = detalle.items.filter((item) => item.modulo_id === moduloId)
-  const itemsPorId = new Map(itemsModulo.map((item) => [item.id, aplicarOpciones(item, opciones)]))
+  const itemsPorId = new Map(itemsModulo.map((item) => [item.id, aplicarOpciones(item, opciones, detalle)]))
   const binarios = detalle.respuestas.flatMap((respuesta) => {
     const item = itemsPorId.get(respuesta.item_id)
     if (!item) return []
@@ -388,7 +394,7 @@ export function buildPdfDocument(
 
   const ev = resumenDetalle.evaluacion
   const fecha = new Date(`${ev.fecha}T12:00:00`).toLocaleDateString('es')
-  const resumen = resumirEvaluacion(ev, resumenDetalle.respuestas, resumenDetalle.items, resumenDetalle.sucursalOpciones)
+  const resumen = resumirEvaluacion(ev, resumenDetalle.respuestas, resumenDetalle.items, resumenDetalle.sucursalOpciones, resumenDetalle.sucursalPermisos)
   const opcionesResumen = opcionesDeSucursal(resumenDetalle)
   const nombreDelFiltro = filtro === 'cumple' ? 'Cumple' : filtro === 'ambos' ? 'Ambos' : 'No cumple'
 
@@ -515,7 +521,7 @@ export function buildPdfDocument(
   }
 
   const dibujarDetalleItem = (item: Item, valor: unknown) => {
-    const itemAplicado = aplicarOpciones(item, opciones)
+    const itemAplicado = aplicarOpciones(item, opciones, resumenDetalle)
     const resultado = veredictoItem(itemAplicado, valor)
     const estado = resultado === 'cumple' ? 'CUMPLE' : resultado === 'no-cumple' ? 'NO CUMPLE' : resultado === 'no-aplica' ? 'NO APLICA' : 'SIN VEREDICTO'
     textoLinea(`${item.texto} — ${estado}`, { bold: true, gap: 1 })
@@ -800,7 +806,7 @@ export function buildPdfDocument(
   if (imprimeCargos(impresion)) {
     resultadosCargos = clasificarResultadosCargos(
       valorPorResponsable(
-        resumenDetalle.items.map((item) => aplicarOpciones(item, opcionesResumen)),
+        resumenDetalle.items.map((item) => aplicarOpciones(item, opcionesResumen, resumenDetalle)),
         resumenDetalle.respuestas
       ),
       ev.sucursal?.branch_id === BRANCH_CENTRAL ? [] : catalogoCargos.sucursal,
@@ -810,7 +816,7 @@ export function buildPdfDocument(
       const item = resumenDetalle.items.find((candidato) => candidato.id === respuesta.item_id)
       if (!item) continue
       for (const incumplimiento of incumplimientosPorResponsable(
-        aplicarOpciones(item, opcionesResumen),
+        aplicarOpciones(item, opcionesResumen, resumenDetalle),
         respuesta.valor
       )) {
         puntosIncumplidosPorCargo.set(

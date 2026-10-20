@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Modulo, Item, Sucursal, Departamento, DepartamentoModulo, DepartamentoItem, DepartamentoOpcion, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem, SucursalOpcion } from '../types'
+import type { Modulo, Item, Sucursal, Departamento, DepartamentoModulo, DepartamentoItem, DepartamentoOpcion, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem, SucursalOpcion, SucursalPermiso } from '../types'
 import { claveRespuesta, type InstanciaPlana } from '../pasos'
 import { normalizarResponsables, type ResponsableIncidencia } from '../data/responsablesIncidencia'
 
@@ -167,6 +167,12 @@ export interface CacheData {
   sucursalModulos: SucursalModulo[]
   sucursalItems: SucursalItem[]
   sucursalOpciones: SucursalOpcion[]
+  /**
+   * Permisos configurados en cada sucursal. Van en el caché porque un ítem
+   * CHECKLIST puede usarlos como lista (ver `item.permisos_sucursal`) y esa
+   * lista tiene que armarse también sin red.
+   */
+  sucursalPermisos: SucursalPermiso[]
   updated_at: number
 }
 
@@ -325,6 +331,7 @@ export function normalizarCache(bruto: unknown): CacheData {
     sucursalModulos: oLista(c.sucursalModulos),
     sucursalItems: oLista(c.sucursalItems),
     sucursalOpciones: oLista(c.sucursalOpciones),
+    sucursalPermisos: oLista(c.sucursalPermisos),
     updated_at: typeof c.updated_at === 'number' ? c.updated_at : 0
   }
 }

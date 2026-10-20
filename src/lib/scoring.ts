@@ -786,19 +786,29 @@ export function formatearLastSync(fecha: string | null | undefined): string {
 /**
  * ¿Una opción del checklist está cumplida? Para opciones de tipo RANGO requiere
  * estar marcada y tener un valor numérico mayor o igual al mínimo aceptable.
+ *
+ * `estado_permiso` es el estado del permiso de sucursal contra la fecha de hoy
+ * (`EstadoPermiso` de `types.ts`; se declara acá como `string` porque este
+ * módulo no importa nada a propósito). Un permiso VENCIDO nunca cumple, aunque
+ * el evaluador confirme que el documento está en la tienda: la vigencia la
+ * decide la fecha, no la marca.
  */
 export function opcionCumplida(
-  o: { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number },
+  o: { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number; estado_permiso?: string },
   valor: ValorChecklist | null | undefined,
   id: string
 ): boolean {
   const sel = (valor?.selected ?? []).includes(id)
+  if (!sel) return false
+  // Un permiso VENCIDO no cuenta como cumplido aunque el evaluador confirme su
+  // presencia en la tienda: la vigencia la decide la fecha, no la marca. El
+  // check sirve para evidenciar que el documento está, no para renovarlo.
+  if (o.estado_permiso === 'VENCIDO') return false
   if (o.tipo_respuesta === 'RANGO') {
-    if (!sel) return false
     const val = (valor?.valores ?? {})[id]
     return typeof val === 'number' && typeof o.minimo === 'number' && val >= o.minimo
   }
-  return sel
+  return true
 }
 
 export function valorBinario(item: { tipo: string; opciones?: string[] | { id: string; tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }[] | null }, valor: unknown): boolean | null {
@@ -866,15 +876,37 @@ if (item.tipo === 'CHECKLIST') {
 }
 
 /**
+ * ¿El CHECKLIST quedó sin nada que marcar porque su lista sale de los permisos
+ * y la tienda hoy no tiene ninguno activo?
+ *
+ * No es una respuesta que falte: es una pregunta sin pregunta. Dejarla como
+ * pendiente clavaba la evaluación —un ítem obligatorio sin ninguna forma de
+ * satisfacerlo— tanto en la tienda que nunca cargó permisos como en el equipo
+ * sin conexión cuyo catálogo todavía no los trajo.
+ */
+function sinOpcionesQueMarcar(item: {
+  tipo: string
+  permisos_sucursal?: string | null
+  opciones?: { id: string }[] | string[] | null
+}): boolean {
+  return item.tipo === 'CHECKLIST' && !!item.permisos_sucursal && !(item.opciones?.length)
+}
+
+/**
  * ¿La respuesta guardada de un ítem está vacía? (la clave existe pero sin contenido
  * real: un checklist sin marcar, una conciliación sin productos, un cumple/no cumple
  * sin veredicto…). Los editores lo usan para el aviso de "obligatorio para enviar".
  */
-export function estaVacioItem(item: { tipo: string; repetible?: boolean | null }, valor: unknown): boolean {
+export function estaVacioItem(
+  item: { tipo: string; repetible?: boolean | null; permisos_sucursal?: string | null; opciones?: { id: string }[] | string[] | null },
+  valor: unknown
+): boolean {
   switch (item.tipo) {
     case 'CUMPLE_NO_CUMPLE':
       return (valor as ValorCumple | null)?.value !== true && (valor as ValorCumple | null)?.value !== false
     case 'CHECKLIST':
+      // Sin permisos activos no hay nada que tildar: no se puede quedar vacío.
+      if (sinOpcionesQueMarcar(item)) return false
       return !((valor as ValorChecklist | null)?.selected?.length)
     case 'CONCILIACION': {
       const ps = (valor as ValorConciliacion | null)?.productos ?? []
@@ -908,8 +940,16 @@ export function estaVacioItem(item: { tipo: string; repetible?: boolean | null }
  * 1/N con el checklist en blanco). Un ítem marcado como No aplica SÍ cuenta: el
  * evaluador indicó que no corresponde y se excluye del puntaje.
  */
-export function tieneRespuesta(item: { tipo: string; repetible?: boolean | null }, valor: unknown): boolean {
-  if (valor == null) return false
+export function tieneRespuesta(
+  item: { tipo: string; repetible?: boolean | null; permisos_sucursal?: string | null; opciones?: { id: string }[] | string[] | null },
+  valor: unknown
+): boolean {
+  if (valor == null) {
+    // Un CHECKLIST de permisos sin lista que revisar ya está respondido: no hay
+    // nada que marcar y contarlo como pendiente dejaba el avance a mitad de
+    // camino sin que el evaluador pudiera hacer nada al respecto.
+    return sinOpcionesQueMarcar(item)
+  }
   if ((valor as { informativo?: boolean }).informativo === true) return true
   return !estaVacioItem(item, valor)
 }

@@ -4594,3 +4594,147 @@ where n.nspname = 'public'
     'previsualizar_departamentos', 'aplicar_departamentos'
   )
 order by p.proname;
+
+
+-- ###########################################################################
+-- Archivo consolidado: parametros-sucursal.sql
+-- ###########################################################################
+-- ============================================================================
+-- PARAMETROS OPERATIVOS DE LA SUCURSAL
+--
+-- La ficha de la tienda: cuantos equipos de cada tipo hay, que computadores
+-- atiende cada puesto y que permisos operativos tiene la sucursal al dia.
+-- Es distinto de `sucursal_modulos` / `sucursal_items`: eso define QUE se
+-- evalua en la tienda; esto define CON QUE CUENTA la tienda, que es con lo que
+-- despues se mide y se compara.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+--
+-- 1) CONTADORES DE EQUIPOS (columnas de la propia sucursal)
+--
+-- Van como columnas y no en una tabla porque son cinco contadores fijos,
+-- siempre presentes, y asi se suman y se comparan de un `select` sin agrupar:
+-- son parametros de la sucursal, no una lista que crezca. Los computadores
+-- (que llevan nombre) y los permisos (con vigencia) SI son listas y viven en
+-- sus tablas del punto 2 y 3.
+--
+-- `default 0` y `not null`: un cero explicito ("no hay ninguno") es un dato, y
+-- deja el `sum()` de un reporte sin `coalesce` ni huecos. El `?? 0` del cliente
+-- cubre las filas cacheadas antes de esta migracion.
+-- ============================================================================
+alter table public.sucursales add column if not exists equipos_pos integer not null default 0;
+alter table public.sucursales add column if not exists verificadores_precio integer not null default 0;
+alter table public.sucursales add column if not exists pantallas_publicitarias integer not null default 0;
+alter table public.sucursales add column if not exists cabezales integer not null default 0;
+alter table public.sucursales add column if not exists pda integer not null default 0;
+
+-- La guarda de >= 0 vive en la base, no solo en la pantalla: un contador
+-- negativo no describe ninguna tienda y arruina cualquier promedio. La app ya
+-- recorta, pero una escritura a mano (un script, un dato importado) no pasa
+-- por ahi.
+alter table public.sucursales drop constraint if exists sucursales_contadores_no_negativos;
+alter table public.sucursales add constraint sucursales_contadores_no_negativos
+  check (equipos_pos >= 0 and verificadores_precio >= 0 and pantallas_publicitarias >= 0
+         and cabezales >= 0 and pda >= 0);
+
+-- ----------------------------------------------------------------------------
+-- 2) COMPUTADORES DE LA SUCURSAL (administrativos y operativos, con nombre)
+--
+-- A diferencia de los contadores de `sucursales` (POS, cabezales, PDA), los
+-- computadores llevan NOMBRE porque el puesto importa: "RRHH" o "Recibidor" no
+-- son solo un numero, son el area que atiende ese equipo. `tipo` los separa en
+-- administrativos y operativos para poder contarlos por separado en los
+-- reportes. `cantidad` permite 2 equipos en el mismo puesto sin duplicar la
+-- fila.
+-- ----------------------------------------------------------------------------
+create table if not exists public.sucursal_computadores (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  nombre text not null,
+  tipo text not null default 'OPERATIVO' check (tipo in ('ADMINISTRATIVO', 'OPERATIVO')),
+  cantidad integer not null default 1 check (cantidad >= 0),
+  created_at timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
+-- 3) PERMISOS OPERATIVOS DE LA SUCURSAL (sanitarios, bomberos, ...)
+--
+-- Cada permiso que la tienda debe tener al dia: nombre, numero de referencia y
+-- vigencia. `vigente` es la marca rapida de si aplica hoy; `vence` es la fecha
+-- con la que se avisa lo que esta por vencer. `emision` es opcional (no todo
+-- permiso la trae) y `observacion` recibe lo que no entra en los campos.
+-- ----------------------------------------------------------------------------
+create table if not exists public.sucursal_permisos (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  nombre text not null,
+  numero text,
+  vigente boolean not null default true,
+  emision date,
+  vence date,
+  observacion text,
+  created_at timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
+-- 4) ROW LEVEL SECURITY: mismo trato que el resto de la configuracion por
+--    sucursal (lectura a cualquiera con sesion, gestion solo al LIDER). Los
+--    contadores no tienen politica propia: son columnas de `sucursales`, que ya
+--    tiene las suyas.
+-- ----------------------------------------------------------------------------
+alter table public.sucursal_computadores enable row level security;
+alter table public.sucursal_permisos enable row level security;
+
+drop policy if exists sucursal_computadores_select on public.sucursal_computadores;
+create policy sucursal_computadores_select on public.sucursal_computadores for select to authenticated using (true);
+drop policy if exists sucursal_computadores_lider on public.sucursal_computadores;
+create policy sucursal_computadores_lider on public.sucursal_computadores for all using (public.es_lider()) with check (public.es_lider());
+drop policy if exists sucursal_permisos_select on public.sucursal_permisos;
+create policy sucursal_permisos_select on public.sucursal_permisos for select to authenticated using (true);
+drop policy if exists sucursal_permisos_lider on public.sucursal_permisos;
+create policy sucursal_permisos_lider on public.sucursal_permisos for all using (public.es_lider()) with check (public.es_lider());
+
+-- Segunda mitad de la cerradura: si algun dia RLS queda apagado en una de
+-- estas tablas (pasa, y no se ve), el `grant` por defecto de Supabase pasa a ser
+-- la unica puerta. Con el revoke sigue cerrada.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['sucursal_computadores', 'sucursal_permisos'] loop
+    execute format('revoke select on public.%I from anon', t);
+  end loop;
+end $$;
+
+
+-- ###########################################################################
+-- Archivo consolidado: permisos-checklist.sql
+-- ###########################################################################
+-- ============================================================================
+-- CHECKLIST QUE TOMA SU LISTA DE LOS PERMISOS DE LA SUCURSAL
+--
+-- Un ítem CHECKLIST puede llenar su lista con los permisos de la tienda en vez
+-- de la escrita a mano. La columna decide el origen y el filtro; la lista en sí
+-- se arma en cada pantalla desde `sucursal_permisos`, así que no se guarda una
+-- copia en la evaluación y siempre refleja los permisos actuales.
+--
+--   NULL       -> lista manual en `items.opciones` (comportamiento de siempre)
+--   'TODOS'    -> los permisos ACTIVOS de la sucursal evaluada
+--   'VENCIDOS' -> sólo los ACTIVOS cuya `vence` ya pasó
+--
+-- El estado vigente/vencido de cada permiso se calcula contra la fecha de hoy en
+-- el dispositivo, no acá: es el mismo criterio que usa Config para la ficha de
+-- parámetros de la sucursal.
+-- ============================================================================
+alter table public.items
+  add column if not exists permisos_sucursal text;
+
+alter table public.items
+  drop constraint if exists items_permisos_sucursal_valido;
+alter table public.items
+  add constraint items_permisos_sucursal_valido
+  check (permisos_sucursal is null or permisos_sucursal in ('TODOS', 'VENCIDOS'));
+
+comment on column public.items.permisos_sucursal is
+  'CHECKLIST: origen de la lista de opciones. NULL = manual; TODOS / VENCIDOS = generada desde los permisos activos de la sucursal evaluada.';

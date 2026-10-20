@@ -268,6 +268,9 @@ export function ItemsPage() {
                       {esSeccion && nHijos > 0 ? <Badge color={0}>{nHijos} ítem(s) dentro</Badge> : null}
                       {it.requerido ? <Badge color={0}>Obligatorio</Badge> : null}
                       {it.tipo === 'UNIDAD_CHECKLIST' && it.repetible === false ? <Badge color={0}>Carga única</Badge> : null}
+                      {it.tipo === 'CHECKLIST' && it.permisos_sucursal ? (
+                        <Badge color={1}>{it.permisos_sucursal === 'VENCIDOS' ? 'Permisos · solo vencidos' : 'Permisos de la sucursal'}</Badge>
+                      ) : null}
                       {!it.activo ? <Badge color={4}>Inactivo</Badge> : null}
                       {pesoItem(it) > 0 ? <Badge color={2}>{pesoItem(it)} pts</Badge> : <Badge color={4}>Sin puntos</Badge>}
                     </div>
@@ -466,9 +469,17 @@ function FormItem({
   const [repetible, setRepetible] = useState(inicial?.repetible ?? true)
   const [contraDato, setContraDato] = useState<ContraDatoConciliacion>(inicial?.contra_dato ?? 'SOH')
   const [autoPuntaje, setAutoPuntaje] = useState(false)
+  /**
+   * Origen de la lista de un CHECKLIST: vacío = la escrita a mano acá abajo;
+   * 'TODOS' / 'VENCIDOS' = la que se genera desde los permisos ACTIVOS de cada
+   * sucursal al momento de evaluar (ver `item.permisos_sucursal`).
+   */
+  const [origenPermisos, setOrigenPermisos] = useState<'' | 'TODOS' | 'VENCIDOS'>(inicial?.permisos_sucursal ?? '')
 
   const esSeccion = tipo === 'CONTENEDOR'
   const conChecklist = tipo === 'CHECKLIST' || tipo === 'LISTA_COLABORADORES' || tipo === 'UNIDAD_CHECKLIST'
+  /** El CHECKLIST trae su lista de los permisos de la sucursal: la escrita a mano queda guardada pero no se usa. */
+  const conPermisos = tipo === 'CHECKLIST' && !!origenPermisos
   const itemsModulo = modulos.find((m) => m.id === moduloSel)?._items ?? items
   const seccionesDisponibles = itemsModulo.filter((i) => i.tipo === 'CONTENEDOR' && i.id !== inicial?.id)
 
@@ -488,7 +499,10 @@ function FormItem({
   const sumaHijosPropios = esSeccion && inicial ? itemsModulo.filter((i) => i.padre_id === inicial.id).reduce((a, i) => a + pesoItem(i), 0) : 0
 
   const sumaPuntosOpciones = opciones.reduce((a, o) => a + (o.puntos && o.puntos > 0 ? o.puntos : 0), 0)
-  const rangoIncompleto = opciones.some((o) => o.tipo_respuesta === 'RANGO' && o.etiqueta.trim() && typeof o.minimo !== 'number')
+  // El chequeo de RANGO sólo mira la lista escrita a mano, y con origen en
+  // permisos esa lista no está en pantalla: revisarla sería bloquear el guardado
+  // por un campo que el editor ni siquiera muestra.
+  const rangoIncompleto = !conPermisos && opciones.some((o) => o.tipo_respuesta === 'RANGO' && o.etiqueta.trim() && typeof o.minimo !== 'number')
   const apiSeleccionada = esSeccion ? apiDisponible(apiId) : undefined
   const apiSinCampos = !!apiSeleccionada && !apiCampos.length
 
@@ -564,7 +578,8 @@ function FormItem({
           api_campos: esSeccion && apiId ? apiCampos : null,
           permitir_duplicados: esSeccion && apiId ? permitirDuplicados : false,
           repetible: tipo === 'UNIDAD_CHECKLIST' ? repetible : true,
-          contra_dato: tipo === 'CONCILIACION' ? contraDato : 'SOH'
+          contra_dato: tipo === 'CONCILIACION' ? contraDato : 'SOH',
+          permisos_sucursal: conPermisos ? origenPermisos : null
         })
       }}
     >
@@ -722,25 +737,46 @@ function FormItem({
       ) : null}
       {tipo === 'CHECKLIST' ? (
         <>
-          <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-3 text-sm text-slate-700">
-            <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-primary" checked={autoPuntaje} onChange={(e) => setAutoPuntaje(e.target.checked)} />
-            <span>
-              <strong>Puntaje automático</strong>
-              <span className="block text-xs font-normal text-slate-500">Reparte el peso del ítem en partes iguales entre las opciones (peso ÷ nº de checks, ej. 6 ÷ 15 = 0.4 por check).</span>
-            </span>
-          </label>
           <Field
-            label="Lista de opciones"
-            hint="El ítem cumple al marcar todas las opciones. En «Rango de valor» el punto solo cumple si el evaluador ingresa un valor mayor o igual al mínimo aceptable. Los puntos por opción admiten hasta 3 decimales (mínimo 0.001); si asignás puntos a TODAS las opciones, la puntuación del ítem se reparte."
+            label="Origen de la lista"
+            hint="La lista puede escribirse a mano acá abajo o salir de los permisos configurados en cada sucursal (Config → Unidades → sucursal → parámetros). Con permisos, la lista se arma al evaluar con los ACTIVOS de esa tienda y la fecha de ese día: un permiso retirado no aparece, y el evaluador marca cuáles encontró presentes mientras el badge muestra si está vigente o vencido. Un permiso vencido no puntúa aunque esté presente."
           >
-            <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} conPuntos conRango puntosBloqueados={autoPuntaje} />
+            <Select value={origenPermisos} onChange={(e) => setOrigenPermisos(e.target.value as '' | 'TODOS' | 'VENCIDOS')}>
+              <option value="">Lista escrita a mano</option>
+              <option value="TODOS">Permisos de la sucursal · todos</option>
+              <option value="VENCIDOS">Permisos de la sucursal · solo vencidos</option>
+            </Select>
           </Field>
+          {conPermisos ? (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+              {origenPermisos === 'VENCIDOS'
+                ? 'Con «solo vencidos» el evaluador únicamente ve los permisos caídos de esa tienda: el ítem sirve para evidenciar el problema, no para sumar puntos.'
+                : 'La lista se genera con los permisos ACTIVOS de cada sucursal: cada uno reparte el peso del ítem a partes iguales y el evaluador sólo confirma la presencia del documento.'}
+            </p>
+          ) : null}
+          {conPermisos ? null : (
+            <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-3 text-sm text-slate-700">
+              <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-primary" checked={autoPuntaje} onChange={(e) => setAutoPuntaje(e.target.checked)} />
+              <span>
+                <strong>Puntaje automático</strong>
+                <span className="block text-xs font-normal text-slate-500">Reparte el peso del ítem en partes iguales entre las opciones (peso ÷ nº de checks, ej. 6 ÷ 15 = 0.4 por check).</span>
+              </span>
+            </label>
+          )}
+          {conPermisos ? null : (
+            <Field
+              label="Lista de opciones"
+              hint="El ítem cumple al marcar todas las opciones. En «Rango de valor» el punto solo cumple si el evaluador ingresa un valor mayor o igual al mínimo aceptable. Los puntos por opción admiten hasta 3 decimales (mínimo 0.001); si asignás puntos a TODAS las opciones, la puntuación del ítem se reparte."
+            >
+              <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} conPuntos conRango puntosBloqueados={autoPuntaje} />
+            </Field>
+          )}
           {rangoIncompleto ? (
             <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
               Hay opciones de tipo «Rango de valor» sin mínimo aceptable. Definí el mínimo en todas para poder guardar.
             </p>
           ) : null}
-          {sumaPuntosOpciones > 0 ? (
+          {sumaPuntosOpciones > 0 && !conPermisos ? (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-primary-50 px-3 py-2">
               <p className="text-xs font-medium text-primary-900">
                 Puntos de las opciones: <strong>{sumaPuntosOpciones} pts</strong> · se reparten sobre el peso del ítem ({Number(puntos) || 0} pts).

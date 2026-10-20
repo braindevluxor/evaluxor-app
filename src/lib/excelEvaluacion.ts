@@ -66,12 +66,13 @@ export function hojasDeEvaluacion(
     modulos: detalle.modulos,
     fotos: detalle.fotos,
     sucursalOpciones: detalle.sucursalOpciones,
+    sucursalPermisos: detalle.sucursalPermisos,
     instancias: detalle.instancias
   }
   // El CONTENEDOR es la sección que agrupa, no una respuesta: no tiene nada
   // que exportar (el detalle de la pantalla lo saltea por la misma razón).
   const filasDetalle = detalleDeEvaluacion(datos, ev.id).filter((fila) => fila.tipo !== 'CONTENEDOR')
-  const resumen = resumirEvaluacion(ev, detalle.respuestas, detalle.items, detalle.sucursalOpciones)
+  const resumen = resumirEvaluacion(ev, detalle.respuestas, detalle.items, detalle.sucursalOpciones, detalle.sucursalPermisos)
   const unidad = unidadDe(ev)
 
   const filasResumen: CeldaExcel[][] = [
@@ -105,7 +106,7 @@ export function hojasDeEvaluacion(
   for (const modulo of detalle.modulos) {
     filasModulos.push([
       modulo.nombre,
-      puntajeModuloDeRespuestas(detalle.respuestas, detalle.items, modulo.id, unidad, detalle.sucursalOpciones),
+      puntajeModuloDeRespuestas(detalle.respuestas, detalle.items, modulo.id, unidad, detalle.sucursalOpciones, detalle.sucursalPermisos),
       puntuablesPorModulo.get(modulo.id) ?? 0,
       cumplenPorModulo.get(modulo.id) ?? 0
     ])

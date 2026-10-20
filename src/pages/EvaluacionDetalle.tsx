@@ -10,6 +10,7 @@ import type { OpcionesPdf } from '../lib/pdf/opciones'
 import { descargarExcelEvaluacion } from '../lib/excelEvaluacion'
 import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
+import { aplicarPermisosChecklist } from '../lib/permisosChecklist'
 import { raicesDeModulo } from '../lib/pasos'
 import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
 import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionComparable, agruparPorDepartamento, esSinHablador, productosParaConciliar, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, montoSobranteConciliacion, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
@@ -867,7 +868,7 @@ export function EvaluacionDetalle() {
     )
   }
 
-  const { evaluacion, respuestas, items, modulos, fotos, sucursalOpciones, instancias } = detalle
+  const { evaluacion, respuestas, items, modulos, fotos, sucursalOpciones, sucursalPermisos, instancias } = detalle
   // ¿Hay productos escaneados en algún ítem de conciliación? El detalle es de solo
   // lectura, pero el Líder puede entrar a la vista de edición (que ya sabe borrar
   // con confirmación) si es que hay algo que editar.
@@ -875,10 +876,15 @@ export function EvaluacionDetalle() {
     const item = items.find((i) => i.id === r.item_id)
     return item?.tipo === 'CONCILIACION' && ((r.valor as ValorConciliacion | null)?.productos?.length ?? 0) > 0
   })
-  const { puntaje, itemsBinarios, itemsBinariosOk } = resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones)
+  const { puntaje, itemsBinarios, itemsBinariosOk } = resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones, sucursalPermisos)
   const est = estadoBadge(puntaje)
-  const aplicaOpciones = opcionesQueAplican(unidadDe(evaluacion), sucursalOpciones)
+  const unidad = unidadDe(evaluacion)
+  const aplicaOpciones = opcionesQueAplican(unidad, sucursalOpciones)
   const aplicarOpciones = (item: Item) => {
+    // Un CHECKLIST con origen en permisos no lleva opciones manuales: su lista
+    // se genera desde los permisos ACTIVOS de la sucursal, como al evaluar.
+    const conPermisos = aplicarPermisosChecklist(item, unidad, { sucursalPermisos })
+    if (conPermisos !== item) return conPermisos
     if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
     const ids = aplicaOpciones.get(item.id)
     if (!ids?.length) return item
@@ -1584,7 +1590,7 @@ export function EvaluacionDetalle() {
               .map((r) => ({ item: itemMod.find((i) => i.id === r.item_id), valor: r.valor }))
               .filter((x): x is { item: Item; valor: unknown } => !!x.item)
             const { ok, total } = itemsProporcion(vals.map((v) => ({ item: aplicarOpciones(v.item), valor: v.valor })))
-            const punteo = puntajeModuloDeRespuestas(respuestas, items, m.id, unidadDe(evaluacion), sucursalOpciones)
+            const punteo = puntajeModuloDeRespuestas(respuestas, items, m.id, unidadDe(evaluacion), sucursalOpciones, sucursalPermisos)
             // Cuántas filas del módulo quedan en pantalla con el filtro actual. El
             // puntaje del módulo NO se recalcula: es el del módulo entero, y bajarlo
             // con el filtro haría creer que el filtro cambió la evaluación.
