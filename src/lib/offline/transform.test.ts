@@ -169,6 +169,7 @@ describe('valorSinFotos', () => {
       responsablesGerente: 'Elena'
     })
   })
+
   it('no se traga los comentarios por punto al recortar el valor', () => {
     // Misma trampa que los responsables: la proyección se arma campo por campo y
     // el comentario del punto no era un campo que ella recordara. Sin esto el
