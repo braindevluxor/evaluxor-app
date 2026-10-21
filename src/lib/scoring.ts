@@ -16,6 +16,13 @@ export { ETIQUETAS_TIPO }
 
 export interface ValorChecklist {
   selected: string[]
+  /**
+   * Doble check: opciones marcadas como «Existe» (la primera marca: el documento
+   * o equipo está en la tienda). `selected` pasa a ser la segunda marca
+   * («Correcto»: vigente / en funcionamiento) y el punto sólo cumple con las dos.
+   * Ausente (undefined) = ítem sin doble check, con el significado de siempre.
+   */
+  existe?: string[]
   informativos?: string[]
   evidencias?: Record<string, { photoIds: string[] }>
   /** Valores numéricos ingresados para las opciones de tipo RANGO (id de la opción → valor). */
@@ -337,6 +344,8 @@ export interface ValorListaColaboradores {
 export interface UnidadChecklist {
   codigo: string
   selected: string[]
+  /** Doble check: igual que `ValorChecklist.existe`, pero por unidad (la presencia se marca unidad por unidad). */
+  existe?: string[]
 }
 
 export interface ValorUnidadChecklist {
@@ -461,10 +470,28 @@ export function colaboradoresQueCuentan(colaboradores: ColaboradorItem[] | null 
   return (colaboradores ?? []).filter((c) => c.aplica && esColaboradorRevisado(c))
 }
 
+/**
+ * ¿El punto está marcado en las marcas que le corresponden? Con doble check la
+ * respuesta (o la unidad) trae además de `selected` — la marca «correcto» — el
+ * array `existe` — la marca «existe» — y el punto sólo cumple si está en ambas.
+ * Sin `existe` (ítem sin doble check, o respuestas legadas) manda sólo
+ * `selected`, como siempre.
+ *
+ * Es la regla única de lectura del doble check: puntaje, detalle, PDF y
+ * tableros pasan por acá para no discrepar sobre qué es un punto cumplido.
+ */
+export function checkMarcado(
+  fila: { selected?: string[]; existe?: string[] } | null | undefined,
+  id: string
+): boolean {
+  if (!(fila?.selected ?? []).includes(id)) return false
+  return !Array.isArray(fila?.existe) || (fila.existe ?? []).includes(id)
+}
+
 export function unidadCumple(unidad: UnidadChecklist, opciones: { id: string }[] | null | undefined): boolean {
   const opts = (opciones ?? []) as { id: string }[]
   if (!opts.length) return false
-  return opts.every((o) => (unidad.selected ?? []).includes(o.id))
+  return opts.every((o) => checkMarcado(unidad, o.id))
 }
 
 export function conciliacionComparable(
@@ -784,8 +811,10 @@ export function formatearLastSync(fecha: string | null | undefined): string {
 }
 
 /**
- * ¿Una opción del checklist está cumplida? Para opciones de tipo RANGO requiere
- * estar marcada y tener un valor numérico mayor o igual al mínimo aceptable.
+ * ¿Una opción del checklist está cumplida? Con doble check requiere las dos
+ * marcas («existe» y «correcto»); sin doble check basta la de siempre. Para
+ * opciones de tipo RANGO exige además un valor numérico mayor o igual al mínimo
+ * aceptable.
  *
  * `estado_permiso` es el estado del permiso de sucursal contra la fecha de hoy
  * (`EstadoPermiso` de `types.ts`; se declara acá como `string` porque este
@@ -798,8 +827,7 @@ export function opcionCumplida(
   valor: ValorChecklist | null | undefined,
   id: string
 ): boolean {
-  const sel = (valor?.selected ?? []).includes(id)
-  if (!sel) return false
+  if (!checkMarcado(valor, id)) return false
   // Un permiso VENCIDO no cuenta como cumplido aunque el evaluador confirme su
   // presencia en la tienda: la vigencia la decide la fecha, no la marca. El
   // check sirve para evidenciar que el documento está, no para renovarlo.
@@ -837,8 +865,10 @@ export function valorBinario(item: { tipo: string; opciones?: string[] | { id: s
 if (item.tipo === 'CHECKLIST') {
     const v = valor as ValorChecklist | null
     const opts = ((item.opciones ?? []) as { id: string; tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }[]).filter((o) => !(v?.informativos ?? []).includes(o.id))
-    const sel = (v?.selected ?? [])
-    if (!opts.length || sel.length === 0) return null
+    // Con doble check el evaluador puede marcar sólo la presencia («existe») y
+    // ninguna validación: eso ya es respuesta (no cumple), no ítem sin responder.
+    const hayMarca = (v?.selected ?? []).length > 0 || (v?.existe ?? []).length > 0
+    if (!opts.length || !hayMarca) return null
     return opts.every((o) => opcionCumplida(o, v, o.id))
   }
   if (item.tipo === 'LISTA_COLABORADORES') {
@@ -904,10 +934,14 @@ export function estaVacioItem(
   switch (item.tipo) {
     case 'CUMPLE_NO_CUMPLE':
       return (valor as ValorCumple | null)?.value !== true && (valor as ValorCumple | null)?.value !== false
-    case 'CHECKLIST':
+    case 'CHECKLIST': {
       // Sin permisos activos no hay nada que tildar: no se puede quedar vacío.
       if (sinOpcionesQueMarcar(item)) return false
-      return !((valor as ValorChecklist | null)?.selected?.length)
+      const vc = valor as ValorChecklist | null
+      // Con doble check basta con haber marcado la presencia para no estar vacío:
+      // el evaluador ya respondió (aunque no puntúe) y no debe rellenar nada más.
+      return !vc?.selected?.length && !vc?.existe?.length
+    }
     case 'CONCILIACION': {
       const ps = (valor as ValorConciliacion | null)?.productos ?? []
       // Un producto marcado "sin hablador" se completa sin precio: no hay
@@ -920,8 +954,10 @@ export function estaVacioItem(
     case 'UNIDAD_CHECKLIST': {
       const unids = (valor as ValorUnidadChecklist | null)?.unidades ?? []
       if (item.repetible === false) {
-        // Carga única: vacío hasta marcar al menos un requerimiento.
-        return unids.length === 0 || !(unids[0]?.selected?.length)
+        // Carga única: vacío hasta marcar al menos un requerimiento (con doble
+        // check alcanza con la marca de presencia).
+        const u = unids[0]
+        return unids.length === 0 || (!u?.selected?.length && !u?.existe?.length)
       }
       return !unids.length
     }
@@ -972,8 +1008,12 @@ export function proporcionChecklist(
   if (!relevantes.length) return null
   // Solo entra en modo proporcional si TODAS las opciones relevantes tienen puntos.
   if (relevantes.some((o) => typeof o.puntos !== 'number' || !(o.puntos > 0))) return null
-  const sel = (v?.selected ?? []).filter((id) => relevantes.some((o) => o.id === id))
-  if (!sel.length) return null // sin respuesta → excluido del cálculo
+  // Con doble check, marcar sólo la presencia («existe») ya es respuesta: el ítem
+  // entra en el cálculo y puntúa 0 hasta que el evaluador valide.
+  const hayMarca = relevantes.some(
+    (o) => (v?.selected ?? []).includes(o.id) || (v?.existe ?? []).includes(o.id)
+  )
+  if (!hayMarca) return null // sin respuesta → excluido del cálculo
   const total = relevantes.reduce((a, o) => a + (o.puntos ?? 0), 0)
   if (!(total > 0)) return null
   const obtenido = relevantes.filter((o) => opcionCumplida(o, v, o.id)).reduce((a, o) => a + (o.puntos ?? 0), 0)
@@ -1161,7 +1201,7 @@ function puntoCumplido(tipo: string | undefined, o: OpcionScoring, valor: unknow
     const v = valor as ValorUnidadChecklist | null
     const unids = v?.unidades ?? []
     if (!unids.length) return null
-    return unids.every((u) => (u.selected ?? []).includes(o.id ?? ''))
+    return unids.every((u) => checkMarcado(u, o.id ?? ''))
   }
   return null
 }
@@ -1544,9 +1584,8 @@ export function incumplimientosPorResponsable(
     } else if (item.tipo === 'UNIDAD_CHECKLIST') {
       const v2 = valor as ValorUnidadChecklist | null
       for (const u of v2?.unidades ?? []) {
-        const sel = u.selected ?? []
         for (const { o, rs } of puntos) {
-          if (!sel.includes(o.id as string)) sumar(rs)
+          if (!checkMarcado(u, o.id as string)) sumar(rs)
         }
       }
     }
@@ -1698,9 +1737,8 @@ function checksDeFalla(it: ItemFalla, responsable: string, muestras: unknown[]):
       }
     } else if (it.tipo === 'UNIDAD_CHECKLIST') {
       for (const u of (valor as ValorUnidadChecklist | null)?.unidades ?? []) {
-        const sel = u.selected ?? []
         for (const o of opts) {
-          if (sel.includes(o.id as string)) continue
+          if (checkMarcado(u, o.id as string)) continue
           if (responsablesDeFalla(it, o, record, gerente).includes(responsable)) agregar(nombre(o))
         }
       }

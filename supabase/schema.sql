@@ -317,6 +317,10 @@ alter table public.items add column if not exists repetible boolean not null def
 alter table public.items add column if not exists contra_dato text not null default 'SOH';
 alter table public.items drop constraint if exists items_contra_dato_check;
 alter table public.items add constraint items_contra_dato_check check (contra_dato in ('SOH','FINAL_BASE'));
+-- CHECKLIST / UNIDAD_CHECKLIST: doble check = cada punto se marca dos veces
+-- ("existe" y "correcto") y sólo puntúa con las dos marcas. Se configura por
+-- ítem en Config → Ítems.
+alter table public.items add column if not exists doble_check boolean not null default false;
 
 -- La suma de los puntajes de un mÃ³dulo no puede exceder 100: cuentan las secciones
 -- (CONTENEDOR, ponderadas) y los Ã­tems sueltos (sin secciÃ³n). Los Ã­tems dentro de

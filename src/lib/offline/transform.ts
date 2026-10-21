@@ -128,8 +128,13 @@ export function valorSinFotos(valor: unknown): unknown {
   }
   const checklist = isChecklistValor(valor)
   if (checklist) {
-    const v = valor as { selected?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: unknown; responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
+    const v = valor as { selected?: string[]; existe?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: unknown; responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
     const out: Record<string, unknown> = { selected: v.selected ?? [] }
+    // Doble check: `existe` se conserva aunque venga vacío, porque su sola
+    // presencia (como array) le dice al puntaje que la segunda marca es
+    // obligatoria. Soltarlo convertiría una respuesta sin validaciones en puntos
+    // cumplidos.
+    if (Array.isArray(v.existe)) out.existe = v.existe
     if ((v.informativos ?? []).length) out.informativos = v.informativos
     if (v.valores && Object.keys(v.valores).length) out.valores = v.valores
     copiarResponsables(v, out)
@@ -229,7 +234,7 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
   }
   const checklistIds = isChecklistValor(valor)
   if (checklistIds) {
-    const v = valor as { selected?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: Record<string, { photoIds?: string[] } | null>; responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
+    const v = valor as { selected?: string[]; existe?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: Record<string, { photoIds?: string[] } | null>; responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
     const evidencias: Record<string, unknown> = {}
     for (const [optId, ids] of Object.entries(checklistIds)) {
       evidencias[optId] = { paths: ids.map((id) => map.get(id) ?? `.local/${id}`) }
@@ -238,6 +243,9 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
       selected: v.selected ?? [],
       evidencias
     }
+    // Igual que en `valorSinFotos`: la marca de presencia del doble check viaja
+    // aunque esté vacía, para no degradar la respuesta a modo check único.
+    if (Array.isArray(v.existe)) out.existe = v.existe
     if ((v.informativos ?? []).length) out.informativos = v.informativos
     if (v.valores && Object.keys(v.valores).length) out.valores = v.valores
     copiarResponsables(v, out)

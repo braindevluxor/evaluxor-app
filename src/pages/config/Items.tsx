@@ -268,6 +268,7 @@ export function ItemsPage() {
                       {esSeccion && nHijos > 0 ? <Badge color={0}>{nHijos} ítem(s) dentro</Badge> : null}
                       {it.requerido ? <Badge color={0}>Obligatorio</Badge> : null}
                       {it.tipo === 'UNIDAD_CHECKLIST' && it.repetible === false ? <Badge color={0}>Carga única</Badge> : null}
+                      {it.doble_check && (it.tipo === 'CHECKLIST' || it.tipo === 'UNIDAD_CHECKLIST') ? <Badge color={3}>Doble check</Badge> : null}
                       {it.tipo === 'CHECKLIST' && it.permisos_sucursal ? (
                         <Badge color={1}>{it.permisos_sucursal === 'VENCIDOS' ? 'Permisos · solo vencidos' : 'Permisos de la sucursal'}</Badge>
                       ) : null}
@@ -468,6 +469,8 @@ function FormItem({
   const [permitirDuplicados, setPermitirDuplicados] = useState(inicial?.permitir_duplicados ?? false)
   const [repetible, setRepetible] = useState(inicial?.repetible ?? true)
   const [contraDato, setContraDato] = useState<ContraDatoConciliacion>(inicial?.contra_dato ?? 'SOH')
+  /** Doble check (sólo CHECKLIST / UNIDAD_CHECKLIST): cada punto se marca «Existe» + «Correcto» y sólo puntúa con las dos. */
+  const [dobleCheck, setDobleCheck] = useState(inicial?.doble_check ?? false)
   const [autoPuntaje, setAutoPuntaje] = useState(false)
   /**
    * Origen de la lista de un CHECKLIST: vacío = la escrita a mano acá abajo;
@@ -579,7 +582,8 @@ function FormItem({
           permitir_duplicados: esSeccion && apiId ? permitirDuplicados : false,
           repetible: tipo === 'UNIDAD_CHECKLIST' ? repetible : true,
           contra_dato: tipo === 'CONCILIACION' ? contraDato : 'SOH',
-          permisos_sucursal: conPermisos ? origenPermisos : null
+          permisos_sucursal: conPermisos ? origenPermisos : null,
+          doble_check: (tipo === 'CHECKLIST' || tipo === 'UNIDAD_CHECKLIST') ? dobleCheck : false
         })
       }}
     >
@@ -734,6 +738,18 @@ function FormItem({
         <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
           Con estos puntos el módulo sumaría {sumaConNuevo}/100. Baja el valor para no superar 100.
         </p>
+      ) : null}
+      {(tipo === 'CHECKLIST' || tipo === 'UNIDAD_CHECKLIST') ? (
+        <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-3 text-sm text-slate-700">
+          <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-primary" checked={dobleCheck} onChange={(e) => setDobleCheck(e.target.checked)} />
+          <span>
+            <strong>Doble check</strong>
+            <span className="block text-xs font-normal text-slate-500">
+              Cada punto se marca dos veces: «Existe» (el documento o el equipo está en la tienda) y «Correcto» (está vigente / en funcionamiento).
+              Sin las dos marcas el punto no puntúa. Convendría activarlo antes de abrir evaluaciones: las respuestas ya guardadas con el check simple no traen la segunda marca.
+            </span>
+          </span>
+        </label>
       ) : null}
       {tipo === 'CHECKLIST' ? (
         <>

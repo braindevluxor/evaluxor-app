@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, Pencil, Plus, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, esMatchConciliacion, totalConciliacion, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, formatearMontoPerdida, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, resumenPerdidaConciliacion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, esMatchConciliacion, totalConciliacion, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, checkMarcado, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, formatearMontoPerdida, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, resumenPerdidaConciliacion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores, ordenarTrabajadores } from '../lib/data/colaboradores'
 import { combinarPorDni, aplicarHistorial } from '../lib/data/colaboradoresEstado'
@@ -52,6 +52,57 @@ function responsablesDeCheck(item: { responsables?: string[] | null }, o: Opcion
   return deOpcion.length ? deOpcion : (item.responsables ?? [])
 }
 
+/**
+ * Las dos marcas del doble check de un punto: «Existe» (el documento o el equipo
+ * está en la tienda) y «Correcto» (está vigente / en funcionamiento). El segundo
+ * check sólo se habilita con el primero — no se valida algo que no existe — y
+ * quitar la presencia también quita la validación: sin las dos marcas el punto
+ * no puntúa.
+ *
+ * En RANGO no hay check de correcto: el valor contra el mínimo decide la
+ * vigencia, así que sólo aparece la marca de presencia.
+ */
+function DobleCheck({
+  existe,
+  correcto,
+  esRango,
+  onExiste,
+  onCorrecto
+}: {
+  existe: boolean
+  correcto: boolean
+  esRango?: boolean
+  onExiste: () => void
+  onCorrecto: () => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+      <label className="flex cursor-pointer items-center gap-2">
+        <input
+          type="checkbox"
+          className="h-4 w-4 shrink-0 accent-primary"
+          checked={existe}
+          onChange={onExiste}
+        />
+        <span className="text-xs font-semibold text-slate-600">Existe</span>
+      </label>
+      {esRango ? null : (
+        <label className={cn('flex items-center gap-2', existe ? 'cursor-pointer' : 'cursor-not-allowed opacity-50')}>
+          <input
+            type="checkbox"
+            className="h-4 w-4 shrink-0 accent-green-600"
+            checked={correcto}
+            disabled={!existe}
+            onChange={onCorrecto}
+            title={existe ? 'El punto está correcto (vigente / en funcionamiento)' : 'Primero marcá que existe'}
+          />
+          <span className="text-xs font-semibold text-slate-600">Correcto</span>
+        </label>
+      )}
+    </div>
+  )
+}
+
 const ESTILO_PERMISO: Record<string, string> = {
   VIGENTE: 'bg-emerald-100 text-emerald-800',
   POR_VENCER: 'bg-amber-100 text-amber-800',
@@ -97,7 +148,7 @@ function checkIncumplido(item: Item, o: Opcion, valor: unknown): boolean {
     const v = valor as ValorUnidadChecklist | null
     const unids = v?.unidades ?? []
     if (!unids.length) return false
-    return !unids.every((u) => (u.selected ?? []).includes(o.id))
+    return !unids.every((u) => checkMarcado(u, o.id))
   }
   return false
 }
@@ -191,6 +242,10 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
       const opts = (item.opciones ?? []) as Opcion[]
       if (!opts.length) return <p className="text-sm text-slate-400">Sin opciones definidas.</p>
       const conPuntos = opts.length > 0 && opts.every((o) => typeof o.puntos === 'number' && o.puntos > 0)
+      // Doble check del ítem: cada punto se marca «Existe» + «Correcto» y sólo
+      // puntúa con las dos. Si la respuesta vieja no trae `existe`, la primera
+      // marca crea el array y el resto de la lista queda en modo doble check.
+      const dobleCheck = !!item.doble_check
       // Toda escritura va como updater `(prev) => next`: `value` es el del render
       // y una escritura concurrente hecha con un `value` viejo repondría el valor
       // entero, borrando los responsables que el evaluador acaba de elegir.
@@ -204,7 +259,32 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
             delete valores2[id]
             return { ...base, selected: sel.filter((x) => x !== id), valores: valores2 }
           }
+          // Con doble check el correcto se marca sólo sobre un punto existente.
+          if (dobleCheck && !(base.existe ?? []).includes(id)) {
+            const valores2 = { ...(base.valores ?? {}) }
+            delete valores2[id]
+            return { ...base, existe: [...(base.existe ?? []), id], selected: [...sel, id], valores: valores2 }
+          }
           return { ...base, selected: [...sel, id] }
+        })
+      }
+      // Doble check: la marca de presencia. Quitarla también quita la validación
+      // (y el valor de rango): no puede estar "correcto" algo que no existe.
+      const toggleExiste = (id: string) => {
+        guardar((prev: unknown) => {
+          const base = desde(prev)
+          const existentes = base.existe ?? []
+          if (existentes.includes(id)) {
+            const valores2 = { ...(base.valores ?? {}) }
+            delete valores2[id]
+            return {
+              ...base,
+              existe: existentes.filter((x) => x !== id),
+              selected: (base.selected ?? []).filter((x) => x !== id),
+              valores: valores2
+            }
+          }
+          return { ...base, existe: [...existentes, id] }
         })
       }
       const setValorRango = (id: string, n: number) => {
@@ -238,14 +318,17 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
         <>
         <div className="space-y-2">
           <p className="text-xs text-slate-400">
-            {opts.some((o) => o.estado_permiso)
-              ? 'La lista viene de los permisos de la sucursal. Marca los que encontraste presentes en la tienda: un permiso vencido no cuenta aunque esté presente.'
-              : conPuntos
-                ? 'El ítem otorga los puntos de las opciones validadas. Marca “No aplica” en las opciones que no corresponden; se excluyen del puntaje.'
-                : 'Marca “No aplica” en las opciones que no corresponden; se excluyen del puntaje.'}
+            {dobleCheck
+              ? 'Doble check: cada punto se marca dos veces — «Existe» (lo encontraste en la tienda) y «Correcto» (está vigente y funcionando). Sin las dos marcas el punto no puntúa.'
+              : opts.some((o) => o.estado_permiso)
+                ? 'La lista viene de los permisos de la sucursal. Marca los que encontraste presentes en la tienda: un permiso vencido no cuenta aunque esté presente.'
+                : conPuntos
+                  ? 'El ítem otorga los puntos de las opciones validadas. Marca “No aplica” en las opciones que no corresponden; se excluyen del puntaje.'
+                  : 'Marca “No aplica” en las opciones que no corresponden; se excluyen del puntaje.'}
           </p>
           {opts.map((o) => {
             const activo = seleccion.includes(o.id)
+            const existeOpcion = (value.existe ?? []).includes(o.id)
             const esNoAplica = noAplican.includes(o.id)
             const idsEv = evidencias[o.id]?.photoIds ?? []
             const esRango = o.tipo_respuesta === 'RANGO'
@@ -261,7 +344,11 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                     ? 'border-amber-200 bg-amber-50'
                     : cumpleOpcion
                       ? 'border-slate-200 bg-white'
-                      : 'border-red-300 bg-red-50'
+                      // Con doble check, "existe pero sin validar" es un estado propio
+                      // (ámbar), distinto del punto ausente (rojo).
+                      : dobleCheck && existeOpcion
+                        ? 'border-amber-300 bg-amber-50'
+                        : 'border-red-300 bg-red-50'
                 )}
               >
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
@@ -318,7 +405,49 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                   </div>
                 ) : null}
                 {!esNoAplica ? (
-                  cumpleOpcion ? (
+                  dobleCheck ? (
+                    // Doble check: las dos marcas del punto y, si falta alguna,
+                    // los responsables de la falla.
+                    <div className={cn('min-w-0 px-3 py-2.5', cumpleOpcion ? 'bg-green-50/40' : existeOpcion ? 'bg-amber-50/60' : 'bg-red-50/60')}>
+                      <DobleCheck
+                        existe={existeOpcion}
+                        correcto={esRango ? cumpleOpcion : activo}
+                        esRango={esRango}
+                        onExiste={() => toggleExiste(o.id)}
+                        onCorrecto={() => toggle(o.id)}
+                      />
+                      <p
+                        className={cn(
+                          'mt-1.5 text-xs font-semibold',
+                          cumpleOpcion ? 'text-green-700' : existeOpcion ? 'text-amber-700' : 'text-red-500'
+                        )}
+                      >
+                        {cumpleOpcion
+                          ? esRango
+                            ? <>Punto validado <span className="font-normal text-slate-400">· valor {valorRango ?? '—'}{o.unidad ? ` ${o.unidad}` : ''}</span></>
+                            : 'Punto validado'
+                          : existeOpcion
+                            ? 'Existe, falta el check de correcto · no puntúa'
+                            : 'Sin marcar · sin cumplir'}
+                      </p>
+                      {respFallidos && !cumpleOpcion ? (
+                        <SelectorResponsables
+                          responsables={responsablesDeCheck(item, o)}
+                          seleccion={value.responsablesPorOpcion?.[o.id] ?? []}
+                          gerente={gerente}
+                          onChange={(sel) =>
+                            guardar((prev: unknown) => {
+                              const base = (prev ?? value) as ValorChecklist
+                              return {
+                                ...base,
+                                responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
+                              }
+                            })
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  ) : cumpleOpcion ? (
                     // Estado neutro (validado): sin alerta roja y sin responsables.
                     <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2.5">
                       {esRango ? (
@@ -1798,6 +1927,9 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
   const v = (valor as ValorUnidadChecklist | null) ?? { unidades: [] }
   const unidades = v.unidades ?? []
   const opts = (item.opciones ?? []) as Opcion[]
+  // Doble check del ítem: cada punto de cada unidad se marca «Existe» +
+  // «Correcto» y sólo puntúa con las dos.
+  const dobleCheck = !!item.doble_check
 
   // Updater: `v` es el del render y una escritura concurrente con un `v` viejo
   // repondría el valor entero (los responsables de cada check incluidos).
@@ -1824,11 +1956,29 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
           }
         ]
       })
+    // Doble check: la marca de presencia. Quitarla también quita la validación:
+    // no puede estar "correcto" algo que no existe.
+    const toggleExisteUnica = (opcionId: string) =>
+      actualizar((prev) => {
+        const actual = prev[0] ?? unica
+        const existentes = actual.existe ?? []
+        if (!existentes.includes(opcionId)) return [{ ...actual, existe: [...existentes, opcionId] }]
+        return [
+          {
+            ...actual,
+            existe: existentes.filter((x) => x !== opcionId),
+            selected: (actual.selected ?? []).filter((x) => x !== opcionId)
+          }
+        ]
+      })
     const setCodigoUnica = (codigo: string) => actualizar((prev) => [{ ...(prev[0] ?? unica), codigo }])
     const codigoVisible = unica.codigo && unica.codigo !== 'Única' ? unica.codigo : ''
     return (
       <div className="space-y-3">
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Checklist (una sola carga)</p>
+        {dobleCheck ? (
+          <p className="text-xs text-slate-400">Doble check: cada punto se marca «Existe» y «Correcto»; sin las dos marcas no puntúa.</p>
+        ) : null}
         <div className="rounded-xl bg-slate-50 p-3">
           <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-slate-500">Identificador (ej. Nº de serie)</p>
           <Input
@@ -1846,13 +1996,21 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
           <div className="space-y-2">
             {opts.map((o) => {
               const esta = marcadas.includes(o.id)
+              const existeOpcion = (unica.existe ?? []).includes(o.id)
+              const cumpleOpcion = checkMarcado(unica, o.id)
               const respFallidos = responsablesDeCheck(item, o).length > 0
               return (
                 <div
                   key={o.id}
                   className={cn(
                     'min-w-0 overflow-hidden rounded-xl border transition-colors',
-                    esta ? 'border-slate-200 bg-white' : 'border-red-300 bg-red-50'
+                    cumpleOpcion
+                      ? 'border-slate-200 bg-white'
+                      // Con doble check, "existe pero sin validar" es un estado propio
+                      // (ámbar), distinto del punto ausente (rojo).
+                      : dobleCheck && existeOpcion
+                        ? 'border-amber-300 bg-amber-50'
+                        : 'border-red-300 bg-red-50'
                   )}
                 >
                   <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
@@ -1864,7 +2022,46 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                       <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
                     ) : null}
                   </div>
-                  {esta ? (
+                  {dobleCheck ? (
+                    // Doble check: las dos marcas del punto y, si falta alguna,
+                    // los responsables de la falla.
+                    <div className={cn('min-w-0 px-3 py-2.5', cumpleOpcion ? 'bg-green-50/40' : existeOpcion ? 'bg-amber-50/60' : 'bg-red-50/60')}>
+                      <DobleCheck
+                        existe={existeOpcion}
+                        correcto={esta}
+                        onExiste={() => toggleExisteUnica(o.id)}
+                        onCorrecto={() => toggleCheck(o.id)}
+                      />
+                      <p
+                        className={cn(
+                          'mt-1.5 text-xs font-semibold',
+                          cumpleOpcion ? 'text-green-700' : existeOpcion ? 'text-amber-700' : 'text-red-500'
+                        )}
+                      >
+                        {cumpleOpcion
+                          ? 'Punto validado'
+                          : existeOpcion
+                            ? 'Existe, falta el check de correcto · no puntúa'
+                            : 'Sin marcar · sin cumplir'}
+                      </p>
+                      {respFallidos && !cumpleOpcion ? (
+                        <SelectorResponsables
+                          responsables={responsablesDeCheck(item, o)}
+                          seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
+                          gerente={gerente}
+                          onChange={(sel) =>
+                            onChange((prev: unknown) => {
+                              const base = (prev ?? v) as ValorUnidadChecklist
+                              return {
+                                ...base,
+                                responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
+                              }
+                            })
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  ) : esta ? (
                     // Estado neutro (validado): sin alerta roja ni responsables.
                     <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2.5">
                       <label className="flex cursor-pointer items-center gap-2">
@@ -1958,6 +2155,22 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
     }))
   }
 
+  // Doble check: la marca de presencia de cada unidad. Quitarla también quita la
+  // validación (y lo que haya en `selected`): no puede estar "correcto" algo
+  // que no existe.
+  const toggleExiste = (idx: number, opcionId: string) => {
+    actualizar((prev) => prev.map((u, i) => {
+      if (i !== idx) return u
+      const existentes = u.existe ?? []
+      if (!existentes.includes(opcionId)) return { ...u, existe: [...existentes, opcionId] }
+      return {
+        ...u,
+        existe: existentes.filter((x) => x !== opcionId),
+        selected: (u.selected ?? []).filter((x) => x !== opcionId)
+      }
+    }))
+  }
+
   const cumplidos = unidades.filter((u) => unidadCumple(u, opts)).length
 
   return (
@@ -1987,6 +2200,10 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
         </div>
         {info ? <p className="mt-2 text-xs font-medium text-amber-600">{info}</p> : null}
       </div>
+
+      {dobleCheck ? (
+        <p className="text-xs text-slate-400">Doble check: en cada unidad cada punto se marca «Existe» y «Correcto»; sin las dos marcas no puntúa.</p>
+      ) : null}
 
       {unidades.length ? (
         <>
@@ -2025,6 +2242,8 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                     <div className="space-y-2 px-3 pb-3 pt-2">
                       {opts.map((o) => {
                         const esta = u.selected.includes(o.id)
+                        const existeOpcion = (u.existe ?? []).includes(o.id)
+                        const cumpleOpcion = checkMarcado(u, o.id)
                         const incumple = checkIncumplido(item, o, v)
                         const respFallidos = responsablesDeCheck(item, o).length > 0
                         return (
@@ -2032,7 +2251,13 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                             key={o.id}
                             className={cn(
                               'min-w-0 overflow-hidden rounded-xl border transition-colors',
-                              incumple ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white'
+                              incumple
+                                // Con doble check, "existe pero sin validar" en ESTA unidad es
+                                // un estado propio (ámbar), distinto del punto ausente (rojo).
+                                ? dobleCheck && existeOpcion
+                                  ? 'border-amber-300 bg-amber-50'
+                                  : 'border-red-300 bg-red-50'
+                                : 'border-slate-200 bg-white'
                             )}
                           >
                             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
@@ -2044,7 +2269,46 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                                 <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
                               ) : null}
                             </div>
-                            {incumple ? (
+                            {dobleCheck ? (
+                              // Doble check: las dos marcas de ESTA unidad y, si falta
+                              // alguna, los responsables de la falla.
+                              <div className={cn('min-w-0 px-3 py-2.5', cumpleOpcion ? 'bg-green-50/40' : existeOpcion ? 'bg-amber-50/60' : 'bg-red-50/60')}>
+                                <DobleCheck
+                                  existe={existeOpcion}
+                                  correcto={esta}
+                                  onExiste={() => toggleExiste(i, o.id)}
+                                  onCorrecto={() => toggleCheck(i, o.id)}
+                                />
+                                <p
+                                  className={cn(
+                                    'mt-1.5 text-xs font-semibold',
+                                    cumpleOpcion ? 'text-green-700' : existeOpcion ? 'text-amber-700' : 'text-red-500'
+                                  )}
+                                >
+                                  {cumpleOpcion
+                                    ? 'Punto validado'
+                                    : existeOpcion
+                                      ? 'Existe, falta el check de correcto · no puntúa'
+                                      : 'Sin marcar · sin cumplir'}
+                                </p>
+                                {respFallidos && !cumpleOpcion ? (
+                                  <SelectorResponsables
+                                    responsables={responsablesDeCheck(item, o)}
+                                    seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
+                                    gerente={gerente}
+                                    onChange={(sel) =>
+                                      onChange((prev: unknown) => {
+                                        const base = (prev ?? v) as ValorUnidadChecklist
+                                        return {
+                                          ...base,
+                                          responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
+                                        }
+                                      })
+                                    }
+                                  />
+                                ) : null}
+                              </div>
+                            ) : incumple ? (
                               // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
                               <div className="min-w-0 bg-red-50/60 px-3 py-2.5">
                                 <label className="mb-2 flex cursor-pointer items-center gap-2">

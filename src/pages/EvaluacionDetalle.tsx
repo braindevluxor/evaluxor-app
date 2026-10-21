@@ -13,7 +13,7 @@ import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { aplicarPermisosChecklist } from '../lib/permisosChecklist'
 import { raicesDeModulo } from '../lib/pasos'
 import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
-import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionComparable, agruparPorDepartamento, esSinHablador, productosParaConciliar, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, montoSobranteConciliacion, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
+import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionComparable, agruparPorDepartamento, esSinHablador, productosParaConciliar, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, checkMarcado, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, montoSobranteConciliacion, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Foto, Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, BOTON_CABECERA, Button, Card, InfoTooltip, Modal, ProgressBar, Skeleton, cn, colorFondoBadge } from '../components/ui'
@@ -150,7 +150,10 @@ export function ValorRespuesta({
       const opcionesNoAplican = v?.informativos ?? []
       const opciones = (item.opciones ?? []) as Opcion[]
       const sel = (v?.selected ?? []).filter((id) => !opcionesNoAplican.includes(id))
-      if (!sel.length && !opcionesNoAplican.length) return <p className="text-sm text-slate-400">Ninguna opción marcada</p>
+      const existentes = (v?.existe ?? []).filter((id) => !opcionesNoAplican.includes(id))
+      // Con doble check la respuesta puede traer sólo la presencia («existe») sin
+      // validaciones: eso ya es respuesta y no debe leerse como "sin marcar".
+      if (!sel.length && !existentes.length && !opcionesNoAplican.length) return <p className="text-sm text-slate-400">Ninguna opción marcada</p>
       const pendientes = opcionesSinTildar(opciones, v)
       const opcionesVisibles = (soloIncumplimientos ? pendientes : opciones)
         .filter((opcion) => !opcionesNoAplican.includes(opcion.id))
@@ -169,6 +172,8 @@ export function ValorRespuesta({
             <tbody className="divide-y divide-slate-100">
               {opcionesVisibles.map((opcion) => {
                 const cumplida = opcionCumplida(opcion, v, opcion.id)
+                // Con doble check: está en la tienda pero sin la marca de correcto.
+                const soloExiste = !cumplida && (v?.existe ?? []).includes(opcion.id)
                 const seleccionados = v?.responsablesPorOpcion?.[opcion.id] ?? []
                 const responsables = cumplida || !mostrarResponsables
                   ? []
@@ -185,14 +190,14 @@ export function ValorRespuesta({
                     <td className="break-words px-3 py-2.5 align-top text-slate-700">
                       <span className="flex items-start gap-2">
                         <span
-                          aria-label={cumplida ? 'Cumple' : 'No cumple'}
-                          title={cumplida ? 'Cumple' : 'No cumple'}
+                          aria-label={cumplida ? 'Cumple' : soloExiste ? 'Existe, falta validar' : 'No cumple'}
+                          title={cumplida ? 'Cumple' : soloExiste ? 'Existe, falta validar (no puntúa)' : 'No cumple'}
                           className={cn(
                             'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-black leading-none',
-                            cumplida ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            cumplida ? 'bg-green-100 text-green-700' : soloExiste ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
                           )}
                         >
-                          {cumplida ? '✓' : '×'}
+                          {cumplida ? '✓' : soloExiste ? '!' : '×'}
                         </span>
                         <span>{etiquetaOpcion(opcion, v)}</span>
                       </span>
@@ -311,7 +316,9 @@ export function ValorRespuesta({
             {unidadesVisibles.map((u, i) => {
               const cumple = unidadCumple(u, opts)
               const marcadas = (u.selected ?? []).map((id) => opts.find((o) => o.id === id)?.etiqueta ?? id)
-              const pendientes = opts.filter((o) => !(u.selected ?? []).includes(o.id)).map((o) => o.etiqueta)
+              // Con doble check un punto sólo con la presencia sigue siendo
+              // pendiente: no puntúa hasta la marca de correcto.
+              const pendientes = opts.filter((o) => !checkMarcado(u, o.id)).map((o) => o.etiqueta)
               return (
                 <li key={`${u.codigo}-${i}`} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
                   <div className="flex flex-wrap items-start justify-between gap-2">

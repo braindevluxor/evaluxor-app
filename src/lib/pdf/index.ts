@@ -5,6 +5,7 @@ import type { DetalleEvaluacion } from '../data/indicadores'
 import { listarPerfilesSync, obtenerEvaluacion, resumirEvaluacion, unidadDe } from '../data/indicadores'
 import { aplicarPermisosChecklist } from '../permisosChecklist'
 import {
+  checkMarcado,
   colaboradorCumple,
   conciliacionPorcentaje,
   esColaboradorRevisado,
@@ -515,7 +516,12 @@ export function buildPdfDocument(
                 : option.responsable
                   ? [option.responsable]
                   : item.responsables ?? []
-        return [cumple ? '✓' : 'X', descripcion, ...(mostrarResponsables ? [responsables.join(', ') || '—'] : [])]
+        // Con doble check, un punto que está en la tienda pero sin validar es un
+        // estado propio (existe, no puntúa); sin doble check todo lo no cumplido
+        // es simplemente "X".
+        const existe = Array.isArray(v?.existe) && v.existe.includes(option.id)
+        const estado = cumple ? '✓' : existe ? 'Existe' : 'X'
+        return [estado, descripcion, ...(mostrarResponsables ? [responsables.join(', ') || '—'] : [])]
       })
     )
   }
@@ -698,7 +704,7 @@ export function buildPdfDocument(
         const v = valor as ValorUnidadChecklist | null
         const unidades = (v?.unidades ?? []).filter((unidad) => !soloIncumplimientos || !unidadCumple(unidad, item.opciones ?? []))
         tabla(['Unidad', 'Estado', 'Puntos pendientes'], unidades.map((unidad) => {
-          const faltan = (item.opciones ?? []).filter((option) => !(unidad.selected ?? []).includes(option.id))
+          const faltan = (item.opciones ?? []).filter((option) => !checkMarcado(unidad, option.id))
           return [
             unidad.codigo,
             unidadCumple(unidad, item.opciones ?? []) ? 'Completa' : 'Incompleta',

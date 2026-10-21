@@ -263,6 +263,12 @@ export interface Item {
    * fecha de hoy, por eso un permiso INACTIVO nunca aparece en la evaluación.
    */
   permisos_sucursal?: 'TODOS' | 'VENCIDOS' | null
+  /**
+   * CHECKLIST / UNIDAD_CHECKLIST: doble check. Cada punto se marca dos veces:
+   * «Existe» (está en la tienda) y «Correcto» (vigente / en funcionamiento). Sin
+   * las dos marcas el punto no puntúa. Se configura por ítem en Config → Ítems.
+   */
+  doble_check?: boolean | null
   created_at: string
 }
 

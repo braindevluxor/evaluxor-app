@@ -1923,7 +1923,13 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
         if (v?.informativos?.length) return { proporcion: p, resumen: `No aplica en ${v.informativos.length} opción(es)` }
         return { proporcion: p, resumen: 'Sin opciones marcadas' }
       }
-      return { proporcion: p, resumen: `${sel.length} de ${opts.length} opciones${labels.length ? ` · ${labels.join(' · ')}` : ''}` }
+      // Con doble check, las marcas de presencia sin validar se anuncian aparte:
+      // el resumen diría "0 de 5" sin explicar que el evaluador ya estuvo ahí.
+      const soloExiste = (v?.existe ?? []).filter((id) => !sel.includes(id) && !v?.informativos?.includes(id))
+      return {
+        proporcion: p,
+        resumen: `${sel.length} de ${opts.length} opciones${labels.length ? ` · ${labels.join(' · ')}` : ''}${soloExiste.length ? ` · ${soloExiste.length} presente(s) sin validar` : ''}`
+      }
     }
     case 'LISTA_COLABORADORES': {
       const v = valor as ValorListaColaboradores | null

@@ -104,6 +104,14 @@ describe('valorSinFotos', () => {
     expect(valorSinFotos({ value: true, evidencias: [] })).toEqual({ value: true, evidencias: [] })
     expect(valorSinFotos('texto')).toBe('texto')
   })
+  it('conserva las marcas del doble check aunque `existe` venga vacío', () => {
+    // Soltar un `existe` vacío convertiría la respuesta a modo check simple y
+    // las marcas de `selected` empezarían a puntuar sin la presencia.
+    expect(valorSinFotos({ selected: ['a'], existe: ['a'] })).toEqual({ selected: ['a'], existe: ['a'] })
+    expect(valorSinFotos({ selected: [], existe: ['a'] })).toEqual({ selected: [], existe: ['a'] })
+    expect(valorSinFotos({ selected: ['a'], existe: [] })).toEqual({ selected: ['a'], existe: [] })
+    expect(valorSinFotos({ selected: ['a'] })).toEqual({ selected: ['a'] })
+  })
   it('quita fotos locales de evidencias Cumple / No cumple sin perderlas al sincronizar', () => {
     expect(valorSinFotos({
       value: null,
@@ -209,6 +217,23 @@ describe('convertirValor', () => {
         b: { paths: ['.local/y'] }
       }
     })
+  })
+  it('al subir las fotos no pierde las marcas del doble check', () => {
+    const map = new Map([['x', 'ev/c/d/x.jpg']])
+    expect(
+      convertirValor(
+        { selected: ['a'], existe: ['a', 'b'], evidencias: { a: { photoIds: ['x'] } } },
+        map
+      )
+    ).toEqual({
+      selected: ['a'],
+      existe: ['a', 'b'],
+      evidencias: { a: { paths: ['ev/c/d/x.jpg'] } }
+    })
+    // Un `existe` vacío también viaja: sostiene el modo doble check de la respuesta.
+    expect(
+      convertirValor({ selected: [], existe: [], evidencias: {} }, map)
+    ).toEqual({ selected: [], existe: [], evidencias: {} })
   })
   it('convierte las imágenes de los planos y deja los pines intactos', () => {
     const map = new Map([['a', 'ev/job/evidencia/a.jpg']])
