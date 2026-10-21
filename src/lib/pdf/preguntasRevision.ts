@@ -18,8 +18,11 @@ export interface PreguntaResuelta {
   veredicto?: string | null
 }
 
-/** Opción cumplida: marcada, o que alcanza el mínimo si es un rango. */
+/** Opción cumplida: marcada en las dos marcas del doble check (si la respuesta las trae), o que alcanza el mínimo si es un rango. */
 export function opcionCumplida(o: Opcion, valor: ValorChecklist | null): boolean {
+  // Doble check: si la respuesta registra la presencia («existe»), el punto
+  // también tiene que estar ahí para contar como cumplido.
+  if (Array.isArray(valor?.existe) && !valor.existe.includes(o.id)) return false
   if (o.tipo_respuesta === 'RANGO') {
     const v = valor?.valores?.[o.id]
     if (typeof v !== 'number') return false

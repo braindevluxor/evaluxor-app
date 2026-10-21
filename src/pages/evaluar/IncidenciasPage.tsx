@@ -7,6 +7,7 @@ import { useOffline } from '../../context/OfflineContext'
 import { deletePhoto, getPhotos, listIncidentes, updateIncidente, type IncidenteRecord } from '../../lib/offline/db'
 import { ChipsResponsables, EditorResponsablesIncidencia } from '../../components/EditorResponsablesIncidencia'
 import { PhotoCapture } from '../../components/PhotoCapture'
+import { useMarcadorNube } from '../../components/MarcadorNube'
 import { pathFotoIncidencia } from '../../lib/offline/sync'
 import { supabase } from '../../lib/supabase'
 import { Button, cn, Input, Modal, Select, Spinner, Textarea } from '../../components/ui'
@@ -472,7 +473,9 @@ async function subirFotos(incidenteId: string, photoIds: string[]): Promise<stri
 function FotosNubeEditables({ paths, onQuitar }: { paths: string[]; onQuitar: (path: string) => void }) {
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [sinAcceso, setSinAcceso] = useState<Set<string>>(new Set())
+  /** Path (no URL): al marcar y refrescar, la misma foto sigue abierta. */
   const [imagenAbierta, setImagenAbierta] = useState<string | null>(null)
+  const marcador = useMarcadorNube()
 
   useEffect(() => {
     let vivo = true
@@ -492,7 +495,10 @@ function FotosNubeEditables({ paths, onQuitar }: { paths: string[]; onQuitar: (p
       if (vivo) setSinAcceso(new Set(paths))
     })
     return () => { vivo = false }
-  }, [paths])
+    // `marcador.version` no cambia la consulta: sube cuando una marca volvió a
+    // subir, y eso es lo que obliga a pedir URLs firmadas nuevas — la vieja
+    // sigue sirviendo la foto anterior.
+  }, [paths, marcador.version])
 
   if (!paths.length) return null
   return (
@@ -500,7 +506,7 @@ function FotosNubeEditables({ paths, onQuitar }: { paths: string[]; onQuitar: (p
       {paths.map((path) => (
         <div key={path} className="relative aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
           {urls[path] ? (
-            <button type="button" onClick={() => setImagenAbierta(urls[path])} aria-label="Ampliar foto de la incidencia" className="h-full w-full">
+            <button type="button" onClick={() => setImagenAbierta(path)} aria-label="Ampliar foto de la incidencia" className="h-full w-full">
               <img src={urls[path]} alt="Foto de la incidencia" className="h-full w-full object-cover" />
             </button>
           ) : sinAcceso.has(path) ? (
@@ -520,10 +526,26 @@ function FotosNubeEditables({ paths, onQuitar }: { paths: string[]; onQuitar: (p
         </div>
       ))}
       <ModalImagen
-        src={imagenAbierta}
+        src={imagenAbierta ? (urls[imagenAbierta] ?? null) : null}
         alt="Foto de la incidencia"
         onClose={() => setImagenAbierta(null)}
+        footer={imagenAbierta ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            onClick={() => {
+              const ruta = imagenAbierta
+              setImagenAbierta(null)
+              marcador.abrir(ruta)
+            }}
+          >
+            <Pencil className="h-4 w-4" />
+            Dibujar sobre la foto
+          </Button>
+        ) : undefined}
       />
+      {marcador.editor}
     </div>
   )
 }

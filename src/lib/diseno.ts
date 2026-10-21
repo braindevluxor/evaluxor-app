@@ -38,14 +38,50 @@ export function colorPuntajeHex(value: number | null): string {
   return value >= 80 ? HEX_CUMPLE : value >= 60 ? HEX_RIESGO : HEX_NO_CUMPLE
 }
 
+/**
+ * Tarjeta de «Cumplimiento por módulo»: fondo PASTEL del umbral con el
+ * porcentaje y el icono en el tono profundo del mismo matiz (se pidieron
+ * pasteles en 2026-01). Blanco no se lee sobre pastel —1,3:1 sobre el verde—
+ * así que el texto baja al tono oscuro, y el par queda en ≥5:1.
+ * Los umbrales no se repiten acá: salen de `colorPuntajeHex`, así si cambian
+ * cambian en las dos piezas.
+ */
+const TARJETA_POR_UMBRAL: Record<string, { fondo: string; claseTexto: string }> = {
+  [HEX_CUMPLE]: { fondo: '#C0EDD0', claseTexto: 'text-green-800' },
+  [HEX_RIESGO]: { fondo: '#F7DFB6', claseTexto: 'text-amber-800' },
+  [HEX_NO_CUMPLE]: { fondo: '#F5BCBC', claseTexto: 'text-red-800' },
+  [HEX_SIN_DATO]: { fondo: '#D9DFE8', claseTexto: 'text-slate-700' }
+}
+
+/** Fondo pastel + clase de texto que se lee sobre él (ver `TARJETA_POR_UMBRAL`). */
+export function coloresTarjetaPuntaje(value: number | null): { fondo: string; claseTexto: string } {
+  return TARJETA_POR_UMBRAL[colorPuntajeHex(value)]
+}
+
 /* --- Colores de marca (el navy EvaLuxor se escribía a mano en ~6 archivos) -- */
 export const HEX_PRIMARY = '#28315F'
 export const HEX_PRIMARY_400 = '#4f87c7'
 export const HEX_PRIMARY_900 = '#0b2545'
 
 /* --- Colores de los módulos del dashboard ---------------------------------- */
-/** Paleta ordenada de los módulos en el ranking/gráficos; el navy de marca va primero. */
-export const COLORES_MODULOS = [HEX_PRIMARY, HEX_PRIMARY_400, HEX_CUMPLE, '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#db2777']
+/**
+ * Paleta ordenada y PASTEL de los módulos en los gráficos (curvas de la
+ * ponderación); el tono de marca va primero. Se pidieron pasteles en 2026-01:
+ * se conservan los matices de la paleta saturada que había antes —cada módulo
+ * seguía siendo reconocible por su matiz— con la saturación acotada entre 45%
+ * y 65% y la luminosidad alternada 66/76, porque dos pasteles seguidos se
+ * confunden si sólo cambia el matiz.
+ */
+export const COLORES_MODULOS = ['#818ECF', '#A2C0E2', '#70E199', '#EACC9A', '#E17070', '#B29AEA', '#70D0E1', '#EA9ABE']
+
+/* --- Color por serie en las donas del dashboard ---------------------------
+ * Cada dona tiene una porción por sucursal / departamento / cargo: con la
+ * paleta de módulos no alcanza y los tonos seguidos del arcoíris quedan casi
+ * iguales entre vecinos, así que se avanza el ángulo dorado (137,5°). La
+ * saturación y la luminosidad quedan en clave pastel, igual que las curvas. */
+export function colorSerie(i: number): string {
+  return `hsl(${Math.round(i * 137.508) % 360} 62% 74%)`
+}
 
 /* --- Estados de evaluación (PROGRAMADA / ACTIVA / CERRADA) ------------------
  * Semántica decidida:
@@ -103,3 +139,11 @@ export const CLASES_TIPO_ITEM: Record<TipoItem, string> = Object.fromEntries(
  * El patrón `text-[10px] font-bold uppercase tracking-* text-slate-*` se copiaba
  * con variantes entre pantallas; una sola clase para todas. */
 export const EYEBROW = 'text-[10px] font-bold uppercase tracking-wider text-slate-500'
+
+/* --- Contenedores de las vistas del dashboard -------------------------------
+ * El `<main>` de ConsoleLayout pinta `bg-slate-100` (y el panel de filtros del
+ * dashboard, también): ahí los contenedores usan ese mismo gris en lugar de
+ * blanco, para que la pantalla no se lea como cajas blancas flotando sobre el
+ * fondo. Si cambia el gris del layout, cambia solo acá.
+ * El `!` es porque `Card` ya trae `bg-white` y esta clase llega después por `cn`. */
+export const CLASE_CONTENEDOR_DASHBOARD = 'bg-slate-100!'

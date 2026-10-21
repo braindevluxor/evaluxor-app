@@ -1,4 +1,5 @@
 import { colaboradorCumple, esColaboradorRevisado, opcionesAplicablesColaborador, type ColaboradorItem } from '../scoring'
+import { tieneComentarios } from '../comentariosPunto'
 
 /**
  * Estado de la lista de colaboradores de un ítem de tipo LISTA_COLABORADORES.
@@ -152,19 +153,34 @@ export function combinarPorDni(
     // trabajador sin nada tocado hereda del lado fresco (que viene con el
     // historial aplicado en `cargar`): si se conservara el vacío de acá, una
     // lista guardada sin tocar le taparía para siempre el avance que ya tenía.
-    colaboradores.push(previo && tieneTrabajoRegistrado(previo) ? { ...f, ...respuestasDe(previo) } : f)
+    const conserva = previo && tieneTrabajoRegistrado(previo) ? respuestasDe(previo) : {}
+    // El comentario de un punto también es trabajo del evaluador, y se
+    // conserva aunque el trabajador no tenga nada tildado: una nota no tilda
+    // nada, pero si se pierde al recargar la lista el punto queda mudo.
+    const nota = previo && tieneComentarios(previo.comentarios) ? { comentarios: { ...previo.comentarios } } : {}
+    colaboradores.push(previo ? { ...f, ...conserva, ...nota } : f)
   }
 
   // Los que ya no están en la API (renunciaron, cambiaron de tienda). Solo se
   // devuelven los que tenían algo revisado: de los demás no hay nada que perder.
+  // Con una nota en un punto también hay algo que perder: si el trabajador se
+  // fue de la tienda, su nota no se puede ir en silencio.
   const perdidos = actuales.filter(
-    (c) => c.dni > 0 && !presentes.has(c.dni) && tieneTrabajoRegistrado(c)
+    (c) => c.dni > 0 && !presentes.has(c.dni) && (tieneTrabajoRegistrado(c) || tieneComentarios(c.comentarios))
   )
 
   return { colaboradores, perdidos }
 }
 
-/** Lo que se conserva de un trabajador al refrescar: lo que escribió el evaluador. */
+/**
+ * Lo que se conserva de un trabajador al refrescar: lo que escribió el evaluador.
+ *
+ * El comentario de los puntos **no** entra acá a propósito: `aplicarHistorial`
+ * usa esta función para heredar el estado de una evaluación anterior, y una
+ * nota escrita en esa evaluación no es de esta. El comentario de la evaluación
+ * en curso lo conserva `combinarPorDni`, que sí sabe de qué lado viene cada
+ * cosa.
+ */
 function respuestasDe(previo: ColaboradorItem): Partial<ColaboradorItem> {
   return {
     aplica: previo.aplica,

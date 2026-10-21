@@ -1,4 +1,4 @@
-import { Gauge, FolderOpen, FolderKanban, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen, Building2 } from 'lucide-react'
+import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -20,10 +20,6 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
     { to: '/dashboard', label: 'Indicadores', end: true, icon: <Gauge className="h-5 w-5" /> },
     { to: '/dashboard/responsables', label: 'Seguimiento por cargo', icon: <Users className="h-5 w-5" /> },
     { to: '/dashboard/historial', label: 'Historial', icon: <History className="h-5 w-5" /> }
-  ]},
-  { seccion: 'Biblioteca', items: [
-    { to: '/biblioteca', label: 'Procesos de evaluación', icon: <BookOpen className="h-5 w-5" /> },
-    { to: '/proyectos', label: 'Proyectos', end: true, icon: <FolderKanban className="h-5 w-5" /> }
   ]}
 ]
 
@@ -32,14 +28,8 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/dashboard/historial': { titulo: 'Historial de evaluaciones', subtitulo: 'Programación, seguimiento y cierre de evaluaciones' },
   '/dashboard/comparativas': { titulo: 'Comparativas', subtitulo: 'Analiza el desempeño por evaluador, mes o sucursal' },
   '/dashboard/responsables': { titulo: 'Seguimiento por cargo', subtitulo: 'Nota promedio de cada responsable por sucursal' },
-  '/config/sucursales': { titulo: 'Sucursales', subtitulo: 'Registro de supermercados a evaluar' },
-  '/config/departamentos': { titulo: 'Departamentos', subtitulo: 'Áreas de la organización que se evalúan por separado' },
-  '/config/modulos': { titulo: 'Módulos', subtitulo: 'Áreas que se evalúan en cada visita' },
-  '/config/items': { titulo: 'Ítems de evaluación', subtitulo: 'Preguntas y criterios de cada módulo' },
   '/config/usuarios': { titulo: 'Usuarios', subtitulo: 'Gestión de roles y accesos' },
-  '/biblioteca': { titulo: 'Biblioteca', subtitulo: 'Procesos de evaluación y documentación por KPI' },
-  '/proyectos': { titulo: 'Proyectos', subtitulo: 'Carpetas de trabajo de la organización' },
-  '/proyectos/biometrico': { titulo: 'Biométrico D100', subtitulo: 'Marcajes del lector Anviz conectado por USB' }
+  '/config/unidades': { titulo: 'Unidades', subtitulo: 'Registro de sucursales y departamentos' }
 }
 
 export function ConsoleLayout() {
@@ -59,10 +49,12 @@ function ConsoleLayoutContenido() {
     titulosVista[pathname] ??
     (pathname.startsWith('/dashboard/modulo/')
       ? { titulo: 'Dashboard del módulo', subtitulo: 'Ítems del módulo con el gráfico más idóneo según su tipo' }
-      : pathname.startsWith('/proyectos/')
-        ? { titulo: 'Proyecto', subtitulo: 'Detalle de la carpeta de trabajo' }
-        : undefined)
+      : undefined)
   const esDashboard = pathname.startsWith('/dashboard')
+  // Las vistas de indicadores (panel principal y el dashboard de un módulo) se
+  // llevan todo el ancho de la pantalla: su grilla de tarjetas y gráficos vive
+  // en columnas y el ancho centrado de 1280px dejaba media pantalla vacía.
+  const anchoTotal = pathname === '/dashboard' || pathname.startsWith('/dashboard/modulo/')
   const puedeEvaluar = profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER'
   const navRef = useRef<HTMLElement | null>(null)
   const [abierto, setAbierto] = useState(false)
@@ -74,14 +66,15 @@ function ConsoleLayoutContenido() {
     {
       seccion: 'Gestión',
       items: [
-        { to: '/config/sucursales', label: 'Sucursales', icon: <Store className="h-5 w-5" /> },
-        { to: '/config/departamentos', label: 'Departamentos', icon: <Building2 className="h-5 w-5" /> },
+        { to: '/config/unidades', label: 'Unidades', icon: <Store className="h-5 w-5" /> },
         { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> },
         { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> }
       ]
     }
   ] : []
 
+  // La inspección de vehículo no vive en la consola: se llena desde el
+  // teléfono, en /evaluar, con su propia tarjeta en EvaluarHome.
   const secciones = [...enlaces, ...config]
 
   useEffect(() => {
@@ -285,7 +278,9 @@ function ConsoleLayoutContenido() {
         </header>
         {esDashboard ? (
           <div className={cn('grid transition-[grid-template-rows] duration-300 ease-out', filtrosAbiertos ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')}>
-            <div className="min-h-0 overflow-hidden border-b border-slate-200 bg-slate-50">
+            {/* El panel de filtros es de las vistas del dashboard: mismo gris
+                que su `<main>` (ver CLASE_CONTENEDOR_DASHBOARD en diseno.ts). */}
+            <div className="min-h-0 overflow-hidden border-b border-slate-200 bg-slate-100">
               <div id="dashboard-filters-panel" />
             </div>
           </div>
@@ -294,10 +289,10 @@ function ConsoleLayoutContenido() {
         {pathname === '/dashboard' ||
         pathname === '/dashboard/responsables' ||
         pathname.startsWith('/dashboard/modulo/') ? (
-          <BarraKpis />
+          <BarraKpis ancho={anchoTotal} />
         ) : null}
         <SyncBanner />
-        <main className="mx-auto max-w-7xl px-4 py-6 lg:px-8">
+        <main className={cn('px-4 py-6 lg:px-8', !anchoTotal && 'mx-auto max-w-7xl')}>
           <Outlet />
         </main>
       </div>

@@ -57,6 +57,48 @@ describe('ItemRenderer · UNIDAD_CHECKLIST repetible', () => {
   })
 })
 
+describe('ItemRenderer · doble check', () => {
+  const conDobleCheck = (repetible?: boolean | null): Item => ({ ...itemDe('Dormis', repetible), tipo: 'CHECKLIST', doble_check: true })
+
+  it('en CHECKLIST muestra las dos marcas de cada punto', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={conDobleCheck()} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Existe')
+    expect(html).toContain('Correcto')
+    expect(html).toContain('Doble check: cada punto se marca')
+    // Sin doble check sólo aparece el check simple de "Punto validado".
+    const simple = renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis', false)} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(simple).not.toContain('Correcto')
+  })
+
+  it('sólo con la presencia marcada el punto no se valida', () => {
+    const valor = { selected: [], existe: ['o1', 'o2'] }
+    const html = renderToStaticMarkup(<ItemRenderer item={conDobleCheck()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Existe, falta el check de correcto')
+    expect(html).toContain('no puntúa')
+    expect(html).not.toContain('Punto validado')
+  })
+
+  it('con las dos marcas el punto queda validado', () => {
+    const valor = { selected: ['o1', 'o2'], existe: ['o1', 'o2'] }
+    const html = renderToStaticMarkup(<ItemRenderer item={conDobleCheck()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Punto validado')
+    expect(html).not.toContain('sin cumplir')
+  })
+
+  it('en UNIDAD_CHECKLIST cada unidad carga su propia presencia', () => {
+    const valor = { unidades: [{ codigo: 'U1', selected: [], existe: ['o1'] }] }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis', false)} valor={valor} index={0} total={1} onChange={() => {}} />)
+    // Sin doble check en el ítem, la presencia sola no cambia el estado del punto.
+    expect(html).not.toContain('Existe, falta el check de correcto')
+    expect(html).toContain('sin cumplir')
+
+    const conDoble = renderToStaticMarkup(
+      <ItemRenderer item={{ ...itemDe('Dormis', false), doble_check: true }} valor={valor} index={0} total={1} onChange={() => {}} />
+    )
+    expect(conDoble).toContain('Existe, falta el check de correcto')
+  })
+})
+
 function itemPlano(requerido = true): Item {
   return {
     id: 'it-2',
@@ -911,12 +953,13 @@ describe('ItemRenderer · los responsables se preseleccionan sin escribir nada',
     expect(fn).not.toMatch(/Array\.from\(new Set/)
   })
 
-  it('los seis call sites montan el selector sólo cuando el punto está sin cumplir', () => {
+  it('los nueve call sites montan el selector sólo cuando el punto está sin cumplir', () => {
     const item = fuente('./ItemRenderer.tsx')
     const plano = fuente('./PlanoEditor.tsx')
-    // 6 en ItemRenderer (CUMPLE_NO_CUMPLE, CHECKLIST, LISTA_COLABORADORES,
-    // UNIDAD_CHECKLIST, conciliación y el plano heredado) + 1 en PlanoEditor.
-    expect(item.match(/<SelectorResponsables/g)).toHaveLength(6)
+    // 9 en ItemRenderer (CUMPLE_NO_CUMPLE, CHECKLIST, LISTA_COLABORADORES,
+    // UNIDAD_CHECKLIST, conciliación y el plano heredado) + los tres del doble
+    // check (CHECKLIST y las dos ramas de UNIDAD_CHECKLIST) + 1 en PlanoEditor.
+    expect(item.match(/<SelectorResponsables/g)).toHaveLength(9)
     expect(plano.match(/<SelectorResponsables/g)).toHaveLength(1)
     // Ninguno debe montar el selector fuera del estado incumplido.
     expect(item).toMatch(/value === false/)
@@ -965,11 +1008,12 @@ describe('ItemRenderer · las escrituras simultáneas componen en vez de pisarse
     expect(src).toMatch(/onChange\(\(prev: unknown\) => inyectar\(\(v as \(p: unknown\) => unknown\)\(prev\)\)\)/)
   })
 
-  it('los tres puntos multi-responsable escriben como updater', () => {
+  it('los seis puntos multi-responsable escriben como updater', () => {
     const src = fuente('./ItemRenderer.tsx')
-    // CHECKLIST: un selector por check. Uno por unidad × check en
-    // UNIDAD_CHECKLIST (dos ramas: carga única y repetible).
-    expect(src.match(/responsablesPorOpcion: \{ \.\.\.\(base\.responsablesPorOpcion \?\? \{\}\), \[o\.id\]: sel \}/g)).toHaveLength(3)
+    // CHECKLIST: un selector por check (la rama simple y la del doble check).
+    // Uno por unidad × check en UNIDAD_CHECKLIST (dos ramas: carga única y
+    // repetible, cada una con su versión de doble check).
+    expect(src.match(/responsablesPorOpcion: \{ \.\.\.\(base\.responsablesPorOpcion \?\? \{\}\), \[o\.id\]: sel \}/g)).toHaveLength(6)
     expect(src).not.toMatch(/responsablesPorOpcion: \{ \.\.\.\(v\.responsablesPorOpcion/)
     expect(src).not.toMatch(/responsablesPorOpcion: \{ \.\.\.\(value\.responsablesPorOpcion/)
     // LISTA_COLABORADORES: un selector por trabajador × check.
@@ -1117,5 +1161,29 @@ describe('ItemRenderer · Total conciliación = Match / Total SKU', () => {
     // La tasa de descuadre sigue viva en el detalle y en los indicadores, pero
     // ya no es el número que se muestra acá.
     expect(src).not.toContain('conciliacionTotal')
+  })
+})
+
+describe('ItemRenderer · toda escritura del valor del ítem es updater', () => {
+  // Regresión del bug de los chips de responsables.
+  //
+  // Las escrituras eran `guardar({ ...v, responsables: sel })`: objetos armados
+  // con el `v` del render. Un callback atrasado —el de "Agregar evidencia",
+  // que vive segundos mientras se hace la foto— reponía ese `v` viejo completo
+  // y con él los responsables que el evaluador recién quitaba: destildaba uno
+  // y volvía a ver los encendidos, sin el aviso de preselección.
+  //
+  // Como updater `(prev) => next` la escritura se resuelve contra el draft
+  // vivo (`cambiarValor` en /evaluar, `cambiarRespuesta` en inspección y
+  // pre-entrega) y compone: nada puede reponer el valor anterior.
+  it('no queda ninguna escritura en forma objeto sobre el valor', () => {
+    const fuente = readFileSync(fileURLToPath(new URL('./ItemRenderer.tsx', import.meta.url)), 'utf8')
+    expect(fuente).not.toMatch(/guardar\(\{\s*\.\.\.(v|value)\b/)
+    expect(fuente).not.toMatch(/onChange\(\{\s*\.\.\.v\b/)
+  })
+
+  it('PlanoEditor compone el patch con el draft vivo, no con el `v` del render', () => {
+    const fuente = readFileSync(fileURLToPath(new URL('./PlanoEditor.tsx', import.meta.url)), 'utf8')
+    expect(fuente).toContain('onChange((prev: unknown) => ({ ...((prev ?? v) as ValorPlano), ...patch }))')
   })
 })

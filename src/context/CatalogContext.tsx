@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import type { Modulo, Item, Sucursal, Departamento, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem, SucursalOpcion, DepartamentoModulo, DepartamentoItem, DepartamentoOpcion } from '../lib/types'
+import type { Modulo, Item, Sucursal, Departamento, Asignacion, AsignacionModulo, SucursalModulo, SucursalItem, SucursalOpcion, SucursalPermiso, DepartamentoModulo, DepartamentoItem, DepartamentoOpcion } from '../lib/types'
 import { obtenerCacheLocal, refrescarCatalogo } from '../lib/data/catalog'
+import { aplicarPermisosChecklist } from '../lib/permisosChecklist'
 import { useAuth } from './AuthContext'
 
 interface CatalogContextValue {
@@ -14,6 +15,8 @@ interface CatalogContextValue {
   sucursalModulos: SucursalModulo[]
   sucursalItems: SucursalItem[]
   sucursalOpciones: SucursalOpcion[]
+  /** Permisos de cada sucursal: alimentan los ítems CHECKLIST con origen en permisos. */
+  sucursalPermisos: SucursalPermiso[]
   /** Config de módulos/ítems/opciones por departamento: mismas reglas que las de sucursal. */
   departamentoModulos: DepartamentoModulo[]
   departamentoItems: DepartamentoItem[]
@@ -36,6 +39,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   const [sucursalModulos, setSucursalModulos] = useState<SucursalModulo[]>([])
   const [sucursalItems, setSucursalItems] = useState<SucursalItem[]>([])
   const [sucursalOpciones, setSucursalOpciones] = useState<SucursalOpcion[]>([])
+  const [sucursalPermisos, setSucursalPermisos] = useState<SucursalPermiso[]>([])
   const [departamentoModulos, setDepartamentoModulos] = useState<DepartamentoModulo[]>([])
   const [departamentoItems, setDepartamentoItems] = useState<DepartamentoItem[]>([])
   const [departamentoOpciones, setDepartamentoOpciones] = useState<DepartamentoOpcion[]>([])
@@ -55,6 +59,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       setSucursalModulos(data.sucursalModulos)
       setSucursalItems(data.sucursalItems)
       setSucursalOpciones(data.sucursalOpciones)
+      setSucursalPermisos(data.sucursalPermisos ?? [])
       setDepartamentoModulos(data.departamentoModulos ?? [])
       setDepartamentoItems(data.departamentoItems ?? [])
       setDepartamentoOpciones(data.departamentoOpciones ?? [])
@@ -73,6 +78,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           setSucursalModulos(local.sucursalModulos ?? [])
           setSucursalItems(local.sucursalItems ?? [])
           setSucursalOpciones(local.sucursalOpciones ?? [])
+          setSucursalPermisos(local.sucursalPermisos ?? [])
           setDepartamentoModulos(local.departamentoModulos ?? [])
           setDepartamentoItems(local.departamentoItems ?? [])
           setDepartamentoOpciones(local.departamentoOpciones ?? [])
@@ -100,6 +106,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           setSucursalModulos(local.sucursalModulos ?? [])
           setSucursalItems(local.sucursalItems ?? [])
           setSucursalOpciones(local.sucursalOpciones ?? [])
+          setSucursalPermisos(local.sucursalPermisos ?? [])
           setDepartamentoModulos(local.departamentoModulos ?? [])
           setDepartamentoItems(local.departamentoItems ?? [])
           setDepartamentoOpciones(local.departamentoOpciones ?? [])
@@ -125,6 +132,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     sucursalModulos,
     sucursalItems,
     sucursalOpciones,
+    sucursalPermisos,
     departamentoModulos,
     departamentoItems,
     departamentoOpciones,
@@ -178,7 +186,7 @@ export function useModulosActivos(
 ): { modulosActivos: Modulo[]; itemsDe: (m: Modulo) => Item[] } {
   const {
     modulos, items, asignacionesModulos,
-    sucursalModulos, sucursalItems, sucursalOpciones,
+    sucursalModulos, sucursalItems, sucursalOpciones, sucursalPermisos,
     departamentoModulos, departamentoItems, departamentoOpciones
   } = useCatalog()
   const { profile } = useAuth()
@@ -226,6 +234,12 @@ export function useModulosActivos(
       }
       const setItems = new Set(idsItemsConf)
       return filtrados.map((i) => {
+        // Un CHECKLIST con origen en permisos no tiene opciones manuales: su
+        // lista se arma acá, contra los permisos ACTIVOS de la unidad y la
+        // fecha de hoy. Pasa antes del recorte por `sucursal_opciones`, que
+        // sólo aplica a las opciones escritas a mano.
+        const conPermisos = aplicarPermisosChecklist(i, unidad, { sucursalPermisos })
+        if (conPermisos !== i) return conPermisos
         if (!setItems.has(i.id)) return i
         const aplicaId = opcionesUnidad.filter((o) => o.item_id === i.id).map((o) => o.opcion_id)
         if (!i.opciones?.length || !aplicaId.length) return i

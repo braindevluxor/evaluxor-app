@@ -203,6 +203,70 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
     expect(html).not.toContain('No aplica')
   })
 
+  it('muestra el comentario del punto junto a su descripción', () => {
+    const html = renderRespuesta(
+      itemBase('CHECKLIST', [
+        { id: 'ok', etiqueta: 'Equipo limpio' },
+        { id: 'fallo', etiqueta: 'Cableado ordenado' }
+      ]),
+      { selected: ['ok'], comentarios: { fallo: 'faltan canaletas' } },
+      false
+    )
+
+    expect(html).toContain('faltan canaletas')
+    // La nota va con su punto, no suelta al final de la tabla.
+    expect(html.indexOf('Cableado ordenado')).toBeLessThan(html.indexOf('faltan canaletas'))
+  })
+
+  it('no muestra el comentario de un punto marcado No aplica', () => {
+    // El punto no aparece en el detalle, así que su nota tampoco: hablaría de
+    // algo que no está.
+    const html = renderRespuesta(
+      itemBase('CHECKLIST', [
+        { id: 'ok', etiqueta: 'Equipo limpio' },
+        { id: 'excluida', etiqueta: 'Opción no aplicable' }
+      ]),
+      {
+        selected: ['ok', 'excluida'],
+        informativos: ['excluida'],
+        comentarios: { excluida: 'no aplica en esta tienda' }
+      },
+      false
+    )
+
+    expect(html).not.toContain('no aplica en esta tienda')
+  })
+
+  it('muestra el comentario de cada unidad y de cada trabajador', () => {
+    const unidades = renderRespuesta(
+      itemBase('UNIDAD_CHECKLIST', [{ id: 'p1', etiqueta: 'Requerimiento A' }]),
+      { unidades: [{ codigo: 'U1', selected: [], comentarios: { p1: 'sin etiqueta de servicio' } }] },
+      false
+    )
+    expect(unidades).toContain('sin etiqueta de servicio')
+    expect(unidades).toContain('Requerimiento A')
+
+    const trabajadores = renderRespuesta(
+      itemBase('LISTA_COLABORADORES', [{ id: 'check', etiqueta: 'Contrato vigente' }]),
+      {
+        colaboradores: [
+          {
+            dni: 1,
+            name: 'Ana',
+            lastname: 'Gómez',
+            active: true,
+            aplica: true,
+            selected: ['check'],
+            comentarios: { check: 'en la carpeta del jefe' }
+          }
+        ]
+      },
+      false
+    )
+    expect(trabajadores).toContain('en la carpeta del jefe')
+    expect(trabajadores).toContain('Contrato vigente')
+  })
+
   describe('pathsEvidenciaCumple', () => {
     it('recupera y desduplica rutas guardadas dentro de evidencias de Cumple / No cumple', () => {
       expect(pathsEvidenciaCumple({

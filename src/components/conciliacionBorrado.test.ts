@@ -45,11 +45,14 @@ describe('borrar un producto de la conciliación', () => {
 
   it('las marcas no se pierden al editar una cantidad o una foto', () => {
     // `actualizarProducto` escribe por la misma puerta, así que lo que ya estaba
-    // marcado sigue marcado: `...v` trae las listas viejas y `quitados` viene
-    // vacío, que es exactamente lo que corresponde.
+    // marcado sigue marcado. Las marcas se leen del `base = prev ?? v`, es decir
+    // del draft vivo que entrega `cambiarValor`, no del `v` del render: así un
+    // `actualizar` posterior no repone las marcas viejas ni tira los
+    // responsables que se eligieron en el mismo ítem.
     const codigo = fuente()
     const fn = codigo.slice(codigo.indexOf('const actualizar = (items'))
-    expect(fn.slice(0, 900)).toContain('const previas = new Set(v.borrados ?? [])')
+    expect(fn.slice(0, 900)).toContain('const base = (prev ?? v) as ValorConciliacion')
+    expect(fn.slice(0, 900)).toContain('const previas = new Set(base.borrados ?? [])')
     expect(codigo).toContain('actualizar(productos.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))')
   })
 })

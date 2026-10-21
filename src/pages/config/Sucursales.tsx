@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Pencil, Settings2 } from 'lucide-react'
+import { Pencil, Settings2, SlidersHorizontal } from 'lucide-react'
 import { listarSucursalesAdmin, guardarSucursal, type SucursalVista } from '../../lib/data/catalog'
 import { listarUsuarios, type ProfileVista } from '../../lib/data/usuarios'
 import type { Sucursal } from '../../lib/types'
 import { Button, ButtonIcon, Field, Input, Modal, Badge, Select, SkeletonFilas } from '../../components/ui'
 import { SucursalConfigModal } from './SucursalConfig'
+import { ParametrosSucursalModal } from './SucursalParametros'
 import { useCatalog } from '../../context/CatalogContext'
 
 export function SucursalesPage() {
@@ -14,6 +15,7 @@ export function SucursalesPage() {
   const [modal, setModal] = useState(false)
   const [editando, setEditando] = useState<Sucursal | null>(null)
   const [configurando, setConfigurando] = useState<Sucursal | null>(null)
+  const [parametrizando, setParametrizando] = useState<Sucursal | null>(null)
   const [msg, setMsg] = useState('')
 
   const cargar = useCallback(async () => {
@@ -62,6 +64,12 @@ export function SucursalesPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1.5">
+                      {/* Ficha operativa de la tienda: cuántos equipos de cada tipo
+                          hay, qué computadores tiene cada puesto y qué permisos
+                          operativos están al día. */}
+                      <ButtonIcon variant="primary" onClick={() => setParametrizando(s)} title="Parámetros: equipos, computadores y permisos" aria-label="Parámetros de la sucursal">
+                        <SlidersHorizontal className="h-5 w-5" />
+                      </ButtonIcon>
                       <ButtonIcon variant="primary" onClick={() => setConfigurando(s)} title="Configurar módulos e ítems" aria-label="Configurar módulos e ítems">
                         <Settings2 className="h-5 w-5" />
                       </ButtonIcon>
@@ -98,6 +106,14 @@ export function SucursalesPage() {
         sucursal={configurando}
         onClose={() => setConfigurando(null)}
         onGuardado={() => { void cargar(); void refrescarCatalogo() }}
+      />
+      {/* Parámetros operativos: equipos POS, verificadores, pantallas, cabezales,
+          PDA, computadores por puesto y permisos con su vigencia. No refresca el
+          catálogo: los evaluadores no evalúan contra estos datos. */}
+      <ParametrosSucursalModal
+        sucursal={parametrizando}
+        onClose={() => setParametrizando(null)}
+        onGuardado={() => void cargar()}
       />
       {msg ? <p className="text-sm font-medium text-green-700">{msg}</p> : null}
     </div>

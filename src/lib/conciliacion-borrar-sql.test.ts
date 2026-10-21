@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { PGlite } from '@electric-sql/pglite'
+import { bloqueSql } from './supabaseSql'
 
 /**
  * `mergear_conciliacion`, ejecutada en un Postgres de verdad.
@@ -52,10 +51,7 @@ function skus(v: Record<string, unknown>): string[] {
 beforeAll(async () => {
   db = await PGlite.create()
   await db.exec(DDL)
-  const sql = readFileSync(
-    fileURLToPath(new URL('../../supabase/conciliacion-borrar-productos.sql', import.meta.url)),
-    'utf8'
-  )
+  const sql = bloqueSql('conciliacion-borrar-productos.sql')
   await db.exec(sql)
 }, 120_000)
 

@@ -7,7 +7,7 @@ export async function obtenerCacheLocal(): Promise<CacheData | undefined> {
 }
 
 export async function refrescarCatalogo(evaluadorId: string): Promise<CacheData> {
-  const [modulos, items, sucursales, departamentos, asignaciones, asignacionesModulos, sucursalModulos, sucursalItems, sucursalOpciones, departamentoModulos, departamentoItems, departamentoOpciones] = await Promise.all([
+  const [modulos, items, sucursales, departamentos, asignaciones, asignacionesModulos, sucursalModulos, sucursalItems, sucursalOpciones, sucursalPermisos, departamentoModulos, departamentoItems, departamentoOpciones] = await Promise.all([
     selectSeguro(supabase.from('modulos').select('*').eq('activo', true).order('orden').order('nombre')),
     selectSeguro(supabase.from('items').select('*').eq('activo', true)),
     selectSeguro(supabase.from('sucursales').select('*, gerente:profiles!sucursales_gerente_id_fkey(id, nombre)').eq('activa', true).order('nombre')),
@@ -17,6 +17,9 @@ export async function refrescarCatalogo(evaluadorId: string): Promise<CacheData>
     selectSeguro(supabase.from('sucursal_modulos').select('*').eq('activa', true)),
     selectSeguro(supabase.from('sucursal_items').select('*').eq('activa', true)),
     selectSeguro(supabase.from('sucursal_opciones').select('*').eq('activa', true)),
+    // Sin filtro por `vigente`: la lista de permisos se arma en cada pantalla y
+    // ahí se decide cuáles entran. El caché guarda el catálogo completo.
+    selectSeguro(supabase.from('sucursal_permisos').select('*')),
     selectSeguro(supabase.from('departamento_modulos').select('*').eq('activa', true)),
     selectSeguro(supabase.from('departamento_items').select('*').eq('activa', true)),
     selectSeguro(supabase.from('departamento_opciones').select('*').eq('activa', true))
@@ -32,6 +35,7 @@ export async function refrescarCatalogo(evaluadorId: string): Promise<CacheData>
     sucursalModulos: sucursalModulos as SucursalModulo[],
     sucursalItems: sucursalItems as SucursalItem[],
     sucursalOpciones: sucursalOpciones as SucursalOpcion[],
+    sucursalPermisos: sucursalPermisos as CacheData['sucursalPermisos'],
     departamentoModulos: departamentoModulos as DepartamentoModulo[],
     departamentoItems: departamentoItems as DepartamentoItem[],
     departamentoOpciones: departamentoOpciones as DepartamentoOpcion[],
@@ -132,7 +136,8 @@ export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: 
     api_campos: apiCampos,
     permitir_duplicados: i.permitir_duplicados ?? false,
     repetible: i.repetible ?? true,
-    contra_dato: i.contra_dato ?? 'SOH'
+    contra_dato: i.contra_dato ?? 'SOH',
+    doble_check: i.doble_check ?? false
   }).select('id').single()
   if (error) throw error
   return data?.id ?? null

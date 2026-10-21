@@ -49,10 +49,8 @@ describe('presencia · nombre de la pantalla', () => {
     expect(etiquetaPantalla('/dashboard/modulo/m9', CATALOGO)).toBe('Módulo')
     expect(etiquetaPantalla('/config/usuarios')).toBe('Usuarios')
     expect(etiquetaPantalla('/config/items')).toBe('Ítems')
-    expect(etiquetaPantalla('/config/departamentos')).toBe('Departamentos')
+    expect(etiquetaPantalla('/config/unidades')).toBe('Unidades')
     expect(etiquetaPantalla('/config/cualquier-cosa')).toBe('Configuración')
-    expect(etiquetaPantalla('/proyectos/biometrico')).toBe('Biométrico')
-    expect(etiquetaPantalla('/proyectos/p1')).toBe('Proyectos')
   })
 
   it('ignora query y hash, y nunca muestra un path crudo', () => {

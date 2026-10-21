@@ -142,7 +142,7 @@ export function Historial() {
     if (!datos) return m
     for (const ev of datos.evaluaciones) {
       if (ev.estado !== 'ACTIVA') continue
-      m.set(ev.id, puntajeEnCurso(ev, datos.respuestas, datos.items, datos.sucursalOpciones))
+      m.set(ev.id, puntajeEnCurso(ev, datos.respuestas, datos.items, datos.sucursalOpciones, datos.sucursalPermisos))
     }
     return m
   }, [datos])
@@ -237,7 +237,7 @@ export function Historial() {
     setGestionando(true)
     try {
       const det = await obtenerEvaluacion(ev.id)
-      const puntaje = det ? resumirEvaluacion(det.evaluacion, det.respuestas, det.items, det.sucursalOpciones).puntaje : ev.puntuacion
+      const puntaje = det ? resumirEvaluacion(det.evaluacion, det.respuestas, det.items, det.sucursalOpciones, det.sucursalPermisos).puntaje : ev.puntuacion
       setComentarioCierre('')
       setCierrePendiente({ ev, puntaje })
     } catch {

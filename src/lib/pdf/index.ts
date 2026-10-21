@@ -1,8 +1,11 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { ocultarCentroCodigoEvaluacion } from '../codigoEvaluacion'
 import type { DetalleEvaluacion } from '../data/indicadores'
-import { listarPerfilesSync, obtenerEvaluacion, resumirEvaluacion } from '../data/indicadores'
+import { listarPerfilesSync, obtenerEvaluacion, resumirEvaluacion, unidadDe } from '../data/indicadores'
+import { aplicarPermisosChecklist } from '../permisosChecklist'
 import {
+  checkMarcado,
   colaboradorCumple,
   conciliacionPorcentaje,
   esColaboradorRevisado,
@@ -44,6 +47,7 @@ import { ETIQUETAS_ROL } from '../roles'
 import { supabase } from '../supabase'
 import { ordenarTrabajadores } from '../data/colaboradores'
 import { imprimeBloque, imprimeCargos, imprimeModulo, imprimePortada, type OpcionesPdf } from './opciones'
+import { leerComentario, lineasDeComentario, textoDeComentarios } from '../comentariosPunto'
 import { ponerLogoAlPie, xTextoDelPie } from './marcaPie'
 
 export type FiltroPdfCumplimiento = 'ambos' | 'cumple' | 'no-cumple'
@@ -87,13 +91,6 @@ function claveCargo(cargo: string): string {
   return cargo.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-function ocultarCentroCodigoEvaluacion(codigo: string): string {
-  const compacto = codigo.replace(/-/g, '')
-  if (!/^[\da-f]{32}$/i.test(compacto)) return codigo
-  const enmascarado = `${compacto.slice(0, 12)}********${compacto.slice(20)}`
-  return `${enmascarado.slice(0, 8)}-${enmascarado.slice(8, 12)}-${enmascarado.slice(12, 16)}-${enmascarado.slice(16, 20)}-${enmascarado.slice(20)}`
-}
-
 const MARGEN = 14
 const TAMANO_FUENTE = 10
 /**
@@ -117,7 +114,12 @@ function opcionesDeSucursal(detalle: DetalleEvaluacion): Map<string, string[]> {
   return opciones
 }
 
-function aplicarOpciones(item: Item, opciones: Map<string, string[]>): Item {
+function aplicarOpciones(item: Item, opciones: Map<string, string[]>, detalle: DetalleEvaluacion): Item {
+  // Mismo orden que en el detalle y en el tablero: primero la lista que se
+  // genera desde los permisos de la sucursal, y sólo si no pasó por ahí el
+  // recorte a las opciones marcadas a mano.
+  const conPermisos = aplicarPermisosChecklist(item, unidadDe(detalle.evaluacion), { sucursalPermisos: detalle.sucursalPermisos })
+  if (conPermisos !== item) return conPermisos
   if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
   const ids = opciones.get(item.id)
   return ids?.length ? { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) } : item
@@ -129,7 +131,7 @@ export function filtrarDetallePdf(
 ): DetalleEvaluacion {
   const opciones = opcionesDeSucursal(detalle)
   const itemsPorId = new Map(detalle.items.map((item) => {
-    const aplicado = aplicarOpciones(item, opciones)
+    const aplicado = aplicarOpciones(item, opciones, detalle)
     return [item.id, aplicado] as const
   }))
   const respuestas = detalle.respuestas.filter((respuesta) => {
@@ -159,7 +161,7 @@ export function filtrarDetallePdf(
 
 function puntajeModulo(detalle: DetalleEvaluacion, moduloId: string, opciones: Map<string, string[]>): number | null {
   const itemsModulo = detalle.items.filter((item) => item.modulo_id === moduloId)
-  const itemsPorId = new Map(itemsModulo.map((item) => [item.id, aplicarOpciones(item, opciones)]))
+  const itemsPorId = new Map(itemsModulo.map((item) => [item.id, aplicarOpciones(item, opciones, detalle)]))
   const binarios = detalle.respuestas.flatMap((respuesta) => {
     const item = itemsPorId.get(respuesta.item_id)
     if (!item) return []
@@ -394,7 +396,7 @@ export function buildPdfDocument(
 
   const ev = resumenDetalle.evaluacion
   const fecha = new Date(`${ev.fecha}T12:00:00`).toLocaleDateString('es')
-  const resumen = resumirEvaluacion(ev, resumenDetalle.respuestas, resumenDetalle.items, resumenDetalle.sucursalOpciones)
+  const resumen = resumirEvaluacion(ev, resumenDetalle.respuestas, resumenDetalle.items, resumenDetalle.sucursalOpciones, resumenDetalle.sucursalPermisos)
   const opcionesResumen = opcionesDeSucursal(resumenDetalle)
   const nombreDelFiltro = filtro === 'cumple' ? 'Cumple' : filtro === 'ambos' ? 'Ambos' : 'No cumple'
 
@@ -498,8 +500,11 @@ export function buildPdfDocument(
       return
     }
     const mostrarResponsables = rows.some((row) => !row.cumple)
+    // La columna de comentarios aparece sólo si hay alguno: una columna de
+    // guiones en todas las filas es ruido en el papel.
+    const mostrarComentarios = rows.some((row) => leerComentario(v?.comentarios, row.option.id).trim())
     tabla(
-      ['Estado', 'Descripción', ...(mostrarResponsables ? ['Responsable'] : [])],
+      ['Estado', 'Descripción', ...(mostrarResponsables ? ['Responsable'] : []), ...(mostrarComentarios ? ['Comentario'] : [])],
       rows.map(({ option, cumple }) => {
         const descripcion = option.tipo_respuesta === 'RANGO'
           ? `${option.etiqueta}: ${v?.valores?.[option.id] ?? '—'}${option.unidad ? ` ${option.unidad}` : ''} (mín. ${option.minimo ?? '—'})`
@@ -515,13 +520,24 @@ export function buildPdfDocument(
                 : option.responsable
                   ? [option.responsable]
                   : item.responsables ?? []
-        return [cumple ? '✓' : 'X', descripcion, ...(mostrarResponsables ? [responsables.join(', ') || '—'] : [])]
+        // Con doble check, un punto que está en la tienda pero sin validar es un
+        // estado propio (existe, no puntúa); sin doble check todo lo no cumplido
+        // es simplemente "X".
+        const existe = Array.isArray(v?.existe) && v.existe.includes(option.id)
+        const estado = cumple ? '✓' : existe ? 'Existe' : 'X'
+        const comentario = mostrarComentarios ? leerComentario(v?.comentarios, option.id).trim() : ''
+        return [
+          estado,
+          descripcion,
+          ...(mostrarResponsables ? [responsables.join(', ') || '—'] : []),
+          ...(mostrarComentarios ? [comentario || '—'] : [])
+        ]
       })
     )
   }
 
   const dibujarDetalleItem = (item: Item, valor: unknown) => {
-    const itemAplicado = aplicarOpciones(item, opciones)
+    const itemAplicado = aplicarOpciones(item, opciones, resumenDetalle)
     const resultado = veredictoItem(itemAplicado, valor)
     const estado = resultado === 'cumple' ? 'CUMPLE' : resultado === 'no-cumple' ? 'NO CUMPLE' : resultado === 'no-aplica' ? 'NO APLICA' : 'SIN VEREDICTO'
     textoLinea(`${item.texto} — ${estado}`, { bold: true, gap: 1 })
@@ -680,13 +696,16 @@ export function buildPdfDocument(
         const enPuntaje = enCuenta.filter(esColaboradorRevisado)
         const sinRevisar = enCuenta.length - enPuntaje.length
         const colaboradores = enPuntaje.filter((col) => !soloIncumplimientos || !colaboradorCumple(col, item.opciones ?? []))
-        tabla(['Trabajador', 'Estado', 'Pendiente'], colaboradores.map((col) => {
+        // Comentarios de los puntos: sólo se agrega la columna si hay alguno.
+        const mostrarComentarios = colaboradores.some((col) => lineasDeComentario(col.comentarios, item.opciones ?? []).length)
+        tabla(['Trabajador', 'Estado', 'Pendiente', ...(mostrarComentarios ? ['Comentarios'] : [])], colaboradores.map((col) => {
           const aplican = opcionesAplicablesColaborador(col, item.opciones ?? [])
           const faltan = aplican.filter((option) => !(col.selected ?? []).includes(option.id))
           return [
             `${col.lastname} ${col.name}${col.role_name ? ` · ${col.role_name}` : ''}`,
             colaboradorCumple(col, item.opciones ?? []) ? 'Completo' : 'Incompleto',
-            faltan.map((option) => option.etiqueta).join(', ') || '—'
+            faltan.map((option) => option.etiqueta).join(', ') || '—',
+            ...(mostrarComentarios ? [textoDeComentarios(lineasDeComentario(col.comentarios, item.opciones ?? [])) || '—'] : [])
           ]
         }))
         if (sinRevisar) {
@@ -697,12 +716,15 @@ export function buildPdfDocument(
       case 'UNIDAD_CHECKLIST': {
         const v = valor as ValorUnidadChecklist | null
         const unidades = (v?.unidades ?? []).filter((unidad) => !soloIncumplimientos || !unidadCumple(unidad, item.opciones ?? []))
-        tabla(['Unidad', 'Estado', 'Puntos pendientes'], unidades.map((unidad) => {
-          const faltan = (item.opciones ?? []).filter((option) => !(unidad.selected ?? []).includes(option.id))
+        // Comentarios de los puntos: sólo se agrega la columna si hay alguno.
+        const mostrarComentarios = unidades.some((unidad) => lineasDeComentario(unidad.comentarios, item.opciones ?? []).length)
+        tabla(['Unidad', 'Estado', 'Puntos pendientes', ...(mostrarComentarios ? ['Comentarios'] : [])], unidades.map((unidad) => {
+          const faltan = (item.opciones ?? []).filter((option) => !checkMarcado(unidad, option.id))
           return [
             unidad.codigo,
             unidadCumple(unidad, item.opciones ?? []) ? 'Completa' : 'Incompleta',
-            faltan.map((option) => option.etiqueta).join(', ') || '—'
+            faltan.map((option) => option.etiqueta).join(', ') || '—',
+            ...(mostrarComentarios ? [textoDeComentarios(lineasDeComentario(unidad.comentarios, item.opciones ?? [])) || '—'] : [])
           ]
         }))
         break
@@ -806,7 +828,7 @@ export function buildPdfDocument(
   if (imprimeCargos(impresion)) {
     resultadosCargos = clasificarResultadosCargos(
       valorPorResponsable(
-        resumenDetalle.items.map((item) => aplicarOpciones(item, opcionesResumen)),
+        resumenDetalle.items.map((item) => aplicarOpciones(item, opcionesResumen, resumenDetalle)),
         resumenDetalle.respuestas
       ),
       ev.sucursal?.branch_id === BRANCH_CENTRAL ? [] : catalogoCargos.sucursal,
@@ -816,7 +838,7 @@ export function buildPdfDocument(
       const item = resumenDetalle.items.find((candidato) => candidato.id === respuesta.item_id)
       if (!item) continue
       for (const incumplimiento of incumplimientosPorResponsable(
-        aplicarOpciones(item, opcionesResumen),
+        aplicarOpciones(item, opcionesResumen, resumenDetalle),
         respuesta.valor
       )) {
         puntosIncumplidosPorCargo.set(

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Item, Modulo, Opcion, Respuesta, Sucursal, SucursalModulo, VistaEvaluacion } from '../types'
-import { medidoresPorModulo, puntajePorSucursalModulo, puntajePorUnidadModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, unidadDe, seguimientoResponsables, hallazgosDeCargo, resumirFallasPorItem, type ConjuntoDatos } from './indicadores'
+import { medidoresPorModulo, puntajePorSucursalModulo, puntajePorUnidadModulo, resumenItemsModulo, barrasModulo, itemsDelModulo, sucursalesConModuloEvaluado, renglonesDrilldown, detalleDeEvaluacion, puntajeEnCurso, puntajeModuloDeRespuestas, resumirEvaluacion, conPuntajesRecalculados, unidadDe, seguimientoResponsables, rankingResponsables, hallazgosDeCargo, resumirFallasPorItem, type ConjuntoDatos } from './indicadores'
 
 const sucursales: Sucursal[] = [
   { id: 's1', nombre: 'Sucursal Norte', shop_id: null, branch_id: null, direccion: null, gerente_id: null, activa: true, created_at: '' },
@@ -911,9 +911,144 @@ describe('detalleDeEvaluacion', () => {
     expect(detalle[0].cumple).toBe(true)
     expect(detalle[0].resumen).toBe('Cumple')
     expect(detalle[0].modulo).toBe('Módulo 1')
+    expect(detalle[0].modulo_id).toBe('m1')
     expect(detalle[0].peso).toBe(100)
+    expect(detalle[0].veredicto).toBe('cumple')
+    expect(detalle[0].comentarios).toBe('')
+    expect(detalle[0].respondido_por).toBe(null)
     expect(detalle[1].cumple).toBe(false)
     expect(detalle[1].resumen).toBe('No cumple')
+    expect(detalle[1].veredicto).toBe('no-cumple')
+  })
+
+  it('sube el veredicto, los comentarios de evidencia y quién respondió', () => {
+    const datos = {
+      evaluaciones,
+      respuestas: [
+        {
+          ...respuesta('ev1', 'i1', true),
+          respondido_por: 'user-7',
+          valor: { value: true, evidencias: [{ photoIds: [], comentario: 'Vidrio roto en cámara 3' }] }
+        },
+        { ...respuesta('ev1', 'i2', true), valor: { value: true, informativo: true } }
+      ],
+      items,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const detalle = detalleDeEvaluacion(datos, 'ev1')
+    expect(detalle[0].comentarios).toBe('Vidrio roto en cámara 3')
+    expect(detalle[0].respondido_por).toBe('user-7')
+    expect(detalle[0].veredicto).toBe('cumple')
+    expect(detalle[1].veredicto).toBe('no-aplica')
+    expect(detalle[1].proporcion).toBe(null)
+  })
+
+  it('ignora las evidencias que vienen como objeto por opción (checklist)', () => {
+    const itemsChecklist: Item[] = [
+      ...items,
+      { id: 'i9', modulo_id: 'm1', tipo: 'CHECKLIST', texto: 'Checklist', opciones: [], orden: 5, requerido: false, activo: true, puntaje: 100, created_at: '' }
+    ]
+    const datos = {
+      evaluaciones,
+      respuestas: [
+        {
+          ...respuesta('ev1', 'i9', false),
+          // En los CHECKLIST `evidencias` es un objeto por opción, sin
+          // comentario: si alguien lo trata como arreglo, esto truena.
+          valor: { selected: [], evidencias: { o1: { photoIds: ['p1'] } } }
+        }
+      ],
+      items: itemsChecklist,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const detalle = detalleDeEvaluacion(datos, 'ev1')
+    expect(detalle[0].comentarios).toBe('')
+  })
+
+  it('lleva el comentario de cada punto de las listas a la columna de comentarios', () => {
+    // La nota que el evaluador dejó en un punto viaja con el nombre del punto:
+    // "Góndola de panadería: falta la mercadería". En las unidades y en los
+    // trabajadores se antepone la unidad o el nombre de la persona, porque ahí
+    // el mismo check se repite en varios sitios.
+    const itemsListas: Item[] = [
+      ...items,
+      {
+        id: 'i9',
+        modulo_id: 'm1',
+        tipo: 'CHECKLIST',
+        texto: 'Checklist',
+        opciones: [
+          { id: 'o1', etiqueta: 'Limpio' },
+          { id: 'o2', etiqueta: 'Etiquetas puestas' }
+        ],
+        orden: 5,
+        requerido: false,
+        activo: true,
+        puntaje: 100,
+        created_at: ''
+      },
+      {
+        id: 'i10',
+        modulo_id: 'm1',
+        tipo: 'UNIDAD_CHECKLIST',
+        texto: 'Unidades',
+        opciones: [{ id: 'o1', etiqueta: 'Requerimiento A' }],
+        orden: 6,
+        requerido: false,
+        activo: true,
+        puntaje: 100,
+        created_at: ''
+      },
+      {
+        id: 'i11',
+        modulo_id: 'm1',
+        tipo: 'LISTA_COLABORADORES',
+        texto: 'Trabajadores',
+        opciones: [{ id: 'o1', etiqueta: 'Contrato vigente' }],
+        orden: 7,
+        requerido: false,
+        activo: true,
+        puntaje: 100,
+        created_at: ''
+      }
+    ]
+    const datos = {
+      evaluaciones,
+      respuestas: [
+        { ...respuesta('ev1', 'i9', false), valor: { selected: ['o1'], comentarios: { o2: 'faltan las etiquetas' } } },
+        {
+          ...respuesta('ev1', 'i10', false),
+          valor: { unidades: [{ codigo: 'U1', selected: [], comentarios: { o1: 'sin etiqueta' } }] }
+        },
+        {
+          ...respuesta('ev1', 'i11', false),
+          valor: {
+            colaboradores: [
+              { dni: 1, name: 'Ana', lastname: 'Gómez', active: true, aplica: true, selected: [], comentarios: { o1: 'contrato en la carpeta' } }
+            ]
+          }
+        }
+      ],
+      items: itemsListas,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const detalle = detalleDeEvaluacion(datos, 'ev1')
+    const comentariosDe = (itemId: string): string => detalle.find((d) => d.item_id === itemId)!.comentarios
+    expect(comentariosDe('i9')).toBe('Etiquetas puestas: faltan las etiquetas')
+    expect(comentariosDe('i10')).toBe('U1: Requerimiento A: sin etiqueta')
+    expect(comentariosDe('i11')).toBe('Gómez Ana: Contrato vigente: contrato en la carpeta')
   })
 
   it('acota el detalle al ítem clickeado', () => {
@@ -1324,6 +1459,36 @@ describe('seguimientoResponsables', () => {
       'encargadodeturno',
       'liderth',
       'depositaria'
+    ])
+  })
+})
+
+describe('rankingResponsables', () => {
+  it('ordena por porcentaje de resultado, no por puntos no cumplidos', () => {
+    const top = rankingResponsables(conjuntoSeguimiento(), 2)
+
+    // Por puntos el segundo sería Depositaría (1 punto, 50%): acá la lista la
+    // abre el resultado —Encargado 0% y Líder TH 0%—, no la cantidad de fallas.
+    expect(top.map((f) => f.cargo)).toEqual(['Encargado de turno', 'Líder TH'])
+    expect(top[0].nota).toBe(0)
+    expect(top[1].nota).toBe(0)
+  })
+
+  it('es el mismo ranking que la página de seguimiento por cargo', () => {
+    const datos = conjuntoSeguimiento()
+
+    expect(rankingResponsables(datos, 20)).toEqual(seguimientoResponsables(datos).filas)
+  })
+
+  it('el límite corta al final: un cargo sin nota no pasa en el top', () => {
+    const datos = conjuntoSeguimiento()
+    datos.items.push(itemSeg('i-seg-9', 'Sin peso', ['Jefe de depósito'], 0))
+    datos.respuestas.push(respuestaSeg('evD', 'i-seg-9', false, ['Jefe de depósito']))
+
+    expect(rankingResponsables(datos, 3).map((f) => f.cargo)).toEqual([
+      'Encargado de turno',
+      'Líder TH',
+      'Depositaría'
     ])
   })
 })

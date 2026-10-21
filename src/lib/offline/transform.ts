@@ -64,6 +64,52 @@ function isChecklistValor(valor: unknown): Record<string, string[]> | null {
   return out
 }
 
+/**
+ * Comentario por punto (id de la opción → texto).
+ *
+ * Viaja **dentro del valor** y no tiene nada que ver con las fotos, pero las
+ * dos proyecciones de abajo (la que sube a la nube y la que quita las fotos)
+ * arman el objeto campo por campo y se lo tragaban: el comentario se perdía al
+ * sincronizar y el punto quedaba mudo en el informe.
+ *
+ * Los valores de UNIDAD_CHECKLIST y LISTA_COLABORADORES no pasan por acá (no
+ * los arma ninguna de las dos proyecciones: van enteros), así que sus
+ * comentarios viajan sin que haya que hacer nada.
+ */
+function copiarComentarios(
+  v: { comentarios?: unknown },
+  out: Record<string, unknown>
+): void {
+  if (!v.comentarios || typeof v.comentarios !== 'object' || Array.isArray(v.comentarios)) return
+  if (!Object.keys(v.comentarios as Record<string, unknown>).length) return
+  out.comentarios = v.comentarios
+}
+
+/**
+ * Responsables elegidos y gerente de la sucursal: viajan **dentro del valor** y
+ * no tienen nada que ver con las fotos.
+ *
+ * Las dos proyecciones de abajo (la que sube a la nube y la que quita las fotos)
+ * arman el objeto campo por campo y se los tragaban. Perderlos al subir tenía
+ * dos daños concretos: al reabrir la evaluación el punto volvía a la
+ * **preselección** (los chips de siempre encendidos, con la selección del
+ * evaluador tirada), y los reportes (PDF, Excel, indicadores) le atribuían la
+ * falla al gerente en vez de a quien eligió el evaluador.
+ *
+ * Un `responsables: []` vacío se salta a propósito: significa "sin selección",
+ * que es exactamente lo mismo que ausente para quien lo lee.
+ */
+function copiarResponsables(
+  v: { responsables?: unknown; responsablesPorOpcion?: unknown; responsablesGerente?: unknown },
+  out: Record<string, unknown>
+): void {
+  if (Array.isArray(v.responsables) && v.responsables.length) out.responsables = v.responsables
+  if (v.responsablesPorOpcion && typeof v.responsablesPorOpcion === 'object' && !Array.isArray(v.responsablesPorOpcion)) {
+    out.responsablesPorOpcion = v.responsablesPorOpcion
+  }
+  if (v.responsablesGerente !== undefined) out.responsablesGerente = v.responsablesGerente
+}
+
 // Proyección sin IDs de fotos locales, para consumidores que explícitamente no
 // deban incluir evidencias. El auto-guardado normal las sube y guarda sus rutas.
 export function valorSinFotos(valor: unknown): unknown {
@@ -81,29 +127,39 @@ export function valorSinFotos(valor: unknown): unknown {
   }
   const plano = isPlanoValor(valor)
   if (plano) {
-    const v = valor as { planos: { id: string; nombre: string; photoIds?: string[] }[]; puntos?: unknown; informativo?: boolean }
-    return {
+    const v = valor as { planos: { id: string; nombre: string; photoIds?: string[] }[]; puntos?: unknown; informativo?: boolean; responsables?: string[]; responsablesGerente?: string | null }
+    const out: Record<string, unknown> = {
       planos: v.planos.map((p) => ({ id: p.id, nombre: p.nombre, photoIds: [] })),
-      puntos: v.puntos ?? [],
-      ...(v.informativo ? { informativo: true } : {})
+      puntos: v.puntos ?? []
     }
+    if (v.informativo) out.informativo = true
+    copiarResponsables(v, out)
+    return out
   }
   const cumple = isCumpleValor(valor)
   if (cumple) {
-    const v = valor as { value?: boolean | null; evidencias?: { comentario?: string }[]; informativo?: boolean }
+    const v = valor as { value?: boolean | null; evidencias?: { comentario?: string }[]; informativo?: boolean; responsables?: string[]; responsablesGerente?: string | null }
     const out: Record<string, unknown> = {
       value: v.value ?? null,
       evidencias: (v.evidencias ?? []).map((e) => ({ comentario: e.comentario ?? '' }))
     }
     if (v.informativo) out.informativo = true
+    copiarResponsables(v, out)
     return out
   }
   const checklist = isChecklistValor(valor)
   if (checklist) {
-    const v = valor as { selected?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: unknown }
+    const v = valor as { selected?: string[]; existe?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: unknown; comentarios?: Record<string, string>; responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
     const out: Record<string, unknown> = { selected: v.selected ?? [] }
+    // Doble check: `existe` se conserva aunque venga vacío, porque su sola
+    // presencia (como array) le dice al puntaje que la segunda marca es
+    // obligatoria. Soltarlo convertiría una respuesta sin validaciones en puntos
+    // cumplidos.
+    if (Array.isArray(v.existe)) out.existe = v.existe
     if ((v.informativos ?? []).length) out.informativos = v.informativos
     if (v.valores && Object.keys(v.valores).length) out.valores = v.valores
+    copiarComentarios(v, out)
+    copiarResponsables(v, out)
     return out
   }
   if (isFotoValor(valor)) return { photoIds: [] }
@@ -184,7 +240,7 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
   if (ids) return { paths: ids.map((id) => map.get(id) ?? `.local/${id}`) }
   const cumpleIds = isCumpleValor(valor)
   if (cumpleIds) {
-    const v = valor as { value?: boolean | null; evidencias?: { photoIds?: string[]; comentario?: string }[]; informativo?: boolean }
+    const v = valor as { value?: boolean | null; evidencias?: { photoIds?: string[]; comentario?: string }[]; informativo?: boolean; responsables?: string[]; responsablesGerente?: string | null }
     const out: Record<string, unknown> = {
       value: v.value ?? null,
       evidencias: (v.evidencias ?? []).map((e, i) => ({
@@ -193,11 +249,14 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
       }))
     }
     if (v.informativo) out.informativo = true
+    // Sin esto la fila subía sin la selección del evaluador: al reabrir, el
+    // punto volvía a la preselección con todos los chips encendidos.
+    copiarResponsables(v, out)
     return out
   }
   const checklistIds = isChecklistValor(valor)
   if (checklistIds) {
-    const v = valor as { selected?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: Record<string, { photoIds?: string[] } | null> }
+    const v = valor as { selected?: string[]; existe?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: Record<string, { photoIds?: string[] } | null>; comentarios?: Record<string, string>; responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
     const evidencias: Record<string, unknown> = {}
     for (const [optId, ids] of Object.entries(checklistIds)) {
       evidencias[optId] = { paths: ids.map((id) => map.get(id) ?? `.local/${id}`) }
@@ -206,8 +265,13 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
       selected: v.selected ?? [],
       evidencias
     }
+    // Igual que en `valorSinFotos`: la marca de presencia del doble check viaja
+    // aunque esté vacía, para no degradar la respuesta a modo check único.
+    if (Array.isArray(v.existe)) out.existe = v.existe
     if ((v.informativos ?? []).length) out.informativos = v.informativos
     if (v.valores && Object.keys(v.valores).length) out.valores = v.valores
+    copiarComentarios(v, out)
+    copiarResponsables(v, out)
     return out
   }
   return valor

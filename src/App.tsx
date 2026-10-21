@@ -28,19 +28,24 @@ const Historial = lazy(() => import('./pages/dashboard/Historial').then((m) => (
 const Comparativas = lazy(() => import('./pages/dashboard/Comparativas').then((m) => ({ default: m.Comparativas })))
 const Responsables = lazy(() => import('./pages/dashboard/Responsables').then((m) => ({ default: m.Responsables })))
 const ModuloDashboard = lazy(() => import('./pages/dashboard/ModuloDashboard').then((m) => ({ default: m.ModuloDashboard })))
-const SucursalesPage = lazy(() => import('./pages/config/Sucursales').then((m) => ({ default: m.SucursalesPage })))
-const DepartamentosPage = lazy(() => import('./pages/config/Departamentos').then((m) => ({ default: m.DepartamentosPage })))
+const UnidadesPage = lazy(() => import('./pages/config/Unidades').then((m) => ({ default: m.UnidadesPage })))
 const ModulosPage = lazy(() => import('./pages/config/Modulos').then((m) => ({ default: m.ModulosPage })))
 const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ default: m.ItemsPage })))
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
-const BibliotecaPage = lazy(() => import('./pages/biblioteca/BibliotecaPage').then((m) => ({ default: m.BibliotecaPage })))
-const ProyectosHome = lazy(() => import('./pages/proyectos/ProyectosHome').then((m) => ({ default: m.ProyectosHome })))
-const BiometricoProyecto = lazy(() => import('./pages/proyectos/BiometricoProyecto').then((m) => ({ default: m.BiometricoProyecto })))
-const ProyectoDetalle = lazy(() => import('./pages/proyectos/ProyectoDetalle').then((m) => ({ default: m.ProyectoDetalle })))
 // Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
 // cuenta. Va con lazy porque sólo se descarga quien abre el enlace.
 const ConciliacionPublica = lazy(() =>
   import('./pages/publico/ConciliacionPublica').then((m) => ({ default: m.ConciliacionPublica }))
+)
+// Inspección de vehículo (estética + mecánica + gas vehicular): herramienta
+// fuera de la evaluación, con fotos, registro local y PDF.
+const InspeccionVehiculo = lazy(() =>
+  import('./pages/herramientas/InspeccionVehiculo').then((m) => ({ default: m.InspeccionVehiculo }))
+)
+// Su historial: misma puerta y mismo flujo móvil; de ahí se reabre cualquier
+// inspección anterior para regenerar su PDF.
+const InspeccionHistorial = lazy(() =>
+  import('./pages/herramientas/InspeccionHistorial').then((m) => ({ default: m.InspeccionHistorial }))
 )
 // Revisión Pre-Entrega: fuera del menú y de las rutas por decisión de producto;
 // el módulo (`pages/herramientas/RevisionPreEntrega`) sigue en el repo.
@@ -117,6 +122,32 @@ function Rutas() {
                         <RequireAuth>
                           <RequireRol roles={['EVALUADOR', 'LIDER']}>
                             <IncidenciasPage />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    {/* Inspección de vehículo particular: misma puerta que la
+                        evaluación y en el mismo flujo móvil (se llena desde el
+                        teléfono), pero sin evaluación detrás — se llena y se
+                        imprime. No tiene sucursal: no es de ninguna unidad. */}
+                    <Route
+                      path="/evaluar/inspeccion-vehiculo"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <InspeccionVehiculo />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    {/* El historial de esas inspecciones: misma puerta. Las
+                        filas reabren la herramienta con ?registro=<id>. */}
+                    <Route
+                      path="/evaluar/inspeccion-vehiculo/historial"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <InspeccionHistorial />
                           </RequireRol>
                         </RequireAuth>
                       }
@@ -215,15 +246,10 @@ function Rutas() {
                           </RequireRol>
                         }
                       />
-                      <Route path="/config/sucursales" element={<SoloLider><SucursalesPage /></SoloLider>} />
-                      <Route path="/config/departamentos" element={<SoloLider><DepartamentosPage /></SoloLider>} />
+                      <Route path="/config/unidades" element={<SoloLider><UnidadesPage /></SoloLider>} />
                       <Route path="/config/modulos" element={<SoloLider><ModulosPage /></SoloLider>} />
                       <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
                       <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
-                      <Route path="/biblioteca" element={<BibliotecaPage />} />
-                      <Route path="/proyectos" element={<ProyectosHome />} />
-                      <Route path="/proyectos/biometrico" element={<BiometricoProyecto />} />
-                      <Route path="/proyectos/:id" element={<ProyectoDetalle />} />
                     </Route>
 
                     <Route path="*" element={<HomeRedirect />} />
