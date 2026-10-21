@@ -337,23 +337,36 @@ export function ValorRespuesta({
             {unidadesVisibles.map((u, i) => {
               const cumple = unidadCumple(u, opts)
               const marcadas = (u.selected ?? []).map((id) => opts.find((o) => o.id === id)?.etiqueta ?? id)
+              // Puntos que el evaluador marcó «no aplica» en ESTA unidad: no se
+              // esperan, no son pendientes y su nota no es un hallazgo.
+              const noAplica = (u.informativos ?? []).filter((id) => opts.some((o) => o.id === id))
+              const todoNoAplica = opts.length > 0 && noAplica.length === opts.length
               // Con doble check un punto sólo con la presencia sigue siendo
               // pendiente: no puntúa hasta la marca de correcto.
-              const pendientes = opts.filter((o) => !checkMarcado(u, o.id)).map((o) => o.etiqueta)
+              const pendientes = opts.filter((o) => !noAplica.includes(o.id) && !checkMarcado(u, o.id)).map((o) => o.etiqueta)
               // Comentarios de los puntos de ESTA unidad.
-              const comentarios = lineasDeComentario(u.comentarios, opts)
+              const comentarios = lineasDeComentario(u.comentarios, opts, noAplica)
               return (
                 <li key={`${u.codigo}-${i}`} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <span className="min-w-0 font-medium text-slate-800">{u.codigo}</span>
-                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
-                      {cumple ? 'Completo' : 'Incompleto'}
+                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', todoNoAplica ? 'bg-amber-100 text-amber-800' : cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
+                      {todoNoAplica ? 'No aplica' : cumple ? 'Completo' : 'Incompleto'}
                     </span>
                   </div>
                   {!soloIncumplimientos && marcadas.length ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {marcadas.map((l) => (
                         <span key={l} className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-semibold text-primary-700">{l}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {noAplica.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {noAplica.map((id) => (
+                        <span key={id} className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                          {opts.find((o) => o.id === id)?.etiqueta ?? id} · no aplica
+                        </span>
                       ))}
                     </div>
                   ) : null}

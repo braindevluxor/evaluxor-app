@@ -716,15 +716,20 @@ export function buildPdfDocument(
       case 'UNIDAD_CHECKLIST': {
         const v = valor as ValorUnidadChecklist | null
         const unidades = (v?.unidades ?? []).filter((unidad) => !soloIncumplimientos || !unidadCumple(unidad, item.opciones ?? []))
+        // Los puntos «no aplica» de la unidad no se esperan: no son pendientes
+        // y su nota no sale en el informe.
+        const noAplicaDe = (unidad: ValorUnidadChecklist['unidades'][number]) =>
+          (unidad.informativos ?? []).filter((id) => (item.opciones ?? []).some((o) => o.id === id))
         // Comentarios de los puntos: sólo se agrega la columna si hay alguno.
-        const mostrarComentarios = unidades.some((unidad) => lineasDeComentario(unidad.comentarios, item.opciones ?? []).length)
+        const mostrarComentarios = unidades.some((unidad) => lineasDeComentario(unidad.comentarios, item.opciones ?? [], noAplicaDe(unidad)).length)
         tabla(['Unidad', 'Estado', 'Puntos pendientes', ...(mostrarComentarios ? ['Comentarios'] : [])], unidades.map((unidad) => {
-          const faltan = (item.opciones ?? []).filter((option) => !checkMarcado(unidad, option.id))
+          const noAplica = noAplicaDe(unidad)
+          const faltan = (item.opciones ?? []).filter((option) => !noAplica.includes(option.id) && !checkMarcado(unidad, option.id))
           return [
             unidad.codigo,
             unidadCumple(unidad, item.opciones ?? []) ? 'Completa' : 'Incompleta',
             faltan.map((option) => option.etiqueta).join(', ') || '—',
-            ...(mostrarComentarios ? [textoDeComentarios(lineasDeComentario(unidad.comentarios, item.opciones ?? [])) || '—'] : [])
+            ...(mostrarComentarios ? [textoDeComentarios(lineasDeComentario(unidad.comentarios, item.opciones ?? [], noAplica)) || '—'] : [])
           ]
         }))
         break

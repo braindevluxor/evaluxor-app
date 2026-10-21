@@ -13,6 +13,7 @@ import {
   colaboradorCumple,
   colaboradoresQueCuentan,
   opcionesAplicablesColaborador,
+  opcionesAplicablesUnidad,
   unidadCumple,
   esSinHablador,
   pesoItem,
@@ -864,6 +865,10 @@ export function resumenItemsModulo(
       a.muestras++
       a.ok += p
       for (const u of unidades) {
+        // Una unidad con todos sus puntos «no aplica» no tiene nada que cumplir:
+        // no cuenta como evaluada (el mismo criterio que los trabajadores sin
+        // puntos aplicables).
+        if (!opcionesAplicablesUnidad(u, opts).length) continue
         a.unidTotal++
         if (unidadCumple(u, opts)) a.unidOk++
       }
@@ -1953,7 +1958,10 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
       if (!unids.length) return { proporcion: p, resumen: 'Sin unidades' }
       const opts = (item.opciones ?? []) as Opcion[]
       const cumplen = unids.filter((u) => unidadCumple(u, opts)).length
-      return { proporcion: p, resumen: `${cumplen}/${unids.length} unidades completas` }
+      // Los puntos marcados «no aplica» se anuncian aparte: si no, el resumen
+      // contaría como faltantes puntos que el evaluador descartó a propósito.
+      const noAplica = unids.reduce((n, u) => n + (u.informativos ?? []).filter((id) => opts.some((o) => o.id === id)).length, 0)
+      return { proporcion: p, resumen: `${cumplen}/${unids.length} unidades completas${noAplica ? ` · ${noAplica} no aplica` : ''}` }
     }
     case 'PLANO_XY': {
       const v = valor as ValorPlano | null
@@ -2014,7 +2022,7 @@ function comentariosDePuntos(valor: unknown, opciones: Opcion[]): string {
   const v = valor as {
     comentarios?: Record<string, string>
     informativos?: string[]
-    unidades?: { codigo?: string; comentarios?: Record<string, string> }[]
+    unidades?: { codigo?: string; comentarios?: Record<string, string>; informativos?: string[] }[]
     colaboradores?: { lastname?: string; name?: string; noAplica?: string[]; comentarios?: Record<string, string> }[]
   } | null
   if (!v) return ''
@@ -2022,7 +2030,7 @@ function comentariosDePuntos(valor: unknown, opciones: Opcion[]): string {
   const delItem = textoDeComentarios(lineasDeComentario(v.comentarios, opciones, v.informativos))
   if (delItem) partes.push(delItem)
   for (const unidad of v.unidades ?? []) {
-    const texto = textoDeComentarios(lineasDeComentario(unidad.comentarios, opciones))
+    const texto = textoDeComentarios(lineasDeComentario(unidad.comentarios, opciones, unidad.informativos))
     if (texto) partes.push(`${unidad.codigo ?? 'Unidad'}: ${texto}`)
   }
   for (const colaborador of v.colaboradores ?? []) {

@@ -352,6 +352,8 @@ export interface UnidadChecklist {
   selected: string[]
   /** Comentario libre por punto de ESTA unidad (id de la opción → texto). */
   comentarios?: ComentariosPunto
+  /** Puntos marcados «no aplica» de ESTA unidad (id de la opción): no puntúan ni se informan. */
+  informativos?: string[]
   /** Doble check: igual que `ValorChecklist.existe`, pero por unidad (la presencia se marca unidad por unidad). */
   existe?: string[]
 }
@@ -496,10 +498,25 @@ export function checkMarcado(
   return !Array.isArray(fila?.existe) || (fila.existe ?? []).includes(id)
 }
 
+/**
+ * Los puntos de una unidad a los que realmente aplica: los marcados «no aplica»
+ * quedan afuera.
+ *
+ * Es el mismo criterio que `opcionesAplicablesColaborador` usa para el listado
+ * de trabajadores: el «no aplica» es del punto, pero lo marca el evaluador en
+ * cada fila (aquí, cada unidad).
+ */
+export function opcionesAplicablesUnidad<T extends { id: string }>(unidad: UnidadChecklist, opciones: T[] | null | undefined): T[] {
+  const opts = opciones ?? []
+  return opts.filter((o) => !(unidad.informativos ?? []).includes(o.id))
+}
+
 export function unidadCumple(unidad: UnidadChecklist, opciones: { id: string }[] | null | undefined): boolean {
   const opts = (opciones ?? []) as { id: string }[]
   if (!opts.length) return false
-  return opts.every((o) => checkMarcado(unidad, o.id))
+  // Los puntos «no aplica» no se esperan: una unidad sin nada que cumplir está
+  // completa (si no, marcar «no aplica» en todo la dejaría en rojo).
+  return opcionesAplicablesUnidad(unidad, opts).every((o) => checkMarcado(unidad, o.id))
 }
 
 export function conciliacionComparable(
@@ -899,7 +916,12 @@ if (item.tipo === 'CHECKLIST') {
     if (!unidades.length) return null
     const opts = (item.opciones ?? []) as { id: string }[]
     if (!opts.length) return null
-    return unidades.every((u) => unidadCumple(u, opts))
+    // Una unidad con todos sus puntos «no aplica» no tiene nada que cumplir:
+    // no entra en el veredicto del ítem. Si TODAS son así, el ítem entero no
+    // puntúa (queda fuera del score, igual que un CHECKLIST todo «no aplica»).
+    const enCuenta = unidades.filter((u) => opcionesAplicablesUnidad(u, opts).length > 0)
+    if (!enCuenta.length) return null
+    return enCuenta.every((u) => unidadCumple(u, opts))
   }
   if (item.tipo === 'PLANO_XY') {
     const v = valor as ValorPlano | null
@@ -963,9 +985,11 @@ export function estaVacioItem(
       const unids = (valor as ValorUnidadChecklist | null)?.unidades ?? []
       if (item.repetible === false) {
         // Carga única: vacío hasta marcar al menos un requerimiento (con doble
-        // check alcanza con la marca de presencia).
+        // check alcanza con la marca de presencia). Un punto marcado «no aplica»
+        // también es una respuesta: si no, el evaluador que descarta todos los
+        // puntos seguía viendo «Obligatorio para enviar» sin nada que marcar.
         const u = unids[0]
-        return unids.length === 0 || (!u?.selected?.length && !u?.existe?.length)
+        return unids.length === 0 || (!u?.selected?.length && !u?.existe?.length && !u?.informativos?.length)
       }
       return !unids.length
     }
@@ -1094,7 +1118,9 @@ export function itemsProporcion(vals: { item: { tipo: string; opciones?: string[
  * ¿El evaluador marcó que esto no aplica? Las respuestas existentes guardan esta
  * marca en el campo legado `informativo`; en los CHECKLIST se guarda por opción
  * (`informativos`), así que el ítem entero queda excluido solo cuando TODAS sus
- * opciones están marcadas No aplica.
+ * opciones están marcadas No aplica. En los UNIDAD_CHECKLIST el «no aplica» es
+ * por unidad: el ítem entero queda excluido cuando todas sus unidades tienen
+ * todos sus puntos marcados «no aplica».
  *
  * Va aparte de "sin veredicto": No aplica es una respuesta deliberada, mientras
  * que lo no puntuable es que todavía no se contestó.
@@ -1104,10 +1130,20 @@ export function esNoAplica(
   valor: unknown
 ): boolean {
   if ((valor as { informativo?: boolean } | null)?.informativo === true) return true
-  if (item.tipo !== 'CHECKLIST') return false
   const opts = (item.opciones ?? []) as { id: string }[]
-  const informativos = new Set((valor as ValorChecklist | null)?.informativos ?? [])
-  return opts.length > 0 && opts.every((o) => informativos.has(o.id))
+  if (item.tipo === 'CHECKLIST') {
+    const informativos = new Set((valor as ValorChecklist | null)?.informativos ?? [])
+    return opts.length > 0 && opts.every((o) => informativos.has(o.id))
+  }
+  if (item.tipo === 'UNIDAD_CHECKLIST') {
+    // El «no aplica» es por unidad: el ítem entero queda excluido sólo cuando
+    // TODAS sus unidades tienen TODOS sus puntos marcados «no aplica».
+    if (!opts.length) return false
+    const unidades = (valor as ValorUnidadChecklist | null)?.unidades ?? []
+    if (!unidades.length) return false
+    return unidades.every((u) => opcionesAplicablesUnidad(u, opts).length === 0)
+  }
+  return false
 }
 
 /**
@@ -1209,7 +1245,12 @@ function puntoCumplido(tipo: string | undefined, o: OpcionScoring, valor: unknow
     const v = valor as ValorUnidadChecklist | null
     const unids = v?.unidades ?? []
     if (!unids.length) return null
-    return unids.every((u) => checkMarcado(u, o.id ?? ''))
+    // Sólo cuentan las unidades donde el punto aplica: si en todas está
+    // marcado «no aplica», el punto no puntúa (igual que en el listado de
+    // trabajadores).
+    const aplican = unids.filter((u) => !(u.informativos ?? []).includes(o.id ?? ''))
+    if (!aplican.length) return null
+    return aplican.every((u) => checkMarcado(u, o.id ?? ''))
   }
   return null
 }
@@ -1593,6 +1634,8 @@ export function incumplimientosPorResponsable(
       const v2 = valor as ValorUnidadChecklist | null
       for (const u of v2?.unidades ?? []) {
         for (const { o, rs } of puntos) {
+          // Un punto «no aplica» en esa unidad no es una falla: no se espera.
+          if ((u.informativos ?? []).includes(o.id as string)) continue
           if (!checkMarcado(u, o.id as string)) sumar(rs)
         }
       }
@@ -1746,6 +1789,8 @@ function checksDeFalla(it: ItemFalla, responsable: string, muestras: unknown[]):
     } else if (it.tipo === 'UNIDAD_CHECKLIST') {
       for (const u of (valor as ValorUnidadChecklist | null)?.unidades ?? []) {
         for (const o of opts) {
+          // Los puntos «no aplica» de esa unidad no son fallas: no se esperan.
+          if ((u.informativos ?? []).includes(o.id as string)) continue
           if (checkMarcado(u, o.id as string)) continue
           if (responsablesDeFalla(it, o, record, gerente).includes(responsable)) agregar(nombre(o))
         }

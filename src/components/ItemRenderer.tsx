@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, MessageSquare, Pencil, Plus, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
-import { etiquetaTipo, conciliacionPorcentaje, esMatchConciliacion, totalConciliacion, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, checkMarcado, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, formatearMontoPerdida, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, resumenPerdidaConciliacion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
+import { etiquetaTipo, conciliacionPorcentaje, esMatchConciliacion, totalConciliacion, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionesAplicablesUnidad, checkMarcado, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, formatearMontoPerdida, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, resumenPerdidaConciliacion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { listarColaboradores, ordenarTrabajadores } from '../lib/data/colaboradores'
 import { combinarPorDni, aplicarHistorial } from '../lib/data/colaboradoresEstado'
@@ -149,7 +149,11 @@ function checkIncumplido(item: Item, o: Opcion, valor: unknown): boolean {
     const v = valor as ValorUnidadChecklist | null
     const unids = v?.unidades ?? []
     if (!unids.length) return false
-    return !unids.every((u) => checkMarcado(u, o.id))
+    // Sólo las unidades donde el punto aplica: en las demás está marcado «no
+    // aplica» y eso no es «sin cumplir».
+    const aplican = unids.filter((u) => !(u.informativos ?? []).includes(o.id))
+    if (!aplican.length) return false
+    return !aplican.every((u) => checkMarcado(u, o.id))
   }
   return false
 }
@@ -2019,7 +2023,12 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
   // Carga única (repetible = false): el checklist se marca una sola vez.
   if (item.repetible === false) {
     const unica = unidades[0] ?? { codigo: 'Única', selected: [] }
-    const marcadas = unica.selected ?? []
+    // Los puntos marcados «no aplica» de esta unidad quedan fuera: no se
+    // esperan, no puntúan y no se informan.
+    const aplicables = opcionesAplicablesUnidad(unica, opts)
+    const noAplica = (unica.informativos ?? []).filter((id) => opts.some((o) => o.id === id))
+    const marcadas = (unica.selected ?? []).filter((id) => aplicables.some((o) => o.id === id))
+    const todoNoAplica = opts.length > 0 && aplicables.length === 0
     const completas = unidadCumple(unica, opts)
     const toggleCheck = (opcionId: string) =>
       actualizar((prev) => {
@@ -2055,6 +2064,20 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
         const actual = prev[0] ?? unica
         return [{ ...actual, comentarios: escribirComentario(actual.comentarios, opcionId, texto) }]
       })
+    // «No aplica» por punto: el mismo criterio del CHECKLIST, pero de esta
+    // unidad. Las marcas del punto no se borran (si después se destoca, el
+    // checklist vuelve como estaba).
+    const toggleNoAplicaUnica = (opcionId: string) =>
+      actualizar((prev) => {
+        const actual = prev[0] ?? unica
+        const actuales = actual.informativos ?? []
+        return [
+          {
+            ...actual,
+            informativos: actuales.includes(opcionId) ? actuales.filter((x) => x !== opcionId) : [...actuales, opcionId]
+          }
+        ]
+      })
     const codigoVisible = unica.codigo && unica.codigo !== 'Única' ? unica.codigo : ''
     return (
       <div className="space-y-3">
@@ -2081,19 +2104,22 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
               const esta = marcadas.includes(o.id)
               const existeOpcion = (unica.existe ?? []).includes(o.id)
               const cumpleOpcion = checkMarcado(unica, o.id)
+              const esNoAplica = (unica.informativos ?? []).includes(o.id)
               const respFallidos = responsablesDeCheck(item, o).length > 0
               return (
                 <div
                   key={o.id}
                   className={cn(
                     'min-w-0 overflow-hidden rounded-xl border transition-colors',
-                    cumpleOpcion
-                      ? 'border-slate-200 bg-white'
-                      // Con doble check, "existe pero sin validar" es un estado propio
-                      // (ámbar), distinto del punto ausente (rojo).
-                      : dobleCheck && existeOpcion
-                        ? 'border-amber-300 bg-amber-50'
-                        : 'border-red-300 bg-red-50'
+                    esNoAplica
+                      ? 'border-amber-200 bg-amber-50'
+                      : cumpleOpcion
+                        ? 'border-slate-200 bg-white'
+                        // Con doble check, "existe pero sin validar" es un estado propio
+                        // (ámbar), distinto del punto ausente (rojo).
+                        : dobleCheck && existeOpcion
+                          ? 'border-amber-300 bg-amber-50'
+                          : 'border-red-300 bg-red-50'
                   )}
                 >
                   <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
@@ -2104,105 +2130,124 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                     {o.puntos != null && o.puntos > 0 ? (
                       <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
                     ) : null}
+                    <button
+                      type="button"
+                      onClick={() => toggleNoAplicaUnica(o.id)}
+                      title="No aplica: se excluye del puntaje"
+                      className={cn(
+                        'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors',
+                        esNoAplica ? 'bg-amber-100 text-amber-800' : 'text-slate-400 hover:bg-amber-50 hover:text-amber-600'
+                      )}
+                    >
+                      <Info className="h-3 w-3" />
+                      {esNoAplica ? 'No aplica' : 'Marcar no aplica'}
+                    </button>
                   </div>
                   <ComentarioPunto
                     valor={leerComentario(unica.comentarios, o.id)}
                     etiqueta={`Comentario del punto: ${o.etiqueta}`}
                     onChange={(texto) => setComentarioUnica(o.id, texto)}
                   />
-                  {dobleCheck ? (
-                    // Doble check: las dos marcas del punto y, si falta alguna,
-                    // los responsables de la falla.
-                    <div className={cn('min-w-0 px-3 py-2.5', cumpleOpcion ? 'bg-green-50/40' : existeOpcion ? 'bg-amber-50/60' : 'bg-red-50/60')}>
-                      <DobleCheck
-                        existe={existeOpcion}
-                        correcto={esta}
-                        onExiste={() => toggleExisteUnica(o.id)}
-                        onCorrecto={() => toggleCheck(o.id)}
-                      />
-                      <p
-                        className={cn(
-                          'mt-1.5 text-xs font-semibold',
-                          cumpleOpcion ? 'text-green-700' : existeOpcion ? 'text-amber-700' : 'text-red-500'
-                        )}
-                      >
-                        {cumpleOpcion
-                          ? 'Punto validado'
-                          : existeOpcion
-                            ? 'Existe, falta el check de correcto · no puntúa'
-                            : 'Sin marcar · sin cumplir'}
-                      </p>
-                      {respFallidos && !cumpleOpcion ? (
-                        <SelectorResponsables
-                          responsables={responsablesDeCheck(item, o)}
-                          seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
-                          gerente={gerente}
-                          onChange={(sel) =>
-                            onChange((prev: unknown) => {
-                              const base = (prev ?? v) as ValorUnidadChecklist
-                              return {
-                                ...base,
-                                responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
-                              }
-                            })
-                          }
+                  {!esNoAplica ? (
+                    dobleCheck ? (
+                      // Doble check: las dos marcas del punto y, si falta alguna,
+                      // los responsables de la falla.
+                      <div className={cn('min-w-0 px-3 py-2.5', cumpleOpcion ? 'bg-green-50/40' : existeOpcion ? 'bg-amber-50/60' : 'bg-red-50/60')}>
+                        <DobleCheck
+                          existe={existeOpcion}
+                          correcto={esta}
+                          onExiste={() => toggleExisteUnica(o.id)}
+                          onCorrecto={() => toggleCheck(o.id)}
                         />
-                      ) : null}
-                    </div>
-                  ) : esta ? (
-                    // Estado neutro (validado): sin alerta roja ni responsables.
-                    <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2.5">
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 shrink-0 accent-green-600"
-                          checked={esta}
-                          onChange={() => toggleCheck(o.id)}
-                        />
-                        <span className="text-xs font-semibold text-green-700">Punto validado</span>
-                      </label>
-                    </div>
+                        <p
+                          className={cn(
+                            'mt-1.5 text-xs font-semibold',
+                            cumpleOpcion ? 'text-green-700' : existeOpcion ? 'text-amber-700' : 'text-red-500'
+                          )}
+                        >
+                          {cumpleOpcion
+                            ? 'Punto validado'
+                            : existeOpcion
+                              ? 'Existe, falta el check de correcto · no puntúa'
+                              : 'Sin marcar · sin cumplir'}
+                        </p>
+                        {respFallidos && !cumpleOpcion ? (
+                          <SelectorResponsables
+                            responsables={responsablesDeCheck(item, o)}
+                            seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
+                            gerente={gerente}
+                            onChange={(sel) =>
+                              onChange((prev: unknown) => {
+                                const base = (prev ?? v) as ValorUnidadChecklist
+                                return {
+                                  ...base,
+                                  responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
+                                }
+                              })
+                            }
+                          />
+                        ) : null}
+                      </div>
+                    ) : esta ? (
+                      // Estado neutro (validado): sin alerta roja ni responsables.
+                      <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2.5">
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 shrink-0 accent-green-600"
+                            checked={esta}
+                            onChange={() => toggleCheck(o.id)}
+                          />
+                          <span className="text-xs font-semibold text-green-700">Punto validado</span>
+                        </label>
+                      </div>
+                    ) : (
+                      // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
+                      <div className="min-w-0 bg-red-50/60 px-3 py-2.5">
+                        <label className="mb-2 flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 shrink-0 accent-primary"
+                            checked={esta}
+                            onChange={() => toggleCheck(o.id)}
+                          />
+                          <span className="text-xs font-bold text-slate-600">
+                            Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
+                          </span>
+                        </label>
+                        {respFallidos ? (
+                          <SelectorResponsables
+                            responsables={responsablesDeCheck(item, o)}
+                            seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
+                            gerente={gerente}
+                            onChange={(sel) =>
+                              onChange((prev: unknown) => {
+                                const base = (prev ?? v) as ValorUnidadChecklist
+                                return {
+                                  ...base,
+                                  responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
+                                }
+                              })
+                            }
+                          />
+                        ) : null}
+                      </div>
+                    )
                   ) : (
-                    // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
-                    <div className="min-w-0 bg-red-50/60 px-3 py-2.5">
-                      <label className="mb-2 flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 shrink-0 accent-primary"
-                          checked={esta}
-                          onChange={() => toggleCheck(o.id)}
-                        />
-                        <span className="text-xs font-bold text-slate-600">
-                          Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
-                        </span>
-                      </label>
-                      {respFallidos ? (
-                        <SelectorResponsables
-                          responsables={responsablesDeCheck(item, o)}
-                          seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
-                          gerente={gerente}
-                          onChange={(sel) =>
-                            onChange((prev: unknown) => {
-                              const base = (prev ?? v) as ValorUnidadChecklist
-                              return {
-                                ...base,
-                                responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
-                              }
-                            })
-                          }
-                        />
-                      ) : null}
-                    </div>
+                    <p className="px-3 pb-2.5 text-xs font-semibold text-amber-700">
+                      No aplica · este punto no se espera y queda fuera del puntaje
+                    </p>
                   )}
                 </div>
               )
             })}
           </div>
         )}
-        {marcadas.length ? (
+        {marcadas.length || noAplica.length ? (
           <p className="text-sm text-slate-600">
             {codigoVisible ? <span className="font-semibold text-slate-700">{codigoVisible} · </span> : null}
-            {marcadas.length}/{opts.length} requerimientos · {completas ? 'Completo' : 'Incompleto'}
+            {marcadas.length}/{aplicables.length} requerimientos · {todoNoAplica ? 'No aplica' : completas ? 'Completo' : 'Incompleto'}
+            {noAplica.length ? ` · ${noAplica.length} no aplica` : null}
           </p>
         ) : null}
       </div>
@@ -2268,7 +2313,22 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
       return { ...u, comentarios: escribirComentario(u.comentarios, opcionId, texto) }
     }))
 
-  const cumplidos = unidades.filter((u) => unidadCumple(u, opts)).length
+  // «No aplica» por punto y por unidad: cada unidad puede tener un check que no
+  // le corresponde (una máquina con una bandeja y otra sin ella).
+  const toggleNoAplica = (idx: number, opcionId: string) =>
+    actualizar((prev) => prev.map((u, i) => {
+      if (i !== idx) return u
+      const actuales = u.informativos ?? []
+      return {
+        ...u,
+        informativos: actuales.includes(opcionId) ? actuales.filter((x) => x !== opcionId) : [...actuales, opcionId]
+      }
+    }))
+
+  // Las unidades con todos sus puntos «no aplica» no tienen nada que cumplir:
+  // no cuentan como completas ni como incompletas.
+  const unidadesEnCuenta = unidades.filter((u) => opcionesAplicablesUnidad(u, opts).length > 0)
+  const cumplidos = unidadesEnCuenta.filter((u) => unidadCumple(u, opts)).length
 
   return (
     <div className="space-y-3">
@@ -2305,18 +2365,21 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
       {unidades.length ? (
         <>
           <p className="text-sm text-slate-600">
-            {unidades.length} unidades en cuenta · {cumplidos}/{unidades.length} con checklist completo
+            {unidadesEnCuenta.length} unidades en cuenta · {cumplidos}/{unidadesEnCuenta.length} con checklist completo
           </p>
           <div className="space-y-2">
             {unidades.map((u, i) => {
               const abierto = abiertoIdx === i
               const cumple = unidadCumple(u, opts)
+              const aplicables = opcionesAplicablesUnidad(u, opts)
+              const marcadas = (u.selected ?? []).filter((id) => aplicables.some((o) => o.id === id))
+              const todoNoAplica = opts.length > 0 && aplicables.length === 0
               return (
                 <div key={`${u.codigo}-${i}`} className="rounded-xl bg-slate-50">
                   <div className="flex items-center gap-2 px-3 py-2.5">
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">{u.codigo}</span>
-                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
-                      {cumple ? 'Completo' : `${(u.selected ?? []).length}/${opts.length}`}
+                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', todoNoAplica ? 'bg-amber-100 text-amber-800' : cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
+                      {todoNoAplica ? 'No aplica' : cumple ? 'Completo' : `${marcadas.length}/${aplicables.length}`}
                     </span>
                     <button
                       type="button"
@@ -2341,6 +2404,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                         const esta = u.selected.includes(o.id)
                         const existeOpcion = (u.existe ?? []).includes(o.id)
                         const cumpleOpcion = checkMarcado(u, o.id)
+                        const esNoAplica = (u.informativos ?? []).includes(o.id)
                         const incumple = checkIncumplido(item, o, v)
                         const respFallidos = responsablesDeCheck(item, o).length > 0
                         return (
@@ -2348,13 +2412,15 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                             key={o.id}
                             className={cn(
                               'min-w-0 overflow-hidden rounded-xl border transition-colors',
-                              incumple
-                                // Con doble check, "existe pero sin validar" en ESTA unidad es
-                                // un estado propio (ámbar), distinto del punto ausente (rojo).
-                                ? dobleCheck && existeOpcion
-                                  ? 'border-amber-300 bg-amber-50'
-                                  : 'border-red-300 bg-red-50'
-                                : 'border-slate-200 bg-white'
+                              esNoAplica
+                                ? 'border-amber-200 bg-amber-50'
+                                : incumple
+                                  // Con doble check, "existe pero sin validar" en ESTA unidad es
+                                  // un estado propio (ámbar), distinto del punto ausente (rojo).
+                                  ? dobleCheck && existeOpcion
+                                    ? 'border-amber-300 bg-amber-50'
+                                    : 'border-red-300 bg-red-50'
+                                  : 'border-slate-200 bg-white'
                             )}
                           >
                             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5">
@@ -2365,95 +2431,113 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                               {o.puntos != null && o.puntos > 0 ? (
                                 <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
                               ) : null}
+                              <button
+                                type="button"
+                                onClick={() => toggleNoAplica(i, o.id)}
+                                title="No aplica: se excluye del puntaje"
+                                className={cn(
+                                  'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors',
+                                  esNoAplica ? 'bg-amber-100 text-amber-800' : 'text-slate-400 hover:bg-amber-50 hover:text-amber-600'
+                                )}
+                              >
+                                <Info className="h-3 w-3" />
+                                {esNoAplica ? 'No aplica' : 'Marcar no aplica'}
+                              </button>
                             </div>
                             <ComentarioPunto
                               valor={leerComentario(u.comentarios, o.id)}
                               etiqueta={`Comentario del punto (${u.codigo}): ${o.etiqueta}`}
                               onChange={(texto) => setComentario(i, o.id, texto)}
                             />
-                            {dobleCheck ? (
-                              // Doble check: las dos marcas de ESTA unidad y, si falta
-                              // alguna, los responsables de la falla.
-                              <div className={cn('min-w-0 px-3 py-2.5', cumpleOpcion ? 'bg-green-50/40' : existeOpcion ? 'bg-amber-50/60' : 'bg-red-50/60')}>
-                                <DobleCheck
-                                  existe={existeOpcion}
-                                  correcto={esta}
-                                  onExiste={() => toggleExiste(i, o.id)}
-                                  onCorrecto={() => toggleCheck(i, o.id)}
-                                />
-                                <p
-                                  className={cn(
-                                    'mt-1.5 text-xs font-semibold',
-                                    cumpleOpcion ? 'text-green-700' : existeOpcion ? 'text-amber-700' : 'text-red-500'
-                                  )}
-                                >
-                                  {cumpleOpcion
-                                    ? 'Punto validado'
-                                    : existeOpcion
-                                      ? 'Existe, falta el check de correcto · no puntúa'
-                                      : 'Sin marcar · sin cumplir'}
-                                </p>
-                                {respFallidos && !cumpleOpcion ? (
-                                  <SelectorResponsables
-                                    responsables={responsablesDeCheck(item, o)}
-                                    seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
-                                    gerente={gerente}
-                                    onChange={(sel) =>
-                                      onChange((prev: unknown) => {
-                                        const base = (prev ?? v) as ValorUnidadChecklist
-                                        return {
-                                          ...base,
-                                          responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
-                                        }
-                                      })
-                                    }
+                            {!esNoAplica ? (
+                              dobleCheck ? (
+                                // Doble check: las dos marcas de ESTA unidad y, si falta
+                                // alguna, los responsables de la falla.
+                                <div className={cn('min-w-0 px-3 py-2.5', cumpleOpcion ? 'bg-green-50/40' : existeOpcion ? 'bg-amber-50/60' : 'bg-red-50/60')}>
+                                  <DobleCheck
+                                    existe={existeOpcion}
+                                    correcto={esta}
+                                    onExiste={() => toggleExiste(i, o.id)}
+                                    onCorrecto={() => toggleCheck(i, o.id)}
                                   />
-                                ) : null}
-                              </div>
-                            ) : incumple ? (
-                              // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
-                              <div className="min-w-0 bg-red-50/60 px-3 py-2.5">
-                                <label className="mb-2 flex cursor-pointer items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    className="h-4 w-4 shrink-0 accent-primary"
-                                    checked={esta}
-                                    onChange={() => toggleCheck(i, o.id)}
-                                  />
-                                  <span className="text-xs font-bold text-slate-600">
-                                    Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
-                                  </span>
-                                </label>
-                                {respFallidos ? (
-                                  <SelectorResponsables
-                                    responsables={responsablesDeCheck(item, o)}
-                                    seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
-                                    gerente={gerente}
-                                    onChange={(sel) =>
-                                      onChange((prev: unknown) => {
-                                        const base = (prev ?? v) as ValorUnidadChecklist
-                                        return {
-                                          ...base,
-                                          responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
-                                        }
-                                      })
-                                    }
-                                  />
-                                ) : null}
-                              </div>
+                                  <p
+                                    className={cn(
+                                      'mt-1.5 text-xs font-semibold',
+                                      cumpleOpcion ? 'text-green-700' : existeOpcion ? 'text-amber-700' : 'text-red-500'
+                                    )}
+                                  >
+                                    {cumpleOpcion
+                                      ? 'Punto validado'
+                                      : existeOpcion
+                                        ? 'Existe, falta el check de correcto · no puntúa'
+                                        : 'Sin marcar · sin cumplir'}
+                                  </p>
+                                  {respFallidos && !cumpleOpcion ? (
+                                    <SelectorResponsables
+                                      responsables={responsablesDeCheck(item, o)}
+                                      seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
+                                      gerente={gerente}
+                                      onChange={(sel) =>
+                                        onChange((prev: unknown) => {
+                                          const base = (prev ?? v) as ValorUnidadChecklist
+                                          return {
+                                            ...base,
+                                            responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
+                                          }
+                                        })
+                                      }
+                                    />
+                                  ) : null}
+                                </div>
+                              ) : incumple ? (
+                                // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
+                                <div className="min-w-0 bg-red-50/60 px-3 py-2.5">
+                                  <label className="mb-2 flex cursor-pointer items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4 shrink-0 accent-primary"
+                                      checked={esta}
+                                      onChange={() => toggleCheck(i, o.id)}
+                                    />
+                                    <span className="text-xs font-bold text-slate-600">
+                                      Responsables de los puntos incumplidos <span className="font-semibold text-red-500">· sin cumplir</span>
+                                    </span>
+                                  </label>
+                                  {respFallidos ? (
+                                    <SelectorResponsables
+                                      responsables={responsablesDeCheck(item, o)}
+                                      seleccion={v.responsablesPorOpcion?.[o.id] ?? []}
+                                      gerente={gerente}
+                                      onChange={(sel) =>
+                                        onChange((prev: unknown) => {
+                                          const base = (prev ?? v) as ValorUnidadChecklist
+                                          return {
+                                            ...base,
+                                            responsablesPorOpcion: { ...(base.responsablesPorOpcion ?? {}), [o.id]: sel }
+                                          }
+                                        })
+                                      }
+                                    />
+                                  ) : null}
+                                </div>
+                              ) : (
+                                // Estado neutro (validado): sin alerta roja ni responsables.
+                                <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2.5">
+                                  <label className="flex cursor-pointer items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4 shrink-0 accent-green-600"
+                                      checked={esta}
+                                      onChange={() => toggleCheck(i, o.id)}
+                                    />
+                                    <span className="text-xs font-semibold text-green-700">Punto validado</span>
+                                  </label>
+                                </div>
+                              )
                             ) : (
-                              // Estado neutro (validado): sin alerta roja ni responsables.
-                              <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2.5">
-                                <label className="flex cursor-pointer items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    className="h-4 w-4 shrink-0 accent-green-600"
-                                    checked={esta}
-                                    onChange={() => toggleCheck(i, o.id)}
-                                  />
-                                  <span className="text-xs font-semibold text-green-700">Punto validado</span>
-                                </label>
-                              </div>
+                              <p className="px-3 pb-2.5 text-xs font-semibold text-amber-700">
+                                No aplica · este punto no se espera en esta unidad y queda fuera del puntaje
+                              </p>
                             )}
                           </div>
                         )

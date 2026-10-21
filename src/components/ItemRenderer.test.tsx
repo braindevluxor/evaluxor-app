@@ -57,6 +57,31 @@ describe('ItemRenderer · UNIDAD_CHECKLIST repetible', () => {
   })
 })
 
+describe('ItemRenderer · UNIDAD_CHECKLIST «no aplica» por punto', () => {
+  it('la carga única ofrece marcar «no aplica» en cada punto', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis', false)} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Marcar no aplica')
+  })
+
+  it('el punto «no aplica» no se espera: el checklist queda completo y lo anuncia', () => {
+    const valor = { unidades: [{ codigo: 'Única', selected: ['o1'], informativos: ['o2'] }] }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis', false)} valor={valor} index={0} total={1} onChange={() => {}} />)
+    // Sólo queda un requerimiento por chequear: el otro no aplica.
+    expect(html).toContain('1/1 requerimientos')
+    expect(html).toContain('Completo')
+    expect(html).toContain('1 no aplica')
+    expect(html).toContain('No aplica')
+  })
+
+  it('con todos los puntos «no aplica» el checklist se anuncia como tal', () => {
+    const valor = { unidades: [{ codigo: 'Única', selected: [], informativos: ['o1', 'o2'] }] }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis', false)} valor={valor} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('No aplica')
+    expect(html).toContain('2 no aplica')
+    expect(html).not.toContain('Incompleto')
+  })
+})
+
 describe('ItemRenderer · doble check', () => {
   const conDobleCheck = (repetible?: boolean | null): Item => ({ ...itemDe('Dormis', repetible), tipo: 'CHECKLIST', doble_check: true })
 
