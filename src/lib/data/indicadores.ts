@@ -15,6 +15,7 @@ import {
   opcionesAplicablesColaborador,
   opcionesAplicablesUnidad,
   unidadCumple,
+  checkMarcado,
   esSinHablador,
   pesoItem,
   puntosMarcadosPlano,
@@ -1957,11 +1958,24 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
       const unids = v?.unidades ?? []
       if (!unids.length) return { proporcion: p, resumen: 'Sin unidades' }
       const opts = (item.opciones ?? []) as Opcion[]
-      const cumplen = unids.filter((u) => unidadCumple(u, opts)).length
+      // Las unidades con todos sus puntos «no aplica» quedan fuera del puntaje:
+      // no son ni completas ni incompletas (mismo criterio que el detalle).
+      const enCuenta = unids.filter((u) => opcionesAplicablesUnidad(u, opts).length > 0)
+      const cumplen = enCuenta.filter((u) => unidadCumple(u, opts)).length
       // Los puntos marcados «no aplica» se anuncian aparte: si no, el resumen
       // contaría como faltantes puntos que el evaluador descartó a propósito.
       const noAplica = unids.reduce((n, u) => n + (u.informativos ?? []).filter((id) => opts.some((o) => o.id === id)).length, 0)
-      return { proporcion: p, resumen: `${cumplen}/${unids.length} unidades completas${noAplica ? ` · ${noAplica} no aplica` : ''}` }
+      // Con doble check, los puntos que sólo tienen la presencia no puntúan. Se
+      // cuentan aparte para que el resumen no se lea como si nadie los hubiera mirado.
+      const sinValidar = unids.reduce(
+        (n, u) => n + opcionesAplicablesUnidad(u, opts).filter((o) => !checkMarcado(u, o.id) && (u.existe ?? []).includes(o.id)).length,
+        0
+      )
+      if (!enCuenta.length) return { proporcion: p, resumen: 'Sin puntos aplicables' }
+      return {
+        proporcion: p,
+        resumen: `${cumplen}/${enCuenta.length} unidades completas${noAplica ? ` · ${noAplica} no aplica` : ''}${sinValidar ? ` · ${sinValidar} presente(s) sin validar` : ''}`
+      }
     }
     case 'PLANO_XY': {
       const v = valor as ValorPlano | null

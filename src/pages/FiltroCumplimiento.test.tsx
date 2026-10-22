@@ -267,6 +267,53 @@ describe('ValorRespuesta · detalle del filtro No cumplido', () => {
     expect(trabajadores).toContain('Contrato vigente')
   })
 
+  describe('UNIDAD_CHECKLIST con doble check', () => {
+    const itemDoble = {
+      ...itemBase('UNIDAD_CHECKLIST', [
+        { id: 'caja', etiqueta: 'Caja registradora' },
+        { id: 'lector', etiqueta: 'Lector de código' }
+      ]),
+      doble_check: true
+    }
+
+    it('muestra el punto que sólo tiene la presencia, en vez de darlo por vacío', () => {
+      // El evaluador marcó «Existe»: ese resultado se cargó y tiene que verse.
+      // Antes el punto caía en «Sin tildar», como si nadie lo hubiera mirado.
+      const html = renderRespuesta(
+        itemDoble,
+        { unidades: [{ codigo: 'Caja 1', selected: [], existe: ['caja'] }] },
+        false
+      )
+      expect(html).toContain('Caja registradora')
+      expect(html).toContain('existe, falta validar')
+      expect(html).toContain('aria-label="Existe, falta validar"')
+      expect(html).not.toContain('Sin tildar')
+    })
+
+    it('distingue el punto validado del que sólo existe', () => {
+      const html = renderRespuesta(
+        itemDoble,
+        { unidades: [{ codigo: 'Caja 1', selected: ['caja'], existe: ['caja', 'lector'] }] },
+        false
+      )
+      expect(html).toContain('aria-label="Cumple"')
+      // El aviso va una sola vez: sólo el punto que todavía no está validado.
+      expect(html.match(/existe, falta validar/g)).toHaveLength(1)
+      expect(html).toContain('0/1 completas')
+    })
+
+    it('en el filtro No cumplido el que sólo existe sigue apareciendo, con su estado', () => {
+      const html = renderRespuesta(
+        itemDoble,
+        { unidades: [{ codigo: 'Caja 1', selected: ['caja'], existe: ['caja', 'lector'] }] },
+        true
+      )
+      expect(html).toContain('Lector de código')
+      expect(html).not.toContain('Caja registradora')
+      expect(html).toContain('existe, falta validar')
+    })
+  })
+
   describe('pathsEvidenciaCumple', () => {
     it('recupera y desduplica rutas guardadas dentro de evidencias de Cumple / No cumple', () => {
       expect(pathsEvidenciaCumple({

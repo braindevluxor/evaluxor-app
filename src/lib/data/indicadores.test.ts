@@ -1051,6 +1051,41 @@ describe('detalleDeEvaluacion', () => {
     expect(comentariosDe('i11')).toBe('Gómez Ana: Contrato vigente: contrato en la carpeta')
   })
 
+  it('anuncia los puntos con la presencia marcada que todavía no se validaron', () => {
+    // Con doble check, un punto que sólo tiene el «existe» no puntúa; si el
+    // resumen dijera sólo "0/1 unidades completas" parecería que nadie lo miró.
+    const itemUnidad: Item = {
+      id: 'i12',
+      modulo_id: 'm1',
+      tipo: 'UNIDAD_CHECKLIST',
+      texto: 'Unidades',
+      opciones: [{ id: 'o1', etiqueta: 'Uno' }, { id: 'o2', etiqueta: 'Dos' }],
+      orden: 8,
+      requerido: false,
+      activo: true,
+      puntaje: 100,
+      doble_check: true,
+      created_at: ''
+    }
+    const datos = {
+      evaluaciones,
+      respuestas: [
+        {
+          ...respuesta('ev1', 'i12', false),
+          valor: { unidades: [{ codigo: 'U1', selected: ['o1'], existe: ['o1', 'o2'] }] }
+        }
+      ],
+      items: [...items, itemUnidad],
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const detalle = detalleDeEvaluacion(datos, 'ev1')
+    expect(detalle[0].resumen).toBe('0/1 unidades completas · 1 presente(s) sin validar')
+  })
+
   it('acota el detalle al ítem clickeado', () => {
     const datos = {
       evaluaciones,
