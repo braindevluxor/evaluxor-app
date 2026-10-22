@@ -1,7 +1,75 @@
 @import 'tailwindcss';
 
+/* --- Tipografía -----------------------------------------------------------
+   Una sola familia ('Lato') resuelta con @font-face declarados a mano, porque
+   Lato sólo existe en pesos 100/300/400/700/900 y la app pide 500 (medium),
+   600 (semibold) y 800 (extrabold) — son los de mayor uso junto a 400/700.
+
+   Si se declararan las dos familias en la pila (`'Lato', 'Poppins'`), eso NO
+   resolvería el faltante: la selección de familia es por GLIFO, no por peso,
+   así que al pedir 600 el navegador tomaría Lato 700 y jamás bajaría a
+   Poppins. La única forma de servir un peso con otra fuente es darle a esa
+   fuente un @font-face con el MISMO nombre de familia y su propio
+   `font-weight`. Así `font-semibold` cae en Poppins 600 y `font-bold` sigue
+   en Lato 700, sin tocar una sola clase de Tailwind.
+
+   Auto-hospedada (no de Google Fonts): la app es offline-first y los
+   evaluadores trabajan en tiendas sin señal, así que la tipografía tiene que
+   venir del propio bundle. El service worker ya precachea los `.woff2`
+   (ver `globPatterns` en vite.config.ts), así que la primera visita ya la
+   deja guardada. Subset `latin` a propósito: alcanza para el español
+   (acentos, ñ, ¿ ¡) y pesa mucho menos que el paquete completo.
+   Sin itálica: la app no usa. */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('@fontsource/lato/files/lato-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('@fontsource/lato/files/lato-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('@fontsource/lato/files/lato-latin-900-normal.woff2') format('woff2');
+}
+
+/* Los tres pesos que Lato no tiene: los sirve Poppins, pero declarados bajo
+   el nombre 'Lato' para que la app no cambie de familia a mitad de una frase.
+   Mismo subset y mismo `font-display: swap`. */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('@fontsource/poppins/files/poppins-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('@fontsource/poppins/files/poppins-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('@fontsource/poppins/files/poppins-latin-800-normal.woff2') format('woff2');
+}
+
 @theme {
-  --color-primary: #0b2545;
+  --font-sans: 'Lato', ui-sans-serif, system-ui, sans-serif;
+  --color-primary: #28315F;
   --color-primary-50: #eef4fb;
   --color-primary-100: #d6e4f6;
   --color-primary-200: #afc9ea;
@@ -20,7 +88,7 @@ html {
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   background-color: #f1f5f9;
   color: #0f172a;
@@ -28,4 +96,294 @@ body {
 
 input[type='date'] {
   min-height: 44px;
+}
+
+/* --- Cargador de cajas (loader) ------------------------------------------- */
+/* Escala con la variable --u (definida por el componente Spinner): el diseño
+   original es de 112px (7u x 7u) con cajas de 48px (3u). */
+.cargador {
+  position: relative;
+  display: block;
+  width: calc(7 * var(--u, 16px));
+  height: calc(7 * var(--u, 16px));
+}
+
+.cargador-box {
+  background-color: #c1c1c1;
+  border-radius: calc(0.625 * var(--u, 16px));
+  box-sizing: border-box;
+  position: absolute;
+  display: block;
+}
+
+.cargador--claro .cargador-box {
+  background-color: #ffffff;
+}
+
+.cargador-box--1 {
+  width: calc(7 * var(--u, 16px));
+  height: calc(3 * var(--u, 16px));
+  margin-top: calc(4 * var(--u, 16px));
+  margin-left: 0;
+  animation: cargador-caja1 3s forwards ease-in-out infinite;
+}
+
+.cargador-box--2 {
+  width: calc(3 * var(--u, 16px));
+  height: calc(3 * var(--u, 16px));
+  margin-top: 0;
+  margin-left: 0;
+  animation: cargador-caja2 3s forwards ease-in-out infinite;
+}
+
+.cargador-box--3 {
+  width: calc(3 * var(--u, 16px));
+  height: calc(3 * var(--u, 16px));
+  margin-top: 0;
+  margin-left: calc(4 * var(--u, 16px));
+  animation: cargador-caja3 3s forwards ease-in-out infinite;
+}
+
+@keyframes cargador-caja1 {
+  0% {
+    width: calc(7 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: calc(4 * var(--u, 16px));
+    margin-left: 0;
+  }
+  12.5%, 25%, 37.5%, 50%, 62.5% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: calc(4 * var(--u, 16px));
+    margin-left: 0;
+  }
+  75% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(7 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: 0;
+  }
+  87.5%, 100% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: 0;
+  }
+}
+
+@keyframes cargador-caja2 {
+  0%, 12.5%, 25%, 37.5% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: 0;
+  }
+  50% {
+    width: calc(7 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: 0;
+  }
+  62.5%, 75%, 87.5%, 100% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: calc(4 * var(--u, 16px));
+  }
+}
+
+@keyframes cargador-caja3 {
+  0%, 12.5% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: calc(4 * var(--u, 16px));
+  }
+  25% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(7 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: calc(4 * var(--u, 16px));
+  }
+  37.5%, 50%, 62.5%, 75%, 87.5% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: calc(4 * var(--u, 16px));
+    margin-left: calc(4 * var(--u, 16px));
+  }
+  100% {
+    width: calc(7 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: calc(4 * var(--u, 16px));
+    margin-left: 0;
+  }
+}
+
+/* --- Barra de rango (deslizador rojo → verde) -------------------------------- */
+.barra-rango {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.barra-rango::-webkit-slider-runnable-track {
+  background: transparent;
+  border: none;
+}
+.barra-rango::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 4px solid var(--barra-thumb, #64748b);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.45);
+}
+.barra-rango::-moz-range-track {
+  background: transparent;
+  border: none;
+}
+.barra-rango::-moz-range-thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 4px solid var(--barra-thumb, #64748b);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.45);
+}
+.barra-rango:active {
+  cursor: grabbing;
+}
+
+/* Reduce el relieve de las superficies de la interfaz; conserva los bordes de
+   los controles de formulario y de las tablas para mantener su legibilidad.
+   Se respetan los bordes SEMÁNTICOS: bordes gruesos de estado (p. ej. la
+   tarjeta de borrador `border-amber-400`) y separadores direccionales
+   (`border-t`, `border-b`, …) que antes el reglón mataba en silencio. */
+:where(div, section, article, aside, nav, li, a)[class*='rounded-'][class*='border']:not([class*='border-2']):not([class*='border-4']):not([class*='border-l-']):not([class*='border-t-']):not([class*='border-b-']):not([class*='border-r-']) {
+  border-width: 0 !important;
+  border-style: none !important;
+}
+
+/* El relieve plano también aplica a las sombras, salvo en *superficies
+   flotantes* (`fixed`/`sticky`): el tooltip de ayuda y la barra inferior del
+   evaluador necesitan separarse del contenido que pasa debajo. */
+[class*='shadow-']:not([class~='fixed']):not([class~='sticky']),
+[class~='shadow']:not([class~='fixed']):not([class~='sticky']) {
+  box-shadow: none !important;
+}
+
+.barra-rango::-webkit-slider-thumb,
+.barra-rango::-moz-range-thumb {
+  box-shadow: none;
+}
+
+/* --- Superficies: contenedores sin ningún contorno -------------------------
+   Se pidió explícitamente que no hubiera NINGÚN contorno, ni siquiera una
+   línea, y que el fondo sea blanco. Entonces la tarjeta es blanco sobre
+   blanco: no dibuja caja. Lo que estructura la vista es el espacio (padding y
+   gap) y el tono de los paneles de adentro (`bg-slate-50`, `bg-primary-50`,
+   los de estado rojo/ámbar), que son los que tienen color propio.
+   Estas clases NO llevan "border" ni "shadow" en su lista de clases: escapan
+   a los aplanados de arriba, así que si acá se escribiera un borde se vería.
+   Por eso no se escribe ninguno. */
+.sup {
+  background-color: #fff;
+  border-radius: 1rem;
+}
+
+/* Anidadas sobre una `.sup` blanca: mismo blanco, sólo cambia el radio. */
+.sup-anidada {
+  background-color: #fff;
+  border-radius: 0.75rem;
+}
+
+/* Contenedor de superficie con interacción: responde al dedo/cursor con un
+   tinte y un leve encogido, porque sin sombra que elevar no hay otra pista
+   de que es tocable. */
+.sup-activo {
+  transition: background-color 0.18s ease, transform 0.18s ease;
+}
+.sup-activo:active {
+  transform: scale(0.995);
+  background-color: rgb(248 250 252);
+}
+
+/* --- Barra de KPIs (la barra superior azul del dashboard) -------------------- */
+.barra-kpis {
+  animation: barra-kpis-entrar 0.5s ease-out both;
+}
+.barra-kpis-item {
+  animation: barra-kpis-aparecer 0.4s ease-out both;
+}
+@keyframes barra-kpis-entrar {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes barra-kpis-aparecer {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- Aviso flotante (la confirmación de que algo se hizo) --------------------
+   Sube desde abajo y se apaga sola. El centrado no va en el `transform`: con
+   Tailwind v4 el `-translate-x-1/2` usa la propiedad `translate`, que se aplica
+   ANTES que `transform`, así que las dos conviven sin pisarse y con
+   `prefers-reduced-motion` apagando la animación sigue quedando centrado. */
+.aviso-entrar {
+  animation: aviso-entrar 0.22s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+@keyframes aviso-entrar {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aviso-entrar {
+    animation: none;
+  }
+}
+
+/* --- Foco accesible en los gráficos (recharts 3 habilita accesibilidad por defecto) ---
+   Se quita el anillo negro de los elementos internos (cada celda de la tooltip,
+   cada punto) que hacía la página ilegible, pero el contenedor del gráfico
+   conserva un anillo de marca visible con `focus-visible` para navegación por
+   teclado. Antes se eliminaba sin reemplazo: un foco invisible. */
+.recharts-wrapper *:focus,
+.recharts-wrapper *:focus-visible,
+.recharts-surface *:focus,
+.recharts-surface *:focus-visible {
+  outline: none;
+}
+
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus-visible {
+  outline: 2px solid #7fa8da;
+  outline-offset: 2px;
+}
+
+.recharts-wrapper:focus:not(:focus-visible),
+.recharts-surface:focus:not(:focus-visible) {
+  outline: none;
 }
