@@ -140,7 +140,11 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
   if (!ev) return null
   const evaluacion = ev as VistaEvaluacion
 
-  const [resp, itemsResp, mods, fotos, opcionesSuc, opcionesDep, instancias, permisos] = await Promise.all([
+  // El orden tiene que ser el del Promise.all: permisos antes que instancias.
+  // Invertirlos deja `instancias` con filas de permisos y `sucursalPermisos` con
+  // registros de sección: las secciones no encuentran sus instancias y el detalle
+  // las oculta enteras.
+  const [resp, itemsResp, mods, fotos, opcionesSuc, opcionesDep, permisos, instancias] = await Promise.all([
     supabase.from('respuestas').select('*').eq('evaluacion_id', id),
     (async () => {
       const rr = (await supabase.from('respuestas').select('item_id').eq('evaluacion_id', id)).data ?? []
