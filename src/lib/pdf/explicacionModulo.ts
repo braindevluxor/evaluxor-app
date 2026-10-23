@@ -7,7 +7,7 @@
  * no lleva fechas, sucursales ni puntajes. Sirve para entrenar a un evaluador
  * nuevo o para mandar a gerencia la metodología antes de la visita.
  *
- * Tres bloques, en el orden en que se leen:
+ * Cuatro bloques, en el orden en que se leen:
  *
  *   1. LOS DATOS DEL MÓDULO: descripción, cuántos ítems tiene y cómo cierran
  *      los pesos.
@@ -16,6 +16,8 @@
  *   3. EL DETALLE DE CADA ÍTEM, en el orden en que se responde (sección y
  *      después sus hijos): qué mide, cómo se mide y —cuando el ítem tiene
  *      lista— la tabla de sus puntos.
+ *   4. LA COMPOSICIÓN DEL 100% DEL MÓDULO: cuadro resumen que detalla cuánto
+ *      aporta cada ítem individual para formar la nota total.
  *
  * Las descripciones de "cómo se mide" salen de la misma configuración que
  * usa la evaluación (tipo, contra dato, doble check, permisos, puntos
@@ -232,6 +234,122 @@ export function filasPuntos(item: Item): string[][] {
   ])
 }
 
+export interface FilaComposicionItem {
+  orden: number
+  texto: string
+  seccion: string
+  tipo: string
+  puntosConfigurados: string
+  pesoEnSeccion: string
+  pesoEfectivoModulo: number
+}
+
+/**
+ * Calcula la composición porcentual efectiva de cada ítem evaluable para sumar el 100% del módulo.
+ * Respeta la misma matemática de ponderación que `scoring.ts`.
+ */
+export function calcularComposicionModulo(items: Item[]): {
+  filas: FilaComposicionItem[]
+  sumaTotalPct: number
+} {
+  const ordenados = itemsEnOrdenJerarquico(items)
+  const evaluables = ordenados.filter((i) => i.tipo !== 'CONTENEDOR')
+  if (!evaluables.length) {
+    return { filas: [], sumaTotalPct: 0 }
+  }
+
+  const secciones = ordenados.filter((i) => i.tipo === 'CONTENEDOR')
+  const seccionesPorId = new Map(secciones.map((s) => [s.id, s]))
+
+  const hijosPorPadre = new Map<string, Item[]>()
+  for (const it of ordenados) {
+    if (it.padre_id && it.tipo !== 'CONTENEDOR') {
+      const arr = hijosPorPadre.get(it.padre_id) ?? []
+      arr.push(it)
+      hijosPorPadre.set(it.padre_id, arr)
+    }
+  }
+
+  const seccionIdsPonderadas = new Set<string>()
+  for (const s of secciones) {
+    if (s.id && pesoItem(s) > 0 && (hijosPorPadre.get(s.id) ?? []).length > 0) {
+      seccionIdsPonderadas.add(s.id)
+    }
+  }
+
+  const modoPonderado =
+    seccionIdsPonderadas.size > 0 ||
+    evaluables.some((e) => (!e.padre_id || !seccionIdsPonderadas.has(e.padre_id)) && pesoItem(e) > 0)
+
+  const peso = (item: { puntaje?: number | null }): number => (modoPonderado ? pesoItem(item) : 1)
+
+  type UnidadRaiz =
+    | { tipo: 'SECCION'; item: Item; peso: number; hijos: Item[] }
+    | { tipo: 'ITEM'; item: Item; peso: number }
+
+  const unidadesRaiz: UnidadRaiz[] = []
+  const seccionesProcesadas = new Set<string>()
+
+  for (const it of ordenados) {
+    if (it.tipo === 'CONTENEDOR') {
+      if (!it.id || !seccionIdsPonderadas.has(it.id) || seccionesProcesadas.has(it.id)) continue
+      seccionesProcesadas.add(it.id)
+      const hijos = hijosPorPadre.get(it.id) ?? []
+      if (!hijos.length) continue
+      unidadesRaiz.push({ tipo: 'SECCION', item: it, peso: peso(it), hijos })
+      continue
+    }
+    if (it.padre_id && seccionIdsPonderadas.has(it.padre_id)) continue
+    unidadesRaiz.push({ tipo: 'ITEM', item: it, peso: peso(it) })
+  }
+
+  const pesoTotalRaiz = unidadesRaiz.reduce((acc, u) => acc + u.peso, 0)
+  const filas: FilaComposicionItem[] = []
+  let indice = 1
+
+  for (const unidad of unidadesRaiz) {
+    const fraccionModulo = pesoTotalRaiz > 0 ? unidad.peso / pesoTotalRaiz : 0
+
+    if (unidad.tipo === 'SECCION') {
+      const hijos = unidad.hijos
+      const totHijos = hijos.reduce((acc, h) => acc + peso(h), 0)
+
+      for (const h of hijos) {
+        const pesoHijo = peso(h)
+        const fraccionEnSeccion = totHijos > 0 ? pesoHijo / totHijos : 0
+        const pctEfectivo = fraccionModulo * fraccionEnSeccion * 100
+
+        filas.push({
+          orden: indice++,
+          texto: h.texto,
+          seccion: unidad.item.texto,
+          tipo: etiquetaTipo(h.tipo),
+          puntosConfigurados: pesoItem(h) > 0 ? `${fmtNum(pesoItem(h))} pts` : (modoPonderado ? '0 pts' : 'Equitativo'),
+          pesoEnSeccion: `${fmtNum(Math.round(fraccionEnSeccion * 1000) / 10)}%`,
+          pesoEfectivoModulo: Math.round(pctEfectivo * 100) / 100
+        })
+      }
+    } else {
+      const pctEfectivo = fraccionModulo * 100
+      const padre = unidad.item.padre_id ? seccionesPorId.get(unidad.item.padre_id) : null
+
+      filas.push({
+        orden: indice++,
+        texto: unidad.item.texto,
+        seccion: padre ? padre.texto : '—',
+        tipo: etiquetaTipo(unidad.item.tipo),
+        puntosConfigurados: pesoItem(unidad.item) > 0 ? `${fmtNum(pesoItem(unidad.item))} pts` : (modoPonderado ? '0 pts' : 'Equitativo'),
+        pesoEnSeccion: '—',
+        pesoEfectivoModulo: Math.round(pctEfectivo * 100) / 100
+      })
+    }
+  }
+
+  const sumaTotalPct = Math.round(filas.reduce((acc, f) => acc + f.pesoEfectivoModulo, 0) * 10) / 10
+
+  return { filas, sumaTotalPct }
+}
+
 export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: false })
   const ancho = pdf.internal.pageSize.getWidth()
@@ -295,12 +413,16 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
   const tabla = (
     headers: string[],
     rows: string[][],
-    opciones?: { columnStyles?: Record<number, { cellWidth?: number; halign?: 'left' | 'center' | 'right' }> }
+    opciones?: {
+      columnStyles?: Record<number, { cellWidth?: number; halign?: 'left' | 'center' | 'right' }>
+      foot?: string[][]
+    }
   ) => {
     if (!rows.length) return
     autoTable(pdf, {
       head: [headers],
       body: rows,
+      foot: opciones?.foot,
       startY: y,
       margin: { top: MARGEN, right: MARGEN, bottom: MARGEN, left: MARGEN },
       theme: 'grid',
@@ -315,6 +437,7 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
         valign: 'top'
       },
       headStyles: { fontStyle: 'bold', fillColor: [255, 255, 255], textColor: 0 },
+      footStyles: { fontStyle: 'bold', fillColor: [255, 255, 255], textColor: 0 },
       bodyStyles: { fillColor: [255, 255, 255] },
       alternateRowStyles: { fillColor: [255, 255, 255] },
       columnStyles: opciones?.columnStyles ?? {},
@@ -415,6 +538,64 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
       )
     }
   })
+
+  // --- 4) Composición del 100% del módulo -----------------------------------
+  if (items.length) {
+    tituloSeccion('Composición del 100% del módulo')
+    textoLinea(
+      'La siguiente tabla resume cuánto vale y qué porcentaje exacto aporta cada ítem individual para conformar la calificación final del 100% del módulo. ' +
+      'En módulos con secciones (grupos), el porcentaje efectivo resulta de combinar el peso del grupo con el peso del ítem dentro de su grupo.'
+    )
+
+    const comp = calcularComposicionModulo(items)
+    if (comp.filas.length) {
+      if (secciones.length > 0) {
+        tabla(
+          ['#', 'Ítem a evaluar', 'Sección / Grupo', 'Puntos', '% en grupo', '% del módulo'],
+          comp.filas.map((f) => [
+            `${f.orden}`,
+            f.texto,
+            f.seccion,
+            f.puntosConfigurados,
+            f.pesoEnSeccion,
+            `${fmtNum(f.pesoEfectivoModulo)}%`
+          ]),
+          {
+            columnStyles: {
+              0: { cellWidth: 8, halign: 'center' },
+              1: { cellWidth: 72 },
+              2: { cellWidth: 42 },
+              3: { cellWidth: 20, halign: 'right' },
+              4: { cellWidth: 20, halign: 'right' },
+              5: { cellWidth: 20, halign: 'right' }
+            },
+            foot: [['', 'TOTAL DEL MÓDULO', '', '', '', `${fmtNum(comp.sumaTotalPct)}%`]]
+          }
+        )
+      } else {
+        tabla(
+          ['#', 'Ítem a evaluar', 'Tipo', 'Puntos', '% del módulo'],
+          comp.filas.map((f) => [
+            `${f.orden}`,
+            f.texto,
+            f.tipo,
+            f.puntosConfigurados,
+            `${fmtNum(f.pesoEfectivoModulo)}%`
+          ]),
+          {
+            columnStyles: {
+              0: { cellWidth: 10, halign: 'center' },
+              1: { cellWidth: 100 },
+              2: { cellWidth: 36 },
+              3: { cellWidth: 18, halign: 'right' },
+              4: { cellWidth: 18, halign: 'right' }
+            },
+            foot: [['', 'TOTAL DEL MÓDULO', '', '', `${fmtNum(comp.sumaTotalPct)}%`]]
+          }
+        )
+      }
+    }
+  }
 
   // --- Pie: de qué módulo es, en todas las hojas ----------------------------
   const pie = `${datos.moduloNombre} | Qué mide y cómo se mide`

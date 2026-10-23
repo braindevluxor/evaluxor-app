@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Item } from '../types'
-import { resumenPesosModulo, textoPeso } from './explicacionModulo'
+import { calcularComposicionModulo, resumenPesosModulo, textoPeso } from './explicacionModulo'
 
 const baseItem = (parcial: Partial<Item>): Item => ({
   id: 'i1',
@@ -75,5 +75,62 @@ describe('explicacionModulo - pesos y jerarquías', () => {
     // Con sumaRaiz = 400: cada uno de 100 pts es un 25% efectivo
     expect(textoPeso(seccion, null, 0, 400)).toBe('100 pts del módulo (25% efectivo, repartido entre sus ítems)')
     expect(textoPeso(itemSuelto, null, 0, 400)).toBe('100 pts del módulo (25% efectivo)')
+  })
+
+  it('calcularComposicionModulo con 4 secciones de 100 pts y 4 items de 25 pts en cada una (16 items suman 100%)', () => {
+    const items: Item[] = []
+    for (let s = 1; s <= 4; s++) {
+      items.push(baseItem({ id: `sec${s}`, tipo: 'CONTENEDOR', texto: `Sección ${s}`, puntaje: 100, orden: s * 10 }))
+      for (let h = 1; h <= 4; h++) {
+        items.push(baseItem({
+          id: `sec${s}_h${h}`,
+          padre_id: `sec${s}`,
+          tipo: 'CUMPLE_NO_CUMPLE',
+          texto: `S${s} Item ${h}`,
+          puntaje: 25,
+          orden: s * 10 + h
+        }))
+      }
+    }
+
+    const { filas, sumaTotalPct } = calcularComposicionModulo(items)
+    expect(filas).toHaveLength(16)
+    // Cada ítem representa 6.25% del módulo
+    for (const f of filas) {
+      expect(f.pesoEfectivoModulo).toBe(6.25)
+      expect(f.pesoEnSeccion).toBe('25%')
+    }
+    expect(sumaTotalPct).toBe(100)
+  })
+
+  it('calcularComposicionModulo con ítems sueltos ponderados', () => {
+    const items: Item[] = [
+      baseItem({ id: 'i1', tipo: 'CUMPLE_NO_CUMPLE', texto: 'Item 1', puntaje: 50, orden: 1 }),
+      baseItem({ id: 'i2', tipo: 'CUMPLE_NO_CUMPLE', texto: 'Item 2', puntaje: 30, orden: 2 }),
+      baseItem({ id: 'i3', tipo: 'CUMPLE_NO_CUMPLE', texto: 'Item 3', puntaje: 20, orden: 3 })
+    ]
+
+    const { filas, sumaTotalPct } = calcularComposicionModulo(items)
+    expect(filas).toHaveLength(3)
+    expect(filas[0].pesoEfectivoModulo).toBe(50)
+    expect(filas[1].pesoEfectivoModulo).toBe(30)
+    expect(filas[2].pesoEfectivoModulo).toBe(20)
+    expect(sumaTotalPct).toBe(100)
+  })
+
+  it('calcularComposicionModulo sin pesos asignados reparte equitativamente', () => {
+    const items: Item[] = [
+      baseItem({ id: 'i1', tipo: 'CUMPLE_NO_CUMPLE', texto: 'Item 1', puntaje: 0, orden: 1 }),
+      baseItem({ id: 'i2', tipo: 'CUMPLE_NO_CUMPLE', texto: 'Item 2', puntaje: 0, orden: 2 }),
+      baseItem({ id: 'i3', tipo: 'CUMPLE_NO_CUMPLE', texto: 'Item 3', puntaje: 0, orden: 3 }),
+      baseItem({ id: 'i4', tipo: 'CUMPLE_NO_CUMPLE', texto: 'Item 4', puntaje: 0, orden: 4 })
+    ]
+
+    const { filas, sumaTotalPct } = calcularComposicionModulo(items)
+    expect(filas).toHaveLength(4)
+    for (const f of filas) {
+      expect(f.pesoEfectivoModulo).toBe(25)
+    }
+    expect(sumaTotalPct).toBe(100)
   })
 })
