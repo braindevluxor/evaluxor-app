@@ -10,6 +10,7 @@ import {
   incumplimientosEnRango,
   medidoresPorModulo,
   puntajePorSucursalModulo,
+  puntajePorUnidadModulo,
   rankingDepartamentos,
   rankingResponsables,
   rankingSucursales,
@@ -50,7 +51,9 @@ function GraficoPonderacion({
   setLineaActiva,
   onClic,
   sinDatos,
-  className
+  className,
+  modo = 'sucursal',
+  selector
 }: {
   titulo: string
   descripcion: string
@@ -64,7 +67,15 @@ function GraficoPonderacion({
   sinDatos: string
   /** Ancho de la columna en la grilla (p. ej. 'xl:col-span-2'). */
   className?: string
+  modo?: 'sucursal' | 'departamento'
+  /** Selector opcional para alternar unidades (p. ej. switch Sucursales / Departamentos). */
+  selector?: ReactNode
 }) {
+  const tituloVisible = modo === 'departamento' ? 'Ponderación por departamento y módulo' : titulo
+  const descripcionVisible =
+    modo === 'departamento'
+      ? 'Curvas por módulo con la barra translúcida del promedio por departamento; pasa el cursor por la leyenda para elevar una curva y haz clic en una barra o punto para ver las evaluaciones de ese departamento'
+      : descripcion
   const filasGrafico = filas.map((f) => {
     const valores = Object.values(f.porModulo).filter((v): v is number => v != null)
     return {
@@ -75,8 +86,11 @@ function GraficoPonderacion({
   })
   return (
     <Card className={cn('border-0!', CLASE_CONTENEDOR_DASHBOARD, className)}>
-      <h3 className="mb-1 font-bold text-primary-900">{titulo}</h3>
-      <p className="mb-3 text-xs text-slate-400">{descripcion}</p>
+      <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h3 className="font-bold text-primary-900">{tituloVisible}</h3>
+        {selector}
+      </div>
+      <p className="mb-3 text-xs text-slate-400">{descripcionVisible}</p>
       {modulos.length && filas.length ? (
         <ResponsiveContainer width="100%" height={ALTO_GRAFICO}>
           <ComposedChart data={filasGrafico} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
@@ -322,6 +336,7 @@ export function DashboardHome() {
   const [sucursalSel, setSucursalSel] = useState('')
   const [moduloSel, setModuloSel] = useState('')
   const [lineaActiva, setLineaActiva] = useState<string | null>(null)
+  const [tipoPonderacion, setTipoPonderacion] = useState<'sucursal' | 'departamento'>('sucursal')
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
   const [cargando, setCargando] = useState(true)
 
@@ -369,6 +384,10 @@ export function DashboardHome() {
     () => (datos ? puntajePorSucursalModulo(datos, sucursalesVisibles) : null),
     [datos, sucursalesVisibles]
   )
+  const matrizDepartamentos = useMemo(
+    () => (datos && departamentosVisibles.length ? puntajePorUnidadModulo(datos, departamentosVisibles) : null),
+    [datos, departamentosVisibles]
+  )
   const modulosOrden = useMemo(() => {
     const base = datos?.modulos.map((m) => ({ modulo_id: m.id, nombre: m.nombre })) ?? []
     if (!lineaActiva) return base
@@ -407,6 +426,13 @@ export function DashboardHome() {
     if (!nombre) return
     const id = idPorNombreSucursal.get(nombre)
     if (id) abrirDrill({ titulo: nombre, subtitulo: 'Evaluaciones de esta sucursal en el rango seleccionado', alcance: { sucursal_id: id } })
+  }
+
+  const abrirDrillDepartamento = (data: unknown) => {
+    const nombre = nombreClickeado(data)
+    if (!nombre) return
+    const id = idPorNombreDepartamento.get(nombre)
+    if (id) abrirDrill({ titulo: nombre, subtitulo: 'Evaluaciones de este departamento en el rango seleccionado', alcance: { departamento_id: id } })
   }
 
   const detalleDe = (id: string) => {
@@ -561,18 +587,66 @@ export function DashboardHome() {
             </Card>
 
             {/* 2. Ponderación por sucursal y módulo: ocupa las dos columnas que
-                le quedan a la fila, porque su eje X necesita ancho. */}
+                le quedan a la fila, porque su eje X necesita ancho. Permite alternar
+                a Departamentos mediante el switch superior. */}
             <GraficoPonderacion
               className="xl:col-span-2"
               titulo="Ponderación por sucursal y módulo"
               descripcion="Curvas por módulo con la barra translúcida del promedio por sucursal; pasa el cursor por la leyenda para elevar una curva y haz clic en una barra o punto para ver las evaluaciones de esa sucursal"
-              filas={matrizModulos?.sucursales ?? []}
+              filas={
+                (verDepartamentos && tipoPonderacion === 'departamento')
+                  ? (matrizDepartamentos?.unidades ?? [])
+                  : (matrizModulos?.sucursales ?? [])
+              }
               modulos={modulosOrden}
-              nombrePromedio="Promedio por sucursal"
+              nombrePromedio={
+                (verDepartamentos && tipoPonderacion === 'departamento')
+                  ? 'Promedio por departamento'
+                  : 'Promedio por sucursal'
+              }
               lineaActiva={lineaActiva}
               setLineaActiva={setLineaActiva}
-              onClic={abrirDrillSucursal}
-              sinDatos="Sin datos de módulos para mostrar en el rango."
+              onClic={
+                (verDepartamentos && tipoPonderacion === 'departamento')
+                  ? abrirDrillDepartamento
+                  : abrirDrillSucursal
+              }
+              sinDatos={
+                (verDepartamentos && tipoPonderacion === 'departamento')
+                  ? 'Sin datos de departamentos para mostrar en el rango.'
+                  : 'Sin datos de módulos para mostrar en el rango.'
+              }
+              modo={verDepartamentos && tipoPonderacion === 'departamento' ? 'departamento' : 'sucursal'}
+              selector={
+                verDepartamentos ? (
+                  <div className="inline-flex items-center rounded-lg bg-slate-100 p-0.5 text-xs font-medium text-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => setTipoPonderacion('sucursal')}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 transition-all',
+                        tipoPonderacion === 'sucursal'
+                          ? 'bg-white font-semibold text-primary-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-900'
+                      )}
+                    >
+                      Sucursales
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTipoPonderacion('departamento')}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 transition-all',
+                        tipoPonderacion === 'departamento'
+                          ? 'bg-white font-semibold text-primary-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-900'
+                      )}
+                    >
+                      Departamentos
+                    </button>
+                  </div>
+                ) : null
+              }
             />
           </div>
 
