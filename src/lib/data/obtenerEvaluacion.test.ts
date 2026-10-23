@@ -69,7 +69,8 @@ vi.mock('../supabase', () => {
   return { supabase: { from: (tabla: string) => crearBuilder(tabla) } }
 })
 
-import { obtenerEvaluacion } from './indicadores'
+import { obtenerEvaluacion, resumirEvaluacion } from './indicadores'
+import type { Evaluacion, Item, Respuesta, SucursalPermiso } from '../types'
 
 const evaluacion = {
   id: 'ev1',
@@ -129,14 +130,60 @@ const instancia = {
   created_at: ''
 }
 
-const permiso = { id: 'perm1', sucursal_id: 's1', nombre: 'Bomberos', vence: null, created_at: '' }
+/**
+ * Permiso ACTIVO de la sucursal: es el que genera la opción del CHECKLIST de
+ * permisos y por eso tiene que llegar a `sucursalPermisos` entero.
+ */
+const permiso = {
+  id: 'perm1',
+  sucursal_id: 's1',
+  nombre: 'Bomberos',
+  numero: null,
+  vigente: true,
+  emision: null,
+  vence: null,
+  observacion: null,
+  created_at: ''
+}
 
+/**
+ * CHECKLIST cuyo origen son los permisos de la sucursal: sus opciones no están
+ * guardadas, se generan con `sucursalPermisos` en cada pantalla.
+ */
+const checklistPermisos = {
+  id: 'h2',
+  modulo_id: 'm1',
+  tipo: 'CHECKLIST',
+  texto: 'Permisos de la tienda',
+  opciones: [],
+  permisos_sucursal: 'TODOS',
+  orden: 2,
+  requerido: false,
+  activo: true,
+  puntaje: 100,
+  padre_id: null,
+  created_at: ''
+}
+
+/** La opción de `checklistPermisos` marcada por el evaluador. */
+const respuestaPermisos = {
+  id: 'r2',
+  evaluacion_id: 'ev1',
+  item_id: 'h2',
+  instancia_id: null,
+  valor: { selected: ['perm1'] },
+  respondido_por: 'u1',
+  created_at: ''
+}
+
+/** El hijo de la sección está sin cumplir: así el CHECKLIST de permisos (que sí
+ * cumple) es el que sostiene el puntaje y se nota si desaparece del cálculo. */
 const respuesta = {
   id: 'r1',
   evaluacion_id: 'ev1',
   item_id: 'h1',
   instancia_id: 'ins1',
-  valor: { value: true },
+  valor: { value: false },
   respondido_por: 'u1',
   created_at: ''
 }
@@ -144,8 +191,8 @@ const respuesta = {
 beforeEach(() => {
   datos.tablas = {
     evaluaciones: [evaluacion],
-    respuestas: [respuesta],
-    items: [seccion, hijo],
+    respuestas: [respuesta, respuestaPermisos],
+    items: [seccion, hijo, checklistPermisos],
     modulos: [modulo],
     fotos: [],
     sucursal_opciones: [],
@@ -166,8 +213,44 @@ describe('obtenerEvaluacion · orden de las consultas', () => {
   it('trae la sección contenedora junto al ítem respondido de su registro', async () => {
     const detalle = await obtenerEvaluacion('ev1')
 
-    expect(detalle?.items.map((i) => i.id).sort()).toEqual(['h1', 'sec1'])
+    expect(detalle?.items.map((i) => i.id).sort()).toEqual(['h1', 'h2', 'sec1'])
     expect(detalle?.modulos.map((m) => m.id)).toEqual(['m1'])
-    expect(detalle?.respuestas).toHaveLength(1)
+    expect(detalle?.respuestas).toHaveLength(2)
+  })
+})
+
+describe('obtenerEvaluacion · el puntaje del detalle', () => {
+  /**
+   * El historial calcula el puntaje con `consultarEvaluaciones` (que sí trae los
+   * permisos reales) y el detalle con `obtenerEvaluacion`. Si `sucursalPermisos`
+   * llega con las filas de `instancias_grupo` (el bug del destructuring), el
+   * CHECKLIST de permisos queda sin opciones y desaparece del cálculo: el
+   * historial marcaba 82.01% y el detalle 44.44%.
+   */
+  it('da distinto el puntaje si los permisos no llegan', async () => {
+    const detalle = await obtenerEvaluacion('ev1')
+
+    // Con la lista de permisos intacta el ítem de permisos puntúa (50%: el hijo
+    // de la sección está sin cumplir y el de permisos sí).
+    const conPermisoReal = resumirEvaluacion(
+      detalle!.evaluacion as Evaluacion,
+      detalle!.respuestas as Respuesta[],
+      detalle!.items as Item[],
+      [],
+      detalle!.sucursalPermisos as SucursalPermiso[]
+    )
+    expect(conPermisoReal.puntaje).not.toBeNull()
+
+    // Con la lista "basura" que devolvía el bug (instancias en vez de permisos)
+    // el ítem de permisos queda sin opciones y se cae del cálculo: sólo queda
+    // el hijo de la sección, que no cumple.
+    const conBasura = resumirEvaluacion(
+      detalle!.evaluacion as Evaluacion,
+      detalle!.respuestas as Respuesta[],
+      detalle!.items as Item[],
+      [],
+      detalle!.instancias as unknown as SucursalPermiso[]
+    )
+    expect(conBasura.puntaje).not.toBe(conPermisoReal.puntaje)
   })
 })

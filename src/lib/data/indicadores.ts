@@ -238,6 +238,76 @@ export async function modulosRespondidos(evaluacionId: string): Promise<Modulo[]
   return ((mods ?? []) as Modulo[]).sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
 }
 
+/**
+ * Filas por página al traer tablas grandes y ids por tanda al buscar ítems.
+ *
+ * Son dos límites distintos y por eso dos constantes: `.range()` se corta contra
+ * el máximo de filas que devuelve PostgREST (1000 por defecto en Supabase, y el
+ * tope es del proyecto, no de la consulta), mientras que `.in('id', ...)` se
+ * corta por longitud de URL — de ahí que `modulosRespondidos` ya fuera de 100 en
+ * 100.
+ */
+const FILAS_POR_PAGINA = 1000
+const IDS_POR_TANDA = 100
+
+/**
+ * Trae TODAS las filas de una consulta, paginando con `.range()`.
+ *
+ * PostgREST devuelve como máximo el `max-rows` del proyecto y **corta en
+ * silencio**: no avisa, no hay error, sólo menos filas de las que pediste. Eso
+ * rompía el historial: `consultarEvaluaciones` junta las respuestas de todo el
+ * rango en una sola consulta, así que con un rango de meses eso supera el tope y
+ * el puntaje en curso se calculaba con un subconjunto —y, como la consulta no
+ * tenía orden, con un subconjunto distinto en cada recarga. El detalle no se
+ * cortaba porque pide una evaluación cada vez, y por eso los dos números no
+ * coincidían.
+ *
+ * `pagina` arma la cadena completa (filtros, `.order()` y `.range()`). El orden
+ * por una columna única garantiza que las páginas no se pisen ni se salten filas.
+ */
+async function traerTodo<T>(
+  pagina: (desde: number, hasta: number) => PromiseLike<{ data: T[] | null }>
+): Promise<T[]> {
+  const filas: T[] = []
+  for (let desde = 0; ; desde += FILAS_POR_PAGINA) {
+    const { data } = await pagina(desde, desde + FILAS_POR_PAGINA - 1)
+    const lote = (data ?? []) as T[]
+    filas.push(...lote)
+    if (lote.length < FILAS_POR_PAGINA) return filas
+  }
+}
+
+/**
+ * Ítems con alguna respuesta, más sus contenedores padre.
+ *
+ * Los padres no generan respuestas pero sí puntúan como grupo, así que tienen
+ * que estar en la lista: si falta una sección, cada hijo pesa por su cuenta y el
+ * número que se ve en el historial no es el que queda al cerrar.
+ *
+ * Se calcula de las MISMAS filas de respuestas que van a alimentar el puntaje.
+ * Antes se volvían a pedir en una segunda consulta: los dos pedidos podían caer
+ * en cortes distintos del máximo de filas y dejar respuestas sin ítem.
+ */
+async function traerItemsRespondidos(respuestas: { item_id: string }[]): Promise<Item[]> {
+  const itemIds = Array.from(new Set(respuestas.map((r) => r.item_id)))
+  if (!itemIds.length) return []
+  const it: Item[] = []
+  for (let i = 0; i < itemIds.length; i += IDS_POR_TANDA) {
+    const tanda = itemIds.slice(i, i + IDS_POR_TANDA)
+    const { data } = await supabase.from('items').select('*').in('id', tanda)
+    it.push(...((data ?? []) as Item[]))
+  }
+  const padresIds = Array.from(new Set(it.map((i) => i.padre_id).filter((p): p is string => !!p)))
+  if (!padresIds.length) return it
+  const padres: Item[] = []
+  for (let i = 0; i < padresIds.length; i += IDS_POR_TANDA) {
+    const tanda = padresIds.slice(i, i + IDS_POR_TANDA)
+    const { data } = await supabase.from('items').select('*').in('id', tanda)
+    padres.push(...((data ?? []) as Item[]))
+  }
+  return [...it, ...padres]
+}
+
 export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<ConjuntoDatos> {
   let query = supabase
     .from('evaluaciones')
@@ -262,27 +332,32 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
   const sucursalIds = Array.from(new Set(evaluaciones.map((e) => e.sucursal_id).filter((s): s is string => !!s)))
   const departamentoIds = Array.from(new Set(evaluaciones.map((e) => e.departamento_id).filter((d): d is string => !!d)))
 
-  const [resp, fot, mods, itemsResp, opcionesSuc, opcionesDep, instancias, permisos] = await Promise.all([
-    supabase.from('respuestas').select('*').in('evaluacion_id', ids),
-    supabase.from('fotos').select('*').in('evaluacion_id', ids).order('created_at', { ascending: false }),
+  const [respuestas, fot, mods, opcionesSuc, opcionesDep, instancias, permisos] = await Promise.all([
+    // Paginado y ordenado: el rango puede traer más filas que el máximo que
+    // devuelve PostgREST, y sin orden el corte cae en un subconjunto distinto
+    // cada vez (el puntaje "bailaba" de una recarga a otra).
+    traerTodo<Respuesta>((desde, hasta) =>
+      supabase.from('respuestas').select('*').in('evaluacion_id', ids).order('id').range(desde, hasta)
+    ),
+    traerTodo<Foto>((desde, hasta) =>
+      supabase
+        .from('fotos')
+        .select('*')
+        .in('evaluacion_id', ids)
+        .order('created_at', { ascending: false })
+        .order('id')
+        .range(desde, hasta)
+    ),
     supabase.from('modulos').select('*').order('orden'),
-    (async () => {
-      const respuestas2 = (await supabase.from('respuestas').select('*').in('evaluacion_id', ids)).data ?? []
-      const itemIds = Array.from(new Set(respuestas2.map((r) => r.item_id)))
-      if (!itemIds.length) return [] as Item[]
-      const it = ((await supabase.from('items').select('*').in('id', itemIds)).data ?? []) as Item[]
-      const padresIds = Array.from(new Set(it.map((i) => i.padre_id).filter((p): p is string => !!p)))
-      if (!padresIds.length) return it
-      const padres = ((await supabase.from('items').select('*').in('id', padresIds)).data ?? []) as Item[]
-      return [...it, ...padres]
-    })(),
     sucursalIds.length
       ? supabase.from('sucursal_opciones').select('*').in('sucursal_id', sucursalIds).eq('activa', true)
       : Promise.resolve({ data: [] }),
     departamentoIds.length
       ? supabase.from('departamento_opciones').select('*').in('departamento_id', departamentoIds).eq('activa', true)
       : Promise.resolve({ data: [] }),
-    supabase.from('instancias_grupo').select('*').in('evaluacion_id', ids).order('orden'),
+    traerTodo<InstanciaGrupo>((desde, hasta) =>
+      supabase.from('instancias_grupo').select('*').in('evaluacion_id', ids).order('orden').order('id').range(desde, hasta)
+    ),
     // Permisos de todas las sucursales del rango: una sola petición porque los
     // ítems CHECKLIST con origen en permisos se recalcularán por evaluación.
     sucursalIds.length
@@ -290,9 +365,10 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
       : Promise.resolve({ data: [] })
   ])
 
-  const todosItems = (itemsResp ?? []) as Item[]
+  // Los ítems salen de las MISMAS respuestas que van al puntaje: pedirlos otra
+  // vez era una segunda consulta que podía caer en un corte distinto.
+  const todosItems = await traerItemsRespondidos(respuestas)
   const todosModulos = (mods.data ?? []) as Modulo[]
-  const respuestas = (resp.data ?? []) as Respuesta[]
   const sucursalOpciones = opcionesDeUnidades(
     (opcionesSuc.data ?? []) as SucursalOpcion[],
     (opcionesDep.data ?? []) as DepartamentoOpcion[]
@@ -318,10 +394,10 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
       respuestas: respModulo,
       items: itemsModulo,
       modulos: todosModulos.filter((m) => m.id === f.modulo_id),
-      fotos: ((fot.data ?? []) as Foto[]).filter((f2) => idsItemsModulo.has(f2.item_id)),
+      fotos: fot.filter((f2) => idsItemsModulo.has(f2.item_id)),
       sucursalOpciones,
       sucursalPermisos,
-      instancias: ((instancias.data ?? []) as InstanciaGrupo[]).filter((ins) => idsItemsModulo.has(ins.item_id))
+      instancias: instancias.filter((ins) => idsItemsModulo.has(ins.item_id))
     }
   }
 
@@ -330,10 +406,10 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
     respuestas,
     items,
     modulos: todosModulos.filter((m) => items.some((i) => i.modulo_id === m.id)),
-    fotos: ((fot.data ?? []) as Foto[]).filter((f2) => items.some((i) => i.id === f2.item_id)),
+    fotos: fot.filter((f2) => items.some((i) => i.id === f2.item_id)),
     sucursalOpciones,
     sucursalPermisos,
-    instancias: (instancias.data ?? []) as InstanciaGrupo[]
+    instancias
   }
 }
 
