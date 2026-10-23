@@ -7,7 +7,6 @@ import { aplicarPermisosChecklist } from '../permisosChecklist'
 import {
   checkMarcado,
   colaboradorCumple,
-  conciliacionPorcentaje,
   esColaboradorRevisado,
   esSinHablador,
   estadoConciliacion,
@@ -585,13 +584,13 @@ export function buildPdfDocument(
             }])
           }
           filas.push(...grupo.productos.map((product): CeldaTabla[] => {
-            const porcentaje = conciliacionPorcentaje(product)
             const perdida = perdidaGuardadaConciliacion(product, contraDato)
             const estado = estadoConciliacion(product)
             const dice = diferenciaConciliacion(product)
-            // El estado va escrito, no solo el porcentaje: las filas están
-            // ordenadas por gravedad y el lector tiene que poder ver por qué.
-            const etiquetaEstado = esSinHablador(product)
+            // La columna se llama Diferencia y va escrita, no solo el signo: las
+            // filas están ordenadas por gravedad y el lector tiene que poder ver
+            // por qué descuadra cada una.
+            const etiquetaDiferencia = esSinHablador(product)
               ? 'No Match · sin hablador'
               : estado === 'falta'
                 ? `Faltan ${precio ? formatearPrecioBase(dice) : fmt(dice)}`
@@ -601,28 +600,28 @@ export function buildPdfDocument(
                     ? 'Concilia'
                     : 'Sin datos'
             return [
+              // El id del producto en la API viaja junto al código escaneado: en
+              // papel no hay badge ni detalle donde buscarlo y es con lo que se
+              // cruza el producto contra el sistema.
+              product.apiId != null ? `${product.sku || '—'} · ID ${product.apiId}` : product.sku || '—',
+              product.nombre || '—',
               // En precio, el monto con signo de plata y dos decimales, igual que
               // en la pantalla. En cantidades, la unidad pelada.
               precio ? formatearPrecioBase(product.teorica) : texto(product.teorica ?? '—'),
               esSinHablador(product)
                 ? 'Sin hablador'
                 : precio ? formatearPrecioBase(product.fisica) : texto(product.fisica ?? '—'),
-              // El id del producto en la API viaja junto al código escaneado: en
-              // papel no hay badge ni detalle donde buscarlo y es con lo que se
-              // cruza el producto contra el sistema.
-              product.apiId != null ? `${product.sku || '—'} · ID ${product.apiId}` : product.sku || '—',
-              product.nombre || '—',
-              porcentaje == null ? etiquetaEstado : `${etiquetaEstado} · ${fmt(porcentaje)}%`,
+              etiquetaDiferencia,
               ...(!precio
                 ? [
+                    // Solo el monto: la palabra "sobra/falta" ya está en la columna
+                    // de Diferencia, y repetirla acá empujaba el número al borde.
                     estado === 'falta' && perdida != null
                       ? formatearPrecioBase(perdida)
                       : estado === 'sobra'
                         ? (() => {
                             const sobrante = montoSobranteConciliacion(product, contraDato)
-                            return sobrante == null
-                              ? 'Sobrante sin precio'
-                              : `Sobrante ${formatearPrecioBase(sobrante)}`
+                            return sobrante == null ? '—' : formatearPrecioBase(sobrante)
                           })()
                         : '—'
                   ]
@@ -632,11 +631,11 @@ export function buildPdfDocument(
         }
         tabla(
           [
-            precio ? 'Sistema' : 'Teórica',
-            precio ? 'Hablador' : 'Física',
             'SKU',
             'Producto',
-            'Estado',
+            precio ? 'Sistema' : 'Teórica',
+            precio ? 'Hablador' : 'Física',
+            'Diferencia',
             ...(!precio ? ['Pérdida estimada'] : [])
           ],
           filas
