@@ -56,11 +56,85 @@ const FILTRO_COLABORADORES: Record<string, string> = {
   TODOS: 'todos los trabajadores de la unidad'
 }
 
-/** Peso del ítem como texto, con la particularidad de las secciones. */
-function textoPeso(item: Item): string {
+/**
+ * Peso del ítem como texto, diferenciando si es de primer nivel (módulo) o hijo de una sección.
+ */
+export function textoPeso(
+  item: Item,
+  padre?: Item | null,
+  sumaHermanos = 0,
+  sumaRaiz = 0
+): string {
   const peso = pesoItem(item)
-  if (peso <= 0) return 'Sin peso propio (el módulo lo promedia)'
-  return item.tipo === 'CONTENEDOR' ? `${fmtNum(peso)}% del módulo, repartido entre sus ítems` : `${fmtNum(peso)}% del módulo`
+  if (peso <= 0) {
+    return padre
+      ? `Sin peso propio (se promedia dentro de "${padre.texto}")`
+      : 'Sin peso propio (el módulo lo promedia)'
+  }
+
+  // Si es un ítem dentro de una sección (hijo)
+  if (padre) {
+    if (sumaHermanos > 0) {
+      const pctEnSeccion = Math.round((peso / sumaHermanos) * 1000) / 10
+      return sumaHermanos === 100
+        ? `${fmtNum(peso)}% de la sección "${padre.texto}"`
+        : `${fmtNum(peso)} pts en la sección "${padre.texto}" (${fmtNum(pctEnSeccion)}% del grupo)`
+    }
+    return `${fmtNum(peso)} pts en la sección "${padre.texto}"`
+  }
+
+  // Si es una sección (CONTENEDOR) de primer nivel
+  if (item.tipo === 'CONTENEDOR') {
+    if (sumaRaiz > 0 && sumaRaiz !== 100) {
+      const pctEfectivo = Math.round((peso / sumaRaiz) * 1000) / 10
+      return `${fmtNum(peso)} pts del módulo (${fmtNum(pctEfectivo)}% efectivo, repartido entre sus ítems)`
+    }
+    return `${fmtNum(peso)}% del módulo (repartido entre sus ítems)`
+  }
+
+  // Si es un ítem suelto de primer nivel
+  if (sumaRaiz > 0 && sumaRaiz !== 100) {
+    const pctEfectivo = Math.round((peso / sumaRaiz) * 1000) / 10
+    return `${fmtNum(peso)} pts del módulo (${fmtNum(pctEfectivo)}% efectivo)`
+  }
+  return `${fmtNum(peso)}% del módulo`
+}
+
+/**
+ * Resumen legible de cómo cierran los pesos del módulo para la tabla inicial.
+ */
+export function resumenPesosModulo(items: Item[]): string {
+  const secciones = items.filter((i) => i.tipo === 'CONTENEDOR')
+  const elementosRaiz = items.filter((i) => !i.padre_id)
+  const raizConPeso = elementosRaiz.filter((i) => pesoItem(i) > 0)
+  const sumaRaiz = raizConPeso.reduce((a, i) => a + pesoItem(i), 0)
+
+  // Si ningún elemento de primer nivel tiene peso:
+  if (!raizConPeso.length) {
+    const hijosConPeso = items.filter((i) => i.padre_id && pesoItem(i) > 0)
+    if (hijosConPeso.length) {
+      return 'Los ítems ponderan dentro de sus secciones; el módulo promedia las secciones.'
+    }
+    return 'Ningún ítem tiene peso: el módulo promedia todos sus ítems por igual'
+  }
+
+  const cantSeccionesConPeso = raizConPeso.filter((i) => i.tipo === 'CONTENEDOR').length
+  const cantSueltosConPeso = raizConPeso.filter((i) => i.tipo !== 'CONTENEDOR').length
+
+  const descripcionPartes: string[] = []
+  if (cantSeccionesConPeso > 0) {
+    descripcionPartes.push(`${cantSeccionesConPeso} ${cantSeccionesConPeso === 1 ? 'sección' : 'secciones'}`)
+  }
+  if (cantSueltosConPeso > 0) {
+    descripcionPartes.push(`${cantSueltosConPeso} ${cantSueltosConPeso === 1 ? 'ítem suelto' : 'ítems sueltos'}`)
+  }
+  const sujeto = descripcionPartes.join(' y ')
+
+  if (sumaRaiz === 100) {
+    return `${sujeto} ${raizConPeso.length === 1 ? 'suma' : 'suman'} el 100% del módulo${secciones.length ? ' (los ítems ponderan dentro de su sección)' : ''}`
+  }
+
+  return `${sujeto} ${raizConPeso.length === 1 ? 'suma' : 'suman'} ${fmtNum(sumaRaiz)} pts (el sistema normaliza automáticamente a escala 0–100%)`
 }
 
 /** Cómo se evalúa un punto suelto de una lista (checklist o unidad). */
@@ -256,8 +330,28 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
 
   const items = itemsEnOrdenJerarquico(datos.items)
   const secciones = items.filter((i) => i.tipo === 'CONTENEDOR')
-  const conPeso = items.filter((i) => pesoItem(i) > 0)
-  const sumaPesos = conPeso.reduce((a, i) => a + pesoItem(i), 0)
+  const seccionesPorId = new Map(secciones.map((s) => [s.id, s]))
+
+  // Hijos agrupados por sección para calcular la suma de pesos del grupo
+  const hijosPorPadre = new Map<string, Item[]>()
+  for (const it of items) {
+    if (it.padre_id) {
+      const arr = hijosPorPadre.get(it.padre_id) ?? []
+      arr.push(it)
+      hijosPorPadre.set(it.padre_id, arr)
+    }
+  }
+  const sumaHijosPorPadre = new Map<string, number>()
+  for (const [padreId, hijos] of hijosPorPadre) {
+    sumaHijosPorPadre.set(
+      padreId,
+      hijos.reduce((a, h) => a + pesoItem(h), 0)
+    )
+  }
+
+  const elementosRaiz = items.filter((i) => !i.padre_id)
+  const raizConPeso = elementosRaiz.filter((i) => pesoItem(i) > 0)
+  const sumaRaiz = raizConPeso.reduce((a, i) => a + pesoItem(i), 0)
 
   tabla(
     ['Dato', 'Detalle'],
@@ -265,12 +359,7 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
       ['Módulo', datos.moduloNombre],
       ['Descripción', datos.moduloDescripcion?.trim() || 'Sin descripción en la configuración'],
       ['Ítems activos', `${items.length}${secciones.length ? ` (${secciones.length} son secciones)` : ''}`],
-      [
-        'Pesos',
-        conPeso.length
-          ? `Los ${conPeso.length} ítems con peso suman ${fmtNum(sumaPesos)}% del módulo`
-          : 'Ningún ítem tiene peso: el módulo promedia sus ítems'
-      ],
+      ['Pesos', resumenPesosModulo(items)],
       ['Generado', new Date().toLocaleDateString('es')]
     ],
     { columnStyles: { 0: { cellWidth: 46 } } }
@@ -287,6 +376,11 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
     'Las secciones agrupan ítems y valen por los suyos: los hijos reparten el peso de la sección y la sección no se ' +
       'responde sola. Un ítem marcado como No aplica queda fuera del cálculo, ni suma ni resta.'
   )
+  if (sumaRaiz > 0 && sumaRaiz !== 100) {
+    textoLinea(
+      `Normalización: los elementos principales del módulo suman ${fmtNum(sumaRaiz)} puntos. El sistema divide los puntos obtenidos entre los puntos posibles respondidos, por lo que la calificación final siempre se expresa en escala de 0% a 100%.`
+    )
+  }
   textoLinea(
     'Veredictos: CUMPLE cuando el ítem llegó al 100%, NO CUMPLE cuando le faltó algo (puntúa lo que cumplió) y ' +
       'SIN VEREDICTO cuando no hay respuesta, que no entra en el promedio. Cada punto incumplido se le atribuye a un ' +
@@ -302,10 +396,12 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
 
   items.forEach((item, index) => {
     const esHijo = !!item.padre_id
+    const padre = item.padre_id ? seccionesPorId.get(item.padre_id) : null
+    const sumaHermanos = item.padre_id ? (sumaHijosPorPadre.get(item.padre_id) ?? 0) : 0
     subtitulo(`${index + 1}. ${item.texto}`, esHijo ? 6 : 0)
     const datosItem = [
       `Tipo: ${etiquetaTipo(item.tipo)}`,
-      `Peso: ${textoPeso(item)}`,
+      `Peso: ${textoPeso(item, padre, sumaHermanos, sumaRaiz)}`,
       item.requerido ? 'Obligatorio para cerrar la evaluación' : 'Opcional',
       item.responsables?.length ? `Responsables: ${item.responsables.join(', ')}` : 'Sin responsables configurados'
     ]
