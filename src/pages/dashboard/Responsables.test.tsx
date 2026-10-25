@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { SeguimientoVista, DetalleCargo } from './Responsables'
+import { SeguimientoVista, DetalleCargo, PanelAlertas } from './Responsables'
 import {
   seguimientoResponsables,
   type ConjuntoDatos,
   type ResumenItemFalla
 } from '../../lib/data/indicadores'
+import type { AlertaCargo, FilaAlerta } from '../../lib/data/alertasCargo'
 import type { Item, Modulo, Respuesta, VistaEvaluacion } from '../../lib/types'
 
 /**
@@ -80,6 +81,73 @@ function datos(): ConjuntoDatos {
   }
 }
 
+/**
+ * Mismos datos con dos ítems más: Norte queda en 75% (amonestación) y Sur en
+ * 50% (llamado), para ver los dos umbrales en pantalla con la misma matriz.
+ */
+function datosNiveles(): ConjuntoDatos {
+  const d = datos()
+  const item = (id: string, texto: string): Item => ({
+    id,
+    modulo_id: 'm1',
+    tipo: 'CUMPLE_NO_CUMPLE',
+    texto,
+    opciones: [],
+    orden: 0,
+    requerido: false,
+    activo: true,
+    puntaje: 100,
+    responsables: ['Encargado de turno'],
+    created_at: ''
+  })
+  const resp = (evaluacionId: string, itemId: string): Respuesta => ({
+    id: `${evaluacionId}-${itemId}`,
+    evaluacion_id: evaluacionId,
+    item_id: itemId,
+    instancia_id: null,
+    valor: { value: true, responsables: ['Encargado de turno'] },
+    respondido_por: null,
+    created_at: ''
+  })
+  d.items.push(item('i3', 'Casco puesto'), item('i4', 'Mascarilla puesta'))
+  d.respuestas.push(resp('ev1', 'i3'), resp('ev1', 'i4'), resp('ev2', 'i3'), resp('ev2', 'i4'))
+  return d
+}
+
+/** Alerta persistida, para el panel y el detalle. */
+function alerta(extra: Partial<AlertaCargo>): AlertaCargo {
+  return {
+    id: 'a1',
+    clave_cargo: 'encargadodeturno',
+    cargo: 'Encargado de turno',
+    sucursal_id: 's1',
+    departamento_id: null,
+    nivel: 'AMONESTACION',
+    nota: 50,
+    estado: 'PENDIENTE',
+    atendida_en: null,
+    atendida_por: null,
+    created_at: '2026-09-10T10:00:00Z',
+    sucursal: { nombre: 'Sucursal Norte' },
+    ...extra
+  }
+}
+
+/** Fila del panel de seguimiento. */
+function filaAlerta(extra: Partial<FilaAlerta>): FilaAlerta {
+  return {
+    clave: 'encargadodeturno',
+    cargo: 'Encargado de turno',
+    unidadId: 's1',
+    unidadNombre: 'Sucursal Norte',
+    unidadTipo: 'sucursal',
+    nota: 75,
+    nivel: 'AMONESTACION',
+    registro: null,
+    ...extra
+  }
+}
+
 describe('SeguimientoVista', () => {
   it('arma la matriz con los cargos, las sucursales y las notas', () => {
     const d = datos()
@@ -136,6 +204,136 @@ describe('SeguimientoVista', () => {
     )
 
     expect(html).toContain('Todavía no hay notas por cargo')
+  })
+
+  it('la leyenda de colores es los mismos umbrales que las alertas: 80% y 70%', () => {
+    const html = renderToStaticMarkup(
+      <SeguimientoVista
+        datos={datos()}
+        cargando={false}
+        error={false}
+        onReintentar={() => {}}
+        seguimiento={seguimientoResponsables(datos())}
+      />
+    )
+
+    expect(html).toContain('70–79% · amonestación')
+    expect(html).toContain('menos de 70% · llamado de atención')
+    // El rojo sólido ya no es «la peor celda» (un ancla relativa): es el llamado.
+    expect(html).not.toContain('la peor celda')
+  })
+
+  it('cada celda en nivel anuncia el nivel en su aria-label, no sólo el color', () => {
+    const d = datosNiveles()
+    const html = renderToStaticMarkup(
+      <SeguimientoVista datos={d} cargando={false} error={false} onReintentar={() => {}} seguimiento={seguimientoResponsables(d)} />
+    )
+
+    // Norte 75% → amonestación; Sur 50% → llamado de atención.
+    expect(html).toContain('nota 75%, amonestación. Ver detalle')
+    expect(html).toContain('nota 50%, llamado de atención. Ver detalle')
+  })
+
+  it('el panel de seguimiento se pinta debajo de la matriz con las filas en nivel', () => {
+    const d = datosNiveles()
+    const html = renderToStaticMarkup(
+      <SeguimientoVista
+        datos={d}
+        cargando={false}
+        error={false}
+        onReintentar={() => {}}
+        seguimiento={seguimientoResponsables(d)}
+        alertas={[]}
+        onRegistrar={() => {}}
+        onAtender={() => {}}
+      />
+    )
+
+    expect(html).toContain('Alertas de seguimiento')
+    expect(html).toContain('Por debajo de 80%')
+    expect(html).toContain('Registrar amonestación')
+    expect(html).toContain('Registrar llamado de atención')
+    expect(html).toContain('Sin registrar')
+  })
+
+  it('sin callbacks la pantalla queda en modo sólo lectura: se ven los chips, no los botones', () => {
+    const d = datosNiveles()
+    const html = renderToStaticMarkup(
+      <SeguimientoVista datos={d} cargando={false} error={false} onReintentar={() => {}} seguimiento={seguimientoResponsables(d)} />
+    )
+
+    expect(html).toContain('Alertas de seguimiento')
+    expect(html).not.toContain('Registrar amonestación')
+    expect(html).not.toContain('Registrar llamado de atención')
+  })
+})
+
+describe('PanelAlertas', () => {
+  it('cada fila muestra unidad, cargo, nota, nivel, estado y la acción que corresponde', () => {
+    const html = renderToStaticMarkup(
+      <PanelAlertas
+        onRegistrar={() => {}}
+        onAtender={() => {}}
+        filas={[
+          filaAlerta({}),
+          filaAlerta({ clave: 'depositaria', cargo: 'Depositaría', nota: 50, nivel: 'LLAMADO', registro: alerta({ id: 'a2', nivel: 'LLAMADO', estado: 'PENDIENTE' }) }),
+          filaAlerta({ clave: 'cajero', cargo: 'Cajero', nota: 95, nivel: null, registro: alerta({ id: 'a3', estado: 'ATENDIDA', atendida_en: '2026-09-20T10:00:00Z', atendida: { nombre: 'Ana' } }) })
+        ]}
+      />
+    )
+
+    expect(html).toContain('Sucursal Norte')
+    expect(html).toContain('Encargado de turno')
+    expect(html).toContain('Amonestación')
+    expect(html).toContain('Llamado de atención')
+    expect(html).toContain('Sin registrar')
+    expect(html).toContain('Pendiente')
+    expect(html).toContain('Atendida el 20/9/2026 por Ana')
+    // La acción es única por fila: o se registra o se atiende, nunca las dos.
+    expect(html).toContain('Registrar amonestación')
+    expect(html).toContain('Marcar atendida')
+    expect(html.match(/Registrar amonestación/g)).toHaveLength(1)
+    // Una celda que mejoró quedó sin nivel pero conserva su registro.
+    expect(html).toContain('Sin alerta')
+  })
+
+  it('el conteo de cabecera separa lo sin registrar, lo pendiente y lo atendido', () => {
+    const html = renderToStaticMarkup(
+      <PanelAlertas
+        filas={[
+          filaAlerta({}),
+          filaAlerta({ registro: alerta({ id: 'a2', estado: 'PENDIENTE' }) }),
+          filaAlerta({ clave: 'cajero', cargo: 'Cajero', registro: alerta({ id: 'a3', estado: 'ATENDIDA' }) })
+        ]}
+      />
+    )
+
+    expect(html).toContain('1 sin registrar')
+    expect(html).toContain('1 pendientes')
+    expect(html).toContain('1 atendidas')
+  })
+
+  it('sin ninguna alerta lo dice, con el umbral de cuándo empieza el seguimiento', () => {
+    const html = renderToStaticMarkup(<PanelAlertas filas={[]} />)
+
+    expect(html).toContain('Ningún cargo está en alerta')
+    expect(html).toContain('Ninguna nota bajó de 80%')
+    expect(html).not.toContain('<table')
+  })
+
+  it('si falló la consulta lo dice y ofrece reintentar, sin jurar que no hay alertas', () => {
+    const html = renderToStaticMarkup(<PanelAlertas filas={[]} error onReintentar={() => {}} />)
+
+    expect(html).toContain('No se pudieron cargar las alertas')
+    expect(html).toContain('Reintentar')
+    expect(html).not.toContain('Ningún cargo está en alerta')
+  })
+
+  it('mientras carga no muestra ni el panel vacío ni el de error', () => {
+    const html = renderToStaticMarkup(<PanelAlertas filas={[]} cargando />)
+
+    expect(html).not.toContain('Ningún cargo está en alerta')
+    expect(html).not.toContain('No se pudieron cargar las alertas')
   })
 })
 
@@ -279,5 +477,66 @@ describe('DetalleCargo', () => {
 
     expect(html).toContain('100% de nota')
     expect(html).toContain('Sin hallazgos en este alcance')
+  })
+
+  const base = {
+    cargo: 'Encargado de turno',
+    alcance: 'Sucursal Norte',
+    items,
+    vecesTotal: 6,
+    grupos,
+    porModulo,
+    visibles: 40,
+    onVerMas: () => {},
+    onCerrar: () => {}
+  }
+
+  it('en nivel sin registro ofrece registrar la alerta y lo dice con chip y botón', () => {
+    const html = renderToStaticMarkup(
+      <DetalleCargo {...base} nota={75} nivel="AMONESTACION" registro={null} onRegistrar={() => {}} />
+    )
+
+    expect(html).toContain('Amonestación')
+    expect(html).toContain('Sin registrar')
+    expect(html).toContain('Registrar amonestación')
+    expect(html).not.toContain('Marcar atendida')
+  })
+
+  it('con la alerta pendiente la acción es atender, no registrar una segunda vez', () => {
+    const html = renderToStaticMarkup(
+      <DetalleCargo
+        {...base}
+        nota={65}
+        nivel="LLAMADO"
+        registro={alerta({ nivel: 'LLAMADO', estado: 'PENDIENTE' })}
+        onRegistrar={() => {}}
+        onAtender={() => {}}
+      />
+    )
+
+    expect(html).toContain('Llamado de atención')
+    expect(html).toContain('Pendiente')
+    expect(html).toContain('Marcar atendida')
+    expect(html).not.toContain('Registrar llamado')
+  })
+
+  it('desde el total de la fila (sin unidad) informa nivel y estado pero no ofrece acciones', () => {
+    const html = renderToStaticMarkup(
+      <DetalleCargo {...base} nota={75} nivel="AMONESTACION" registro={null} />
+    )
+
+    expect(html).toContain('Amonestación')
+    expect(html).toContain('Sin registrar')
+    expect(html).not.toContain('Registrar amonestación')
+    expect(html).not.toContain('Marcar atendida')
+  })
+
+  it('una celda sin nivel y sin registro no pinta ningún chip de alerta', () => {
+    const html = renderToStaticMarkup(
+      <DetalleCargo {...base} nota={95} nivel={null} registro={null} onRegistrar={() => {}} />
+    )
+
+    expect(html).toContain('Sin alerta')
+    expect(html).not.toContain('Registrar')
   })
 })

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { bloqueSql, sinComentarios } from './supabaseSql'
+import { bloqueSql, schemaSql, sinComentarios } from './supabaseSql'
 
 function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -53,6 +53,7 @@ function helpersDePolitica(): string[] {
 
 const remediation = sinComentarios(bloqueSql('permisos-funcion.sql'))
 const schema = sinComentarios(bloqueSql('schema.sql'))
+const schemaCompleto = sinComentarios(schemaSql())
 
 /**
  * ¿Existe la función en `supabase/schema.sql`?
@@ -60,9 +61,15 @@ const schema = sinComentarios(bloqueSql('schema.sql'))
  * Un revoke apuntando a una función que no existe hace fallar el archivo
  * entero en el SQL Editor, así que el chequeo no es cosmético: es la red que
  * evita que un `revoke` bien intencionado deje la base a medio camino.
+ *
+ * Se busca en el ARCHIVO ENTERO y no en el primer bloque: desde que cada
+ * funcionalidad quedó en su propio bloque consolidado, una función puede
+ * estar definida en un bloque y revocarse en otro (la de la pre-entrega, la
+ * del enlace público, las del backfill de departamentos). Mirlar sólo el
+ * primer bloque daba por inexistentes cinco funciones que sí están.
  */
 function existeEnSchema(nombre: string): boolean {
-  return new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${nombre}\\s*\\(`).test(schema)
+  return new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${nombre}\\s*\\(`).test(schemaCompleto)
 }
 
 /** Todo el código de la app, para cruzar qué funciones se llaman por RPC. */
@@ -340,6 +347,18 @@ describe('schema.sql · corre limpio', () => {
     // El revoke vive en el bloque `permisos-funcion.sql` y la función en otro:
     // si se separan demasiado, uno de los dos apunta al vacío.
     for (const f of firmas) expect(existeEnSchema(f), `no existe ${f}`).toBe(true)
+    // Y la función tiene que estar DEFINIDA antes del revoke: el archivo se
+    // aplica de arriba abajo y un revoke a una función que todavía no existe
+    // deja el archivo a medio camino.
+    for (const f of firmas) {
+      const def = schemaCompleto.search(new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${f}\\s*\\(`))
+      const revs = [...schemaCompleto.matchAll(new RegExp(`revoke\\s+execute\\s+on\\s+function\\s+public\\.${f}\\s*\\(`, 'gi'))].map((m) => m.index)
+      expect(revs.length, `${f}: sin revoke`).toBeGreaterThan(0)
+      for (const rev of revs) {
+        expect(def, `${f}: hay un revoke antes de la definición`).toBeGreaterThan(-1)
+        expect(def, `${f}: el revoke va antes de la definición`).toBeLessThan(rev)
+      }
+    }
   })
 })
 
@@ -366,7 +385,11 @@ describe('schema.sql · marcar fotos que ya estan en el bucket', () => {
 
     const esperadas = Number(sql.match(/estan las (\d+)/)?.[1])
     const iLista = sql.indexOf('with esperadas (politica, tabla) as (')
-    const filasDeLaLista = (sql.slice(iLista, sql.indexOf('select', iLista)).match(/^\s*\('/gm) || []).length
+    // La lista termina en la línea que cierra el `values`. Buscar el primer
+    // "select" la cortaba a la mitad, porque `evaluaciones_select` tiene la
+    // palabra adentro: contaba 2 filas de las 64.
+    const iCierre = sql.indexOf('\n)', iLista)
+    const filasDeLaLista = (sql.slice(iLista, iCierre).match(/^\s*\('/gm) || []).length
     expect(filasDeLaLista).toBeGreaterThan(0)
     expect(esperadas).toBe(filasDeLaLista)
   })

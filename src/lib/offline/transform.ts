@@ -65,6 +65,27 @@ function isChecklistValor(valor: unknown): Record<string, string[]> | null {
 }
 
 /**
+ * Comentario por punto (id de la opción → texto).
+ *
+ * Viaja **dentro del valor** y no tiene nada que ver con las fotos, pero las
+ * dos proyecciones de abajo (la que sube a la nube y la que quita las fotos)
+ * arman el objeto campo por campo y se lo tragaban: el comentario se perdía al
+ * sincronizar y el punto quedaba mudo en el informe.
+ *
+ * Los valores de UNIDAD_CHECKLIST y LISTA_COLABORADORES no pasan por acá (no
+ * los arma ninguna de las dos proyecciones: van enteros), así que sus
+ * comentarios viajan sin que haya que hacer nada.
+ */
+function copiarComentarios(
+  v: { comentarios?: unknown },
+  out: Record<string, unknown>
+): void {
+  if (!v.comentarios || typeof v.comentarios !== 'object' || Array.isArray(v.comentarios)) return
+  if (!Object.keys(v.comentarios as Record<string, unknown>).length) return
+  out.comentarios = v.comentarios
+}
+
+/**
  * Responsables elegidos y gerente de la sucursal: viajan **dentro del valor** y
  * no tienen nada que ver con las fotos.
  *
@@ -128,10 +149,16 @@ export function valorSinFotos(valor: unknown): unknown {
   }
   const checklist = isChecklistValor(valor)
   if (checklist) {
-    const v = valor as { selected?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: unknown; responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
+    const v = valor as { selected?: string[]; existe?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: unknown; comentarios?: Record<string, string>; responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
     const out: Record<string, unknown> = { selected: v.selected ?? [] }
+    // Doble check: `existe` se conserva aunque venga vacío, porque su sola
+    // presencia (como array) le dice al puntaje que la segunda marca es
+    // obligatoria. Soltarlo convertiría una respuesta sin validaciones en puntos
+    // cumplidos.
+    if (Array.isArray(v.existe)) out.existe = v.existe
     if ((v.informativos ?? []).length) out.informativos = v.informativos
     if (v.valores && Object.keys(v.valores).length) out.valores = v.valores
+    copiarComentarios(v, out)
     copiarResponsables(v, out)
     return out
   }
@@ -229,7 +256,7 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
   }
   const checklistIds = isChecklistValor(valor)
   if (checklistIds) {
-    const v = valor as { selected?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: Record<string, { photoIds?: string[] } | null>; responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
+    const v = valor as { selected?: string[]; existe?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: Record<string, { photoIds?: string[] } | null>; comentarios?: Record<string, string>; responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
     const evidencias: Record<string, unknown> = {}
     for (const [optId, ids] of Object.entries(checklistIds)) {
       evidencias[optId] = { paths: ids.map((id) => map.get(id) ?? `.local/${id}`) }
@@ -238,8 +265,12 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
       selected: v.selected ?? [],
       evidencias
     }
+    // Igual que en `valorSinFotos`: la marca de presencia del doble check viaja
+    // aunque esté vacía, para no degradar la respuesta a modo check único.
+    if (Array.isArray(v.existe)) out.existe = v.existe
     if ((v.informativos ?? []).length) out.informativos = v.informativos
     if (v.valores && Object.keys(v.valores).length) out.valores = v.valores
+    copiarComentarios(v, out)
     copiarResponsables(v, out)
     return out
   }

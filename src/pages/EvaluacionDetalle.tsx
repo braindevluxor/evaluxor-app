@@ -10,9 +10,10 @@ import type { OpcionesPdf } from '../lib/pdf/opciones'
 import { descargarExcelEvaluacion } from '../lib/excelEvaluacion'
 import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
+import { aplicarPermisosChecklist } from '../lib/permisosChecklist'
 import { raicesDeModulo } from '../lib/pasos'
 import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
-import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionComparable, agruparPorDepartamento, esSinHablador, productosParaConciliar, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, montoSobranteConciliacion, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
+import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionComparable, agruparPorDepartamento, esSinHablador, productosParaConciliar, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionesAplicablesUnidad, checkMarcado, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, montoSobranteConciliacion, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
 import type { Foto, Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, BOTON_CABECERA, Button, Card, InfoTooltip, Modal, ProgressBar, Skeleton, cn, colorFondoBadge } from '../components/ui'
@@ -25,6 +26,7 @@ import { pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCump
 import { IconoModulo } from '../components/IconoModulo'
 import { CompartirEvaluacion } from '../components/CompartirEvaluacion'
 import { ordenarTrabajadores } from '../lib/data/colaboradores'
+import { leerComentario, lineasDeComentario } from '../lib/comentariosPunto'
 
 /** Desde acá arranca el "Cumple". Vive acá y no junto al badge para que el color del
  *  número, la etiqueta y el texto de "faltan N" no puedan quedar con umbrales
@@ -149,7 +151,10 @@ export function ValorRespuesta({
       const opcionesNoAplican = v?.informativos ?? []
       const opciones = (item.opciones ?? []) as Opcion[]
       const sel = (v?.selected ?? []).filter((id) => !opcionesNoAplican.includes(id))
-      if (!sel.length && !opcionesNoAplican.length) return <p className="text-sm text-slate-400">Ninguna opción marcada</p>
+      const existentes = (v?.existe ?? []).filter((id) => !opcionesNoAplican.includes(id))
+      // Con doble check la respuesta puede traer sólo la presencia («existe») sin
+      // validaciones: eso ya es respuesta y no debe leerse como "sin marcar".
+      if (!sel.length && !existentes.length && !opcionesNoAplican.length) return <p className="text-sm text-slate-400">Ninguna opción marcada</p>
       const pendientes = opcionesSinTildar(opciones, v)
       const opcionesVisibles = (soloIncumplimientos ? pendientes : opciones)
         .filter((opcion) => !opcionesNoAplican.includes(opcion.id))
@@ -168,6 +173,8 @@ export function ValorRespuesta({
             <tbody className="divide-y divide-slate-100">
               {opcionesVisibles.map((opcion) => {
                 const cumplida = opcionCumplida(opcion, v, opcion.id)
+                // Con doble check: está en la tienda pero sin la marca de correcto.
+                const soloExiste = !cumplida && (v?.existe ?? []).includes(opcion.id)
                 const seleccionados = v?.responsablesPorOpcion?.[opcion.id] ?? []
                 const responsables = cumplida || !mostrarResponsables
                   ? []
@@ -179,21 +186,30 @@ export function ValorRespuesta({
                         ? responsablesDeOpcion(opcion)
                         : item.responsables ?? []
                 const fotos = pathsEvidenciaOpcion(v?.evidencias?.[opcion.id])
+                // Comentario del punto: la nota que dejó el evaluador. Los puntos
+                // marcados «no aplica» no se listan, así que su comentario tampoco
+                // sale: no entran al puntaje y no son un hallazgo.
+                const comentario = leerComentario(v?.comentarios, opcion.id).trim()
                 return (
                   <tr key={opcion.id} className={cn(cumplida ? 'bg-white' : 'bg-red-50/40')}>
                     <td className="break-words px-3 py-2.5 align-top text-slate-700">
                       <span className="flex items-start gap-2">
                         <span
-                          aria-label={cumplida ? 'Cumple' : 'No cumple'}
-                          title={cumplida ? 'Cumple' : 'No cumple'}
+                          aria-label={cumplida ? 'Cumple' : soloExiste ? 'Existe, falta validar' : 'No cumple'}
+                          title={cumplida ? 'Cumple' : soloExiste ? 'Existe, falta validar (no puntúa)' : 'No cumple'}
                           className={cn(
                             'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-black leading-none',
-                            cumplida ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            cumplida ? 'bg-green-100 text-green-700' : soloExiste ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
                           )}
                         >
-                          {cumplida ? '✓' : '×'}
+                          {cumplida ? '✓' : soloExiste ? '!' : '×'}
                         </span>
-                        <span>{etiquetaOpcion(opcion, v)}</span>
+                        <span>
+                          {etiquetaOpcion(opcion, v)}
+                          {comentario ? (
+                            <span className="mt-0.5 block text-[11px] italic leading-snug text-slate-500">“{comentario}”</span>
+                          ) : null}
+                        </span>
                       </span>
                     </td>
                     {mostrarResponsables ? (
@@ -263,6 +279,8 @@ export function ValorRespuesta({
               const marcadas = (c.selected ?? []).map((id) => opts.find((o) => o.id === id)?.etiqueta ?? id)
               // Lo que a este colaborador le falta tildar: es lo que lo deja incompleto.
               const pendientes = checksAplicables.filter((o) => !(c.selected ?? []).includes(o.id)).map((o) => o.etiqueta)
+              // Comentarios que dejó el evaluador en los puntos de ESTE trabajador.
+              const comentarios = lineasDeComentario(c.comentarios, opts)
               return (
                 <li key={c.dni} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
                   <div className="flex flex-wrap items-start justify-between gap-2">
@@ -282,6 +300,15 @@ export function ValorRespuesta({
                     </div>
                   ) : null}
                   {c.aplica ? <Pendientes titulo={soloIncumplimientos ? 'No cumplidas' : 'Sin tildar'} etiquetas={pendientes} /> : null}
+                  {comentarios.length ? (
+                    <ul className="mt-2 space-y-1">
+                      {comentarios.map((linea) => (
+                        <li key={linea.id} className="text-xs leading-snug text-slate-600">
+                          <span className="font-semibold text-slate-700">{linea.punto}:</span> {linea.texto}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </li>
               )
             })}
@@ -294,7 +321,11 @@ export function ValorRespuesta({
       const unids = v?.unidades ?? []
       if (!unids.length) return <p className="text-sm text-slate-400">Sin unidades</p>
       const opts = (item.opciones ?? []) as Opcion[]
-      const cumplen = unids.filter((u) => unidadCumple(u, opts)).length
+      // Las unidades con todos sus puntos «no aplica» no tienen nada que cumplir:
+      // no cuentan como completas ni como incompletas. Es el mismo criterio que
+      // usa el editor al resumir las unidades.
+      const enCuenta = unids.filter((u) => opcionesAplicablesUnidad(u, opts).length > 0)
+      const cumplen = enCuenta.filter((u) => unidadCumple(u, opts)).length
       const unidadesVisibles = soloIncumplimientos ? unids.filter((u) => !unidadCumple(u, opts)) : unids
       return (
         <div className="space-y-3">
@@ -304,29 +335,72 @@ export function ValorRespuesta({
           <p className="text-sm font-semibold text-slate-700">
             {soloIncumplimientos
               ? `${unidadesVisibles.length} unidad(es) con incumplimientos`
-              : `${unids.length} unidades en cuenta · ${cumplen}/${unids.length} completas`}
+              : enCuenta.length
+                ? `${enCuenta.length} unidades en cuenta · ${cumplen}/${enCuenta.length} completas`
+                : 'Ninguna unidad con puntos aplicables'}
           </p>
           <ul className="space-y-2">
             {unidadesVisibles.map((u, i) => {
               const cumple = unidadCumple(u, opts)
-              const marcadas = (u.selected ?? []).map((id) => opts.find((o) => o.id === id)?.etiqueta ?? id)
-              const pendientes = opts.filter((o) => !(u.selected ?? []).includes(o.id)).map((o) => o.etiqueta)
+              // Puntos que el evaluador marcó «no aplica» en ESTA unidad: no se
+              // esperan, no son pendientes y su nota no es un hallazgo.
+              const noAplica = (u.informativos ?? []).filter((id) => opts.some((o) => o.id === id))
+              const todoNoAplica = opts.length > 0 && noAplica.length === opts.length
+              const aplicables = opcionesAplicablesUnidad(u, opts)
+              // Cada punto con su estado, igual que el CHECKLIST. Con doble check
+              // el «existe» sin validar es un resultado que el evaluador cargó:
+              // mostrarlo como «sin tildar» lo hacía invisible en el detalle.
+              const puntos = soloIncumplimientos ? aplicables.filter((o) => !checkMarcado(u, o.id)) : aplicables
               return (
                 <li key={`${u.codigo}-${i}`} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <span className="min-w-0 font-medium text-slate-800">{u.codigo}</span>
-                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
-                      {cumple ? 'Completo' : 'Incompleto'}
+                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', todoNoAplica ? 'bg-amber-100 text-amber-800' : cumple ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}>
+                      {todoNoAplica ? 'No aplica' : cumple ? 'Completo' : 'Incompleto'}
                     </span>
                   </div>
-                  {!soloIncumplimientos && marcadas.length ? (
+                  {puntos.length ? (
+                    <ul className="mt-2 space-y-1.5">
+                      {puntos.map((o) => {
+                        const cumplido = checkMarcado(u, o.id)
+                        // Con doble check: está en la unidad pero sin la marca de correcto.
+                        const soloExiste = !cumplido && (u.existe ?? []).includes(o.id)
+                        const comentario = leerComentario(u.comentarios, o.id).trim()
+                        return (
+                          <li key={o.id} className="flex items-start gap-2">
+                            <span
+                              aria-label={cumplido ? 'Cumple' : soloExiste ? 'Existe, falta validar' : 'No cumple'}
+                              title={cumplido ? 'Cumple' : soloExiste ? 'Existe, falta validar (no puntúa)' : 'No cumple'}
+                              className={cn(
+                                'mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-black leading-none',
+                                cumplido ? 'bg-green-100 text-green-700' : soloExiste ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                              )}
+                            >
+                              {cumplido ? '✓' : soloExiste ? '!' : '×'}
+                            </span>
+                            <span className="min-w-0 text-slate-700">
+                              {o.etiqueta}
+                              {soloExiste ? (
+                                <span className="ml-1.5 text-[11px] font-semibold text-amber-700">existe, falta validar</span>
+                              ) : null}
+                              {comentario ? (
+                                <span className="mt-0.5 block text-[11px] italic leading-snug text-slate-500">“{comentario}”</span>
+                              ) : null}
+                            </span>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : null}
+                  {noAplica.length ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {marcadas.map((l) => (
-                        <span key={l} className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-semibold text-primary-700">{l}</span>
+                      {noAplica.map((id) => (
+                        <span key={id} className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                          {opts.find((o) => o.id === id)?.etiqueta ?? id} · no aplica
+                        </span>
                       ))}
                     </div>
                   ) : null}
-                  <Pendientes titulo={soloIncumplimientos ? 'No cumplidas' : 'Sin tildar'} etiquetas={pendientes} />
                 </li>
               )
             })}
@@ -867,7 +941,7 @@ export function EvaluacionDetalle() {
     )
   }
 
-  const { evaluacion, respuestas, items, modulos, fotos, sucursalOpciones, instancias } = detalle
+  const { evaluacion, respuestas, items, modulos, fotos, sucursalOpciones, sucursalPermisos, instancias } = detalle
   // ¿Hay productos escaneados en algún ítem de conciliación? El detalle es de solo
   // lectura, pero el Líder puede entrar a la vista de edición (que ya sabe borrar
   // con confirmación) si es que hay algo que editar.
@@ -875,10 +949,15 @@ export function EvaluacionDetalle() {
     const item = items.find((i) => i.id === r.item_id)
     return item?.tipo === 'CONCILIACION' && ((r.valor as ValorConciliacion | null)?.productos?.length ?? 0) > 0
   })
-  const { puntaje, itemsBinarios, itemsBinariosOk } = resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones)
+  const { puntaje, itemsBinarios, itemsBinariosOk } = resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones, sucursalPermisos)
   const est = estadoBadge(puntaje)
-  const aplicaOpciones = opcionesQueAplican(unidadDe(evaluacion), sucursalOpciones)
+  const unidad = unidadDe(evaluacion)
+  const aplicaOpciones = opcionesQueAplican(unidad, sucursalOpciones)
   const aplicarOpciones = (item: Item) => {
+    // Un CHECKLIST con origen en permisos no lleva opciones manuales: su lista
+    // se genera desde los permisos ACTIVOS de la sucursal, como al evaluar.
+    const conPermisos = aplicarPermisosChecklist(item, unidad, { sucursalPermisos })
+    if (conPermisos !== item) return conPermisos
     if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
     const ids = aplicaOpciones.get(item.id)
     if (!ids?.length) return item
@@ -1584,7 +1663,7 @@ export function EvaluacionDetalle() {
               .map((r) => ({ item: itemMod.find((i) => i.id === r.item_id), valor: r.valor }))
               .filter((x): x is { item: Item; valor: unknown } => !!x.item)
             const { ok, total } = itemsProporcion(vals.map((v) => ({ item: aplicarOpciones(v.item), valor: v.valor })))
-            const punteo = puntajeModuloDeRespuestas(respuestas, items, m.id, unidadDe(evaluacion), sucursalOpciones)
+            const punteo = puntajeModuloDeRespuestas(respuestas, items, m.id, unidadDe(evaluacion), sucursalOpciones, sucursalPermisos)
             // Cuántas filas del módulo quedan en pantalla con el filtro actual. El
             // puntaje del módulo NO se recalcula: es el del módulo entero, y bajarlo
             // con el filtro haría creer que el filtro cambió la evaluación.

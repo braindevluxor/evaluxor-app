@@ -189,6 +189,32 @@ describe('combinarPorDni', () => {
     expect(colaboradores[0].aplica).toBe(false)
     expect(colaboradores[0].noAplica).toEqual(['o2'])
   })
+
+  it('conserva el comentario de los puntos al recargar la lista', () => {
+    // La API no trae las notas: si la fusión no las cuida, la nota del punto
+    // desaparece en el próximo "cargar" y el punto queda mudo.
+    const actuales = [colab({ dni: 1, selected: ['o1'], comentarios: { o2: 'falta el certificado' } })]
+    const { colaboradores } = combinarPorDni(actuales, [colab({ dni: 1 })])
+    expect(colaboradores[0].comentarios).toEqual({ o2: 'falta el certificado' })
+  })
+
+  it('conserva el comentario aunque el trabajador no tenga nada tildado', () => {
+    // Una nota no tilda nada: si el criterio fuera "tildó algo", la nota se
+    // perdería igual. Lo que no se toca es el resto del estado (la exclusión y
+    // las tildes siguen mandando en la lista fresca).
+    const actuales = [colab({ dni: 1, comentarios: { o1: 'se lo ve mal' } })]
+    const { colaboradores } = combinarPorDni(actuales, [colab({ dni: 1, aplica: false, selected: ['o1', 'o2'] })])
+    expect(colaboradores[0].comentarios).toEqual({ o1: 'se lo ve mal' })
+    expect(colaboradores[0].selected).toEqual(['o1', 'o2'])
+  })
+
+  it('reporta como perdido al que se fue de la tienda con una nota escrita', () => {
+    // Si el trabajador ya no está en la API, su nota no se puede ir en silencio:
+    // se pregunta, como con cualquier otro trabajo del evaluador.
+    const actuales = [colab({ dni: 1, comentarios: { o1: 'se lo ve mal' } })]
+    const { perdidos } = combinarPorDni(actuales, [])
+    expect(perdidos.map((c) => c.dni)).toEqual([1])
+  })
 })
 
 describe('estadosAnteriores', () => {
@@ -306,6 +332,16 @@ describe('aplicarHistorial', () => {
   it('sin historial devuelve la lista tal cual', () => {
     const frescos = [colab({ dni: 1 })]
     expect(aplicarHistorial(frescos, new Map())).toBe(frescos)
+  })
+
+  it('no hereda el comentario de los puntos de la evaluación anterior', () => {
+    // El avance sí se hereda (las casillas y la exclusión), pero una nota
+    // escrita en otra evaluación no es de esta: se mezclaría con lo que el
+    // evaluador escriba ahora sobre el mismo punto.
+    const historial = new Map([[1, colab({ dni: 1, selected: ['o1'], comentarios: { o1: 'nota de la otra evaluación' } })]])
+    const listos = aplicarHistorial([colab({ dni: 1 })], historial)
+    expect(listos[0].selected).toEqual(['o1'])
+    expect(listos[0].comentarios).toBeUndefined()
   })
 
   it('el oculto NO hunde el puntaje: el que estaba bien sigue contando como bien', () => {

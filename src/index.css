@@ -313,6 +313,57 @@ input[type='date'] {
   background-color: rgb(248 250 252);
 }
 
+/* --- Vista de evaluación: campos grandes y botones cuadrados ----------------
+   Se pidió para la pantalla de evaluación (`EvaluarSucursal`) que los campos
+   sean más grandes y aprovechen mejor el ancho, y que los botones sean
+   cuadrados con esquinas suaves en vez de pastilla (`rounded-full`).
+
+   Por qué una regla propia y no clases de Tailwind pasadas en cada uso:
+
+   - `cn` sólo concatena las clases. A un `Input` ya vienen `py-2 text-sm
+     min-h-[38px]` de fábrica: si se le pasa `py-3 text-base` conviven las dos
+     reglas en el HTML y gana la que esté después en la hoja de estilos, no la
+     del atributo. El resultado final sería una tirada. Acá el tamaño se
+     escribe una sola vez y para todos los campos de la vista.
+   - El alcance es la vista ENTERA, y los modales (navegación rápida,
+     confirmaciones, escáner, fotos) se pintan por portal en `<body>`, fuera
+     de cualquier contenedor de la ruta. Por eso la clase se agrega a `<body>`
+     mientras `EvaluarSucursal` está montada y se retira al desmontar.
+
+   Va sin `@layer`, igual que el resto de este archivo: lo que no está capado
+   le gana a las utilidades de Tailwind, que sí viven dentro de `@layer
+   utilities`, y así la forma manda sobre `rounded-full` y el tamaño sobre
+   `min-h-[38px]` / `text-sm`. */
+.vista-evaluacion button {
+  border-radius: 0.75rem;
+}
+
+/* Campos de texto: 48 px de alto y 16 px de letra. El 16 px no es sólo
+   legibilidad — en iOS un input con menos de 16 px dispara el zoom al
+   enfocarse y el teclado tapa la barra de abajo.
+
+   Sólo se toca el bloque vertical: el `padding-inline` es de cada campo, y ahí
+   vive el hueco del ícono de escanear (`pr-11`) que no se puede pisar.
+
+   Checkbox, radio, slider y file quedan fuera: no se agrandan (son controles
+   que ya tienen su tamaño) u ocultos. */
+.vista-evaluacion input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+.vista-evaluacion textarea {
+  min-height: 3rem;
+  font-size: 1rem;
+  padding-block: 0.625rem;
+}
+
+/* Descripción del producto escaneado: el textarea crece con el texto para que
+   el nombre se lea entero en vez de cortarse en un renglón. `field-sizing` es
+   nativo (Chrome 123, Safari 18.2, Firefox 129); donde no exista, el campo
+   queda en sus dos renglones de siempre con scroll: se lee igual, nunca se
+   pierde texto. Va por clase y no en el `textarea` de arriba para no cambiar
+   el tamaño de los comentarios de evidencia. */
+.vista-evaluacion .nombre-producto {
+  field-sizing: content;
+}
+
 /* --- Barra de KPIs (la barra superior azul del dashboard) -------------------- */
 .barra-kpis {
   animation: barra-kpis-entrar 0.5s ease-out both;

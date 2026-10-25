@@ -973,6 +973,119 @@ describe('detalleDeEvaluacion', () => {
     expect(detalle[0].comentarios).toBe('')
   })
 
+  it('lleva el comentario de cada punto de las listas a la columna de comentarios', () => {
+    // La nota que el evaluador dejó en un punto viaja con el nombre del punto:
+    // "Góndola de panadería: falta la mercadería". En las unidades y en los
+    // trabajadores se antepone la unidad o el nombre de la persona, porque ahí
+    // el mismo check se repite en varios sitios.
+    const itemsListas: Item[] = [
+      ...items,
+      {
+        id: 'i9',
+        modulo_id: 'm1',
+        tipo: 'CHECKLIST',
+        texto: 'Checklist',
+        opciones: [
+          { id: 'o1', etiqueta: 'Limpio' },
+          { id: 'o2', etiqueta: 'Etiquetas puestas' }
+        ],
+        orden: 5,
+        requerido: false,
+        activo: true,
+        puntaje: 100,
+        created_at: ''
+      },
+      {
+        id: 'i10',
+        modulo_id: 'm1',
+        tipo: 'UNIDAD_CHECKLIST',
+        texto: 'Unidades',
+        opciones: [{ id: 'o1', etiqueta: 'Requerimiento A' }],
+        orden: 6,
+        requerido: false,
+        activo: true,
+        puntaje: 100,
+        created_at: ''
+      },
+      {
+        id: 'i11',
+        modulo_id: 'm1',
+        tipo: 'LISTA_COLABORADORES',
+        texto: 'Trabajadores',
+        opciones: [{ id: 'o1', etiqueta: 'Contrato vigente' }],
+        orden: 7,
+        requerido: false,
+        activo: true,
+        puntaje: 100,
+        created_at: ''
+      }
+    ]
+    const datos = {
+      evaluaciones,
+      respuestas: [
+        { ...respuesta('ev1', 'i9', false), valor: { selected: ['o1'], comentarios: { o2: 'faltan las etiquetas' } } },
+        {
+          ...respuesta('ev1', 'i10', false),
+          valor: { unidades: [{ codigo: 'U1', selected: [], comentarios: { o1: 'sin etiqueta' } }] }
+        },
+        {
+          ...respuesta('ev1', 'i11', false),
+          valor: {
+            colaboradores: [
+              { dni: 1, name: 'Ana', lastname: 'Gómez', active: true, aplica: true, selected: [], comentarios: { o1: 'contrato en la carpeta' } }
+            ]
+          }
+        }
+      ],
+      items: itemsListas,
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const detalle = detalleDeEvaluacion(datos, 'ev1')
+    const comentariosDe = (itemId: string): string => detalle.find((d) => d.item_id === itemId)!.comentarios
+    expect(comentariosDe('i9')).toBe('Etiquetas puestas: faltan las etiquetas')
+    expect(comentariosDe('i10')).toBe('U1: Requerimiento A: sin etiqueta')
+    expect(comentariosDe('i11')).toBe('Gómez Ana: Contrato vigente: contrato en la carpeta')
+  })
+
+  it('anuncia los puntos con la presencia marcada que todavía no se validaron', () => {
+    // Con doble check, un punto que sólo tiene el «existe» no puntúa; si el
+    // resumen dijera sólo "0/1 unidades completas" parecería que nadie lo miró.
+    const itemUnidad: Item = {
+      id: 'i12',
+      modulo_id: 'm1',
+      tipo: 'UNIDAD_CHECKLIST',
+      texto: 'Unidades',
+      opciones: [{ id: 'o1', etiqueta: 'Uno' }, { id: 'o2', etiqueta: 'Dos' }],
+      orden: 8,
+      requerido: false,
+      activo: true,
+      puntaje: 100,
+      doble_check: true,
+      created_at: ''
+    }
+    const datos = {
+      evaluaciones,
+      respuestas: [
+        {
+          ...respuesta('ev1', 'i12', false),
+          valor: { unidades: [{ codigo: 'U1', selected: ['o1'], existe: ['o1', 'o2'] }] }
+        }
+      ],
+      items: [...items, itemUnidad],
+      modulos,
+      fotos: [],
+      sucursalOpciones: [],
+      instancias: []
+    } satisfies ConjuntoDatos
+
+    const detalle = detalleDeEvaluacion(datos, 'ev1')
+    expect(detalle[0].resumen).toBe('0/1 unidades completas · 1 presente(s) sin validar')
+  })
+
   it('acota el detalle al ítem clickeado', () => {
     const datos = {
       evaluaciones,
@@ -1331,10 +1444,12 @@ describe('seguimientoResponsables', () => {
       sN: { logrado: 0, posible: 100 },
       sS: { logrado: 0, posible: 100 }
     })
+    // `tipo` es lo que después le dice a la alerta de seguimiento qué FK usar
+    // (sucursales o departamentos) al registrarse.
     expect(s.unidades).toEqual([
-      { id: 'sS', nombre: 'Sucursal Sur', puntos: 2 },
-      { id: 'dC', nombre: 'Contabilidad', puntos: 1 },
-      { id: 'sN', nombre: 'Sucursal Norte', puntos: 1 }
+      { id: 'sS', nombre: 'Sucursal Sur', puntos: 2, tipo: 'sucursal' },
+      { id: 'dC', nombre: 'Contabilidad', puntos: 1, tipo: 'departamento' },
+      { id: 'sN', nombre: 'Sucursal Norte', puntos: 1, tipo: 'sucursal' }
     ])
   })
 

@@ -1,3 +1,5 @@
+import type { ComentariosPunto } from './comentariosPunto'
+
 const ETIQUETAS_TIPO: Record<string, string> = {
   CHECKLIST: 'Check list',
   CUMPLE_NO_CUMPLE: 'Cumple / No cumple',
@@ -16,6 +18,15 @@ export { ETIQUETAS_TIPO }
 
 export interface ValorChecklist {
   selected: string[]
+  /** Comentario libre por punto (id de la opción → texto). Ver `comentariosPunto.ts`. */
+  comentarios?: ComentariosPunto
+  /**
+   * Doble check: opciones marcadas como «Existe» (la primera marca: el documento
+   * o equipo está en la tienda). `selected` pasa a ser la segunda marca
+   * («Correcto»: vigente / en funcionamiento) y el punto sólo cumple con las dos.
+   * Ausente (undefined) = ítem sin doble check, con el significado de siempre.
+   */
+  existe?: string[]
   informativos?: string[]
   evidencias?: Record<string, { photoIds: string[] }>
   /** Valores numéricos ingresados para las opciones de tipo RANGO (id de la opción → valor). */
@@ -316,6 +327,8 @@ export interface ColaboradorItem {
   active: boolean
   aplica: boolean
   selected: string[]
+  /** Comentario libre por punto de ESTE trabajador (id de la opción → texto). */
+  comentarios?: ComentariosPunto
   /** Checks que no corresponden a este trabajador y se excluyen de evaluación/puntaje. */
   noAplica?: string[]
   /** Responsables elegidos por el evaluador por cada check INCUMPLIDO DE ESTE TRABAJADOR: check → responsables que absorben la falla. */
@@ -337,6 +350,12 @@ export interface ValorListaColaboradores {
 export interface UnidadChecklist {
   codigo: string
   selected: string[]
+  /** Comentario libre por punto de ESTA unidad (id de la opción → texto). */
+  comentarios?: ComentariosPunto
+  /** Puntos marcados «no aplica» de ESTA unidad (id de la opción): no puntúan ni se informan. */
+  informativos?: string[]
+  /** Doble check: igual que `ValorChecklist.existe`, pero por unidad (la presencia se marca unidad por unidad). */
+  existe?: string[]
 }
 
 export interface ValorUnidadChecklist {
@@ -461,10 +480,43 @@ export function colaboradoresQueCuentan(colaboradores: ColaboradorItem[] | null 
   return (colaboradores ?? []).filter((c) => c.aplica && esColaboradorRevisado(c))
 }
 
+/**
+ * ¿El punto está marcado en las marcas que le corresponden? Con doble check la
+ * respuesta (o la unidad) trae además de `selected` — la marca «correcto» — el
+ * array `existe` — la marca «existe» — y el punto sólo cumple si está en ambas.
+ * Sin `existe` (ítem sin doble check, o respuestas legadas) manda sólo
+ * `selected`, como siempre.
+ *
+ * Es la regla única de lectura del doble check: puntaje, detalle, PDF y
+ * tableros pasan por acá para no discrepar sobre qué es un punto cumplido.
+ */
+export function checkMarcado(
+  fila: { selected?: string[]; existe?: string[] } | null | undefined,
+  id: string
+): boolean {
+  if (!(fila?.selected ?? []).includes(id)) return false
+  return !Array.isArray(fila?.existe) || (fila.existe ?? []).includes(id)
+}
+
+/**
+ * Los puntos de una unidad a los que realmente aplica: los marcados «no aplica»
+ * quedan afuera.
+ *
+ * Es el mismo criterio que `opcionesAplicablesColaborador` usa para el listado
+ * de trabajadores: el «no aplica» es del punto, pero lo marca el evaluador en
+ * cada fila (aquí, cada unidad).
+ */
+export function opcionesAplicablesUnidad<T extends { id: string }>(unidad: UnidadChecklist, opciones: T[] | null | undefined): T[] {
+  const opts = opciones ?? []
+  return opts.filter((o) => !(unidad.informativos ?? []).includes(o.id))
+}
+
 export function unidadCumple(unidad: UnidadChecklist, opciones: { id: string }[] | null | undefined): boolean {
   const opts = (opciones ?? []) as { id: string }[]
   if (!opts.length) return false
-  return opts.every((o) => (unidad.selected ?? []).includes(o.id))
+  // Los puntos «no aplica» no se esperan: una unidad sin nada que cumplir está
+  // completa (si no, marcar «no aplica» en todo la dejaría en rojo).
+  return opcionesAplicablesUnidad(unidad, opts).every((o) => checkMarcado(unidad, o.id))
 }
 
 export function conciliacionComparable(
@@ -784,21 +836,32 @@ export function formatearLastSync(fecha: string | null | undefined): string {
 }
 
 /**
- * ¿Una opción del checklist está cumplida? Para opciones de tipo RANGO requiere
- * estar marcada y tener un valor numérico mayor o igual al mínimo aceptable.
+ * ¿Una opción del checklist está cumplida? Con doble check requiere las dos
+ * marcas («existe» y «correcto»); sin doble check basta la de siempre. Para
+ * opciones de tipo RANGO exige además un valor numérico mayor o igual al mínimo
+ * aceptable.
+ *
+ * `estado_permiso` es el estado del permiso de sucursal contra la fecha de hoy
+ * (`EstadoPermiso` de `types.ts`; se declara acá como `string` porque este
+ * módulo no importa nada a propósito). Un permiso VENCIDO nunca cumple, aunque
+ * el evaluador confirme que el documento está en la tienda: la vigencia la
+ * decide la fecha, no la marca.
  */
 export function opcionCumplida(
-  o: { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number },
+  o: { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number; estado_permiso?: string },
   valor: ValorChecklist | null | undefined,
   id: string
 ): boolean {
-  const sel = (valor?.selected ?? []).includes(id)
+  if (!checkMarcado(valor, id)) return false
+  // Un permiso VENCIDO no cuenta como cumplido aunque el evaluador confirme su
+  // presencia en la tienda: la vigencia la decide la fecha, no la marca. El
+  // check sirve para evidenciar que el documento está, no para renovarlo.
+  if (o.estado_permiso === 'VENCIDO') return false
   if (o.tipo_respuesta === 'RANGO') {
-    if (!sel) return false
     const val = (valor?.valores ?? {})[id]
     return typeof val === 'number' && typeof o.minimo === 'number' && val >= o.minimo
   }
-  return sel
+  return true
 }
 
 export function valorBinario(item: { tipo: string; opciones?: string[] | { id: string; tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }[] | null }, valor: unknown): boolean | null {
@@ -827,8 +890,10 @@ export function valorBinario(item: { tipo: string; opciones?: string[] | { id: s
 if (item.tipo === 'CHECKLIST') {
     const v = valor as ValorChecklist | null
     const opts = ((item.opciones ?? []) as { id: string; tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }[]).filter((o) => !(v?.informativos ?? []).includes(o.id))
-    const sel = (v?.selected ?? [])
-    if (!opts.length || sel.length === 0) return null
+    // Con doble check el evaluador puede marcar sólo la presencia («existe») y
+    // ninguna validación: eso ya es respuesta (no cumple), no ítem sin responder.
+    const hayMarca = (v?.selected ?? []).length > 0 || (v?.existe ?? []).length > 0
+    if (!opts.length || !hayMarca) return null
     return opts.every((o) => opcionCumplida(o, v, o.id))
   }
   if (item.tipo === 'LISTA_COLABORADORES') {
@@ -851,7 +916,12 @@ if (item.tipo === 'CHECKLIST') {
     if (!unidades.length) return null
     const opts = (item.opciones ?? []) as { id: string }[]
     if (!opts.length) return null
-    return unidades.every((u) => unidadCumple(u, opts))
+    // Una unidad con todos sus puntos «no aplica» no tiene nada que cumplir:
+    // no entra en el veredicto del ítem. Si TODAS son así, el ítem entero no
+    // puntúa (queda fuera del score, igual que un CHECKLIST todo «no aplica»).
+    const enCuenta = unidades.filter((u) => opcionesAplicablesUnidad(u, opts).length > 0)
+    if (!enCuenta.length) return null
+    return enCuenta.every((u) => unidadCumple(u, opts))
   }
   if (item.tipo === 'PLANO_XY') {
     const v = valor as ValorPlano | null
@@ -866,16 +936,42 @@ if (item.tipo === 'CHECKLIST') {
 }
 
 /**
+ * ¿El CHECKLIST quedó sin nada que marcar porque su lista sale de los permisos
+ * y la tienda hoy no tiene ninguno activo?
+ *
+ * No es una respuesta que falte: es una pregunta sin pregunta. Dejarla como
+ * pendiente clavaba la evaluación —un ítem obligatorio sin ninguna forma de
+ * satisfacerlo— tanto en la tienda que nunca cargó permisos como en el equipo
+ * sin conexión cuyo catálogo todavía no los trajo.
+ */
+function sinOpcionesQueMarcar(item: {
+  tipo: string
+  permisos_sucursal?: string | null
+  opciones?: { id: string }[] | string[] | null
+}): boolean {
+  return item.tipo === 'CHECKLIST' && !!item.permisos_sucursal && !(item.opciones?.length)
+}
+
+/**
  * ¿La respuesta guardada de un ítem está vacía? (la clave existe pero sin contenido
  * real: un checklist sin marcar, una conciliación sin productos, un cumple/no cumple
  * sin veredicto…). Los editores lo usan para el aviso de "obligatorio para enviar".
  */
-export function estaVacioItem(item: { tipo: string; repetible?: boolean | null }, valor: unknown): boolean {
+export function estaVacioItem(
+  item: { tipo: string; repetible?: boolean | null; permisos_sucursal?: string | null; opciones?: { id: string }[] | string[] | null },
+  valor: unknown
+): boolean {
   switch (item.tipo) {
     case 'CUMPLE_NO_CUMPLE':
       return (valor as ValorCumple | null)?.value !== true && (valor as ValorCumple | null)?.value !== false
-    case 'CHECKLIST':
-      return !((valor as ValorChecklist | null)?.selected?.length)
+    case 'CHECKLIST': {
+      // Sin permisos activos no hay nada que tildar: no se puede quedar vacío.
+      if (sinOpcionesQueMarcar(item)) return false
+      const vc = valor as ValorChecklist | null
+      // Con doble check basta con haber marcado la presencia para no estar vacío:
+      // el evaluador ya respondió (aunque no puntúe) y no debe rellenar nada más.
+      return !vc?.selected?.length && !vc?.existe?.length
+    }
     case 'CONCILIACION': {
       const ps = (valor as ValorConciliacion | null)?.productos ?? []
       // Un producto marcado "sin hablador" se completa sin precio: no hay
@@ -888,8 +984,12 @@ export function estaVacioItem(item: { tipo: string; repetible?: boolean | null }
     case 'UNIDAD_CHECKLIST': {
       const unids = (valor as ValorUnidadChecklist | null)?.unidades ?? []
       if (item.repetible === false) {
-        // Carga única: vacío hasta marcar al menos un requerimiento.
-        return unids.length === 0 || !(unids[0]?.selected?.length)
+        // Carga única: vacío hasta marcar al menos un requerimiento (con doble
+        // check alcanza con la marca de presencia). Un punto marcado «no aplica»
+        // también es una respuesta: si no, el evaluador que descarta todos los
+        // puntos seguía viendo «Obligatorio para enviar» sin nada que marcar.
+        const u = unids[0]
+        return unids.length === 0 || (!u?.selected?.length && !u?.existe?.length && !u?.informativos?.length)
       }
       return !unids.length
     }
@@ -908,8 +1008,16 @@ export function estaVacioItem(item: { tipo: string; repetible?: boolean | null }
  * 1/N con el checklist en blanco). Un ítem marcado como No aplica SÍ cuenta: el
  * evaluador indicó que no corresponde y se excluye del puntaje.
  */
-export function tieneRespuesta(item: { tipo: string; repetible?: boolean | null }, valor: unknown): boolean {
-  if (valor == null) return false
+export function tieneRespuesta(
+  item: { tipo: string; repetible?: boolean | null; permisos_sucursal?: string | null; opciones?: { id: string }[] | string[] | null },
+  valor: unknown
+): boolean {
+  if (valor == null) {
+    // Un CHECKLIST de permisos sin lista que revisar ya está respondido: no hay
+    // nada que marcar y contarlo como pendiente dejaba el avance a mitad de
+    // camino sin que el evaluador pudiera hacer nada al respecto.
+    return sinOpcionesQueMarcar(item)
+  }
   if ((valor as { informativo?: boolean }).informativo === true) return true
   return !estaVacioItem(item, valor)
 }
@@ -932,8 +1040,12 @@ export function proporcionChecklist(
   if (!relevantes.length) return null
   // Solo entra en modo proporcional si TODAS las opciones relevantes tienen puntos.
   if (relevantes.some((o) => typeof o.puntos !== 'number' || !(o.puntos > 0))) return null
-  const sel = (v?.selected ?? []).filter((id) => relevantes.some((o) => o.id === id))
-  if (!sel.length) return null // sin respuesta → excluido del cálculo
+  // Con doble check, marcar sólo la presencia («existe») ya es respuesta: el ítem
+  // entra en el cálculo y puntúa 0 hasta que el evaluador valide.
+  const hayMarca = relevantes.some(
+    (o) => (v?.selected ?? []).includes(o.id) || (v?.existe ?? []).includes(o.id)
+  )
+  if (!hayMarca) return null // sin respuesta → excluido del cálculo
   const total = relevantes.reduce((a, o) => a + (o.puntos ?? 0), 0)
   if (!(total > 0)) return null
   const obtenido = relevantes.filter((o) => opcionCumplida(o, v, o.id)).reduce((a, o) => a + (o.puntos ?? 0), 0)
@@ -1006,7 +1118,9 @@ export function itemsProporcion(vals: { item: { tipo: string; opciones?: string[
  * ¿El evaluador marcó que esto no aplica? Las respuestas existentes guardan esta
  * marca en el campo legado `informativo`; en los CHECKLIST se guarda por opción
  * (`informativos`), así que el ítem entero queda excluido solo cuando TODAS sus
- * opciones están marcadas No aplica.
+ * opciones están marcadas No aplica. En los UNIDAD_CHECKLIST el «no aplica» es
+ * por unidad: el ítem entero queda excluido cuando todas sus unidades tienen
+ * todos sus puntos marcados «no aplica».
  *
  * Va aparte de "sin veredicto": No aplica es una respuesta deliberada, mientras
  * que lo no puntuable es que todavía no se contestó.
@@ -1016,10 +1130,20 @@ export function esNoAplica(
   valor: unknown
 ): boolean {
   if ((valor as { informativo?: boolean } | null)?.informativo === true) return true
-  if (item.tipo !== 'CHECKLIST') return false
   const opts = (item.opciones ?? []) as { id: string }[]
-  const informativos = new Set((valor as ValorChecklist | null)?.informativos ?? [])
-  return opts.length > 0 && opts.every((o) => informativos.has(o.id))
+  if (item.tipo === 'CHECKLIST') {
+    const informativos = new Set((valor as ValorChecklist | null)?.informativos ?? [])
+    return opts.length > 0 && opts.every((o) => informativos.has(o.id))
+  }
+  if (item.tipo === 'UNIDAD_CHECKLIST') {
+    // El «no aplica» es por unidad: el ítem entero queda excluido sólo cuando
+    // TODAS sus unidades tienen TODOS sus puntos marcados «no aplica».
+    if (!opts.length) return false
+    const unidades = (valor as ValorUnidadChecklist | null)?.unidades ?? []
+    if (!unidades.length) return false
+    return unidades.every((u) => opcionesAplicablesUnidad(u, opts).length === 0)
+  }
+  return false
 }
 
 /**
@@ -1121,7 +1245,12 @@ function puntoCumplido(tipo: string | undefined, o: OpcionScoring, valor: unknow
     const v = valor as ValorUnidadChecklist | null
     const unids = v?.unidades ?? []
     if (!unids.length) return null
-    return unids.every((u) => (u.selected ?? []).includes(o.id ?? ''))
+    // Sólo cuentan las unidades donde el punto aplica: si en todas está
+    // marcado «no aplica», el punto no puntúa (igual que en el listado de
+    // trabajadores).
+    const aplican = unids.filter((u) => !(u.informativos ?? []).includes(o.id ?? ''))
+    if (!aplican.length) return null
+    return aplican.every((u) => checkMarcado(u, o.id ?? ''))
   }
   return null
 }
@@ -1504,9 +1633,10 @@ export function incumplimientosPorResponsable(
     } else if (item.tipo === 'UNIDAD_CHECKLIST') {
       const v2 = valor as ValorUnidadChecklist | null
       for (const u of v2?.unidades ?? []) {
-        const sel = u.selected ?? []
         for (const { o, rs } of puntos) {
-          if (!sel.includes(o.id as string)) sumar(rs)
+          // Un punto «no aplica» en esa unidad no es una falla: no se espera.
+          if ((u.informativos ?? []).includes(o.id as string)) continue
+          if (!checkMarcado(u, o.id as string)) sumar(rs)
         }
       }
     }
@@ -1658,9 +1788,10 @@ function checksDeFalla(it: ItemFalla, responsable: string, muestras: unknown[]):
       }
     } else if (it.tipo === 'UNIDAD_CHECKLIST') {
       for (const u of (valor as ValorUnidadChecklist | null)?.unidades ?? []) {
-        const sel = u.selected ?? []
         for (const o of opts) {
-          if (sel.includes(o.id as string)) continue
+          // Los puntos «no aplica» de esa unidad no son fallas: no se esperan.
+          if ((u.informativos ?? []).includes(o.id as string)) continue
+          if (checkMarcado(u, o.id as string)) continue
           if (responsablesDeFalla(it, o, record, gerente).includes(responsable)) agregar(nombre(o))
         }
       }

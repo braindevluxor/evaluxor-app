@@ -1,6 +1,7 @@
 import { supabase } from '../supabase'
-import type { Evaluacion, Respuesta, Item, Foto, Modulo, Opcion, VistaEvaluacion, EstadoEvaluacion, Rol, SucursalOpcion, DepartamentoOpcion, InstanciaGrupo, SucursalModulo, TipoItem } from '../types'
+import type { Evaluacion, Respuesta, Item, Foto, Modulo, Opcion, VistaEvaluacion, EstadoEvaluacion, Rol, SucursalOpcion, DepartamentoOpcion, InstanciaGrupo, SucursalModulo, TipoItem, SucursalPermiso } from '../types'
 import { claveNormalizada } from './responsables'
+import { aplicarPermisosChecklist, type ConfigOpciones } from '../permisosChecklist'
 import {
   proporcionItem,
   puntajePonderado,
@@ -12,7 +13,9 @@ import {
   colaboradorCumple,
   colaboradoresQueCuentan,
   opcionesAplicablesColaborador,
+  opcionesAplicablesUnidad,
   unidadCumple,
+  checkMarcado,
   esSinHablador,
   pesoItem,
   puntosMarcadosPlano,
@@ -29,6 +32,7 @@ import {
   type ValorUnidadChecklist,
   type VeredictoItem
 } from '../scoring'
+import { lineasDeComentario, textoDeComentarios } from '../comentariosPunto'
 
 export interface FiltrosIndicadores {
   sucursal_ids: string[] | null
@@ -91,6 +95,12 @@ export interface ConjuntoDatos {
   modulos: Modulo[]
   fotos: Foto[]
   sucursalOpciones: SucursalOpcion[]
+  /**
+   * Permisos de las sucursales del conjunto. Alimentan los ítems CHECKLIST con
+   * origen en permisos: sin ellos el ítem se recorta a vacío y no puntúa.
+   * Opcional para no romper consumidores que sólo recalculan puntaje genérico.
+   */
+  sucursalPermisos?: SucursalPermiso[]
   instancias: InstanciaGrupo[]
 }
 
@@ -101,6 +111,8 @@ export interface DetalleEvaluacion {
   modulos: Modulo[]
   fotos: Foto[]
   sucursalOpciones: SucursalOpcion[]
+  /** Permisos de la sucursal de la evaluación (ver `ConjuntoDatos.sucursalPermisos`). */
+  sucursalPermisos?: SucursalPermiso[]
   instancias: InstanciaGrupo[]
 }
 
@@ -128,7 +140,11 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
   if (!ev) return null
   const evaluacion = ev as VistaEvaluacion
 
-  const [resp, itemsResp, mods, fotos, opcionesSuc, opcionesDep, instancias] = await Promise.all([
+  // El orden tiene que ser el del Promise.all: permisos antes que instancias.
+  // Invertirlos deja `instancias` con filas de permisos y `sucursalPermisos` con
+  // registros de sección: las secciones no encuentran sus instancias y el detalle
+  // las oculta enteras.
+  const [resp, itemsResp, mods, fotos, opcionesSuc, opcionesDep, permisos, instancias] = await Promise.all([
     supabase.from('respuestas').select('*').eq('evaluacion_id', id),
     (async () => {
       const rr = (await supabase.from('respuestas').select('item_id').eq('evaluacion_id', id)).data ?? []
@@ -150,6 +166,10 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
     evaluacion.departamento_id
       ? supabase.from('departamento_opciones').select('*').eq('departamento_id', evaluacion.departamento_id).eq('activa', true)
       : Promise.resolve({ data: [] }),
+    // Permisos de la sucursal: sólo existen para sucursales, no para departamentos.
+    evaluacion.sucursal_id
+      ? supabase.from('sucursal_permisos').select('*').eq('sucursal_id', evaluacion.sucursal_id)
+      : Promise.resolve({ data: [] }),
     supabase.from('instancias_grupo').select('*').eq('evaluacion_id', id).order('orden')
   ])
 
@@ -166,6 +186,7 @@ export async function obtenerEvaluacion(id: string): Promise<DetalleEvaluacion |
       (opcionesSuc.data ?? []) as SucursalOpcion[],
       (opcionesDep.data ?? []) as DepartamentoOpcion[]
     ),
+    sucursalPermisos: (permisos.data ?? []) as SucursalPermiso[],
     instancias: (instancias.data ?? []) as InstanciaGrupo[]
   }
 }
@@ -217,6 +238,76 @@ export async function modulosRespondidos(evaluacionId: string): Promise<Modulo[]
   return ((mods ?? []) as Modulo[]).sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre))
 }
 
+/**
+ * Filas por página al traer tablas grandes y ids por tanda al buscar ítems.
+ *
+ * Son dos límites distintos y por eso dos constantes: `.range()` se corta contra
+ * el máximo de filas que devuelve PostgREST (1000 por defecto en Supabase, y el
+ * tope es del proyecto, no de la consulta), mientras que `.in('id', ...)` se
+ * corta por longitud de URL — de ahí que `modulosRespondidos` ya fuera de 100 en
+ * 100.
+ */
+const FILAS_POR_PAGINA = 1000
+const IDS_POR_TANDA = 100
+
+/**
+ * Trae TODAS las filas de una consulta, paginando con `.range()`.
+ *
+ * PostgREST devuelve como máximo el `max-rows` del proyecto y **corta en
+ * silencio**: no avisa, no hay error, sólo menos filas de las que pediste. Eso
+ * rompía el historial: `consultarEvaluaciones` junta las respuestas de todo el
+ * rango en una sola consulta, así que con un rango de meses eso supera el tope y
+ * el puntaje en curso se calculaba con un subconjunto —y, como la consulta no
+ * tenía orden, con un subconjunto distinto en cada recarga. El detalle no se
+ * cortaba porque pide una evaluación cada vez, y por eso los dos números no
+ * coincidían.
+ *
+ * `pagina` arma la cadena completa (filtros, `.order()` y `.range()`). El orden
+ * por una columna única garantiza que las páginas no se pisen ni se salten filas.
+ */
+async function traerTodo<T>(
+  pagina: (desde: number, hasta: number) => PromiseLike<{ data: T[] | null }>
+): Promise<T[]> {
+  const filas: T[] = []
+  for (let desde = 0; ; desde += FILAS_POR_PAGINA) {
+    const { data } = await pagina(desde, desde + FILAS_POR_PAGINA - 1)
+    const lote = (data ?? []) as T[]
+    filas.push(...lote)
+    if (lote.length < FILAS_POR_PAGINA) return filas
+  }
+}
+
+/**
+ * Ítems con alguna respuesta, más sus contenedores padre.
+ *
+ * Los padres no generan respuestas pero sí puntúan como grupo, así que tienen
+ * que estar en la lista: si falta una sección, cada hijo pesa por su cuenta y el
+ * número que se ve en el historial no es el que queda al cerrar.
+ *
+ * Se calcula de las MISMAS filas de respuestas que van a alimentar el puntaje.
+ * Antes se volvían a pedir en una segunda consulta: los dos pedidos podían caer
+ * en cortes distintos del máximo de filas y dejar respuestas sin ítem.
+ */
+async function traerItemsRespondidos(respuestas: { item_id: string }[]): Promise<Item[]> {
+  const itemIds = Array.from(new Set(respuestas.map((r) => r.item_id)))
+  if (!itemIds.length) return []
+  const it: Item[] = []
+  for (let i = 0; i < itemIds.length; i += IDS_POR_TANDA) {
+    const tanda = itemIds.slice(i, i + IDS_POR_TANDA)
+    const { data } = await supabase.from('items').select('*').in('id', tanda)
+    it.push(...((data ?? []) as Item[]))
+  }
+  const padresIds = Array.from(new Set(it.map((i) => i.padre_id).filter((p): p is string => !!p)))
+  if (!padresIds.length) return it
+  const padres: Item[] = []
+  for (let i = 0; i < padresIds.length; i += IDS_POR_TANDA) {
+    const tanda = padresIds.slice(i, i + IDS_POR_TANDA)
+    const { data } = await supabase.from('items').select('*').in('id', tanda)
+    padres.push(...((data ?? []) as Item[]))
+  }
+  return [...it, ...padres]
+}
+
 export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<ConjuntoDatos> {
   let query = supabase
     .from('evaluaciones')
@@ -241,37 +332,49 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
   const sucursalIds = Array.from(new Set(evaluaciones.map((e) => e.sucursal_id).filter((s): s is string => !!s)))
   const departamentoIds = Array.from(new Set(evaluaciones.map((e) => e.departamento_id).filter((d): d is string => !!d)))
 
-  const [resp, fot, mods, itemsResp, opcionesSuc, opcionesDep, instancias] = await Promise.all([
-    supabase.from('respuestas').select('*').in('evaluacion_id', ids),
-    supabase.from('fotos').select('*').in('evaluacion_id', ids).order('created_at', { ascending: false }),
+  const [respuestas, fot, mods, opcionesSuc, opcionesDep, instancias, permisos] = await Promise.all([
+    // Paginado y ordenado: el rango puede traer más filas que el máximo que
+    // devuelve PostgREST, y sin orden el corte cae en un subconjunto distinto
+    // cada vez (el puntaje "bailaba" de una recarga a otra).
+    traerTodo<Respuesta>((desde, hasta) =>
+      supabase.from('respuestas').select('*').in('evaluacion_id', ids).order('id').range(desde, hasta)
+    ),
+    traerTodo<Foto>((desde, hasta) =>
+      supabase
+        .from('fotos')
+        .select('*')
+        .in('evaluacion_id', ids)
+        .order('created_at', { ascending: false })
+        .order('id')
+        .range(desde, hasta)
+    ),
     supabase.from('modulos').select('*').order('orden'),
-    (async () => {
-      const respuestas2 = (await supabase.from('respuestas').select('*').in('evaluacion_id', ids)).data ?? []
-      const itemIds = Array.from(new Set(respuestas2.map((r) => r.item_id)))
-      if (!itemIds.length) return [] as Item[]
-      const it = ((await supabase.from('items').select('*').in('id', itemIds)).data ?? []) as Item[]
-      const padresIds = Array.from(new Set(it.map((i) => i.padre_id).filter((p): p is string => !!p)))
-      if (!padresIds.length) return it
-      const padres = ((await supabase.from('items').select('*').in('id', padresIds)).data ?? []) as Item[]
-      return [...it, ...padres]
-    })(),
     sucursalIds.length
       ? supabase.from('sucursal_opciones').select('*').in('sucursal_id', sucursalIds).eq('activa', true)
       : Promise.resolve({ data: [] }),
     departamentoIds.length
       ? supabase.from('departamento_opciones').select('*').in('departamento_id', departamentoIds).eq('activa', true)
       : Promise.resolve({ data: [] }),
-    supabase.from('instancias_grupo').select('*').in('evaluacion_id', ids).order('orden')
+    traerTodo<InstanciaGrupo>((desde, hasta) =>
+      supabase.from('instancias_grupo').select('*').in('evaluacion_id', ids).order('orden').order('id').range(desde, hasta)
+    ),
+    // Permisos de todas las sucursales del rango: una sola petición porque los
+    // ítems CHECKLIST con origen en permisos se recalcularán por evaluación.
+    sucursalIds.length
+      ? supabase.from('sucursal_permisos').select('*').in('sucursal_id', sucursalIds)
+      : Promise.resolve({ data: [] })
   ])
 
-  const todosItems = (itemsResp ?? []) as Item[]
+  // Los ítems salen de las MISMAS respuestas que van al puntaje: pedirlos otra
+  // vez era una segunda consulta que podía caer en un corte distinto.
+  const todosItems = await traerItemsRespondidos(respuestas)
   const todosModulos = (mods.data ?? []) as Modulo[]
-  const respuestas = (resp.data ?? []) as Respuesta[]
   const sucursalOpciones = opcionesDeUnidades(
     (opcionesSuc.data ?? []) as SucursalOpcion[],
     (opcionesDep.data ?? []) as DepartamentoOpcion[]
   )
-  const evaluacionesActualizadas = conPuntajesRecalculados(evaluaciones, respuestas, todosItems, sucursalOpciones)
+  const sucursalPermisos = (permisos.data ?? []) as SucursalPermiso[]
+  const evaluacionesActualizadas = conPuntajesRecalculados(evaluaciones, respuestas, todosItems, sucursalOpciones, sucursalPermisos)
   // Ítems del rango: los respondidos MÁS sus contenedores padre, como en
   // `obtenerEvaluacion`. Dejarlos afuera rompe el puntaje: una sección pesa como
   // grupo con su propio puntaje, así que si no está en la lista cada hijo pesa
@@ -291,9 +394,10 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
       respuestas: respModulo,
       items: itemsModulo,
       modulos: todosModulos.filter((m) => m.id === f.modulo_id),
-      fotos: ((fot.data ?? []) as Foto[]).filter((f2) => idsItemsModulo.has(f2.item_id)),
+      fotos: fot.filter((f2) => idsItemsModulo.has(f2.item_id)),
       sucursalOpciones,
-      instancias: ((instancias.data ?? []) as InstanciaGrupo[]).filter((ins) => idsItemsModulo.has(ins.item_id))
+      sucursalPermisos,
+      instancias: instancias.filter((ins) => idsItemsModulo.has(ins.item_id))
     }
   }
 
@@ -302,9 +406,10 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
     respuestas,
     items,
     modulos: todosModulos.filter((m) => items.some((i) => i.modulo_id === m.id)),
-    fotos: ((fot.data ?? []) as Foto[]).filter((f2) => items.some((i) => i.id === f2.item_id)),
+    fotos: fot.filter((f2) => items.some((i) => i.id === f2.item_id)),
     sucursalOpciones,
-    instancias: (instancias.data ?? []) as InstanciaGrupo[]
+    sucursalPermisos,
+    instancias
   }
 }
 
@@ -319,14 +424,16 @@ export function puntajeModuloDeRespuestas(
   items: Item[],
   moduloId: string,
   sucursalId: string,
-  sucursalOpciones: SucursalOpcion[] = []
+  sucursalOpciones: SucursalOpcion[] = [],
+  sucursalPermisos: SucursalPermiso[] = []
 ): number | null {
   const itemDe = new Map(items.map((item) => [item.id, item]))
   const binarios: { item: Item; cumple: number }[] = []
+  const conf: ConfigOpciones = { sucursalOpciones, sucursalPermisos }
   for (const respuesta of respuestas) {
     const item = itemDe.get(respuesta.item_id)
     if (!item || item.modulo_id !== moduloId) continue
-    const cumple = proporcionItem(aplicarOpcionesSucursal(item, sucursalId, sucursalOpciones), respuesta.valor)
+    const cumple = proporcionItem(aplicarOpcionesSucursal(item, sucursalId, conf), respuesta.valor)
     if (cumple === null) continue
     binarios.push({ item, cumple })
   }
@@ -335,25 +442,38 @@ export function puntajeModuloDeRespuestas(
 }
 
 /**
- * Recorta las opciones de un ítem CHECKLIST a las marcadas para la unidad.
+ * Deja un ítem con las opciones que le corresponden a la unidad: primero las
+ * que se generan desde sus permisos (si el ítem tiene origen en permisos) y
+ * después, sólo si no pasó por ahí, el recorte a las marcadas a mano.
  *
  * `unidadId` es el id de la sucursal o del departamento de la evaluación (ver
- * `unidadDe`); la lista puede traer las dos clases de opciones porque las de
- * departamento entran con su id en `sucursal_id`.
+ * `unidadDe`); la lista de opciones marcadas puede traer las dos clases porque
+ * las de departamento entran con su id en `sucursal_id`.
  */
-function aplicarOpcionesSucursal(item: Item, unidadId: string, sucursalOpciones: SucursalOpcion[]): Item {
-  if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
+function aplicarOpcionesSucursal(item: Item, unidadId: string, conf: ConfigOpciones): Item {
+  if (item.tipo !== 'CHECKLIST') return item
+  const conPermisos = aplicarPermisosChecklist(item, unidadId, conf)
+  if (conPermisos !== item) return conPermisos
+  const sucursalOpciones = conf.sucursalOpciones ?? []
+  if (!item.opciones?.length) return item
   const ids = sucursalOpciones.filter((o) => o.sucursal_id === unidadId && o.item_id === item.id).map((o) => o.opcion_id)
   if (!ids.length) return item
   return { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) }
 }
 
-export function resumirEvaluacion(ev: Evaluacion, resps: Respuesta[], items: Item[], sucursalOpciones: SucursalOpcion[] = []): ResumenEvaluacion {
+export function resumirEvaluacion(
+  ev: Evaluacion,
+  resps: Respuesta[],
+  items: Item[],
+  sucursalOpciones: SucursalOpcion[] = [],
+  sucursalPermisos: SucursalPermiso[] = []
+): ResumenEvaluacion {
+  const conf: ConfigOpciones = { sucursalOpciones, sucursalPermisos }
   const rr = resps
     .filter((r) => r.evaluacion_id === ev.id)
     .map((r) => {
       const item = items.find((i) => i.id === r.item_id)
-      return item ? { item: aplicarOpcionesSucursal(item, unidadDe(ev), sucursalOpciones), valor: r.valor } : null
+      return item ? { item: aplicarOpcionesSucursal(item, unidadDe(ev), conf), valor: r.valor } : null
     })
     .filter((x): x is { item: Item; valor: unknown } => !!x)
 
@@ -376,11 +496,12 @@ export function conPuntajesRecalculados(
   evaluaciones: VistaEvaluacion[],
   respuestas: Respuesta[],
   items: Item[],
-  sucursalOpciones: SucursalOpcion[] = []
+  sucursalOpciones: SucursalOpcion[] = [],
+  sucursalPermisos: SucursalPermiso[] = []
 ): VistaEvaluacion[] {
   return evaluaciones.map((evaluacion) => ({
     ...evaluacion,
-    puntuacion: resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones).puntaje
+    puntuacion: resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones, sucursalPermisos).puntaje
   }))
 }
 
@@ -390,9 +511,10 @@ export function puntajeEnCurso(
   ev: Evaluacion,
   resps: Respuesta[],
   items: Item[],
-  sucursalOpciones: SucursalOpcion[] = []
+  sucursalOpciones: SucursalOpcion[] = [],
+  sucursalPermisos: SucursalPermiso[] = []
 ): { puntaje: number | null; respondidos: number } {
-  const r = resumirEvaluacion(ev, resps, items, sucursalOpciones)
+  const r = resumirEvaluacion(ev, resps, items, sucursalOpciones, sucursalPermisos)
   return { puntaje: r.puntaje, respondidos: r.itemsBinarios }
 }
 
@@ -412,7 +534,7 @@ export function puntajePorModulo(
     const item = datos.items.find((i) => i.id === r.item_id)
     if (!item) continue
     const sucursalId = sucursalDeEval.get(r.evaluacion_id)
-    const bin = proporcionItem(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item, r.valor)
+    const bin = proporcionItem(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos) : item, r.valor)
     if (bin === null) continue
     const nombre = datos.modulos.find((mm) => mm.id === item.modulo_id)?.nombre ?? 'Módulo'
     let a = acum.get(item.modulo_id)
@@ -462,7 +584,8 @@ function puntajeModuloEnEvaluacion(
     [...itemDe.values()],
     moduloId,
     unidadDe(ev),
-    datos.sucursalOpciones
+    datos.sucursalOpciones,
+    datos.sucursalPermisos
   )
 }
 
@@ -764,7 +887,7 @@ export function resumenItemsModulo(
     const item = itemDe.get(r.item_id)
     if (!item || item.modulo_id !== moduloId) continue
     const sucursalId = sucursalDeEval.get(r.evaluacion_id)
-    const it = sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item
+    const it = sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos) : item
     const p = proporcionItem(it, r.valor)
 
     let a = acum.get(item.id)
@@ -823,6 +946,10 @@ export function resumenItemsModulo(
       a.muestras++
       a.ok += p
       for (const u of unidades) {
+        // Una unidad con todos sus puntos «no aplica» no tiene nada que cumplir:
+        // no cuenta como evaluada (el mismo criterio que los trabajadores sin
+        // puntos aplicables).
+        if (!opcionesAplicablesUnidad(u, opts).length) continue
         a.unidTotal++
         if (unidadCumple(u, opts)) a.unidOk++
       }
@@ -944,7 +1071,7 @@ export function barrasModulo(
       if (!item || item.modulo_id !== moduloId) continue
       const suc = sucursalDeEval.get(r.evaluacion_id)
       if (!suc) continue
-      const bin = proporcionItem(aplicarOpcionesSucursal(item, suc, datos.sucursalOpciones), r.valor)
+      const bin = proporcionItem(aplicarOpcionesSucursal(item, suc, datos), r.valor)
       if (bin === null) continue
       const e = acum(suc)
       e.binarios.push({ item, cumple: bin })
@@ -983,7 +1110,7 @@ export function barrasModulo(
     const placa = etiquetaDeInstancia.get(r.instancia_id)
     if (!placa) continue
     const suc = sucursalDeEval.get(r.evaluacion_id)
-    const bin = proporcionItem(suc ? aplicarOpcionesSucursal(item, suc, datos.sucursalOpciones) : item, r.valor)
+    const bin = proporcionItem(suc ? aplicarOpcionesSucursal(item, suc, datos) : item, r.valor)
     if (bin === null) continue
     const e = acum(placa)
     e.binarios.push({ item, cumple: bin })
@@ -1053,7 +1180,7 @@ export function puntajePorUnidadModulo(
     if (!item) continue
     const unidadId = unidadDeEval.get(r.evaluacion_id)
     if (!unidadId) continue
-    const bin = proporcionItem(aplicarOpcionesSucursal(item, unidadId, datos.sucursalOpciones), r.valor)
+    const bin = proporcionItem(aplicarOpcionesSucursal(item, unidadId, datos), r.valor)
     if (bin === null) continue
     const key = `${unidadId}|${item.modulo_id}`
     let a = acum.get(key)
@@ -1109,7 +1236,7 @@ function promedioPorUnidad(
     // Cada evaluación aporta a su tienda o a su área, nunca a las dos a la vez.
     const id = por === 'sucursal' ? ev.sucursal_id : ev.departamento_id
     if (!id) continue
-    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones)
+    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones, datos.sucursalPermisos)
     const u = mapa.get(id)
     if (u) {
       if (puntaje != null) u.puntajes.push(puntaje)
@@ -1170,7 +1297,7 @@ export function evolucionMensual(datos: ConjuntoDatos): SerieMes[] {
   const porMes = new Map<string, { puntajes: number[]; completadas: number }>()
   for (const ev of datos.evaluaciones) {
     const key = ev.fecha.slice(0, 7)
-    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones)
+    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones, datos.sucursalPermisos)
     const m = porMes.get(key)
     if (m) {
       if (puntaje != null) m.puntajes.push(puntaje)
@@ -1210,7 +1337,7 @@ export function incumplimientosEnRango(datos: ConjuntoDatos): number {
     const item = porItem.get(r.item_id)
     if (!item) continue
     const sucursalId = sucursalDeEval.get(r.evaluacion_id)
-    const v = proporcionItem(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item, r.valor)
+    const v = proporcionItem(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos) : item, r.valor)
     if (v === 0) n++
   }
   return n
@@ -1223,7 +1350,7 @@ export function peoresItems(datos: ConjuntoDatos): { item_id: string; texto: str
     const item = datos.items.find((i) => i.id === r.item_id)
     if (!item) continue
     const sucursalId = sucursalDeEval.get(r.evaluacion_id)
-    const v = proporcionItem(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos.sucursalOpciones) : item, r.valor)
+    const v = proporcionItem(sucursalId ? aplicarOpcionesSucursal(item, sucursalId, datos) : item, r.valor)
     if (v === null) continue
     const e = porItem.get(r.item_id)
     if (e) {
@@ -1418,7 +1545,7 @@ export interface FilaSeguimientoCargo {
 
 export interface SeguimientoResponsables {
   /** Unidades con al menos algo medido, la nota más baja primero: lo peor queda a la izquierda. */
-  unidades: { id: string; nombre: string; puntos: number }[]
+  unidades: { id: string; nombre: string; puntos: number; tipo: 'sucursal' | 'departamento' }[]
   filas: FilaSeguimientoCargo[]
   /** Nota global, ponderada, de todos los cargos juntos: es la de la franja de KPIs. */
   nota: number | null
@@ -1454,7 +1581,10 @@ export interface SeguimientoResponsables {
 export function seguimientoResponsables(datos: ConjuntoDatos): SeguimientoResponsables {
   const evalDe = new Map(datos.evaluaciones.map((e) => [e.id, e]))
   const itemDe = new Map(datos.items.map((i) => [i.id, i]))
-  const unidades = new Map<string, { nombre: string; logrado: number; posible: number; puntos: number }>()
+  const unidades = new Map<
+    string,
+    { nombre: string; logrado: number; posible: number; puntos: number; tipo: 'sucursal' | 'departamento' }
+  >()
   const cargos = new Map<
     string,
     {
@@ -1474,7 +1604,7 @@ export function seguimientoResponsables(datos: ConjuntoDatos): SeguimientoRespon
     const item = itemDe.get(r.item_id)
     if (!ev || !item) continue
     const unidadId = unidadDe(ev)
-    const itemAplicado = aplicarOpcionesSucursal(item, unidadId, datos.sucursalOpciones)
+    const itemAplicado = aplicarOpcionesSucursal(item, unidadId, datos)
 
     const notas = valorPorResponsable([itemAplicado], [r])
     const incs = incumplimientosPorResponsable(itemAplicado, r.valor)
@@ -1488,7 +1618,16 @@ export function seguimientoResponsables(datos: ConjuntoDatos): SeguimientoRespon
       const existente = unidades.get(unidadId)
       if (existente) return existente
       if (!notas.length) return undefined
-      const nueva = { nombre: nombreUnidad, logrado: 0, posible: 0, puntos: 0 }
+      // El tipo de la unidad: la alerta de seguimiento se guarda contra la FK
+      // que corresponde (sucursales o departamentos), y este es el único lugar
+      // que sabe cuál es. No cambia con la evaluación: es el id el que decide.
+      const nueva = {
+        nombre: nombreUnidad,
+        logrado: 0,
+        posible: 0,
+        puntos: 0,
+        tipo: ev.departamento_id ? ('departamento' as const) : ('sucursal' as const)
+      }
       unidades.set(unidadId, nueva)
       return nueva
     }
@@ -1583,7 +1722,7 @@ export function seguimientoResponsables(datos: ConjuntoDatos): SeguimientoRespon
         b.puntos - a.puntos ||
         a.nombre.localeCompare(b.nombre, 'es')
     )
-    .map(([id, u]) => ({ id, nombre: u.nombre, puntos: u.puntos }))
+    .map(([id, u]) => ({ id, nombre: u.nombre, puntos: u.puntos, tipo: u.tipo }))
 
   const logrado = filas.reduce((a, f) => a + f.logrado, 0)
   const posible = filas.reduce((a, f) => a + f.posible, 0)
@@ -1628,7 +1767,7 @@ export function hallazgosDeCargo(
     for (const r of respuestasPorEval.get(ev.id) ?? []) {
       const item = itemDe.get(r.item_id)
       if (!item) continue
-      const itemAplicado = aplicarOpcionesSucursal(item, unidadIdReal, datos.sucursalOpciones)
+      const itemAplicado = aplicarOpcionesSucursal(item, unidadIdReal, datos)
       const incs = incumplimientosPorResponsable(itemAplicado, r.valor)
       const propio = incs.find((a) => claveNormalizada(a.responsable) === clave)
       if (!propio) continue
@@ -1656,7 +1795,7 @@ export function hallazgosDeCargo(
 export function porEvaluador(datos: ConjuntoDatos): { evaluador_id: string; nombre: string; puntaje: number | null; evaluaciones: number }[] {
   const porE = new Map<string, { nombre: string; puntajes: number[]; n: number }>()
   for (const ev of datos.evaluaciones) {
-    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones)
+    const { puntaje } = resumirEvaluacion(ev, datos.respuestas, datos.items, datos.sucursalOpciones, datos.sucursalPermisos)
     const key = ev.aperturada_por || ev.id
     const e = porE.get(key)
     if (e) {
@@ -1689,7 +1828,7 @@ export function matrizModuloSucursal(
     for (const r of datos.respuestas.filter((x) => x.evaluacion_id === ev.id)) {
       const item = datos.items.find((i) => i.id === r.item_id)
       if (!item) continue
-      const bin = proporcionItem(aplicarOpcionesSucursal(item, ev.sucursal_id, datos.sucursalOpciones), r.valor)
+      const bin = proporcionItem(aplicarOpcionesSucursal(item, ev.sucursal_id, datos), r.valor)
       if (bin === null) continue
       const c = celdas[ev.sucursal_id]?.[item.modulo_id] ?? { binarios: [] }
       c.binarios.push({ item, cumple: bin })
@@ -1883,7 +2022,13 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
         if (v?.informativos?.length) return { proporcion: p, resumen: `No aplica en ${v.informativos.length} opción(es)` }
         return { proporcion: p, resumen: 'Sin opciones marcadas' }
       }
-      return { proporcion: p, resumen: `${sel.length} de ${opts.length} opciones${labels.length ? ` · ${labels.join(' · ')}` : ''}` }
+      // Con doble check, las marcas de presencia sin validar se anuncian aparte:
+      // el resumen diría "0 de 5" sin explicar que el evaluador ya estuvo ahí.
+      const soloExiste = (v?.existe ?? []).filter((id) => !sel.includes(id) && !v?.informativos?.includes(id))
+      return {
+        proporcion: p,
+        resumen: `${sel.length} de ${opts.length} opciones${labels.length ? ` · ${labels.join(' · ')}` : ''}${soloExiste.length ? ` · ${soloExiste.length} presente(s) sin validar` : ''}`
+      }
     }
     case 'LISTA_COLABORADORES': {
       const v = valor as ValorListaColaboradores | null
@@ -1905,8 +2050,24 @@ export function resumenDeRespuesta(item: Item, valor: unknown): { proporcion: nu
       const unids = v?.unidades ?? []
       if (!unids.length) return { proporcion: p, resumen: 'Sin unidades' }
       const opts = (item.opciones ?? []) as Opcion[]
-      const cumplen = unids.filter((u) => unidadCumple(u, opts)).length
-      return { proporcion: p, resumen: `${cumplen}/${unids.length} unidades completas` }
+      // Las unidades con todos sus puntos «no aplica» quedan fuera del puntaje:
+      // no son ni completas ni incompletas (mismo criterio que el detalle).
+      const enCuenta = unids.filter((u) => opcionesAplicablesUnidad(u, opts).length > 0)
+      const cumplen = enCuenta.filter((u) => unidadCumple(u, opts)).length
+      // Los puntos marcados «no aplica» se anuncian aparte: si no, el resumen
+      // contaría como faltantes puntos que el evaluador descartó a propósito.
+      const noAplica = unids.reduce((n, u) => n + (u.informativos ?? []).filter((id) => opts.some((o) => o.id === id)).length, 0)
+      // Con doble check, los puntos que sólo tienen la presencia no puntúan. Se
+      // cuentan aparte para que el resumen no se lea como si nadie los hubiera mirado.
+      const sinValidar = unids.reduce(
+        (n, u) => n + opcionesAplicablesUnidad(u, opts).filter((o) => !checkMarcado(u, o.id) && (u.existe ?? []).includes(o.id)).length,
+        0
+      )
+      if (!enCuenta.length) return { proporcion: p, resumen: 'Sin puntos aplicables' }
+      return {
+        proporcion: p,
+        resumen: `${cumplen}/${enCuenta.length} unidades completas${noAplica ? ` · ${noAplica} no aplica` : ''}${sinValidar ? ` · ${sinValidar} presente(s) sin validar` : ''}`
+      }
     }
     case 'PLANO_XY': {
       const v = valor as ValorPlano | null
@@ -1952,6 +2113,47 @@ function comentariosDeRespuesta(valor: unknown): string {
 }
 
 /**
+ * Comentarios por punto de las listas (check list, unidad check list y listado
+ * de trabajadores).
+ *
+ * En el CHECKLIST viven en `comentarios` (id de la opción → texto). En
+ * UNIDAD_CHECKLIST hay uno por unidad y en LISTA_COLABORADORES uno por
+ * trabajador: se juntan todos con el nombre del punto (y de la unidad o del
+ * trabajador) delante, para que en la planilla se sepa de qué se está hablando.
+ *
+ * Los puntos marcados «no aplica» quedan afuera: no entran al puntaje y su
+ * comentario no es un hallazgo.
+ */
+function comentariosDePuntos(valor: unknown, opciones: Opcion[]): string {
+  const v = valor as {
+    comentarios?: Record<string, string>
+    informativos?: string[]
+    unidades?: { codigo?: string; comentarios?: Record<string, string>; informativos?: string[] }[]
+    colaboradores?: { lastname?: string; name?: string; noAplica?: string[]; comentarios?: Record<string, string> }[]
+  } | null
+  if (!v) return ''
+  const partes: string[] = []
+  const delItem = textoDeComentarios(lineasDeComentario(v.comentarios, opciones, v.informativos))
+  if (delItem) partes.push(delItem)
+  for (const unidad of v.unidades ?? []) {
+    const texto = textoDeComentarios(lineasDeComentario(unidad.comentarios, opciones, unidad.informativos))
+    if (texto) partes.push(`${unidad.codigo ?? 'Unidad'}: ${texto}`)
+  }
+  for (const colaborador of v.colaboradores ?? []) {
+    const texto = textoDeComentarios(lineasDeComentario(colaborador.comentarios, opciones, colaborador.noAplica))
+    if (texto) partes.push(`${`${colaborador.lastname ?? ''} ${colaborador.name ?? ''}`.trim()}: ${texto}`)
+  }
+  return partes.join(' · ')
+}
+
+/** Todos los comentarios de una respuesta: los de la evidencia y los de los puntos. */
+function comentariosDeFila(valor: unknown, item: Item): string {
+  return [comentariosDeRespuesta(valor), comentariosDePuntos(valor, item.opciones ?? [])]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/**
  * Evaluaciones del conjunto (ya acotado por rango/sucursal desde la consulta)
  * que caen dentro del alcance clickeado, con el puntaje global y el puntaje del
  * elemento al que se hizo clic. Ordenadas por fecha descendente.
@@ -1988,7 +2190,7 @@ export function renglonesDrilldown(datos: ConjuntoDatos, f: AlcanceDrilldown = {
         const etiq = r.instancia_id ? instanciaEtiqueta.get(r.instancia_id) : null
         if (etiq !== f.instancia_etiqueta) continue
       }
-      const p = proporcionItem(aplicarOpcionesSucursal(item, unidadDe(ev), datos.sucursalOpciones), r.valor)
+      const p = proporcionItem(aplicarOpcionesSucursal(item, unidadDe(ev), datos), r.valor)
       if (p === null) continue
       muestras++
       if (f.item_id) {
@@ -2050,7 +2252,7 @@ export function detalleDeEvaluacion(datos: ConjuntoDatos, evaluacionId: string, 
       const etiq = r.instancia_id ? instanciaEtiqueta.get(r.instancia_id) : null
       if (etiq !== f.instancia_etiqueta) continue
     }
-    const aplicado = aplicarOpcionesSucursal(item, ev ? unidadDe(ev) : '', datos.sucursalOpciones)
+    const aplicado = aplicarOpcionesSucursal(item, ev ? unidadDe(ev) : '', datos)
     const { proporcion, resumen } = resumenDeRespuesta(aplicado, r.valor)
     filas.push({
       item_id: item.id,
@@ -2063,7 +2265,7 @@ export function detalleDeEvaluacion(datos: ConjuntoDatos, evaluacionId: string, 
       cumple: proporcion == null ? null : proporcion >= 1,
       veredicto: veredictoItem(aplicado, r.valor),
       resumen,
-      comentarios: comentariosDeRespuesta(r.valor),
+      comentarios: comentariosDeFila(r.valor, aplicado),
       instancia: r.instancia_id ? instanciaEtiqueta.get(r.instancia_id) ?? null : null,
       fotos: fotoPor.get(`${evaluacionId}|${item.id}|${r.instancia_id ?? ''}`) ?? 0,
       respondido_por: r.respondido_por

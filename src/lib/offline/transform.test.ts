@@ -104,6 +104,14 @@ describe('valorSinFotos', () => {
     expect(valorSinFotos({ value: true, evidencias: [] })).toEqual({ value: true, evidencias: [] })
     expect(valorSinFotos('texto')).toBe('texto')
   })
+  it('conserva las marcas del doble check aunque `existe` venga vacío', () => {
+    // Soltar un `existe` vacío convertiría la respuesta a modo check simple y
+    // las marcas de `selected` empezarían a puntuar sin la presencia.
+    expect(valorSinFotos({ selected: ['a'], existe: ['a'] })).toEqual({ selected: ['a'], existe: ['a'] })
+    expect(valorSinFotos({ selected: [], existe: ['a'] })).toEqual({ selected: [], existe: ['a'] })
+    expect(valorSinFotos({ selected: ['a'], existe: [] })).toEqual({ selected: ['a'], existe: [] })
+    expect(valorSinFotos({ selected: ['a'] })).toEqual({ selected: ['a'] })
+  })
   it('quita fotos locales de evidencias Cumple / No cumple sin perderlas al sincronizar', () => {
     expect(valorSinFotos({
       value: null,
@@ -161,6 +169,24 @@ describe('valorSinFotos', () => {
       responsablesGerente: 'Elena'
     })
   })
+
+  it('no se traga los comentarios por punto al recortar el valor', () => {
+    // Misma trampa que los responsables: la proyección se arma campo por campo y
+    // el comentario del punto no era un campo que ella recordara. Sin esto el
+    // comentario se perdía al sincronizar y el punto quedaba mudo en el informe.
+    expect(
+      valorSinFotos({
+        selected: ['a'],
+        evidencias: {},
+        comentarios: { a: 'falta la góndola' }
+      })
+    ).toEqual({
+      selected: ['a'],
+      comentarios: { a: 'falta la góndola' }
+    })
+    // Un diccionario vacío es ruido: no se guarda.
+    expect(valorSinFotos({ selected: ['a'], evidencias: {}, comentarios: {} })).toEqual({ selected: ['a'] })
+  })
 })
 
 describe('convertirValor', () => {
@@ -210,6 +236,23 @@ describe('convertirValor', () => {
       }
     })
   })
+  it('al subir las fotos no pierde las marcas del doble check', () => {
+    const map = new Map([['x', 'ev/c/d/x.jpg']])
+    expect(
+      convertirValor(
+        { selected: ['a'], existe: ['a', 'b'], evidencias: { a: { photoIds: ['x'] } } },
+        map
+      )
+    ).toEqual({
+      selected: ['a'],
+      existe: ['a', 'b'],
+      evidencias: { a: { paths: ['ev/c/d/x.jpg'] } }
+    })
+    // Un `existe` vacío también viaja: sostiene el modo doble check de la respuesta.
+    expect(
+      convertirValor({ selected: [], existe: [], evidencias: {} }, map)
+    ).toEqual({ selected: [], existe: [], evidencias: {} })
+  })
   it('convierte las imágenes de los planos y deja los pines intactos', () => {
     const map = new Map([['a', 'ev/job/evidencia/a.jpg']])
     const puntos = [{ id: 'x', planoId: 'p1', x: 0.25, y: 0.75, cumple: false, comentario: 'falta góndola' }]
@@ -248,6 +291,32 @@ describe('convertirValor', () => {
       valores: { a: 40, b: 25 },
       evidencias: { a: { paths: ['.local/x'] } }
     })
+  })
+  it('al subir no pierde el comentario de los puntos', () => {
+    // La proyección que sube a la nube arma el objeto campo por campo: sin
+    // esto el comentario del punto se perdía al sincronizar.
+    const map = new Map([['x', 'ev/c/d/x.jpg']])
+    expect(
+      convertirValor(
+        { selected: ['a'], evidencias: { a: { photoIds: ['x'] } }, comentarios: { a: 'falta la góndola' } },
+        map
+      )
+    ).toEqual({
+      selected: ['a'],
+      evidencias: { a: { paths: ['ev/c/d/x.jpg'] } },
+      comentarios: { a: 'falta la góndola' }
+    })
+  })
+  it('los valores de unidad y de trabajadores van enteros: sus comentarios viajan', () => {
+    // UNIDAD_CHECKLIST y LISTA_COLABORADORES no pasan por las proyecciones
+    // (ninguna de las dos los arma campo por campo), así que van sin tocarse.
+    const map = new Map<string, string>()
+    const unidades = { unidades: [{ codigo: 'U1', selected: ['a'], comentarios: { a: 'nota' } }] }
+    expect(convertirValor(unidades, map)).toEqual(unidades)
+    const colaboradores = {
+      colaboradores: [{ dni: 1, name: 'Ana', lastname: 'Gómez', selected: ['a'], comentarios: { a: 'nota' } }]
+    }
+    expect(convertirValor(colaboradores, map)).toEqual(colaboradores)
   })
   it('deja pasar otros valores', () => {
     const map = new Map<string, string>()

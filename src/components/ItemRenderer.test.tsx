@@ -57,6 +57,100 @@ describe('ItemRenderer · UNIDAD_CHECKLIST repetible', () => {
   })
 })
 
+describe('ItemRenderer · UNIDAD_CHECKLIST «no aplica» por punto', () => {
+  it('la carga única ofrece marcar «no aplica» en cada punto', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis', false)} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Marcar no aplica')
+  })
+
+  it('el punto «no aplica» no se espera: el checklist queda completo y lo anuncia', () => {
+    const valor = { unidades: [{ codigo: 'Única', selected: ['o1'], informativos: ['o2'] }] }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis', false)} valor={valor} index={0} total={1} onChange={() => {}} />)
+    // Sólo queda un requerimiento por chequear: el otro no aplica.
+    expect(html).toContain('1/1 requerimientos')
+    expect(html).toContain('Completo')
+    expect(html).toContain('1 no aplica')
+    expect(html).toContain('No aplica')
+  })
+
+  it('con todos los puntos «no aplica» el checklist se anuncia como tal', () => {
+    const valor = { unidades: [{ codigo: 'Única', selected: [], informativos: ['o1', 'o2'] }] }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis', false)} valor={valor} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('No aplica')
+    expect(html).toContain('2 no aplica')
+    expect(html).not.toContain('Incompleto')
+  })
+})
+
+describe('ItemRenderer · doble check', () => {
+  const conDobleCheck = (repetible?: boolean | null): Item => ({ ...itemDe('Dormis', repetible), tipo: 'CHECKLIST', doble_check: true })
+
+  it('en CHECKLIST muestra las dos marcas de cada punto', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={conDobleCheck()} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Existe')
+    expect(html).toContain('Correcto')
+    expect(html).toContain('Doble check: cada punto se marca')
+    // Sin doble check sólo aparece el check simple de "Punto validado".
+    const simple = renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis', false)} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    expect(simple).not.toContain('Correcto')
+  })
+
+  it('sólo con la presencia marcada el punto no se valida', () => {
+    const valor = { selected: [], existe: ['o1', 'o2'] }
+    const html = renderToStaticMarkup(<ItemRenderer item={conDobleCheck()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Existe, falta el check de correcto')
+    expect(html).toContain('no puntúa')
+    expect(html).not.toContain('Punto validado')
+  })
+
+  it('con las dos marcas el punto queda validado', () => {
+    const valor = { selected: ['o1', 'o2'], existe: ['o1', 'o2'] }
+    const html = renderToStaticMarkup(<ItemRenderer item={conDobleCheck()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    expect(html).toContain('Punto validado')
+    expect(html).not.toContain('sin cumplir')
+  })
+
+  it('las casillas son grandes y «No aplica» comparte fila con Existe y Correcto', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={conDobleCheck()} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    // Con `h-4 w-4` el dedo erraba: el checkbox ahora mide 24 px y la etiqueta
+    // entera (44 px mínimos) es lo que se toca.
+    expect(html).toContain('h-6 w-6')
+    expect(html).toContain('min-h-[44px]')
+
+    // La fila del doble check es el contenedor que abre con ese flex: dentro,
+    // hasta su cierre, tienen que estar las dos marcas Y el «no aplica».
+    const fila = html.slice(html.indexOf('flex flex-wrap items-center gap-x-4 gap-y-1.5'))
+    expect(fila, 'no encontré la fila del doble check').not.toBe('')
+    const contenido = fila.slice(0, fila.indexOf('</div>'))
+    expect(contenido).toContain('Existe')
+    expect(contenido).toContain('Correcto')
+    expect(contenido).toContain('Marcar no aplica')
+  })
+
+  it('con el punto «no aplica» el botón sigue en su fila para poder desmarcarlo', () => {
+    const valor = { selected: ['o1'], existe: ['o1'], informativos: ['o2'] }
+    const html = renderToStaticMarkup(<ItemRenderer item={conDobleCheck()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    // El cuerpo del punto excluido se oculta, pero esconder también el botón
+    // dejaba «no aplica» sin forma de deshacerse.
+    expect(html).toContain('No aplica · se excluye del puntaje')
+    expect(html).toContain('Marcar no aplica')
+    expect(html).toContain('>No aplica<')
+  })
+
+  it('en UNIDAD_CHECKLIST cada unidad carga su propia presencia', () => {
+    const valor = { unidades: [{ codigo: 'U1', selected: [], existe: ['o1'] }] }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis', false)} valor={valor} index={0} total={1} onChange={() => {}} />)
+    // Sin doble check en el ítem, la presencia sola no cambia el estado del punto.
+    expect(html).not.toContain('Existe, falta el check de correcto')
+    expect(html).toContain('sin cumplir')
+
+    const conDoble = renderToStaticMarkup(
+      <ItemRenderer item={{ ...itemDe('Dormis', false), doble_check: true }} valor={valor} index={0} total={1} onChange={() => {}} />
+    )
+    expect(conDoble).toContain('Existe, falta el check de correcto')
+  })
+})
+
 function itemPlano(requerido = true): Item {
   return {
     id: 'it-2',
@@ -268,6 +362,71 @@ describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
     expect(html).toContain('aria-label="Tomar foto"')
     expect(html).toContain('aria-label="Adjuntar foto desde la galería"')
   })
+
+  it('la descripción del producto escaneado se ve entera, en varios renglones si hace falta', () => {
+    const nombre = 'Harina De Maiz Pan 1 Kg Especial Para Tortillas Siete Semillas'
+    const valor = { productos: [{ sku: '7591002000011', nombre, teorica: 2, fisica: 2 }] }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    // El nombre vive en un textarea (multilinea), no en un `Input` de un renglón,
+    // y la fila de la lista no lo corta con puntos suspensivos: hay que poder
+    // leer qué producto se escaneó sin adivinar.
+    expect(html).toContain('<textarea')
+    expect(html).toContain(nombre)
+    expect(html).not.toContain('flex-1 truncate text-[15px]')
+    expect(html).not.toContain('flex-1 truncate text-slate-500')
+  })
+})
+
+/**
+ * Los checks de la vista se agrandaron a 24 px con etiqueta de 44 px. Eso vale
+ * para TODOS los ramos, no sólo para el doble check: si una rama que no se tocó
+ * sigue con `h-4 w-4`, el dedo vuelve a errar justo ahí.
+ */
+describe('ItemRenderer · ningún check queda chico', () => {
+  const fuente = (rel: string): string =>
+    readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+  it('ninguna rama de la fuente sigue pintando un check de 16 o 20 px', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).not.toMatch(/h-4 w-4 shrink-0 accent/)
+    expect(src).not.toMatch(/h-5 w-5 shrink-0 accent/)
+  })
+
+  it('cada tipo de ítem pinta sus checks a 24 px', () => {
+    const colaborador = {
+      dni: 1,
+      nationality: 'V-',
+      name: 'Ana',
+      lastname: 'Gómez',
+      role_id: 1,
+      role_name: 'Cajera',
+      branch_id: 1,
+      branch_name: '',
+      admission_date: null,
+      active: true,
+      aplica: true,
+      // Sin nada tildado el trabajador sigue "Sin revisar": si estuviera
+      // completo, la lista lo oculta (queda para buscar) y no habría fila.
+      selected: []
+    }
+    const pintar = (item: Item, valor: unknown) =>
+      renderToStaticMarkup(<ItemRenderer item={item} valor={valor} index={0} total={1} onChange={() => {}} />)
+    const casos: Array<[string, string]> = [
+      // Check simple (punto validado / responsables de la falla)…
+      ['check simple', pintar(itemChecklist(), undefined)],
+      // …doble check…
+      ['doble check', pintar({ ...itemChecklist(), doble_check: true }, { selected: ['o1'], existe: ['o1'] })],
+      // …«no tiene hablador» de la conciliación…
+      ['no tiene hablador', pintar(itemConciliacion('FINAL_BASE'), undefined)],
+      // …y la lista de colaboradores.
+      ['colaboradores', pintar(itemColaboradores(), { colaboradores: [colaborador] })]
+    ]
+    for (const [nombre, html] of casos) {
+      const checks = html.match(/<input[^>]*type="checkbox"[^>]*>/g) ?? []
+      expect(checks.length, `${nombre}: este ítem no pintó ningún check`).toBeGreaterThan(0)
+      for (const c of checks) expect(c, nombre).toContain('h-6 w-6')
+    }
+  })
 })
 
 function itemColaboradores(): Item {
@@ -401,9 +560,15 @@ describe('ItemRenderer · el título de la opción no se parte letra por letra',
 
   it('ningún título de opción usa flex-1 (basis 0) en fila con flex-wrap', () => {
     const src = fuente('./ItemRenderer.tsx')
-    // Los cuatro títulos de opción. Los `flex-1` que quedan en el archivo están
-    // en filas sin `flex-wrap` (donde sí corresponde) o con `truncate`.
-    expect(src).not.toMatch(/min-w-0 flex-1 break-words/)
+    // Los únicos `flex-1 break-words` del archivo son los nombres de producto,
+    // que viven en filas SIN `flex-wrap` (ahí `flex-1` reparte todo el espacio
+    // libre y el texto se parte normal). Cualquier otro uso — p. ej. un título
+    // de opción nuevo — volvería a partirse letra por letra.
+    const usos = src.match(/min-w-0 flex-1 break-words[^"']*/g) ?? []
+    expect(usos).toEqual([
+      'min-w-0 flex-1 break-words text-slate-500',
+      'min-w-0 flex-1 break-words text-[15px] font-semibold leading-tight text-slate-800'
+    ])
   })
 
   it('los cuatro títulos usan flex-auto', () => {
@@ -415,8 +580,8 @@ describe('ItemRenderer · el título de la opción no se parte letra por letra',
     const src = fuente('./ItemRenderer.tsx')
     // El label es el hijo directo de la fila: con basis 0 el ancho del texto no
     // llega nunca al line breaking, aunque el span interno esté bien.
-    expect(src).not.toMatch(/flex min-w-0 flex-1 cursor-pointer items-center gap-2/)
-    expect(src).toMatch(/flex min-w-0 flex-auto cursor-pointer items-center gap-2/)
+    expect(src).not.toMatch(/flex min-h-\[44px\] min-w-0 flex-1 cursor-pointer items-center gap-2/)
+    expect(src).toMatch(/flex min-h-\[44px\] min-w-0 flex-auto cursor-pointer items-center gap-2/)
   })
 })
 
@@ -834,6 +999,43 @@ describe('ItemRenderer · filas heredadas de la nube (sin campos nuevos)', () =>
 })
 
 /**
+ * El veredicto de CUMPLE_NO_CUMPLE se eligió con sólo icono: verde pastel y
+ * rojo pastel, y el contrario al elegido se apaga en gris. Sin texto que lo
+ * diga, el nombre de cada botón tiene que vivir en el `aria-label` —si no, el
+ * lector de pantalla sólo escucha dos botones sin nombre— y los tres estados
+ * tienen que distinguirse por el color.
+ */
+describe('CUMPLE_NO_CUMPLE · el veredicto es un icono, no una palabra', () => {
+  const pintar = (valor: unknown) =>
+    renderToStaticMarkup(<ItemRenderer item={itemCumple()} valor={valor} index={0} total={1} onChange={() => {}} />)
+
+  it('no imprime el texto del veredicto y conserva el nombre accesible', () => {
+    const html = pintar({ value: null, evidencias: [] })
+    expect(html).toContain('aria-label="Cumple"')
+    expect(html).toContain('aria-label="No cumple"')
+    expect(html).not.toContain('>Cumple</span>')
+    expect(html).not.toContain('>No cumple</span>')
+  })
+
+  it('sin elegir, cada botón muestra su pastel', () => {
+    const html = pintar({ value: null, evidencias: [] })
+    expect(html).toContain('border-transparent bg-green-100 text-green-700')
+    expect(html).toContain('border-transparent bg-red-100 text-red-700')
+    expect(html).not.toContain('bg-slate-100 text-slate-400')
+  })
+
+  it('al elegir uno, ese se remarca y el contrario queda en gris', () => {
+    const cumple = pintar({ value: true, evidencias: [] })
+    expect(cumple).toContain('border-green-600 bg-green-200 text-green-900')
+    expect(cumple).toContain('border-slate-200 bg-slate-100 text-slate-400')
+
+    const noCumple = pintar({ value: false, evidencias: [] })
+    expect(noCumple).toContain('border-red-600 bg-red-200 text-red-900')
+    expect(noCumple).toContain('border-slate-200 bg-slate-100 text-slate-400')
+  })
+})
+
+/**
  * Cuando un punto queda INCUMPLIDO y el ítem tiene responsables configurados,
  * los chips aparecen marcados apenas se despliega el trabajador. Es una
  * preselección de cara al evaluador, no una escritura: hasta que él toca algo no
@@ -911,12 +1113,13 @@ describe('ItemRenderer · los responsables se preseleccionan sin escribir nada',
     expect(fn).not.toMatch(/Array\.from\(new Set/)
   })
 
-  it('los seis call sites montan el selector sólo cuando el punto está sin cumplir', () => {
+  it('los nueve call sites montan el selector sólo cuando el punto está sin cumplir', () => {
     const item = fuente('./ItemRenderer.tsx')
     const plano = fuente('./PlanoEditor.tsx')
-    // 6 en ItemRenderer (CUMPLE_NO_CUMPLE, CHECKLIST, LISTA_COLABORADORES,
-    // UNIDAD_CHECKLIST, conciliación y el plano heredado) + 1 en PlanoEditor.
-    expect(item.match(/<SelectorResponsables/g)).toHaveLength(6)
+    // 9 en ItemRenderer (CUMPLE_NO_CUMPLE, CHECKLIST, LISTA_COLABORADORES,
+    // UNIDAD_CHECKLIST, conciliación y el plano heredado) + los tres del doble
+    // check (CHECKLIST y las dos ramas de UNIDAD_CHECKLIST) + 1 en PlanoEditor.
+    expect(item.match(/<SelectorResponsables/g)).toHaveLength(9)
     expect(plano.match(/<SelectorResponsables/g)).toHaveLength(1)
     // Ninguno debe montar el selector fuera del estado incumplido.
     expect(item).toMatch(/value === false/)
@@ -965,11 +1168,12 @@ describe('ItemRenderer · las escrituras simultáneas componen en vez de pisarse
     expect(src).toMatch(/onChange\(\(prev: unknown\) => inyectar\(\(v as \(p: unknown\) => unknown\)\(prev\)\)\)/)
   })
 
-  it('los tres puntos multi-responsable escriben como updater', () => {
+  it('los seis puntos multi-responsable escriben como updater', () => {
     const src = fuente('./ItemRenderer.tsx')
-    // CHECKLIST: un selector por check. Uno por unidad × check en
-    // UNIDAD_CHECKLIST (dos ramas: carga única y repetible).
-    expect(src.match(/responsablesPorOpcion: \{ \.\.\.\(base\.responsablesPorOpcion \?\? \{\}\), \[o\.id\]: sel \}/g)).toHaveLength(3)
+    // CHECKLIST: un selector por check (la rama simple y la del doble check).
+    // Uno por unidad × check en UNIDAD_CHECKLIST (dos ramas: carga única y
+    // repetible, cada una con su versión de doble check).
+    expect(src.match(/responsablesPorOpcion: \{ \.\.\.\(base\.responsablesPorOpcion \?\? \{\}\), \[o\.id\]: sel \}/g)).toHaveLength(6)
     expect(src).not.toMatch(/responsablesPorOpcion: \{ \.\.\.\(v\.responsablesPorOpcion/)
     expect(src).not.toMatch(/responsablesPorOpcion: \{ \.\.\.\(value\.responsablesPorOpcion/)
     // LISTA_COLABORADORES: un selector por trabajador × check.

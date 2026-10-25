@@ -160,6 +160,23 @@ describe('hojasDeEvaluacion', () => {
     ])
   })
 
+  it('lleva el comentario de cada punto del check list en la columna de comentarios', () => {
+    // La columna "Comentarios" es la misma que ya usaba el comentario de la
+    // evidencia: ahora también recibe la nota que el evaluador dejó en cada
+    // punto de la lista.
+    const conNotas: DetalleEvaluacion = {
+      ...detalle,
+      respuestas: detalle.respuestas.map((r) =>
+        r.id === 'r2'
+          ? { ...r, valor: { selected: ['o1'], comentarios: { o2: 'faltan las etiquetas' } } }
+          : r
+      )
+    }
+    const resultados = hojasDeEvaluacion(conNotas, incidencias, perfiles).find((h) => h.nombre === 'Resultados')!.filas
+    const fila = resultados.find((f) => f[1] === 'Góndola de despensa')!
+    expect(fila[7]).toBe('Etiquetas puestas: faltan las etiquetas')
+  })
+
   it('pisa las incidencias con hora local, cargos unidos y conteo de fotos', () => {
     const filas = filasDe('Incidencias')
     expect(filas).toHaveLength(2)

@@ -1,4 +1,4 @@
-﻿
+
 -- ###########################################################################
 -- Archivo consolidado: schema.sql
 -- ###########################################################################
@@ -20,7 +20,11 @@ create table if not exists public.sucursales (
   nombre text not null,
   shop_id text,
   direccion text,
-  gerente_id uuid references public.profiles(id) on delete set null,
+  -- La FK a `profiles` va DESPUES de crear las dos tablas: se referencian
+  -- entre si (el gerente de la sucursal y la sucursal del perfil) y con la FK
+  -- en linea la segunda en aparecer fallaria con "relation does not exist",
+  -- que es lo que hace que este archivo no se pueda aplicar en una base nueva.
+  gerente_id uuid,
   activa boolean not null default true,
   created_at timestamptz not null default now()
 );
@@ -30,7 +34,7 @@ alter table public.sucursales add column if not exists shop_id text;
 -- Migracion: se elimina la columna codigo (se usa solo shop_id)
 alter table public.sucursales drop column if exists codigo;
 -- Migracion: GERENTE S a cargo de la sucursal (opcional)
-alter table public.sucursales add column if not exists gerente_id uuid references public.profiles(id) on delete set null;
+alter table public.sucursales add column if not exists gerente_id uuid;
 -- Migracion: ID de sucursal para la API de trabajadores (branchID del edge listar-colaboradores)
 alter table public.sucursales add column if not exists branch_id text;
 
@@ -69,11 +73,24 @@ create table if not exists public.profiles (
   nombre text not null default '',
   rol text not null default 'SIN_ROL'
     check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH')),
-  sucursal_id uuid references public.sucursales(id) on delete set null,
+  -- La FK a `sucursales` va DESPUES de crear las dos tablas: se referencian
+  -- entre si y con la FK en linea la segunda en aparecer fallaria.
+  sucursal_id uuid,
   activo boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Las dos FK circulares, ahora que las dos tablas existen. `drop constraint if
+-- exists` + `add constraint` es idempotente y ademas arregla las bases que
+-- quedaron con la FK vieja: el nombre es el que Postgres le pone solo.
+alter table public.sucursales drop constraint if exists sucursales_gerente_id_fkey;
+alter table public.sucursales add constraint sucursales_gerente_id_fkey
+  foreign key (gerente_id) references public.profiles(id) on delete set null;
+
+alter table public.profiles drop constraint if exists profiles_sucursal_id_fkey;
+alter table public.profiles add constraint profiles_sucursal_id_fkey
+  foreign key (sucursal_id) references public.sucursales(id) on delete set null;
 
 -- Idempotencia: si la tabla ya existia sin la columna usuario
 alter table public.profiles add column if not exists usuario text not null default '';
@@ -317,6 +334,10 @@ alter table public.items add column if not exists repetible boolean not null def
 alter table public.items add column if not exists contra_dato text not null default 'SOH';
 alter table public.items drop constraint if exists items_contra_dato_check;
 alter table public.items add constraint items_contra_dato_check check (contra_dato in ('SOH','FINAL_BASE'));
+-- CHECKLIST / UNIDAD_CHECKLIST: doble check = cada punto se marca dos veces
+-- ("existe" y "correcto") y sólo puntúa con las dos marcas. Se configura por
+-- ítem en Config → Ítems.
+alter table public.items add column if not exists doble_check boolean not null default false;
 
 -- La suma de los puntajes de un mÃ³dulo no puede exceder 100: cuentan las secciones
 -- (CONTENEDOR, ponderadas) y los Ã­tems sueltos (sin secciÃ³n). Los Ã­tems dentro de
@@ -1767,6 +1788,13 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
+-- Es security definer, pero la invocan las politicas RLS, que corren con
+-- sesion. Para anon no aporta nada y sobra. El revoke va aca (despues de la
+-- definicion) y no en otro bloque: `create or replace` reactiva el permiso
+-- heredado de PUBLIC, asi que el revoke tiene que seguir a la definicion.
+revoke execute on function public.puede_usar_revision_pre_entrega() from public, anon;
+grant  execute on function public.puede_usar_revision_pre_entrega() to authenticated;
+
 drop policy if exists revision_pre_entrega_select on public.revision_pre_entrega;
 create policy revision_pre_entrega_select on public.revision_pre_entrega
   for select using (evaluador_id = auth.uid() or public.es_lider());
@@ -2073,6 +2101,13 @@ returns boolean language sql stable security definer set search_path = public as
     where p.id = auth.uid() and p.activo and p.rol in ('LIDER', 'EVALUADOR')
   );
 $$;
+
+-- Es security definer, pero la invocan las politicas RLS, que corren con
+-- sesion. Para anon no aporta nada y sobra. El revoke va aca (despues de la
+-- definicion) y no en otro bloque: `create or replace` reactiva el permiso
+-- heredado de PUBLIC, asi que el revoke tiene que seguir a la definicion.
+revoke execute on function public.puede_usar_revision_pre_entrega() from public, anon;
+grant  execute on function public.puede_usar_revision_pre_entrega() to authenticated;
 
 drop policy if exists revision_pre_entrega_select on public.revision_pre_entrega;
 create policy revision_pre_entrega_select on public.revision_pre_entrega
@@ -2515,21 +2550,22 @@ grant  execute on function public.ver_conciliacion_compartida(text) to anon, aut
 -- ----------------------------------------------------------------------------
 -- 7) Utilerias que se corren a mano desde el SQL Editor
 -- ----------------------------------------------------------------------------
--- `mergear_conciliacion` es el helper con el que `upsert_respuestas` fusiona el
--- valor de una conciliacion en vez de pisarlo (union por SKU de las dos listas).
--- Corre como el que sube, asi que `authenticated` si la necesita.
-revoke execute on function public.mergear_conciliacion(jsonb, jsonb, text) from public, anon;
-grant  execute on function public.mergear_conciliacion(jsonb, jsonb, text) to authenticated;
-
--- Las dos del backfill de departamentos no las llama la app: el mapa se arma a
--- mano (los scripts que lo generaban se eliminaron del repo). Sin EXECUTE para nadie.
-revoke execute on function public.previsualizar_departamentos(jsonb) from public, anon, authenticated;
-revoke execute on function public.aplicar_departamentos(jsonb) from public, anon, authenticated;
-
--- Y la de la pre-entrega/inspeccion: es security definer, pero la invocan las
--- politicas RLS, que corren con sesion. Para anon no aporta nada y sobra.
-revoke execute on function public.puede_usar_revision_pre_entrega() from public, anon;
-grant  execute on function public.puede_usar_revision_pre_entrega() to authenticated;
+-- Esta seccion queda VACIA a proposito. Los permisos de cada funcion los deja
+-- el bloque que la define, y en ese mismo lugar:
+--
+-- - `create or replace function` reactiva el permiso heredado de PUBLIC, asi
+--   que el revoke tiene que ir DESPUES de la definicion. Si el revoke queda en
+--   otro bloque, la instalacion se frena (Postgres no acepta el revoke de una
+--   funcion que todavia no existe) y ademas la funcion queda ejecutable por
+--   cualquiera.
+-- - Un bloque con revokes de funciones de otro bloque no se puede correr
+--   solo: al ejecutarlo aislado (que es lo que hacen los tests contra un
+--   Postgres real) falla con "function does not exist".
+--
+-- Los de `previsualizar_departamentos` y `aplicar_departamentos` estan en el
+-- bloque `departamentos-backfill.sql`; los de `puede_usar_revision_pre_entrega`
+-- en los bloques de la pre-entrega y de la inspeccion de vehiculo; los de
+-- `mergear_conciliacion` en el de `conciliacion-borrar-productos.sql`.
 
 commit;
 
@@ -2977,9 +3013,6 @@ select 'invitaciones', count(*)::int
 union all
 select 'asignaciones (evaluadores asignados)', count(*)::int
   from public.asignaciones x, u where x.sucursal_id = u.suc_id
-union all
-select 'proyectos', count(*)::int
-  from public.proyectos x, u where x.sucursal_id = u.suc_id
 union all
 select 'revision_pre_entrega', count(*)::int
   from public.revision_pre_entrega x, u where x.sucursal_id = u.suc_id
@@ -3641,21 +3674,31 @@ grant  execute on function public.ver_conciliacion_compartida(text) to anon, aut
 -- ----------------------------------------------------------------------------
 -- 7) Utilerias que se corren a mano desde el SQL Editor
 -- ----------------------------------------------------------------------------
--- `mergear_conciliacion` es el helper con el que `upsert_respuestas` fusiona el
--- valor de una conciliacion en vez de pisarlo (union por SKU de las dos listas).
--- Corre como el que sube, asi que `authenticated` si la necesita.
-revoke execute on function public.mergear_conciliacion(jsonb, jsonb, text) from public, anon;
-grant  execute on function public.mergear_conciliacion(jsonb, jsonb, text) to authenticated;
-
--- Las dos del backfill de departamentos no las llama la app: el mapa se arma a
--- mano (los scripts que lo generaban se eliminaron del repo). Sin EXECUTE para nadie.
+-- Estas cuatro no las llama la app, asi que quedan cerradas para todos:
+--
+-- - `previsualizar_departamentos` y `aplicar_departamentos`: el mapa del
+--   backfill de departamentos se arma a mano (los scripts que lo generaban se
+--   eliminaron del repo).
+-- - `puede_usar_revision_pre_entrega`: es security definer, pero la invocan
+--   las politicas RLS, que corren con sesion. Para anon no aporta nada.
+-- - `mergear_conciliacion`: es el helper con el que `upsert_respuestas` fusiona
+--   el valor de una conciliacion en vez de pisarlo (union por SKU de las dos
+--   listas). Corre como el que sube, asi que `authenticated` si la necesita.
+--
+-- Este bloque esta pensado para correrse SOLO, sobre una base ya instalada
+-- (por eso los revoke apuntan a funciones que viven en otros bloques). Al
+-- aplicar el archivo COMPLETO, cada revoke queda ademas pegado a su
+-- definicion: `create or replace function` reactiva el permiso heredado de
+-- PUBLIC, asi que un revoke separado de la definicion deja la funcion
+-- ejecutable por cualquiera.
 revoke execute on function public.previsualizar_departamentos(jsonb) from public, anon, authenticated;
 revoke execute on function public.aplicar_departamentos(jsonb) from public, anon, authenticated;
 
--- Y la de la pre-entrega/inspeccion: es security definer, pero la invocan las
--- politicas RLS, que corren con sesion. Para anon no aporta nada y sobra.
 revoke execute on function public.puede_usar_revision_pre_entrega() from public, anon;
 grant  execute on function public.puede_usar_revision_pre_entrega() to authenticated;
+
+revoke execute on function public.mergear_conciliacion(jsonb, jsonb, text) from public, anon;
+grant  execute on function public.mergear_conciliacion(jsonb, jsonb, text) to authenticated;
 
 -- ----------------------------------------------------------------------------
 -- Verificacion
@@ -3685,7 +3728,7 @@ commit;
 -- Si las reglas de la base quedaron desactivadas (por ejemplo con el boton de
 -- RLS del dashboard), la app no da ningun error raro: simplemente no guarda, o
 -- peor, deja ver y escribir tablas que deberian estar cerradas. Este archivo
--- vuelve a encender RLS en todas las tablas y repone las 54 politicas tal como
+-- vuelve a encender RLS en todas las tablas y repone las 50 politicas tal como
 -- estan definidas en este mismo archivo, que desde ahora es el unico.
 --
 -- NO TOCA: ninguna tabla, ninguna columna, ningun dato. Solo RLS y politicas.
@@ -3733,8 +3776,14 @@ begin
 end $$;
 
 -- ----------------------------------------------------------------------------
--- 2) Las 54 politicas
+-- 2) Las 50 politicas
 -- ----------------------------------------------------------------------------
+-- Las de `public.marcajes` y `public.proyectos` no estan: eran del puente
+-- biometrico (Anviz D100) y de la seccion Proyectos, que se quitaron del
+-- proyecto. Sus tablas tampoco tienen `create table` aca, asi que dejar sus
+-- politicas hacia que este archivo no se pudiera aplicar en una base nueva.
+-- En una base vieja la tabla sigue existiendo con su RLS: este archivo no
+-- borra nada, solo deja de reponerle las politicas.
 
 -- public.asignaciones (2 polÃ­ticas)
 alter table public.asignaciones enable row level security;
@@ -3822,15 +3871,6 @@ create policy items_select on public.items for select to authenticated using (tr
 drop policy if exists "items_lider" on public.items;
 create policy items_lider on public.items for all using (public.es_lider()) with check (public.es_lider());
 
--- public.marcajes (2 polÃ­ticas)
-alter table public.marcajes enable row level security;
-drop policy if exists "marcajes_select" on public.marcajes;
-create policy marcajes_select on public.marcajes
-  for select using (true);
-drop policy if exists "marcajes_lider" on public.marcajes;
-create policy marcajes_lider on public.marcajes
-  for all using (public.es_lider()) with check (public.es_lider());
-
 -- public.modulos (2 polÃ­ticas)
 alter table public.modulos enable row level security;
 drop policy if exists "modulos_select" on public.modulos;
@@ -3844,15 +3884,6 @@ drop policy if exists "profiles_select" on public.profiles;
 create policy profiles_select on public.profiles for select to authenticated using (true);
 drop policy if exists "profiles_lider" on public.profiles;
 create policy profiles_lider on public.profiles for all using (public.es_lider()) with check (public.es_lider());
-
--- public.proyectos (2 polÃ­ticas)
-alter table public.proyectos enable row level security;
-drop policy if exists "proyectos_select" on public.proyectos;
-create policy proyectos_select on public.proyectos
-  for select using (true);
-drop policy if exists "proyectos_lider" on public.proyectos;
-create policy proyectos_lider on public.proyectos
-  for all using (public.es_lider()) with check (public.es_lider());
 
 -- public.respuestas (3 polÃ­ticas)
 alter table public.respuestas enable row level security;
@@ -3926,7 +3957,9 @@ create policy departamentos_centralizados_select on public.departamentos_central
 drop policy if exists "departamentos_centralizados_lider" on public.departamentos_centralizados;
 create policy departamentos_centralizados_lider on public.departamentos_centralizados for all using (public.es_lider()) with check (public.es_lider());
 
--- storage.objects (11 políticas: 7 acá y 4 de la pre-entrega)
+-- storage.objects (22 políticas: 11 distintas, cada una re-declarada por el
+-- bloque que la trae y por `reactivar-politicas.sql`; son 7 de evidencias e
+-- incidencias + 4 de la pre-entrega)
 -- (storage.objects ya tiene RLS; solo se reponen sus polÃ­ticas)
 drop policy if exists "evidencias_select" on storage.objects;
 create policy "evidencias_select" on storage.objects for select to authenticated using (bucket_id = 'evidencias');
@@ -4412,7 +4445,7 @@ order by (p.proname in ('es_lider','puede_ver_evaluacion','puede_responder',
 -- decir 'ok'. Cualquier otra cosa es un problema y esta escrito por que.
 --
 --   1) RLS encendido en cada tabla y con al menos una politica.
---   2) Las 64 politicas del repo, una por fila, marcando las que falten.
+--   2) Las 60 politicas del repo, una por fila, marcando las que falten.
 --   3) Que los helpers de RLS conserven EXECUTE para authenticated.
 --   4) Que las funciones con datos no hayan quedado abiertas a anon.
 -- ============================================================================
@@ -4451,7 +4484,7 @@ order by c.relrowsecurity, n.nspname || '.' || c.relname;
 -- ----------------------------------------------------------------------------
 -- 2) Las politicas del repo, una por fila
 -- ----------------------------------------------------------------------------
--- Si esta consulta NO devuelve filas, estan las 64. Cada fila que aparezca es
+-- Si esta consulta NO devuelve filas, estan las 60. Cada fila que aparezca es
 -- una politica que falta: se creo la tabla pero no su regla, y queda abierta o
 -- inaccesible segun el caso.
 with esperadas (politica, tabla) as (
@@ -4478,14 +4511,10 @@ with esperadas (politica, tabla) as (
     ('invitaciones_lider', 'public.invitaciones'),
     ('items_lider', 'public.items'),
     ('items_select', 'public.items'),
-    ('marcajes_lider', 'public.marcajes'),
-    ('marcajes_select', 'public.marcajes'),
     ('modulos_lider', 'public.modulos'),
     ('modulos_select', 'public.modulos'),
     ('profiles_lider', 'public.profiles'),
     ('profiles_select', 'public.profiles'),
-    ('proyectos_lider', 'public.proyectos'),
-    ('proyectos_select', 'public.proyectos'),
     ('respuestas_insert', 'public.respuestas'),
     ('respuestas_select', 'public.respuestas'),
     ('respuestas_update', 'public.respuestas'),
@@ -4594,3 +4623,222 @@ where n.nspname = 'public'
     'previsualizar_departamentos', 'aplicar_departamentos'
   )
 order by p.proname;
+
+
+-- ###########################################################################
+-- Archivo consolidado: parametros-sucursal.sql
+-- ###########################################################################
+-- ============================================================================
+-- PARAMETROS OPERATIVOS DE LA SUCURSAL
+--
+-- La ficha de la tienda: cuantos equipos de cada tipo hay, que computadores
+-- atiende cada puesto y que permisos operativos tiene la sucursal al dia.
+-- Es distinto de `sucursal_modulos` / `sucursal_items`: eso define QUE se
+-- evalua en la tienda; esto define CON QUE CUENTA la tienda, que es con lo que
+-- despues se mide y se compara.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+--
+-- 1) CONTADORES DE EQUIPOS (columnas de la propia sucursal)
+--
+-- Van como columnas y no en una tabla porque son cinco contadores fijos,
+-- siempre presentes, y asi se suman y se comparan de un `select` sin agrupar:
+-- son parametros de la sucursal, no una lista que crezca. Los computadores
+-- (que llevan nombre) y los permisos (con vigencia) SI son listas y viven en
+-- sus tablas del punto 2 y 3.
+--
+-- `default 0` y `not null`: un cero explicito ("no hay ninguno") es un dato, y
+-- deja el `sum()` de un reporte sin `coalesce` ni huecos. El `?? 0` del cliente
+-- cubre las filas cacheadas antes de esta migracion.
+-- ============================================================================
+alter table public.sucursales add column if not exists equipos_pos integer not null default 0;
+alter table public.sucursales add column if not exists verificadores_precio integer not null default 0;
+alter table public.sucursales add column if not exists pantallas_publicitarias integer not null default 0;
+alter table public.sucursales add column if not exists cabezales integer not null default 0;
+alter table public.sucursales add column if not exists pda integer not null default 0;
+
+-- La guarda de >= 0 vive en la base, no solo en la pantalla: un contador
+-- negativo no describe ninguna tienda y arruina cualquier promedio. La app ya
+-- recorta, pero una escritura a mano (un script, un dato importado) no pasa
+-- por ahi.
+alter table public.sucursales drop constraint if exists sucursales_contadores_no_negativos;
+alter table public.sucursales add constraint sucursales_contadores_no_negativos
+  check (equipos_pos >= 0 and verificadores_precio >= 0 and pantallas_publicitarias >= 0
+         and cabezales >= 0 and pda >= 0);
+
+-- ----------------------------------------------------------------------------
+-- 2) COMPUTADORES DE LA SUCURSAL (administrativos y operativos, con nombre)
+--
+-- A diferencia de los contadores de `sucursales` (POS, cabezales, PDA), los
+-- computadores llevan NOMBRE porque el puesto importa: "RRHH" o "Recibidor" no
+-- son solo un numero, son el area que atiende ese equipo. `tipo` los separa en
+-- administrativos y operativos para poder contarlos por separado en los
+-- reportes. `cantidad` permite 2 equipos en el mismo puesto sin duplicar la
+-- fila.
+-- ----------------------------------------------------------------------------
+create table if not exists public.sucursal_computadores (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  nombre text not null,
+  tipo text not null default 'OPERATIVO' check (tipo in ('ADMINISTRATIVO', 'OPERATIVO')),
+  cantidad integer not null default 1 check (cantidad >= 0),
+  created_at timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
+-- 3) PERMISOS OPERATIVOS DE LA SUCURSAL (sanitarios, bomberos, ...)
+--
+-- Cada permiso que la tienda debe tener al dia: nombre, numero de referencia y
+-- vigencia. `vigente` es la marca rapida de si aplica hoy; `vence` es la fecha
+-- con la que se avisa lo que esta por vencer. `emision` es opcional (no todo
+-- permiso la trae) y `observacion` recibe lo que no entra en los campos.
+-- ----------------------------------------------------------------------------
+create table if not exists public.sucursal_permisos (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  nombre text not null,
+  numero text,
+  vigente boolean not null default true,
+  emision date,
+  vence date,
+  observacion text,
+  created_at timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
+-- 4) ROW LEVEL SECURITY: mismo trato que el resto de la configuracion por
+--    sucursal (lectura a cualquiera con sesion, gestion solo al LIDER). Los
+--    contadores no tienen politica propia: son columnas de `sucursales`, que ya
+--    tiene las suyas.
+-- ----------------------------------------------------------------------------
+alter table public.sucursal_computadores enable row level security;
+alter table public.sucursal_permisos enable row level security;
+
+drop policy if exists sucursal_computadores_select on public.sucursal_computadores;
+create policy sucursal_computadores_select on public.sucursal_computadores for select to authenticated using (true);
+drop policy if exists sucursal_computadores_lider on public.sucursal_computadores;
+create policy sucursal_computadores_lider on public.sucursal_computadores for all using (public.es_lider()) with check (public.es_lider());
+drop policy if exists sucursal_permisos_select on public.sucursal_permisos;
+create policy sucursal_permisos_select on public.sucursal_permisos for select to authenticated using (true);
+drop policy if exists sucursal_permisos_lider on public.sucursal_permisos;
+create policy sucursal_permisos_lider on public.sucursal_permisos for all using (public.es_lider()) with check (public.es_lider());
+
+-- Segunda mitad de la cerradura: si algun dia RLS queda apagado en una de
+-- estas tablas (pasa, y no se ve), el `grant` por defecto de Supabase pasa a ser
+-- la unica puerta. Con el revoke sigue cerrada.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['sucursal_computadores', 'sucursal_permisos'] loop
+    execute format('revoke select on public.%I from anon', t);
+  end loop;
+end $$;
+
+
+-- ###########################################################################
+-- Archivo consolidado: permisos-checklist.sql
+-- ###########################################################################
+-- ============================================================================
+-- CHECKLIST QUE TOMA SU LISTA DE LOS PERMISOS DE LA SUCURSAL
+--
+-- Un ítem CHECKLIST puede llenar su lista con los permisos de la tienda en vez
+-- de la escrita a mano. La columna decide el origen y el filtro; la lista en sí
+-- se arma en cada pantalla desde `sucursal_permisos`, así que no se guarda una
+-- copia en la evaluación y siempre refleja los permisos actuales.
+--
+--   NULL       -> lista manual en `items.opciones` (comportamiento de siempre)
+--   'TODOS'    -> los permisos ACTIVOS de la sucursal evaluada
+--   'VENCIDOS' -> sólo los ACTIVOS cuya `vence` ya pasó
+--
+-- El estado vigente/vencido de cada permiso se calcula contra la fecha de hoy en
+-- el dispositivo, no acá: es el mismo criterio que usa Config para la ficha de
+-- parámetros de la sucursal.
+-- ============================================================================
+alter table public.items
+  add column if not exists permisos_sucursal text;
+
+alter table public.items
+  drop constraint if exists items_permisos_sucursal_valido;
+alter table public.items
+  add constraint items_permisos_sucursal_valido
+  check (permisos_sucursal is null or permisos_sucursal in ('TODOS', 'VENCIDOS'));
+
+comment on column public.items.permisos_sucursal is
+  'CHECKLIST: origen de la lista de opciones. NULL = manual; TODOS / VENCIDOS = generada desde los permisos activos de la sucursal evaluada.';
+
+
+-- ###########################################################################
+-- Archivo consolidado: alertas-cargo.sql
+-- ###########################################################################
+-- ============================================================================
+-- ALERTAS DE SEGUIMIENTO POR CARGO (AMONESTACION Y LLAMADO DE ATENCION)
+--
+-- El dashboard de responsables muestra la nota de cada cargo por unidad. Cuando
+-- esa nota cae por debajo del umbral (80% amonestacion, 70% llamado de
+-- atencion) el LIDER registra una alerta: queda PENDIENTE hasta que alguien la
+-- atiende, y ahi pasa a ATENDIDA con fecha y quien la atendio.
+--
+-- No es un indicador calculado: la nota actual se recalcula siempre desde las
+-- evaluaciones cerradas (seguimientoResponsables). Esta tabla guarda lo que se
+-- decidio HACER, con la nota que tenia el cargo cuando se decidio. Por eso la
+-- fila del panel se arma cruzando las dos cosas: la nota vieja de la alerta
+-- explica por que se registro, y la nota de la matriz dice si sigue pasando.
+--
+-- Una sola alerta PENDIENTE por cargo y unidad: atender cierra la anterior, y
+-- si el cargo vuelve a caer se registra otra. Asi el historial son los
+-- atendidos y no una pila de duplicados abiertos.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+create table if not exists public.alertas_cargo (
+  id uuid primary key default gen_random_uuid(),
+  clave_cargo text not null,
+  cargo text not null,
+  -- La unidad de la matriz: sucursal o departamento, una sola, igual que en
+  -- `evaluaciones` y `incidencias`.
+  sucursal_id uuid references public.sucursales(id) on delete cascade,
+  departamento_id uuid references public.departamentos_centralizados(id) on delete cascade,
+  nivel text not null check (nivel in ('AMONESTACION', 'LLAMADO')),
+  -- La nota CON la que se decidio actuar. Va de 0 a 100: es un porcentaje
+  -- redondeado que sale de `notaDe`, y un valor fuera de ese rango describe
+  -- una evaluacion que no existe.
+  nota integer not null check (nota >= 0 and nota <= 100),
+  estado text not null default 'PENDIENTE' check (estado in ('PENDIENTE', 'ATENDIDA')),
+  atendida_en timestamptz,
+  atendida_por uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint alertas_cargo_unidad_check check ((sucursal_id is null) <> (departamento_id is null))
+);
+
+-- El indice que sostiene la regla de "una sola pendiente". Va sobre una
+-- EXPRESION, no sobre las dos columnas: en un indice unico dos NULL no se
+-- consideran iguales y sin el `coalesce` cabrian dos pendientes con la misma
+-- unidad. El `where estado = 'PENDIENTE'` deja las atendidas acumularse: son
+-- el historial.
+create unique index if not exists alertas_cargo_pendiente
+  on public.alertas_cargo (clave_cargo, coalesce(sucursal_id, departamento_id))
+  where estado = 'PENDIENTE';
+
+create index if not exists idx_alertas_cargo_unidad
+  on public.alertas_cargo (coalesce(sucursal_id, departamento_id), created_at desc);
+
+-- ROW LEVEL SECURITY: lectura con sesion, gestion solo al LIDER, igual que el
+-- resto de la configuracion. La pantalla de seguimiento es del LIDER; el
+-- `select` abierto a authenticated es el mismo trato que `sucursal_permisos`.
+alter table public.alertas_cargo enable row level security;
+
+drop policy if exists alertas_cargo_select on public.alertas_cargo;
+create policy alertas_cargo_select on public.alertas_cargo for select to authenticated using (true);
+drop policy if exists alertas_cargo_lider on public.alertas_cargo;
+create policy alertas_cargo_lider on public.alertas_cargo for all using (public.es_lider()) with check (public.es_lider());
+
+-- Segunda mitad de la cerradura, igual que en `parametros-sucursal.sql`: si
+-- algun dia RLS queda apagado en esta tabla, el grant por defecto de Supabase
+-- pasa a ser la unica puerta. Con el revoke sigue cerrada.
+do $$
+begin
+  execute 'revoke select on public.alertas_cargo from anon';
+end $$;

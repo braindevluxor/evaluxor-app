@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { X } from 'lucide-react'
+import { AlertTriangle, X } from 'lucide-react'
 import {
   Button,
   Card,
@@ -20,7 +20,23 @@ import {
   type ResumenItemFalla,
   type SeguimientoResponsables
 } from '../../lib/data/indicadores'
+import {
+  UMBRAL_AMONESTACION,
+  UMBRAL_LLAMADO,
+  filasDeAlertas,
+  listarAlertas,
+  mapaDeAlertas,
+  marcarAtendida,
+  nivelDeNota,
+  registrarAlerta,
+  type AlertaAARegistrar,
+  type AlertaCargo,
+  type FilaAlerta,
+  type NivelAlerta
+} from '../../lib/data/alertasCargo'
 import { claveNormalizada } from '../../lib/data/responsables'
+import { avisar } from '../../lib/aviso'
+import { useAuth } from '../../context/AuthContext'
 import { setKpisGlobal, type EstadoKpis } from '../../lib/kpisGlobal'
 
 /**
@@ -37,6 +53,13 @@ import { setKpisGlobal, type EstadoKpis } from '../../lib/kpisGlobal'
  * incidencias no desaparecen, quedan para el detalle: al pulsar una celda se
  * abre la lista concreta de qué le está quitando nota en ese cargo.
  *
+ * Sobre eso corre ALERTAS: por debajo de 80% la celda pide amonestación y por
+ * debajo de 70% llamado de atención (los mismos cortes que pintan el rojo). El
+ * Líder las registra —quedan PENDIENTES— y después las atiende con fecha y
+ * nombre; el panel de abajo es el listado de seguimiento, agrupado por unidad.
+ * El nivel se calcula siempre desde la matriz; el registro es lo que se decidió
+ * hacer y persiste en `alertas_cargo`.
+ *
  * Es una superficie NUEVA del dashboard, no una variante de Indicadores: esa
  * pantalla mide unidades (sucursales, módulos), ésta mide responsables.
  *
@@ -45,6 +68,11 @@ import { setKpisGlobal, type EstadoKpis } from '../../lib/kpisGlobal'
  */
 
 type Orden = 'nota' | 'nombre' | 'cobertura'
+
+const ETIQUETA_NIVEL: Record<NivelAlerta, string> = {
+  AMONESTACION: 'Amonestación',
+  LLAMADO: 'Llamado de atención'
+}
 
 /** `2025-03-08` → `8/3/2025`. La fecha llega como string ISO desde Postgres. */
 function fechaCorta(iso: string): string {
@@ -72,33 +100,36 @@ function veces(n: number): string {
 }
 
 /**
- * Las bandas son absolutas y no relativas al pico de la matriz. Eso se
- * resolvía escalando contra lo peor de la tabla cuando la escala eran PUNTOS,
- * porque «lo peor de hoy» no tenía número propio: dependía de cuánto hubiera
- * pasado. Un porcentaje sí lo tiene. 79% es malo el día que el resto esté en
- * 95 y también el día que esté en 60; pintarlo de verde porque sea el mejor de
- * la tabla sería mentirle al Líder justo cuando peor está.
+ * Las bandas SON los umbrales de las alertas: el color de la celda y el nivel
+ * que se le pide al cargo son la misma regla, y decir dos cosas distintas con
+ * el mismo número sería mentirle al Líder en la pantalla justa.
  *
- * Sólo la celda más baja de la matriz —y sólo si de verdad está por debajo de
- * 80— sube a rojo sólido: es el ancla, el lugar adonde mirar primero.
+ * Son absolutas y no relativas al pico de la matriz. Eso se resolvía escalando
+ * contra lo peor de la tabla cuando la escala eran PUNTOS, porque «lo peor de
+ * hoy» no tenía número propio: dependía de cuánto hubiera pasado. Un porcentaje
+ * sí lo tiene. 79% es malo el día que el resto esté en 95 y también el día que
+ * esté en 60; pintarlo de verde porque sea el mejor de la tabla sería mentirle
+ * al Líder justo cuando peor está.
+ *
+ * El rojo sólido quedó reservado para el llamado de atención (lo más grave):
+ * antes lo usaba «la celda más baja», que era un ancla relativa y con el
+ * nivel ya no hacía falta.
  */
-function bandaCelda(nota: number | null, peor: number | null): string {
+function bandaCelda(nota: number | null): string {
   if (nota == null) return 'bg-slate-50 text-slate-500'
   if (nota >= 90) return 'bg-green-50 text-green-700'
-  if (nota >= 80) return 'bg-amber-100 text-amber-800'
-  if (nota === peor) return 'bg-red-700 text-white'
-  return 'bg-red-100 text-red-700'
+  if (nota >= UMBRAL_AMONESTACION) return 'bg-amber-100 text-amber-800'
+  if (nota >= UMBRAL_LLAMADO) return 'bg-red-100 text-red-700'
+  return 'bg-red-700 text-white'
 }
 
 /**
  * El color del texto de la nota, para el detalle que se abre bajo la fila.
- * Sin el rojo sólido: ese recurso es de la celda ancla y usarlo dos veces en
- * la misma pantalla los diluye.
  */
 function textoNota(nota: number | null): string {
   if (nota == null) return 'text-slate-500'
   if (nota >= 90) return 'text-green-700'
-  if (nota >= 80) return 'text-amber-700'
+  if (nota >= UMBRAL_AMONESTACION) return 'text-amber-700'
   return 'text-red-700'
 }
 
@@ -123,6 +154,20 @@ export interface SeguimientoVistaProps {
   error: boolean
   onReintentar: () => void
   seguimiento: SeguimientoResponsables | null
+  /**
+   * Las alertas registradas. `null` = todavía no se cargaron (o fallaron): el
+   * panel lo dice en vez de jurar que no hay alertas. Sin `onRegistrar` la
+   * pantalla queda en modo sólo lectura: los chips y las filas se ven, los
+   * botones no.
+   */
+  alertas?: AlertaCargo[] | null
+  alertasCargando?: boolean
+  alertasError?: boolean
+  onReintentarAlertas?: () => void
+  onRegistrar?: (a: AlertaAARegistrar) => void
+  onAtender?: (id: string) => void
+  /** Clave de la fila (o id de la alerta) con una acción en vuelo, para no apretar dos veces. */
+  ocupado?: string | null
 }
 
 export function SeguimientoVista({
@@ -130,7 +175,14 @@ export function SeguimientoVista({
   cargando,
   error,
   onReintentar,
-  seguimiento
+  seguimiento,
+  alertas,
+  alertasCargando,
+  alertasError,
+  onReintentarAlertas,
+  onRegistrar,
+  onAtender,
+  ocupado
 }: SeguimientoVistaProps) {
   const [busqueda, setBusqueda] = useState('')
   const [orden, setOrden] = useState<Orden>('nota')
@@ -144,7 +196,7 @@ export function SeguimientoVista({
   }, [sel])
 
   // Memoizado: un `[]` nuevo en cada render re-dispara los useMemo que dependen
-  // de las columnas (los totales por unidad y la celda ancla de la escala).
+  // de las columnas (los totales por unidad).
   const unidades = useMemo(() => seguimiento?.unidades ?? [], [seguimiento])
 
   const filas = useMemo(() => {
@@ -158,23 +210,6 @@ export function SeguimientoVista({
       base.sort((a, b) => b.unidades - a.unidades || b.puntos - a.puntos || a.cargo.localeCompare(b.cargo, 'es'))
     return base
   }, [seguimiento, busqueda, orden])
-
-  // La celda ancla: la nota más baja de lo que se está mirando. Se calcula sobre
-  // las filas visibles para que, con una búsqueda activa, el rojo sólido caiga
-  // en lo peor de lo que el Líder está viendo y no de la matriz entera.
-  const peor = useMemo(() => {
-    let m: number | null = null
-    for (const f of filas) {
-      for (const u of unidades) {
-        const c = f.porUnidad[u.id]
-        if (!c) continue
-        const n = notaDe(c.logrado, c.posible)
-        if (n == null) continue
-        if (m == null || n < m) m = n
-      }
-    }
-    return m
-  }, [filas, unidades])
 
   // Las notas por columna salen de las filas VISIBLES: con una búsqueda activa
   // el pie tiene que cerrar contra las celdas de arriba. Se ponderan logrado y
@@ -222,6 +257,52 @@ export function SeguimientoVista({
     const c = f.porUnidad[sel.unidadId]
     return c ? notaDe(c.logrado, c.posible) : null
   }, [sel, filas])
+
+  const listaAlertas = useMemo(() => alertas ?? [], [alertas])
+  const mapaAlertas = useMemo(() => mapaDeAlertas(listaAlertas), [listaAlertas])
+
+  // El panel de seguimiento: cargo × unidad en nivel o con registro, lo peor
+  // primero. Va aparte de la matriz porque es una lectura distinta: la matriz
+  // muestra TODO lo medido, ésta sólo lo que está pidiendo atención.
+  const filasAlerta = useMemo(
+    () => (seguimiento ? filasDeAlertas(seguimiento, listaAlertas) : []),
+    [seguimiento, listaAlertas]
+  )
+
+  // Nivel de lo que se pulsó: con la nota del alcance (celda o total). El
+  // registro sólo existe con alcance de unidad —la alerta se guarda por
+  // unidad—, así que desde el total de la fila no hay nada que atender.
+  const nivelSeleccion = nivelDeNota(notaSeleccion)
+  const registroSeleccion = useMemo(
+    () => (sel?.unidadId ? mapaAlertas.get(`${sel.clave}|${sel.unidadId}`) ?? null : null),
+    [sel, mapaAlertas]
+  )
+  const unidadSeleccion = useMemo(
+    () => (sel?.unidadId ? unidades.find((u) => u.id === sel.unidadId) : undefined),
+    [sel, unidades]
+  )
+
+  // Las acciones del detalle se arman acá: el panel de detalle no conoce la
+  // clave ni el tipo de unidad, sólo qué tiene que hacer.
+  const registrarSeleccion: (() => void) | undefined =
+    onRegistrar && sel?.unidadId && unidadSeleccion && nivelSeleccion && notaSeleccion != null
+      ? () =>
+          onRegistrar({
+            clave: sel.clave,
+            cargo: sel.cargo,
+            unidadId: sel.unidadId as string,
+            unidadTipo: unidadSeleccion.tipo,
+            nivel: nivelSeleccion,
+            nota: notaSeleccion
+          })
+      : undefined
+  const atenderSeleccion: (() => void) | undefined =
+    onAtender && registroSeleccion?.estado === 'PENDIENTE'
+      ? () => onAtender(registroSeleccion.id)
+      : undefined
+  const ocupadoSeleccion = registroSeleccion
+    ? ocupado === registroSeleccion.id
+    : ocupado === `${sel?.clave}|${sel?.unidadId}`
 
   const hallazgos = useMemo(
     () => (datos && sel ? hallazgosDeCargo(datos, sel.clave, sel.unidadId) : []),
@@ -281,10 +362,11 @@ export function SeguimientoVista({
                   <span aria-hidden className="h-3 w-6 rounded bg-amber-100" /> 80–89%
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span aria-hidden className="h-3 w-6 rounded bg-red-100" /> menos de 80%
+                  <span aria-hidden className="h-3 w-6 rounded bg-red-100" /> 70–79% · amonestación
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span aria-hidden className="h-3 w-6 rounded bg-red-700" /> la peor celda
+                  <span aria-hidden className="h-3 w-6 rounded bg-red-700" /> menos de 70% · llamado
+                  de atención
                 </span>
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
                   {filas.length}
@@ -416,6 +498,7 @@ export function SeguimientoVista({
                             </td>
                           )
                         }
+                        const nivel = nivelDeNota(n)
                         return (
                           <td key={u.id} className="p-0">
                             <button
@@ -429,10 +512,12 @@ export function SeguimientoVista({
                                 })
                               }
                               aria-pressed={activa}
-                              aria-label={`${f.cargo} en ${u.nombre}: nota ${n}%. Ver detalle.`}
+                              aria-label={`${f.cargo} en ${u.nombre}: nota ${n}%${
+                                nivel ? `, ${ETIQUETA_NIVEL[nivel].toLowerCase()}` : ''
+                              }. Ver detalle.`}
                               className={cn(
                                 'flex w-full items-center justify-center rounded-lg border-2 px-2 py-3 text-sm font-black tabular-nums transition-colors',
-                                bandaCelda(n, peor),
+                                bandaCelda(n),
                                 activa
                                   ? 'border-primary'
                                   : 'border-transparent hover:border-slate-300'
@@ -451,7 +536,11 @@ export function SeguimientoVista({
                           aria-label={
                             f.nota == null
                               ? `${f.cargo}: sin nota, nunca se lo evaluó. Ver detalle de sus puntos.`
-                              : `${f.cargo}: nota ${f.nota}% en todas las unidades. Ver detalle.`
+                              : `${f.cargo}: nota ${f.nota}% en todas las unidades${
+                                  nivelDeNota(f.nota)
+                                    ? `, ${ETIQUETA_NIVEL[nivelDeNota(f.nota) as NivelAlerta].toLowerCase()}`
+                                    : ''
+                                }. Ver detalle.`
                           }
                           className={cn(
                             'flex w-full items-center justify-center rounded-lg border-2 px-2 py-3 text-sm font-black tabular-nums transition-colors',
@@ -476,6 +565,11 @@ export function SeguimientoVista({
                             cargo={sel.cargo}
                             alcance={sel.unidadNombre}
                             nota={notaSeleccion}
+                            nivel={nivelSeleccion}
+                            registro={registroSeleccion}
+                            onRegistrar={registrarSeleccion}
+                            onAtender={atenderSeleccion}
+                            ocupado={ocupadoSeleccion}
                             items={itemsFalla}
                             vecesTotal={vecesTotal}
                             grupos={grupos}
@@ -515,8 +609,109 @@ export function SeguimientoVista({
           </div>
         )}
       </Card>
+
+      <PanelAlertas
+        filas={filasAlerta}
+        cargando={alertasCargando}
+        error={alertasError}
+        onReintentar={onReintentarAlertas}
+        onRegistrar={onRegistrar}
+        onAtender={onAtender}
+        ocupado={ocupado}
+      />
     </div>
   )
+}
+
+/**
+ * El chip de nivel: lo que la nota está pidiendo AHORA, recién calculado desde
+ * la matriz. No depende de ningún registro: es la regla (80% / 70%) aplicada
+ * al número que se está mirando.
+ */
+export function ChipNivel({ nivel }: { nivel: NivelAlerta | null }) {
+  if (!nivel) {
+    return <span className="text-xs font-semibold text-slate-400">Sin alerta</span>
+  }
+  return (
+    <span
+      className={cn(
+        'inline-block rounded-full px-2.5 py-1 text-[11px] font-bold',
+        nivel === 'LLAMADO' ? 'bg-red-700 text-white' : 'bg-red-100 text-red-700'
+      )}
+    >
+      {ETIQUETA_NIVEL[nivel]}
+    </span>
+  )
+}
+
+/**
+ * El estado del registro: qué se hizo con la alerta. «Sin registrar» es el
+ * estado de lo que todavía no pasó por la base, no un error: el nivel ya está
+ * en la columna de al lado.
+ */
+export function ChipEstado({ registro }: { registro: AlertaCargo | null }) {
+  if (!registro) {
+    return (
+      <span className="inline-block rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600">
+        Sin registrar
+      </span>
+    )
+  }
+  if (registro.estado === 'PENDIENTE') {
+    return (
+      <span className="inline-block rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">
+        Pendiente
+      </span>
+    )
+  }
+  const fecha = registro.atendida_en ? fechaCorta(registro.atendida_en.slice(0, 10)) : ''
+  const quien = registro.atendida?.nombre
+  return (
+    <span className="inline-block rounded-full bg-green-100 px-2.5 py-1 text-[11px] font-bold text-green-800">
+      {fecha ? `Atendida el ${fecha}` : 'Atendida'}
+      {quien ? ` por ${quien}` : ''}
+    </span>
+  )
+}
+
+/**
+ * La acción que corresponde en este momento, y ninguna cuando no la hay.
+ *
+ * Con una alerta pendiente manda atender —es lo que cierra el ciclo— aunque la
+ * nota haya mejorado; sin pendiente y en nivel, registrar. Fuera de las dos,
+ * no se pinta botón: no hay nada que hacer y un botón que no hace nada es
+ * ruido en una pantalla de seguimiento.
+ */
+export function AccionAlerta({
+  nivel,
+  registro,
+  onRegistrar,
+  onAtender,
+  ocupado,
+  className
+}: {
+  nivel: NivelAlerta | null
+  registro: AlertaCargo | null
+  onRegistrar?: (() => void) | null
+  onAtender?: (() => void) | null
+  ocupado?: boolean
+  className?: string
+}) {
+  if (registro?.estado === 'PENDIENTE' && onAtender) {
+    return (
+      <Button type="button" variant="secondary" className={className} disabled={ocupado} onClick={onAtender}>
+        {ocupado ? 'Atendiendo…' : 'Marcar atendida'}
+      </Button>
+    )
+  }
+  if (nivel && onRegistrar) {
+    return (
+      <Button type="button" variant="primary" className={className} disabled={ocupado} onClick={onRegistrar}>
+        {ocupado ? 'Registrando…' : `Registrar ${ETIQUETA_NIVEL[nivel].toLowerCase()}`}
+      </Button>
+    )
+  }
+  return null
 }
 
 interface DetalleCargoProps {
@@ -525,6 +720,14 @@ interface DetalleCargoProps {
   alcance?: string
   /** La nota de lo que se pulsó: la de la celda o la de la fila entera. */
   nota: number | null
+  /** El nivel que corresponde a esa nota: lo que la celda está pidiendo. */
+  nivel?: NivelAlerta | null
+  /** El registro persistido de esa celda (sólo con alcance de unidad). */
+  registro?: AlertaCargo | null
+  /** Registrar la alerta de esta celda: sin unidad no hay a qué registro. */
+  onRegistrar?: (() => void) | null
+  onAtender?: (() => void) | null
+  ocupado?: boolean
   /** Los ítems en los que le falló: uno por ítem, con sus checks y sus veces. */
   items: ResumenItemFalla[]
   /** Veces sin cumplir en todos los ítems juntos, para el subtítulo del panel. */
@@ -549,6 +752,11 @@ export function DetalleCargo({
   cargo,
   alcance,
   nota,
+  nivel,
+  registro,
+  onRegistrar,
+  onAtender,
+  ocupado,
   items,
   vecesTotal,
   grupos,
@@ -595,6 +803,22 @@ export function DetalleCargo({
             {' · '}
             <strong className="text-red-600">{vecesTotal}</strong> {veces(vecesTotal)} sin cumplir
           </p>
+          {/* La alerta de esta celda: nivel (lo que pide hoy), estado (lo que
+              se hizo) y la acción que corresponde. Sólo hay acción con alcance
+              de unidad —la alerta se guarda por sucursal o departamento—, así
+              que desde el total de la fila el detalle informa y el panel de
+              abajo es donde se actúa. */}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <ChipNivel nivel={nivel ?? null} />
+            <ChipEstado registro={registro ?? null} />
+            <AccionAlerta
+              nivel={nivel ?? null}
+              registro={registro ?? null}
+              onRegistrar={onRegistrar}
+              onAtender={onAtender}
+              ocupado={ocupado}
+            />
+          </div>
         </div>
         <Button variant="ghost" onClick={onCerrar}>
           <X className="h-4 w-4" />
@@ -672,11 +896,242 @@ export function DetalleCargo({
   )
 }
 
+interface PanelAlertasProps {
+  filas: FilaAlerta[]
+  cargando?: boolean
+  /** La consulta falló: decir «sin alertas» sería un falso. */
+  error?: boolean
+  onReintentar?: () => void
+  onRegistrar?: (a: AlertaAARegistrar) => void
+  onAtender?: (id: string) => void
+  ocupado?: string | null
+}
+
+/**
+ * El listado de seguimiento: los cargos × unidad que están en nivel o ya
+ * tienen alerta registrada, lo peor primero.
+ *
+ * Va en su propia card y debajo de la matriz porque responde otra pregunta: la
+ * matriz dice «cómo está todo», ésta dice «qué hay que hacer». Por eso se
+ * puede filtrar por unidad y por estado, y por eso las filas que exigirían
+ * atención (nivel sin registrar, alerta pendiente) se distinguen de un vistazo
+ * sin recorrer la matriz celda por celda.
+ */
+export function PanelAlertas({
+  filas,
+  cargando,
+  error,
+  onReintentar,
+  onRegistrar,
+  onAtender,
+  ocupado
+}: PanelAlertasProps) {
+  const [unidad, setUnidad] = useState('todas')
+  const [estadoFiltro, setEstadoFiltro] = useState('todos')
+  const [visibles, setVisibles] = useState(40)
+
+  const unidades = useMemo(() => {
+    const mapa = new Map<string, string>()
+    for (const f of filas) if (!mapa.has(f.unidadId)) mapa.set(f.unidadId, f.unidadNombre)
+    return Array.from(mapa.entries())
+  }, [filas])
+
+  const pendientes = filas.filter((f) => f.registro?.estado === 'PENDIENTE').length
+  const sinRegistrar = filas.filter((f) => !f.registro && f.nivel != null).length
+  const atendidas = filas.filter((f) => f.registro?.estado === 'ATENDIDA').length
+
+  const filtradas = useMemo(
+    () =>
+      filas.filter((f) => {
+        if (unidad !== 'todas' && f.unidadId !== unidad) return false
+        if (estadoFiltro === 'pendientes') return f.registro?.estado === 'PENDIENTE'
+        if (estadoFiltro === 'sin_registrar') return !f.registro && f.nivel != null
+        if (estadoFiltro === 'atendidas') return f.registro?.estado === 'ATENDIDA'
+        return true
+      }),
+    [filas, unidad, estadoFiltro]
+  )
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            Seguimiento por unidad
+          </span>
+          <h2 className="mt-1 flex items-center gap-2 text-lg font-bold text-primary-900">
+            <AlertTriangle className="h-5 w-5 text-red-600" aria-hidden="true" />
+            Alertas de seguimiento
+          </h2>
+          <p className="text-sm text-slate-500">
+            Por debajo de {UMBRAL_AMONESTACION}% el cargo queda en amonestación; por debajo de{' '}
+            {UMBRAL_LLAMADO}%, en llamado de atención. Registrá la alerta y marcala atendida cuando
+            se hable con el cargo.
+          </p>
+          {filas.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="rounded-full bg-red-100 px-3 py-1 font-bold text-red-700">
+                {sinRegistrar} sin registrar
+              </span>
+              <span className="rounded-full bg-amber-100 px-3 py-1 font-bold text-amber-800">
+                {pendientes} pendientes
+              </span>
+              <span className="rounded-full bg-green-100 px-3 py-1 font-bold text-green-800">
+                {atendidas} atendidas
+              </span>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Unidad" className="w-52">
+            <Select value={unidad} onChange={(e) => setUnidad(e.target.value)}>
+              <option value="todas">Todas las unidades</option>
+              {unidades.map(([id, nombre]) => (
+                <option key={id} value={id}>
+                  {nombre}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Estado" className="w-48">
+            <Select value={estadoFiltro} onChange={(e) => setEstadoFiltro(e.target.value)}>
+              <option value="todos">Todos</option>
+              <option value="sin_registrar">Sin registrar ({sinRegistrar})</option>
+              <option value="pendientes">Pendientes ({pendientes})</option>
+              <option value="atendidas">Atendidas ({atendidas})</option>
+            </Select>
+          </Field>
+        </div>
+      </div>
+
+      {cargando ? (
+        <div className="mt-4">
+          <SkeletonFilas n={4} />
+        </div>
+      ) : error ? (
+        <div className="mt-4">
+          <EmptyState
+            title="No se pudieron cargar las alertas"
+            subtitle="La matriz de arriba es confiable (sale de las evaluaciones), pero el estado de las alertas no se sabe: volvé a intentar."
+          />
+          {onReintentar && (
+            <Button className="mt-3" variant="secondary" onClick={onReintentar}>
+              Reintentar
+            </Button>
+          )}
+        </div>
+      ) : filas.length === 0 ? (
+        <div className="mt-4">
+          <EmptyState
+            title="Ningún cargo está en alerta"
+            subtitle={`Ninguna nota bajó de ${UMBRAL_AMONESTACION}% y no hay alertas registradas: el seguimiento empieza cuando una celda entre en rojo.`}
+          />
+        </div>
+      ) : filtradas.length === 0 ? (
+        <div className="mt-4">
+          <EmptyState
+            title="Nada coincide con el filtro"
+            subtitle="Probá con otra unidad u otro estado."
+          />
+        </div>
+      ) : (
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[720px] border-separate border-spacing-0">
+            <caption className="sr-only">
+              Cargos que requieren amonestación o llamado de atención, con su nota actual y el
+              estado de su alerta, por unidad.
+            </caption>
+            <thead>
+              <tr className="border-b border-slate-200">
+                <th scope="col" className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Unidad</th>
+                <th scope="col" className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Cargo</th>
+                <th scope="col" className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Nota</th>
+                <th scope="col" className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Nivel</th>
+                <th scope="col" className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">Estado</th>
+                <th scope="col" className="px-3 py-2">
+                  <span className="sr-only">Acción</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtradas.slice(0, visibles).map((f) => {
+                const claveFila = `${f.clave}|${f.unidadId}`
+                const ocupada =
+                  ocupado === claveFila || (f.registro != null && ocupado === f.registro.id)
+                // Capturado fuera del closure: TS no sigue el estrechamiento de
+                // `f.registro?.estado` dentro de la flecha.
+                const pendiente = f.registro?.estado === 'PENDIENTE' ? f.registro : null
+                return (
+                  <tr key={claveFila} className="border-b border-slate-100 last:border-b-0">
+                    <td className="px-3 py-2.5 text-sm font-medium text-slate-600">{f.unidadNombre}</td>
+                    <td className="px-3 py-2.5 text-sm font-semibold text-slate-900">{f.cargo}</td>
+                    <td className={cn('px-3 py-2.5 text-sm font-black tabular-nums', textoNota(f.nota))}>
+                      {pct(f.nota)}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <ChipNivel nivel={f.nivel} />
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <ChipEstado registro={f.registro} />
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <AccionAlerta
+                        nivel={f.nivel}
+                        registro={f.registro}
+                        ocupado={ocupada}
+                        onRegistrar={
+                          onRegistrar && f.nivel != null && f.nota != null
+                            ? () =>
+                                onRegistrar({
+                                  clave: f.clave,
+                                  cargo: f.cargo,
+                                  unidadId: f.unidadId,
+                                  unidadTipo: f.unidadTipo,
+                                  nivel: f.nivel as NivelAlerta,
+                                  nota: f.nota as number
+                                })
+                            : null
+                        }
+                        onAtender={onAtender && pendiente ? () => onAtender(pendiente.id) : null}
+                      />
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {filtradas.length > visibles && (
+            <button
+              type="button"
+              onClick={() => setVisibles((v) => v + 40)}
+              className="mt-3 w-full rounded-lg bg-slate-50 px-4 py-2.5 text-sm font-semibold text-primary-700 transition-colors hover:bg-primary-50"
+            >
+              Ver más ({filtradas.length - visibles} restantes)
+            </button>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 export function Responsables() {
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(false)
   const [recargar, setRecargar] = useState(0)
+
+  // Las alertas van en su propio estado: si fallan, la matriz sigue siendo
+  // confiable (sale de las evaluaciones cerradas) y sólo el panel de
+  // seguimiento tiene que decir que no sabe. `null` = sin cargar todavía.
+  const [alertas, setAlertas] = useState<AlertaCargo[] | null>(null)
+  const [alertasError, setAlertasError] = useState(false)
+  const [recargarAlertas, setRecargarAlertas] = useState(0)
+  // La fila (o la alerta) con una acción en vuelo: sin esto se podía apretar
+  // «Registrar» dos veces y crear dos alertas iguales en el peor de los casos.
+  const [ocupado, setOcupado] = useState<string | null>(null)
+
+  const { profile } = useAuth()
 
   useEffect(() => {
     let activo = true
@@ -705,6 +1160,61 @@ export function Responsables() {
     }
   }, [recargar])
 
+  useEffect(() => {
+    let activo = true
+    setAlertasError(false)
+    void (async () => {
+      try {
+        const a = await listarAlertas()
+        if (activo) setAlertas(a)
+      } catch {
+        // Igual que con los datos: `null` + error, no `[]`, para no jurar que
+        // no hay alertas cuando lo que falló fue la red.
+        if (activo) {
+          setAlertas(null)
+          setAlertasError(true)
+        }
+      }
+    })()
+    return () => {
+      activo = false
+    }
+  }, [recargarAlertas])
+
+  const recargarTodoAlertas = () => setRecargarAlertas((n) => n + 1)
+
+  const registrar = (a: AlertaAARegistrar) => {
+    const clave = `${a.clave}|${a.unidadId}`
+    setOcupado(clave)
+    void (async () => {
+      try {
+        await registrarAlerta(a)
+        avisar(`Alerta registrada: ${a.cargo} · ${ETIQUETA_NIVEL[a.nivel]}.`)
+      } catch {
+        avisar('No se pudo registrar la alerta.', 'error')
+      } finally {
+        setOcupado(null)
+        recargarTodoAlertas()
+      }
+    })()
+  }
+
+  const atender = (id: string) => {
+    setOcupado(id)
+    void (async () => {
+      try {
+        if (!profile) throw new Error('sin perfil')
+        await marcarAtendida(id, profile.id)
+        avisar('Alerta marcada como atendida.')
+      } catch {
+        avisar('No se pudo marcar la alerta como atendida.', 'error')
+      } finally {
+        setOcupado(null)
+        recargarTodoAlertas()
+      }
+    })()
+  }
+
   const seguimiento = useMemo(() => (datos ? seguimientoResponsables(datos) : null), [datos])
 
   // La franja azul (BarraKpis) muestra los KPIs de esta pantalla en vez de los
@@ -715,7 +1225,9 @@ export function Responsables() {
   // número no cerraría con la matriz.
   const kpis = useMemo<EstadoKpis | null>(() => {
     if (!seguimiento) return null
-    const sinHallazgos = seguimiento.filas.filter((f) => f.puntos === 0).length
+    // Las pendientes salen de lo que se registró, no del nivel: el nivel es
+    // un cálculo que ya está en la matriz y este KPI cuenta trabajo abierto.
+    const pendientes = (alertas ?? []).filter((a) => a.estado === 'PENDIENTE').length
     return {
       global: null,
       completadas: datos?.evaluaciones.length ?? 0,
@@ -725,10 +1237,10 @@ export function Responsables() {
         { etiqueta: 'Nota promedio', valor: seguimiento.nota, sufijo: '%', icono: 'target' },
         { etiqueta: 'Cargos evaluados', valor: seguimiento.filas.length, icono: 'lista' },
         { etiqueta: 'Sucursales con datos', valor: seguimiento.unidades.length, icono: 'store' },
-        { etiqueta: 'Cargos sin hallazgos', valor: sinHallazgos, icono: 'check' }
+        { etiqueta: 'Alertas pendientes', valor: pendientes, icono: 'alerta' }
       ]
     }
-  }, [datos, seguimiento])
+  }, [datos, seguimiento, alertas])
 
   useEffect(() => {
     setKpisGlobal(kpis)
@@ -741,6 +1253,13 @@ export function Responsables() {
       error={error}
       onReintentar={() => setRecargar((n) => n + 1)}
       seguimiento={seguimiento}
+      alertas={alertas}
+      alertasCargando={alertas === null && !alertasError}
+      alertasError={alertasError}
+      onReintentarAlertas={recargarTodoAlertas}
+      onRegistrar={registrar}
+      onAtender={atender}
+      ocupado={ocupado}
     />
   )
 }

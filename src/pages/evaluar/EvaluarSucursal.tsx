@@ -69,6 +69,16 @@ export function EvaluarSucursal() {
     return mapa
   }, [modulosActivos, itemsDe])
 
+  // Los campos grandes y los botones cuadrados de ESTA vista viven en
+  // `index.css`, bajo `.vista-evaluacion`. La clase va en `<body>` y no en un
+  // contenedor propio porque los modales (navegación rápida, confirmaciones,
+  // escáner, fotos) se pintan por portal en `<body>`: sólo desde ahí se los
+  // alcanza a todos, y al desmontar la ruta no queda nada.
+  useEffect(() => {
+    document.body.classList.add('vista-evaluacion')
+    return () => document.body.classList.remove('vista-evaluacion')
+  }, [])
+
   const [draft, setDraft] = useState<DraftEval | null>(null)
   const [sinActiva, setSinActiva] = useState(false)
   const [cargando, setCargando] = useState(true)

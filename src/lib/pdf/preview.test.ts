@@ -338,6 +338,7 @@ describe('informe imprimible de resultados', () => {
     const output = buildPdfDocument(conSobrante).output()
 
     expect(output).toContain('5 unidades sobrantes')
+    // La diferencia va escrita en su propia columna, que ahora se llama Diferencia.
     expect(output).toContain('Faltan')
     expect(output).toContain('Sobran')
     // El cierre nombra la plata con la sigla de la moneda: en el PDF lo lee gente
@@ -349,9 +350,10 @@ describe('informe imprimible de resultados', () => {
     expect(output).toContain('5 unidades sobrantes con un valor estimado de USD10,00')
     expect(output).toContain('4 unidades faltantes con un valor estimado de USD18,70')
     expect(output).toContain('Pérdida absoluta: USD28,70')
-    // La fila del sobrante lleva su valor en la columna "Pérdida estimada",
-    // rotulado por el texto para que no se lea como pérdida perdida.
-    expect(output).toContain('Sobrante $10,00')
+    // La fila del sobrante lleva solo el monto en la columna "Pérdida estimada":
+    // la palabra "sobra" ya está en la columna de Diferencia.
+    expect(output).toContain('$10,00')
+    expect(output).not.toContain('Sobrante $')
   })
 
   it('el encabezado de departamento lleva la pérdida de ese pasillo', () => {
@@ -384,7 +386,7 @@ describe('informe imprimible de resultados', () => {
     expect(output.match(/Pérdida \$/g) ?? []).toHaveLength(1)
   })
 
-  it('muestra solo el porcentaje de conciliación y oculta los IDs de sucursal y central', () => {
+  it('las filas de conciliación no llevan porcentaje y ocultan los IDs de sucursal y central', () => {
     const detalleConBranchId: DetalleEvaluacion = {
       ...detalle,
       evaluacion: {
@@ -394,7 +396,17 @@ describe('informe imprimible de resultados', () => {
     }
     const output = buildPdfDocument(detalleConBranchId).output()
 
-    expect(output).not.toContain('% concilia')
+    // La columna antes llamada Estado se llama Diferencia, y la etiqueta de cada
+    // fila va sola: el % de conciliación ya no viaja pegado a la diferencia.
+    expect(output).toContain('Diferencia')
+    expect(output).not.toMatch(/(Faltan|Sobran|Concilia) ·/)
+    // El orden de columnas es SKU, Producto, Teórica, Física, Diferencia y
+    // después la pérdida.
+    expect(output.indexOf('SKU')).toBeLessThan(output.indexOf('Producto'))
+    expect(output.indexOf('Producto')).toBeLessThan(output.indexOf('Teórica'))
+    expect(output.indexOf('Teórica')).toBeLessThan(output.indexOf('Física'))
+    expect(output.indexOf('Física')).toBeLessThan(output.indexOf('Diferencia'))
+    expect(output.indexOf('Diferencia')).toBeLessThan(output.indexOf('Pérdida estimada'))
     expect(output).not.toContain('ID 9')
     expect(output).not.toContain('ID 5')
   })

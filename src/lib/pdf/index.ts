@@ -2,10 +2,11 @@ import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { ocultarCentroCodigoEvaluacion } from '../codigoEvaluacion'
 import type { DetalleEvaluacion } from '../data/indicadores'
-import { listarPerfilesSync, obtenerEvaluacion, resumirEvaluacion } from '../data/indicadores'
+import { listarPerfilesSync, obtenerEvaluacion, resumirEvaluacion, unidadDe } from '../data/indicadores'
+import { aplicarPermisosChecklist } from '../permisosChecklist'
 import {
+  checkMarcado,
   colaboradorCumple,
-  conciliacionPorcentaje,
   esColaboradorRevisado,
   esSinHablador,
   estadoConciliacion,
@@ -45,6 +46,7 @@ import { ETIQUETAS_ROL } from '../roles'
 import { supabase } from '../supabase'
 import { ordenarTrabajadores } from '../data/colaboradores'
 import { imprimeBloque, imprimeCargos, imprimeModulo, imprimePortada, type OpcionesPdf } from './opciones'
+import { leerComentario, lineasDeComentario, textoDeComentarios } from '../comentariosPunto'
 import { ponerLogoAlPie, xTextoDelPie } from './marcaPie'
 
 export type FiltroPdfCumplimiento = 'ambos' | 'cumple' | 'no-cumple'
@@ -111,7 +113,12 @@ function opcionesDeSucursal(detalle: DetalleEvaluacion): Map<string, string[]> {
   return opciones
 }
 
-function aplicarOpciones(item: Item, opciones: Map<string, string[]>): Item {
+function aplicarOpciones(item: Item, opciones: Map<string, string[]>, detalle: DetalleEvaluacion): Item {
+  // Mismo orden que en el detalle y en el tablero: primero la lista que se
+  // genera desde los permisos de la sucursal, y sólo si no pasó por ahí el
+  // recorte a las opciones marcadas a mano.
+  const conPermisos = aplicarPermisosChecklist(item, unidadDe(detalle.evaluacion), { sucursalPermisos: detalle.sucursalPermisos })
+  if (conPermisos !== item) return conPermisos
   if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
   const ids = opciones.get(item.id)
   return ids?.length ? { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) } : item
@@ -123,7 +130,7 @@ export function filtrarDetallePdf(
 ): DetalleEvaluacion {
   const opciones = opcionesDeSucursal(detalle)
   const itemsPorId = new Map(detalle.items.map((item) => {
-    const aplicado = aplicarOpciones(item, opciones)
+    const aplicado = aplicarOpciones(item, opciones, detalle)
     return [item.id, aplicado] as const
   }))
   const respuestas = detalle.respuestas.filter((respuesta) => {
@@ -153,7 +160,7 @@ export function filtrarDetallePdf(
 
 function puntajeModulo(detalle: DetalleEvaluacion, moduloId: string, opciones: Map<string, string[]>): number | null {
   const itemsModulo = detalle.items.filter((item) => item.modulo_id === moduloId)
-  const itemsPorId = new Map(itemsModulo.map((item) => [item.id, aplicarOpciones(item, opciones)]))
+  const itemsPorId = new Map(itemsModulo.map((item) => [item.id, aplicarOpciones(item, opciones, detalle)]))
   const binarios = detalle.respuestas.flatMap((respuesta) => {
     const item = itemsPorId.get(respuesta.item_id)
     if (!item) return []
@@ -388,7 +395,7 @@ export function buildPdfDocument(
 
   const ev = resumenDetalle.evaluacion
   const fecha = new Date(`${ev.fecha}T12:00:00`).toLocaleDateString('es')
-  const resumen = resumirEvaluacion(ev, resumenDetalle.respuestas, resumenDetalle.items, resumenDetalle.sucursalOpciones)
+  const resumen = resumirEvaluacion(ev, resumenDetalle.respuestas, resumenDetalle.items, resumenDetalle.sucursalOpciones, resumenDetalle.sucursalPermisos)
   const opcionesResumen = opcionesDeSucursal(resumenDetalle)
   const nombreDelFiltro = filtro === 'cumple' ? 'Cumple' : filtro === 'ambos' ? 'Ambos' : 'No cumple'
 
@@ -492,8 +499,11 @@ export function buildPdfDocument(
       return
     }
     const mostrarResponsables = rows.some((row) => !row.cumple)
+    // La columna de comentarios aparece sólo si hay alguno: una columna de
+    // guiones en todas las filas es ruido en el papel.
+    const mostrarComentarios = rows.some((row) => leerComentario(v?.comentarios, row.option.id).trim())
     tabla(
-      ['Estado', 'Descripción', ...(mostrarResponsables ? ['Responsable'] : [])],
+      ['Estado', 'Descripción', ...(mostrarResponsables ? ['Responsable'] : []), ...(mostrarComentarios ? ['Comentario'] : [])],
       rows.map(({ option, cumple }) => {
         const descripcion = option.tipo_respuesta === 'RANGO'
           ? `${option.etiqueta}: ${v?.valores?.[option.id] ?? '—'}${option.unidad ? ` ${option.unidad}` : ''} (mín. ${option.minimo ?? '—'})`
@@ -509,13 +519,24 @@ export function buildPdfDocument(
                 : option.responsable
                   ? [option.responsable]
                   : item.responsables ?? []
-        return [cumple ? '✓' : 'X', descripcion, ...(mostrarResponsables ? [responsables.join(', ') || '—'] : [])]
+        // Con doble check, un punto que está en la tienda pero sin validar es un
+        // estado propio (existe, no puntúa); sin doble check todo lo no cumplido
+        // es simplemente "X".
+        const existe = Array.isArray(v?.existe) && v.existe.includes(option.id)
+        const estado = cumple ? '✓' : existe ? 'Existe' : 'X'
+        const comentario = mostrarComentarios ? leerComentario(v?.comentarios, option.id).trim() : ''
+        return [
+          estado,
+          descripcion,
+          ...(mostrarResponsables ? [responsables.join(', ') || '—'] : []),
+          ...(mostrarComentarios ? [comentario || '—'] : [])
+        ]
       })
     )
   }
 
   const dibujarDetalleItem = (item: Item, valor: unknown) => {
-    const itemAplicado = aplicarOpciones(item, opciones)
+    const itemAplicado = aplicarOpciones(item, opciones, resumenDetalle)
     const resultado = veredictoItem(itemAplicado, valor)
     const estado = resultado === 'cumple' ? 'CUMPLE' : resultado === 'no-cumple' ? 'NO CUMPLE' : resultado === 'no-aplica' ? 'NO APLICA' : 'SIN VEREDICTO'
     textoLinea(`${item.texto} — ${estado}`, { bold: true, gap: 1 })
@@ -563,13 +584,13 @@ export function buildPdfDocument(
             }])
           }
           filas.push(...grupo.productos.map((product): CeldaTabla[] => {
-            const porcentaje = conciliacionPorcentaje(product)
             const perdida = perdidaGuardadaConciliacion(product, contraDato)
             const estado = estadoConciliacion(product)
             const dice = diferenciaConciliacion(product)
-            // El estado va escrito, no solo el porcentaje: las filas están
-            // ordenadas por gravedad y el lector tiene que poder ver por qué.
-            const etiquetaEstado = esSinHablador(product)
+            // La columna se llama Diferencia y va escrita, no solo el signo: las
+            // filas están ordenadas por gravedad y el lector tiene que poder ver
+            // por qué descuadra cada una.
+            const etiquetaDiferencia = esSinHablador(product)
               ? 'No Match · sin hablador'
               : estado === 'falta'
                 ? `Faltan ${precio ? formatearPrecioBase(dice) : fmt(dice)}`
@@ -579,28 +600,28 @@ export function buildPdfDocument(
                     ? 'Concilia'
                     : 'Sin datos'
             return [
+              // El id del producto en la API viaja junto al código escaneado: en
+              // papel no hay badge ni detalle donde buscarlo y es con lo que se
+              // cruza el producto contra el sistema.
+              product.apiId != null ? `${product.sku || '—'} · ID ${product.apiId}` : product.sku || '—',
+              product.nombre || '—',
               // En precio, el monto con signo de plata y dos decimales, igual que
               // en la pantalla. En cantidades, la unidad pelada.
               precio ? formatearPrecioBase(product.teorica) : texto(product.teorica ?? '—'),
               esSinHablador(product)
                 ? 'Sin hablador'
                 : precio ? formatearPrecioBase(product.fisica) : texto(product.fisica ?? '—'),
-              // El id del producto en la API viaja junto al código escaneado: en
-              // papel no hay badge ni detalle donde buscarlo y es con lo que se
-              // cruza el producto contra el sistema.
-              product.apiId != null ? `${product.sku || '—'} · ID ${product.apiId}` : product.sku || '—',
-              product.nombre || '—',
-              porcentaje == null ? etiquetaEstado : `${etiquetaEstado} · ${fmt(porcentaje)}%`,
+              etiquetaDiferencia,
               ...(!precio
                 ? [
+                    // Solo el monto: la palabra "sobra/falta" ya está en la columna
+                    // de Diferencia, y repetirla acá empujaba el número al borde.
                     estado === 'falta' && perdida != null
                       ? formatearPrecioBase(perdida)
                       : estado === 'sobra'
                         ? (() => {
                             const sobrante = montoSobranteConciliacion(product, contraDato)
-                            return sobrante == null
-                              ? 'Sobrante sin precio'
-                              : `Sobrante ${formatearPrecioBase(sobrante)}`
+                            return sobrante == null ? '—' : formatearPrecioBase(sobrante)
                           })()
                         : '—'
                   ]
@@ -610,11 +631,11 @@ export function buildPdfDocument(
         }
         tabla(
           [
-            precio ? 'Sistema' : 'Teórica',
-            precio ? 'Hablador' : 'Física',
             'SKU',
             'Producto',
-            'Estado',
+            precio ? 'Sistema' : 'Teórica',
+            precio ? 'Hablador' : 'Física',
+            'Diferencia',
             ...(!precio ? ['Pérdida estimada'] : [])
           ],
           filas
@@ -674,13 +695,16 @@ export function buildPdfDocument(
         const enPuntaje = enCuenta.filter(esColaboradorRevisado)
         const sinRevisar = enCuenta.length - enPuntaje.length
         const colaboradores = enPuntaje.filter((col) => !soloIncumplimientos || !colaboradorCumple(col, item.opciones ?? []))
-        tabla(['Trabajador', 'Estado', 'Pendiente'], colaboradores.map((col) => {
+        // Comentarios de los puntos: sólo se agrega la columna si hay alguno.
+        const mostrarComentarios = colaboradores.some((col) => lineasDeComentario(col.comentarios, item.opciones ?? []).length)
+        tabla(['Trabajador', 'Estado', 'Pendiente', ...(mostrarComentarios ? ['Comentarios'] : [])], colaboradores.map((col) => {
           const aplican = opcionesAplicablesColaborador(col, item.opciones ?? [])
           const faltan = aplican.filter((option) => !(col.selected ?? []).includes(option.id))
           return [
             `${col.lastname} ${col.name}${col.role_name ? ` · ${col.role_name}` : ''}`,
             colaboradorCumple(col, item.opciones ?? []) ? 'Completo' : 'Incompleto',
-            faltan.map((option) => option.etiqueta).join(', ') || '—'
+            faltan.map((option) => option.etiqueta).join(', ') || '—',
+            ...(mostrarComentarios ? [textoDeComentarios(lineasDeComentario(col.comentarios, item.opciones ?? [])) || '—'] : [])
           ]
         }))
         if (sinRevisar) {
@@ -691,12 +715,20 @@ export function buildPdfDocument(
       case 'UNIDAD_CHECKLIST': {
         const v = valor as ValorUnidadChecklist | null
         const unidades = (v?.unidades ?? []).filter((unidad) => !soloIncumplimientos || !unidadCumple(unidad, item.opciones ?? []))
-        tabla(['Unidad', 'Estado', 'Puntos pendientes'], unidades.map((unidad) => {
-          const faltan = (item.opciones ?? []).filter((option) => !(unidad.selected ?? []).includes(option.id))
+        // Los puntos «no aplica» de la unidad no se esperan: no son pendientes
+        // y su nota no sale en el informe.
+        const noAplicaDe = (unidad: ValorUnidadChecklist['unidades'][number]) =>
+          (unidad.informativos ?? []).filter((id) => (item.opciones ?? []).some((o) => o.id === id))
+        // Comentarios de los puntos: sólo se agrega la columna si hay alguno.
+        const mostrarComentarios = unidades.some((unidad) => lineasDeComentario(unidad.comentarios, item.opciones ?? [], noAplicaDe(unidad)).length)
+        tabla(['Unidad', 'Estado', 'Puntos pendientes', ...(mostrarComentarios ? ['Comentarios'] : [])], unidades.map((unidad) => {
+          const noAplica = noAplicaDe(unidad)
+          const faltan = (item.opciones ?? []).filter((option) => !noAplica.includes(option.id) && !checkMarcado(unidad, option.id))
           return [
             unidad.codigo,
             unidadCumple(unidad, item.opciones ?? []) ? 'Completa' : 'Incompleta',
-            faltan.map((option) => option.etiqueta).join(', ') || '—'
+            faltan.map((option) => option.etiqueta).join(', ') || '—',
+            ...(mostrarComentarios ? [textoDeComentarios(lineasDeComentario(unidad.comentarios, item.opciones ?? [], noAplica)) || '—'] : [])
           ]
         }))
         break
@@ -800,7 +832,7 @@ export function buildPdfDocument(
   if (imprimeCargos(impresion)) {
     resultadosCargos = clasificarResultadosCargos(
       valorPorResponsable(
-        resumenDetalle.items.map((item) => aplicarOpciones(item, opcionesResumen)),
+        resumenDetalle.items.map((item) => aplicarOpciones(item, opcionesResumen, resumenDetalle)),
         resumenDetalle.respuestas
       ),
       ev.sucursal?.branch_id === BRANCH_CENTRAL ? [] : catalogoCargos.sucursal,
@@ -810,7 +842,7 @@ export function buildPdfDocument(
       const item = resumenDetalle.items.find((candidato) => candidato.id === respuesta.item_id)
       if (!item) continue
       for (const incumplimiento of incumplimientosPorResponsable(
-        aplicarOpciones(item, opcionesResumen),
+        aplicarOpciones(item, opcionesResumen, resumenDetalle),
         respuesta.valor
       )) {
         puntosIncumplidosPorCargo.set(

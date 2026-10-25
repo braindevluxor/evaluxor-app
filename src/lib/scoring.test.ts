@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, esMatchConciliacion, totalConciliacion, conciliacionComparable, esSinHablador, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, montoSobranteConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion, agruparPorDepartamento, precioVenta, productosParaConciliar, truncarDecimales, formatearPrecioBase, formatearMontoPerdida, promedioPuntajesModulos } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, esMatchConciliacion, totalConciliacion, conciliacionComparable, esSinHablador, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, unidadCumple, opcionesAplicablesUnidad, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, montoSobranteConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion, agruparPorDepartamento, precioVenta, productosParaConciliar, truncarDecimales, formatearPrecioBase, formatearMontoPerdida, promedioPuntajesModulos } from './scoring'
 
 describe('orden de lectura de una conciliación', () => {
   const prod = (sku: string, teorica: number | null, fisica: number | null, finalBase?: number | null) => ({
@@ -1817,5 +1817,69 @@ describe('incumplimientosPorResponsable · selección de responsables del evalua
     const item = { tipo: 'CONCILIACION', opciones: [{ id: 'a', responsable: 'X' }] }
     const v = { productos: [{ sku: 'A', nombre: null, teorica: 2, fisica: 1 }], responsables: ['Ana'] }
     expect(incumplimientosPorResponsable(item, v)).toEqual([{ responsable: 'Ana', puntos: 1 }])
+  })
+})
+
+/**
+ * El «no aplica» de los checklists por unidad.
+ *
+ * Es por punto y por unidad (el mismo criterio del CHECKLIST, que lo marca por
+ * opción): un punto que no corresponde en esa unidad no se espera, no puntúa y
+ * no aparece en los informes como pendiente.
+ */
+describe('UNIDAD_CHECKLIST · puntos «no aplica»', () => {
+  const item = { tipo: 'UNIDAD_CHECKLIST', opciones: [{ id: 'a', etiqueta: 'A' }, { id: 'b', etiqueta: 'B' }] }
+
+  it('un punto «no aplica» no se espera: la unidad queda completa sin marcarlo', () => {
+    expect(unidadCumple({ codigo: 'U1', selected: ['a'], informativos: ['b'] }, item.opciones)).toBe(true)
+    expect(opcionesAplicablesUnidad({ codigo: 'U1', selected: ['a'], informativos: ['b'] }, item.opciones).map((o) => o.id)).toEqual(['a'])
+  })
+
+  it('el «no aplica» es por unidad: las otras unidades siguen contando', () => {
+    const valor = {
+      unidades: [
+        { codigo: 'U1', selected: ['a', 'b'] },
+        { codigo: 'U2', selected: ['a'], informativos: ['b'] }
+      ]
+    }
+    expect(valorBinario(item, valor)).toBe(true)
+  })
+
+  it('una unidad con todos sus puntos «no aplica» no puntúa: el ítem entero queda fuera', () => {
+    const valor = { unidades: [{ codigo: 'U1', selected: [], informativos: ['a', 'b'] }] }
+    expect(valorBinario(item, valor)).toBe(null)
+    expect(esNoAplica(item, valor)).toBe(true)
+  })
+
+  it('el ítem no es «no aplica» si alguna unidad tiene puntos que aplican', () => {
+    const valor = {
+      unidades: [
+        { codigo: 'U1', selected: [], informativos: ['a', 'b'] },
+        { codigo: 'U2', selected: ['a', 'b'] }
+      ]
+    }
+    expect(esNoAplica(item, valor)).toBe(false)
+    expect(valorBinario(item, valor)).toBe(true)
+  })
+
+  it('un punto «no aplica» no suma incumplimiento', () => {
+    const conResp = {
+      tipo: 'UNIDAD_CHECKLIST',
+      opciones: [{ id: 'a', etiqueta: 'A', responsable: 'Mecanico' }, { id: 'b', etiqueta: 'B', responsable: 'Chofer' }]
+    }
+    const v = { unidades: [{ codigo: 'U1', selected: ['a'], informativos: ['b'] }] }
+    expect(incumplimientosPorResponsable(conResp, v)).toEqual([])
+  })
+
+  it('marcar «no aplica» es una respuesta: el ítem no queda pendiente', () => {
+    const cargaUnica = { ...item, repetible: false }
+    const valor = { unidades: [{ codigo: 'Única', selected: [], informativos: ['a', 'b'] }] }
+    expect(estaVacioItem(cargaUnica, valor)).toBe(false)
+    expect(tieneRespuesta(cargaUnica, valor)).toBe(true)
+  })
+
+  it('sin «no aplica» el ítem sigue vacío (no se respondió nada)', () => {
+    const cargaUnica = { ...item, repetible: false }
+    expect(estaVacioItem(cargaUnica, { unidades: [{ codigo: 'Única', selected: [] }] })).toBe(true)
   })
 })
