@@ -1523,6 +1523,11 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
   const v = (valor as ValorListaColaboradores | null) ?? { colaboradores: [] }
   const colaboradores = ordenarTrabajadores(v.colaboradores ?? [])
   const opts = useMemo(() => (item.opciones ?? []) as Opcion[], [item.opciones])
+  /**
+   * Todos los checks con pesos: el ítem puntúa por la fracción de puntos de cada
+   * trabajador (ver `proporcionListaColaboradores`), no por completo/incompleto.
+   */
+  const conPuntos = opts.length > 0 && opts.every((o) => typeof o.puntos === 'number' && o.puntos > 0)
   // Solo los ids, y en un useMemo, porque es lo único que la consulta del
   // historial necesita. Depende de `opts` y no de `item.opciones` porque cuando
   // el ítem no tiene checklist `(item.opciones ?? [])` devuelve un `[]` nuevo en
@@ -1816,7 +1821,9 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
           </>
         ) : (
           <p className="mt-1 text-xs text-slate-500">
-            El ítem se puntúa por trabajador: cada revisado completo vale su parte, y los que no confirmes con el check junto a su nombre todavía no cuentan ({etiquetaFiltro}).
+            {conPuntos
+              ? `Con pesos en todos los checks, cada trabajador aporta sus puntos obtenidos sobre los aplicables (${etiquetaFiltro}).`
+              : `El ítem se puntúa por trabajador: cada revisado completo vale su parte, y los que no confirmes con el check junto a su nombre todavía no cuentan (${etiquetaFiltro}).`}
           </p>
         )}
         <div className="mt-3 flex items-center gap-2">

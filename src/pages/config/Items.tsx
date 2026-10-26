@@ -1,10 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { FolderOpen, GripVertical, Pencil, Plus, Copy, Trash2, X, Check } from 'lucide-react'
+import { FolderOpen, GripVertical, Pencil, Plus, Copy, Trash2, X, Check, ChevronDown } from 'lucide-react'
 import { useCatalog } from '../../context/CatalogContext'
 import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
 import { agruparPorDepartamento, listarResponsables, type ResponsableCatalogo } from '../../lib/data/responsables'
-import { etiquetaTipo, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, pesoItem, redondear3, responsablesDeOpcion, valorPorResponsable, type ContraDatoConciliacion } from '../../lib/scoring'
+import { etiquetaTipo, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, pesoItem, redondear3, responsablesDeOpcion, valorPorResponsable, detallePorResponsable, type ContraDatoConciliacion } from '../../lib/scoring'
 import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
 import { APIS_DISPONIBLES, apiDisponible } from '../../lib/data/apis'
 import type { FiltroColaboradores, Item, Modulo, Opcion, Sucursal, TipoItem } from '../../lib/types'
@@ -67,6 +67,9 @@ export function ItemsPage() {
 
   // Valor de los responsables: reparto del peso de cada ítem entre quienes participan.
   const valoresResponsables = useMemo(() => valorPorResponsable(items), [items])
+  // Desglose por ítem de cada cargo, para poder abrirlo y ver de dónde salen sus puntos.
+  const detalleResponsables = useMemo(() => detallePorResponsable(items), [items])
+  const [cargoAbierto, setCargoAbierto] = useState<string | null>(null)
   const totalDistribuible = useMemo(() => items.filter((i) => i.tipo !== 'CONTENEDOR').reduce((a, i) => a + pesoItem(i), 0), [items])
   const asignadoResponsables = valoresResponsables.reduce((a, v) => a + v.posible, 0)
 
@@ -180,20 +183,53 @@ export function ItemsPage() {
           {valoresResponsables.length ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
               <p className="font-bold text-primary-900">Valor de los responsables</p>
-              <p className="mb-3 text-xs text-slate-400">Cada ítem reparte su puntaje entre quienes participan en él (peso ÷ nº de responsables). Así se reconstruye el 100% de los puntos según las responsabilidades de cada uno.</p>
+              <p className="mb-3 text-xs text-slate-400">Cada ítem reparte su puntaje entre quienes participan en él (peso ÷ nº de responsables). Así se reconstruye el 100% de los puntos según las responsabilidades de cada uno. Tocá un cargo para ver de qué ítems (y checks) salen sus puntos.</p>
               <div className="space-y-1.5">
-                {valoresResponsables.map((v) => (
-                  <div key={v.responsable} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-1.5">
-                    <span className="min-w-0 truncate text-sm font-semibold text-slate-700">{v.responsable}</span>
-                    <div className="flex shrink-0 items-center gap-2 text-xs text-slate-500">
-                      <span>{v.items} ítem(s)</span>
-                      <span className="tabular-nums font-bold text-slate-700">{fmtPts(v.posible)} pts</span>
-                      <span className="tabular-nums rounded-full bg-primary-50 px-2 py-0.5 font-bold text-primary-700">
-                        {totalDistribuible > 0 ? `${Math.round((v.posible / totalDistribuible) * 10000) / 100}%` : '—'}
-                      </span>
+                {valoresResponsables.map((v) => {
+                  const abierto = cargoAbierto === v.responsable
+                  const aportes = detalleResponsables.get(v.responsable) ?? []
+                  return (
+                    <div key={v.responsable} className="rounded-lg bg-slate-50">
+                      <button
+                        type="button"
+                        onClick={() => setCargoAbierto(abierto ? null : v.responsable)}
+                        className="flex w-full flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-left"
+                        aria-expanded={abierto}
+                        title="Ver de qué ítems salen los puntos de este cargo"
+                      >
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <ChevronDown className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', abierto ? '' : '-rotate-90')} />
+                          <span className="min-w-0 truncate text-sm font-semibold text-slate-700">{v.responsable}</span>
+                        </span>
+                        <div className="flex shrink-0 items-center gap-2 text-xs text-slate-500">
+                          <span>{v.items} ítem(s)</span>
+                          <span className="tabular-nums font-bold text-slate-700">{fmtPts(v.posible)} pts</span>
+                          <span className="tabular-nums rounded-full bg-primary-50 px-2 py-0.5 font-bold text-primary-700">
+                            {totalDistribuible > 0 ? `${Math.round((v.posible / totalDistribuible) * 10000) / 100}%` : '—'}
+                          </span>
+                        </div>
+                      </button>
+                      {abierto ? (
+                        <ul className="space-y-1 border-t border-slate-200/70 px-3 py-2">
+                          {aportes.map((a) => (
+                            <li key={a.item_id} className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 text-xs">
+                              <span className="min-w-0">
+                                {a.seccion ? <span className="text-slate-400">{a.seccion} › </span> : null}
+                                <span className="font-medium text-slate-600">{a.texto}</span>
+                                {a.checks.length ? (
+                                  <span className="block text-[11px] text-slate-400">En checks: {a.checks.join(' · ')}</span>
+                                ) : (
+                                  <span className="block text-[11px] text-slate-400">Responsable general del ítem</span>
+                                )}
+                              </span>
+                              <span className="shrink-0 tabular-nums font-semibold text-slate-600">{fmtPts(a.aporte)} pts</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
                 <span>
@@ -509,8 +545,9 @@ function FormItem({
   const apiSeleccionada = esSeccion ? apiDisponible(apiId) : undefined
   const apiSinCampos = !!apiSeleccionada && !apiCampos.length
 
-  // CHECKLIST con puntaje automático: reparte el peso del ítem en partes iguales
-  // entre las opciones con etiqueta, redondeado a 3 decimales (mín. 0.001 por opción).
+  // Puntaje automático (CHECKLIST y LISTA_COLABORADORES): reparte el peso del
+  // ítem en partes iguales entre las opciones con etiqueta, redondeado a 3
+  // decimales (mín. 0.001 por opción).
   const nOpcionesConTexto = opciones.filter((o) => o.etiqueta.trim()).length
   useEffect(() => {
     if (!autoPuntaje) return
@@ -569,7 +606,16 @@ function FormItem({
                     const rs = o.responsables?.length ? o.responsables : undefined
                     return tipo === 'CHECKLIST'
                       ? { ...o, responsable: undefined, responsables: rs }
-                      : { id: o.id, etiqueta: o.etiqueta, responsables: rs }
+                      : {
+                          id: o.id,
+                          etiqueta: o.etiqueta,
+                          responsables: rs,
+                          // Los puntos del LISTA_COLABORADORES ponderan dentro de cada
+                          // trabajador (ver `proporcionListaColaboradores`); sin esto el
+                          // guardado los descartaba y el badge de la evaluación nunca
+                          // aparecía.
+                          ...(tipo === 'LISTA_COLABORADORES' && o.puntos ? { puntos: o.puntos } : {})
+                        }
                   })
               : [],
           colaboradores_filtro: !esSeccion && tipo === 'LISTA_COLABORADORES' ? filtroColaboradores : null,
@@ -806,8 +852,18 @@ function FormItem({
       ) : null}
       {tipo === 'LISTA_COLABORADORES' ? (
         <>
-          <Field label="Checklist de cada trabajador (se aplica a todos los trabajadores de la tienda)">
-            <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} />
+          <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-3 text-sm text-slate-700">
+            <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-primary" checked={autoPuntaje} onChange={(e) => setAutoPuntaje(e.target.checked)} />
+            <span>
+              <strong>Puntaje automático</strong>
+              <span className="block text-xs font-normal text-slate-500">Reparte el peso del ítem en partes iguales entre los checks (peso ÷ nº de checks, ej. 6 ÷ 15 = 0.4 por check). Con todos los checks con pesos, cada trabajador aporta la fracción de los suyos.</span>
+            </span>
+          </label>
+          <Field
+            label="Checklist de cada trabajador (se aplica a todos los trabajadores de la tienda)"
+            hint="Si asignás puntos a TODOS los checks, el ítem puntúa por puntos dentro de cada trabajador (obtenidos sobre los aplicables); si algún check queda sin puntos, el corte vuelve a ser por trabajador completo/incompleto."
+          >
+            <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} conPuntos puntosBloqueados={autoPuntaje} />
           </Field>
           <Field label="Trabajadores en cuenta">
             <Select value={filtroColaboradores} onChange={(e) => setFiltroColaboradores(e.target.value as FiltroColaboradores)}>
@@ -817,7 +873,9 @@ function FormItem({
             </Select>
           </Field>
           <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-            En la evaluación se cargan los trabajadores de la tienda desde la API de talento humano (aplicando el filtro elegido) y este mismo checklist se marca para cada uno. El ítem se puntúa por trabajador: cada revisado completo vale su parte del puntaje, y los que no se revisaron todavía no cuentan.
+            {sumaPuntosOpciones > 0 && opciones.length > 0 && opciones.every((o) => o.puntos != null && o.puntos > 0)
+              ? 'En la evaluación se cargan los trabajadores de la tienda desde la API de talento humano (aplicando el filtro elegido) y este mismo checklist se marca para cada uno. Con puntos en todos los checks, el ítem promedia dentro de cada trabajador sus puntos obtenidos sobre los aplicables: un check pesado pesa más que uno menor.'
+              : 'En la evaluación se cargan los trabajadores de la tienda desde la API de talento humano (aplicando el filtro elegido) y este mismo checklist se marca para cada uno. El ítem se puntúa por trabajador: cada revisado completo vale su parte del puntaje, y los que no se revisaron todavía no cuentan.'}
           </p>
         </>
       ) : null}

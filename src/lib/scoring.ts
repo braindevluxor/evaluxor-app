@@ -1053,8 +1053,7 @@ export function proporcionChecklist(
 }
 
 /**
- * Proporción 0..1 de un ítem LISTA_COLABORADORES: los trabajadores revisados que
- * quedaron completos sobre los trabajadores revisados.
+ * Proporción 0..1 de un ítem LISTA_COLABORADORES.
  *
  * VA POR TRABAJADOR, NO POR CHECK
  * -------------------------------
@@ -1072,18 +1071,45 @@ export function proporcionChecklist(
  *
  * Los que no se revisaron no entran en el denominador (ver `colaboradoresQueCuentan`):
  * si no hay ni un trabajador revisado, no hay proporción y el ítem no puntúa.
+ *
+ * PUNTOS POR CHECK (modo proporcional)
+ * ------------------------------------
+ * Cuando TODOS los checks del ítem tienen puntos (> 0), el corte binario deja de
+ * aplicar y cada trabajador aporta la fracción de sus propios puntos: los
+ * obtenidos sobre los aplicables (los «no aplica» de esa persona quedan fuera del
+ * denominador). El ítem es el promedio de esas fracciones, así que cada
+ * trabajador sigue pesando lo mismo —lo que cambia es que adentro de cada uno un
+ * check de cinco puntos mueve más la aguja que uno de un punto—.
+ *
+ * Es el mismo contrato que ya tenía el CHECKLIST con puntos
+ * (`proporcionChecklist`): el modo proporcional es óptimo por ítem y sólo entra
+ * si la configuración permite pesar todos los checks. Si un solo check queda sin
+ * puntos no hay cómo compararlo con los demás y el ítem vuelve al corte de
+ * siempre: completo entero, incompleto cero.
  */
 export function proporcionListaColaboradores(
   valor: ValorListaColaboradores | null | undefined,
-  opciones: { id: string }[] | null | undefined
+  opciones: { id: string; puntos?: number }[] | null | undefined
 ): number | null {
   if (valor?.informativo) return null
-  const opts = (opciones ?? []) as { id: string }[]
+  const opts = (opciones ?? []) as { id: string; puntos?: number }[]
   if (!opts.length) return null
   const cuentan = colaboradoresQueCuentan(valor?.colaboradores).filter(
     (c) => opcionesAplicablesColaborador(c, opts).length > 0
   )
   if (!cuentan.length) return null
+  const conPuntos = opts.every((o) => typeof o.puntos === 'number' && o.puntos > 0)
+  if (conPuntos) {
+    const fracciones = cuentan.map((c) => {
+      const aplicables = opcionesAplicablesColaborador(c, opts)
+      const posible = aplicables.reduce((a, o) => a + (o.puntos ?? 0), 0)
+      const obtenido = aplicables
+        .filter((o) => (c.selected ?? []).includes(o.id))
+        .reduce((a, o) => a + (o.puntos ?? 0), 0)
+      return posible > 0 ? Math.min(1, obtenido / posible) : 0
+    })
+    return fracciones.reduce((a, f) => a + f, 0) / fracciones.length
+  }
   return cuentan.filter((c) => colaboradorCumple(c, opts)).length / cuentan.length
 }
 
@@ -1097,7 +1123,7 @@ export function proporcionItem(
     if (p !== null) return p
   }
   if (item.tipo === 'LISTA_COLABORADORES') {
-    const p = proporcionListaColaboradores(valor as ValorListaColaboradores | null, item.opciones as { id: string }[])
+    const p = proporcionListaColaboradores(valor as ValorListaColaboradores | null, item.opciones as { id: string; puntos?: number }[])
     if (p !== null) return p
   }
   if (item.tipo === 'PLANO_XY') {
@@ -1535,6 +1561,67 @@ export function valorPorResponsable(items: ItemRespLigero[], respuestas?: { item
       porciento: a.posible > 0 ? Math.round((a.logrado / a.posible) * 10000) / 100 : null
     }))
     .sort((a, b) => b.posible - a.posible || a.responsable.localeCompare(b.responsable))
+}
+
+/** Aporte de un ítem a un responsable en la vista de configuración (sin respuestas): el reparto en puntos y en qué checks aparece el cargo. */
+export type AporteItemResponsable = {
+  item_id: string
+  texto: string
+  tipo: string
+  /** Sección (CONTENEDOR) donde vive el ítem, si tiene. */
+  seccion: string | null
+  /** Puntos que suma este ítem al «posible» del responsable: peso del ítem ÷ nº de responsables que participan. */
+  aporte: number
+  /** Etiquetas de los checks del ítem donde aparece este cargo. Vacío si el cargo está en la lista general del ítem, no en un check. */
+  checks: string[]
+}
+
+/**
+ * Desglose por ítem de los «posibles» puntos de cada responsable, para la vista
+ * de configuración de Ítems.
+ *
+ * Existe para poder auditar desde la pantalla de configuración de dónde sale
+ * cada cargo: cuando un responsable acumula puntos inesperados (o falta uno que
+ * se creyó asignado), con el total sólo se ve el síntoma; acá se ve en qué
+ * ítem —y en qué check de ese ítem— está el cargo que aporta.
+ *
+ * Es el mismo reparto que usa `valorPorResponsable` en modo configuración (peso
+ * ÷ nº de responsables del ítem, rama legada sin respuestas), sólo que
+ * desglosado por ítem en vez de acumulado por cargo. La suma de los aportes de
+ * un responsable coincide con su `posible` del panel.
+ */
+export function detallePorResponsable(
+  items: {
+    id?: string
+    tipo?: string
+    puntaje?: number | null
+    texto?: string
+    padre_id?: string | null
+    opciones?: { id?: string; etiqueta?: string; responsable?: string; responsables?: string[] }[] | null
+    responsables?: string[] | null
+  }[]
+): Map<string, AporteItemResponsable[]> {
+  const porId = new Map(items.filter((i) => i.id).map((i) => [i.id as string, i]))
+  const res = new Map<string, AporteItemResponsable[]>()
+  for (const it of items) {
+    if (!it?.id || it.tipo === 'CONTENEDOR') continue
+    const P = pesoItem(it)
+    if (!(P > 0)) continue
+    const rs = responsablesDelItem(it)
+    if (!rs.length) continue
+    const aporte = redondear3(P / rs.length)
+    const seccion = it.padre_id ? porId.get(it.padre_id)?.texto ?? null : null
+    for (const r of rs) {
+      const checks = ((it.opciones ?? []) as { etiqueta?: string; responsable?: string; responsables?: string[] }[])
+        .filter((o) => responsablesDeOpcion(o).includes(r))
+        .map((o) => (o.etiqueta ?? '').trim())
+        .filter(Boolean)
+      const arr = res.get(r) ?? []
+      arr.push({ item_id: it.id, texto: it.texto ?? '(sin texto)', tipo: it.tipo ?? '', seccion, aporte, checks })
+      res.set(r, arr)
+    }
+  }
+  return res
 }
 
 export function incumplimientosPorResponsable(

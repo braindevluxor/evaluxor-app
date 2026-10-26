@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, esMatchConciliacion, totalConciliacion, conciliacionComparable, esSinHablador, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, unidadCumple, opcionesAplicablesUnidad, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, montoSobranteConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion, agruparPorDepartamento, precioVenta, productosParaConciliar, truncarDecimales, formatearPrecioBase, formatearMontoPerdida, promedioPuntajesModulos } from './scoring'
+import { calcularPuntaje, valorBinario, proporcionChecklist, proporcionItem, proporcionListaColaboradores, pesoItem, fallasDeResponsable, estadoConciliacion, diferenciaConciliacion, ordenarConciliacion, totalesConciliacion, conciliacionPorcentaje, conciliacionTotal, esMatchConciliacion, totalConciliacion, conciliacionComparable, esSinHablador, incumplimientosPorResponsable, responsablesDeOpcion, agregarPuntaje, redondear3, valorPorResponsable, detallePorResponsable, referenciaConciliacion, tieneRespuesta, estaVacioItem, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, esNoAplica, veredictoItem, unidadCumple, opcionesAplicablesUnidad, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, montoPerdidaConciliacion, montoSobranteConciliacion, perdidaGuardadaConciliacion, guardarPerdidaConciliacion, resumenPerdidaConciliacion, agruparPorDepartamento, precioVenta, productosParaConciliar, truncarDecimales, formatearPrecioBase, formatearMontoPerdida, promedioPuntajesModulos } from './scoring'
 
 describe('orden de lectura de una conciliación', () => {
   const prod = (sku: string, teorica: number | null, fisica: number | null, finalBase?: number | null) => ({
@@ -774,6 +774,59 @@ describe('valorBinario', () => {
     // 2 de 2 revisados, y ninguno completo: el ítem vale 0, no 5/6.
     expect(proporcionListaColaboradores(valor, opciones)).toBe(0)
   })
+  it('con puntos en TODOS los checks, cada trabajador aporta sus puntos sobre los aplicables', () => {
+    // El modo proporcional entra por configuración (todos los checks con puntos)
+    // y cambia el corte binario por la fracción de puntos de cada persona.
+    const opciones = [
+      { id: 'uniforme', puntos: 3 },
+      { id: 'credencial', puntos: 1 }
+    ]
+    const col = (dni: number, selected: string[], noAplica: string[] = []) => ({
+      dni,
+      name: `T${dni}`,
+      lastname: 'X',
+      active: true,
+      aplica: true,
+      selected,
+      noAplica
+    })
+    // Ana: todo tildado → 4/4 = 1. Luis: sólo el uniforme → 3/4 = 0.75.
+    const valor = { colaboradores: [col(1, ['uniforme', 'credencial']), col(2, ['uniforme'])] }
+    expect(proporcionListaColaboradores(valor, opciones)).toBeCloseTo((1 + 0.75) / 2, 6)
+    // El veredicto binario no cambia: 0.875 no es "cumple".
+    expect(valorBinario({ tipo: 'LISTA_COLABORADORES', opciones }, valor)).toBe(false)
+    expect(veredictoItem({ tipo: 'LISTA_COLABORADORES', opciones }, valor)).toBe('no-cumple')
+    // El ítem de 20 pts queda en 87.5% (17.5 de 20).
+    expect(calcularPuntaje([{ item: { tipo: 'LISTA_COLABORADORES', opciones, puntaje: 20 }, valor }])).toBe(87.5)
+    // Un check pesado mueve más la aguja: destildar credencial (1 pt) castiga
+    // menos que destildar uniforme (3 pts).
+    const sinCredencial = { colaboradores: [col(1, ['uniforme']), col(2, ['uniforme', 'credencial'])] }
+    const sinUniforme = { colaboradores: [col(1, ['credencial']), col(2, ['uniforme', 'credencial'])] }
+    expect(proporcionListaColaboradores(sinCredencial, opciones)).toBeCloseTo((3 / 4 + 1) / 2, 6)
+    expect(proporcionListaColaboradores(sinUniforme, opciones)).toBeCloseTo((1 / 4 + 1) / 2, 6)
+  })
+  it('los puntos no aplicables de cada trabajador salen de su propio denominador', () => {
+    const opciones = [
+      { id: 'a', puntos: 1 },
+      { id: 'b', puntos: 9 }
+    ]
+    // Sólo le aplica "a" y la tiene tildada: 1/1 = 1, no 1/10.
+    const valor = {
+      colaboradores: [{ dni: 1, name: 'A', lastname: 'B', active: true, aplica: true, selected: ['a'], noAplica: ['b'] }]
+    }
+    expect(proporcionListaColaboradores(valor, opciones)).toBe(1)
+  })
+  it('si un solo check queda sin puntos, el ítem vuelve al corte por trabajador completo', () => {
+    // El modo proporcional es óptimo por ítem: sin TODOS los pesos no hay cómo
+    // comparar los checks entre sí y manda la regla binaria de siempre.
+    const opciones = [
+      { id: 'a', puntos: 2 },
+      { id: 'b' }
+    ]
+    const col = (dni: number, selected: string[]) => ({ dni, name: `T${dni}`, lastname: 'X', active: true, aplica: true, selected })
+    const valor = { colaboradores: [col(1, ['a', 'b']), col(2, ['a'])] }
+    expect(proporcionListaColaboradores(valor, opciones)).toBe(0.5)
+  })
   it('los excluidos con la casilla no cuentan, y sin los excluidos el resto manda', () => {
     const item = { tipo: 'LISTA_COLABORADORES', opciones: [{ id: 'a' }] }
     const valor = {
@@ -1448,6 +1501,65 @@ describe('valorPorResponsable', () => {
     expect(pablo.posible).toBe(67.3)
     expect(pablo.logrado).toBeCloseTo(52.4, 2)
     expect(pablo.porciento).toBe(77.86)
+  })
+})
+
+describe('detallePorResponsable · de dónde salen los puntos de cada cargo', () => {
+  it('desglosa por ítem el mismo reparto que acumula valorPorResponsable', () => {
+    // El cargo aparece en un check del ítem: el aporte es peso ÷ nº de
+    // responsables del ítem, y el desglose dice en qué checks está el cargo.
+    const items = [
+      {
+        id: 'i1',
+        tipo: 'CHECKLIST',
+        texto: 'Documentación',
+        puntaje: 10,
+        opciones: [
+          { id: 'a', etiqueta: 'Art 63', responsables: ['RRHH'] },
+          { id: 'b', etiqueta: 'Art 64', responsables: ['SSG'] },
+          { id: 'c', etiqueta: 'Art 65', responsables: ['SSG', 'RRHH'] }
+        ]
+      }
+    ]
+    const d = detallePorResponsable(items)
+    expect(d.get('SSG')).toEqual([
+      { item_id: 'i1', texto: 'Documentación', tipo: 'CHECKLIST', seccion: null, aporte: 5, checks: ['Art 64', 'Art 65'] }
+    ])
+    expect(d.get('RRHH')?.[0].checks).toEqual(['Art 63', 'Art 65'])
+    // La suma de los aportes coincide con el posible del panel.
+    const panel = valorPorResponsable(items)
+    for (const v of panel) {
+      const suma = (d.get(v.responsable) ?? []).reduce((a, x) => a + x.aporte, 0)
+      expect(suma).toBeCloseTo(v.posible, 3)
+    }
+  })
+
+  it('sigue la sección del ítem y distingue el cargo general del check', () => {
+    const items = [
+      { id: 's1', tipo: 'CONTENEDOR', texto: 'Higiene', puntaje: 40 },
+      { id: 'i1', tipo: 'CUMPLE_NO_CUMPLE', texto: 'Temperaturas', puntaje: 20, padre_id: 's1', responsables: ['Técnicos'] },
+      { id: 'i2', tipo: 'CHECKLIST', texto: 'Limpieza', puntaje: 12, padre_id: 's1', opciones: [{ id: 'x', etiqueta: 'Góndolas', responsables: ['Técnicos'] }] }
+    ]
+    const d = detallePorResponsable(items)
+    const tecnicos = d.get('Técnicos')!
+    expect(tecnicos.map((a) => [a.seccion, a.texto, a.aporte])).toEqual([
+      ['Higiene', 'Temperaturas', 20],
+      ['Higiene', 'Limpieza', 12]
+    ])
+    // El ítem sin checks a cargo queda marcado como cargo general del ítem.
+    expect(tecnicos[0].checks).toEqual([])
+    expect(tecnicos[1].checks).toEqual(['Góndolas'])
+    // El CONTENEDOR no reparte por sí mismo: sus puntos viven en los hijos.
+    expect(tecnicos.some((a) => a.item_id === 's1')).toBe(false)
+  })
+
+  it('ítems sin peso, sin responsables o secciones no generan aporte', () => {
+    const d = detallePorResponsable([
+      { id: 'a', tipo: 'CHECKLIST', texto: 'Sin peso', puntaje: 0, opciones: [{ id: 'x', etiqueta: 'k', responsable: 'Ana' }] },
+      { id: 'b', tipo: 'CHECKLIST', texto: 'Sin cargo', puntaje: 10, opciones: [{ id: 'x', etiqueta: 'k' }] },
+      { id: 'c', tipo: 'CONTENEDOR', texto: 'Sección', puntaje: 60, responsables: ['Ana'] }
+    ])
+    expect(d.size).toBe(0)
   })
 })
 

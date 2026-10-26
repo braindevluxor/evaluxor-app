@@ -190,11 +190,16 @@ export function comoSeMide(item: Item): string[] {
       )
       break
     }
-    case 'LISTA_COLABORADORES':
+    case 'LISTA_COLABORADORES': {
+      const opciones = (item.opciones ?? []) as { puntos?: number }[]
+      const conPuntos = opciones.length > 0 && opciones.every((o) => typeof o.puntos === 'number' && o.puntos > 0)
       lineas.push(
-        `Se revisa a ${FILTRO_COLABORADORES[item.colaboradores_filtro ?? 'ACTIVOS'] ?? 'cada trabajador'} contra la lista de requisitos, requisito por requisito. El puntaje es por trabajador: los revisados que quedaron completos sobre los revisados. Quien no se revisa no entra en el cálculo.`
+        conPuntos
+          ? `Se revisa a ${FILTRO_COLABORADORES[item.colaboradores_filtro ?? 'ACTIVOS'] ?? 'cada trabajador'} contra la lista de requisitos, requisito por requisito con su peso en puntos. El puntaje es el promedio, trabajador por trabajador, de los puntos obtenidos sobre los aplicables (quien no se revisa no entra en el cálculo); así un requisito pesado mueve más la aguja que uno menor.`
+          : `Se revisa a ${FILTRO_COLABORADORES[item.colaboradores_filtro ?? 'ACTIVOS'] ?? 'cada trabajador'} contra la lista de requisitos, requisito por requisito. El puntaje es por trabajador: los revisados que quedaron completos sobre los revisados. Quien no se revisa no entra en el cálculo.`
       )
       break
+    }
     case 'UNIDAD_CHECKLIST':
       lineas.push(
         `Checklist que se repite${item.repetible === false ? ' una sola vez' : ' una vez por unidad (carretilla, nevera, equipo)'}: cada carga tiene sus propios puntos marcados contra la misma lista. El ítem sólo cumple cuando todas las unidades cargadas quedan completas.`
