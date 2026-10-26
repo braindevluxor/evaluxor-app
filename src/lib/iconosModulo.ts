@@ -1,6 +1,8 @@
 import {
+  Calculator,
   ClipboardCheck,
   ClipboardList,
+  HardHat,
   MonitorCog,
   PackageCheck,
   ShieldCheck,
@@ -19,6 +21,8 @@ export const ICONOS_MODULO: { id: string; etiqueta: string; Icono: LucideIcon }[
   { id: 'store', etiqueta: 'Sucursal', Icono: Store },
   { id: 'package-check', etiqueta: 'Inventario', Icono: PackageCheck },
   { id: 'shield-check', etiqueta: 'Seguridad', Icono: ShieldCheck },
+  { id: 'hard-hat', etiqueta: 'Seguridad laboral', Icono: HardHat },
+  { id: 'calculator', etiqueta: 'Conciliación', Icono: Calculator },
   { id: 'sistemas', etiqueta: 'Sistemas', Icono: MonitorCog },
   { id: 'truck', etiqueta: 'Transporte', Icono: Truck },
   { id: 'users', etiqueta: 'Personal', Icono: Users },

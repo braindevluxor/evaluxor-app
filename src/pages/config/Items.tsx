@@ -175,12 +175,11 @@ export function ItemsPage() {
       ) : !items.length ? (
         <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-slate-500">Este módulo no tiene ítems.</div>
       ) : (
-        <div className={cn('space-y-2', arrastrando !== null && 'select-none')}>
-          <div className={cn('flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm font-semibold', sumaModulo > 100 ? 'bg-red-50 text-red-700 ring-1 ring-red-200' : 'bg-slate-50 text-slate-600')}>
-            <span>Puntos asignados en el módulo</span>
-            <span>{sumaModulo} / 100{sumaModulo > 100 ? ' — supera el máximo' : ''}</span>
-          </div>
+        <div className={cn('flex flex-col gap-4 lg:flex-row lg:items-start', arrastrando !== null && 'select-none')}>
+          {/* Columna izquierda: el panel de los responsables queda pegado (sticky)
+              mientras se desplaza la lista de ítems, bajo el header de consola. */}
           {valoresResponsables.length ? (
+            <aside className="w-full shrink-0 lg:sticky lg:top-16 lg:max-h-[calc(100vh-5rem)] lg:w-80 lg:overflow-y-auto xl:w-96">
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
               <p className="font-bold text-primary-900">Valor de los responsables</p>
               <p className="mb-3 text-xs text-slate-400">Cada ítem reparte su puntaje entre quienes participan en él (peso ÷ nº de responsables). Así se reconstruye el 100% de los puntos según las responsabilidades de cada uno. Tocá un cargo para ver de qué ítems (y checks) salen sus puntos.</p>
@@ -242,7 +241,14 @@ export function ItemsPage() {
                 )}
               </div>
             </div>
+            </aside>
           ) : null}
+          {/* Columna derecha: los ítems del módulo, con su banner de puntos. */}
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className={cn('flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm font-semibold', sumaModulo > 100 ? 'bg-red-50 text-red-700 ring-1 ring-red-200' : 'bg-slate-50 text-slate-600')}>
+              <span>Puntos asignados en el módulo</span>
+              <span>{sumaModulo} / 100{sumaModulo > 100 ? ' — supera el máximo' : ''}</span>
+            </div>
           {items.map((it, idx) => {
             const esSeccion = it.tipo === 'CONTENEDOR'
             const esHijo = !!it.padre_id
@@ -347,6 +353,7 @@ export function ItemsPage() {
               <span className="h-0.5 flex-1 animate-pulse rounded-full bg-primary/60" />
             </div>
           ) : null}
+          </div>
         </div>
       )}
 
