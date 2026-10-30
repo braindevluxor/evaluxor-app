@@ -7,8 +7,19 @@ import { FileDown, List, Pencil, Trash2 } from 'lucide-react'
 import { descargarExplicacionModulo } from '../../lib/pdf/explicacionModulo'
 import { IconoModulo } from '../../components/IconoModulo'
 import { ICONOS_MODULO } from '../../lib/iconosModulo'
+import { useAuth } from '../../context/AuthContext'
+import { puedeConfigurar } from '../../lib/roles'
 
 export function ModulosPage() {
+  const { profile } = useAuth()
+  /**
+   * Modo consulta: el EVALUADOR entra sólo para mirar los módulos y bajar su
+   * explicación (PDF de metodología), por eso la ruta ya no es de Líder. Acá
+   * se esconden las acciones de escritura —nuevo, editar, eliminar, ver
+   * ítems— que sólo tendrían sentido para Líder, y que de todos modos el RLS
+   * (`modulos_lider` / `items_lider`) rechazaría en el servidor.
+   */
+  const soloLectura = !puedeConfigurar(profile?.rol ?? 'SIN_ROL')
   const [modulos, setModulos] = useState<(Modulo & { _items: Item[] })[]>([])
   const [cargando, setCargando] = useState(true)
   const [modal, setModal] = useState(false)
@@ -28,13 +39,21 @@ export function ModulosPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <Button onClick={() => { setEditando(null); setModal(true) }}>+ Nuevo módulo</Button>
+        {soloLectura ? (
+          <p className="text-sm text-slate-500">
+            Consulta los módulos de evaluación y descarga la explicación de cada uno: metodología e ítems que lo componen.
+          </p>
+        ) : (
+          <Button onClick={() => { setEditando(null); setModal(true) }}>+ Nuevo módulo</Button>
+        )}
       </div>
 
       {cargando ? (
         <SkeletonTarjetas n={4} cols="sm:grid-cols-2 xl:grid-cols-3" />
       ) : !modulos.length ? (
-        <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-slate-500">Crea el primer módulo.</div>
+        <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-slate-500">
+          {soloLectura ? 'Aún no hay módulos configurados.' : 'Crea el primer módulo.'}
+        </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {modulos.map((m) => (
@@ -52,6 +71,8 @@ export function ModulosPage() {
               <p className="mb-3 line-clamp-2 text-sm text-slate-500">{m.descripcion || 'Sin descripción'}</p>
               <p className="mb-3 text-xs text-slate-400">{m._items.length} ítem(s) configurados</p>
               <div className="mt-auto flex items-center justify-end gap-1.5">
+                {/* La descarga de la explicación es lo único que también hace
+                    el evaluador en modo consulta: siempre visible. */}
                 <ButtonIcon
                   variant="primary"
                   onClick={() =>
@@ -66,15 +87,19 @@ export function ModulosPage() {
                 >
                   <FileDown className="h-5 w-5" />
                 </ButtonIcon>
-                <Link to={`/config/items?modulo=${m.id}`} title="Ver ítems" aria-label="Ver ítems" className={claseBotonIcono('primary')}>
-                  <List className="h-5 w-5" />
-                </Link>
-                <ButtonIcon variant="primary" onClick={() => { setEditando(m); setModal(true) }} title="Editar" aria-label="Editar">
-                  <Pencil className="h-5 w-5" />
-                </ButtonIcon>
-                <ButtonIcon variant="danger" onClick={() => setABorrar(m)} title="Eliminar" aria-label="Eliminar">
-                  <Trash2 className="h-5 w-5" />
-                </ButtonIcon>
+                {!soloLectura ? (
+                  <>
+                    <Link to={`/config/items?modulo=${m.id}`} title="Ver ítems" aria-label="Ver ítems" className={claseBotonIcono('primary')}>
+                      <List className="h-5 w-5" />
+                    </Link>
+                    <ButtonIcon variant="primary" onClick={() => { setEditando(m); setModal(true) }} title="Editar" aria-label="Editar">
+                      <Pencil className="h-5 w-5" />
+                    </ButtonIcon>
+                    <ButtonIcon variant="danger" onClick={() => setABorrar(m)} title="Eliminar" aria-label="Eliminar">
+                      <Trash2 className="h-5 w-5" />
+                    </ButtonIcon>
+                  </>
+                ) : null}
               </div>
             </div>
           ))}

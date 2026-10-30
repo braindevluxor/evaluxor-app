@@ -29,7 +29,8 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/dashboard/comparativas': { titulo: 'Comparativas', subtitulo: 'Analiza el desempeño por evaluador, mes o sucursal' },
   '/dashboard/responsables': { titulo: 'Seguimiento por cargo', subtitulo: 'Nota promedio de cada responsable por sucursal' },
   '/config/usuarios': { titulo: 'Usuarios', subtitulo: 'Gestión de roles y accesos' },
-  '/config/unidades': { titulo: 'Unidades', subtitulo: 'Registro de sucursales y departamentos' }
+  '/config/unidades': { titulo: 'Unidades', subtitulo: 'Registro de sucursales y departamentos' },
+  '/config/modulos': { titulo: 'Módulos', subtitulo: 'Configuración y explicación de cada módulo' }
 }
 
 export function ConsoleLayout() {
@@ -69,6 +70,16 @@ function ConsoleLayoutContenido() {
         { to: '/config/unidades', label: 'Unidades', icon: <Store className="h-5 w-5" /> },
         { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> },
         { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> }
+      ]
+    }
+  ] : profile && profile.rol === 'EVALUADOR' ? [
+    // El evaluador no configura nada, pero sí necesita entrar a Módulos para
+    // bajar la explicación de cada uno (la página lo muestra en modo consulta,
+    // sin editar ni borrar). Va en su propia sección: "Gestión" diría lo contrario.
+    {
+      seccion: 'Consulta',
+      items: [
+        { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> }
       ]
     }
   ] : []

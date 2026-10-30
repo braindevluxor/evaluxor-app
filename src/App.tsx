@@ -247,7 +247,19 @@ function Rutas() {
                         }
                       />
                       <Route path="/config/unidades" element={<SoloLider><UnidadesPage /></SoloLider>} />
-                      <Route path="/config/modulos" element={<SoloLider><ModulosPage /></SoloLider>} />
+                      {/* Módulos se abre al EVALUADOR en modo consulta: necesita
+                          descargar la explicación de cada módulo (PDF de
+                          metodología). La escritura la decide la página con
+                          `soloLectura` y, de última, el RLS (`modulos_lider` /
+                          `items_lider`) bloquea cualquier cambio. */}
+                      <Route
+                        path="/config/modulos"
+                        element={
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <ModulosPage />
+                          </RequireRol>
+                        }
+                      />
                       <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
                       <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
                     </Route>
