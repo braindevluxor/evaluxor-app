@@ -335,7 +335,11 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
   if (f.desde) query = query.gte('fecha', f.desde)
   if (f.hasta) query = query.lte('fecha', f.hasta)
 
-  const { data: evals } = await query
+  const { data: evals, error } = await query
+  // Un error de PostgREST no trae filas: ignorarlo hacía que cualquier falla
+  // (permiso, columna que ya no existe, red) se leyera en pantalla como «aún
+  // no hay datos», que es un falso. Se propaga y cada pantalla decide qué decir.
+  if (error) throw new Error(`No se pudieron leer las evaluaciones: ${error.message}`)
   const evaluaciones = (evals ?? []) as VistaEvaluacion[]
   const vacio: ConjuntoDatos = { evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [], instancias: [] }
   if (!evaluaciones.length) return vacio

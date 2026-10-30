@@ -33,12 +33,17 @@ describe('los dashboards sólo cuentan evaluaciones que son resultados', () => {
     expect(pagina).toContain('sucursal_ids: sucursalSel ? [sucursalSel] : scope')
   })
 
-  it('el de indicadores y el de comparativas descartan las abiertas', () => {
-    for (const archivo of ['./DashboardHome.tsx', './Comparativas.tsx']) {
-      expect(fuente(archivo)).toContain('soloCerradas: true')
-    }
+  it('el de comparativas sigue descartando las abiertas; el de indicadores lo decide un filtro', () => {
+    expect(fuente('./Comparativas.tsx')).toContain('soloCerradas: true')
+    // El dashboard de indicadores cuenta TAMBIÉN las activas, con su puntaje
+    // en curso (recalculado con las respuestas, no el cero guardado): a mitad
+    // de mes todo está abierto y el corte fijo lo dejaba entero en ceros. La
+    // KPI de «completadas» sigue midiendo sólo lo cerrado.
+    const indicadores = fuente('./DashboardHome.tsx')
+    expect(indicadores).toContain('soloCerradas: incluirActivas ? undefined : true')
+    expect(indicadores).toContain("datos.evaluaciones.filter((e) => e.estado === 'CERRADA').length")
     // Este sí tiene gráfico propio por departamento.
-    expect(fuente('./DashboardHome.tsx')).not.toContain('soloSucursales: true')
+    expect(indicadores).not.toContain('soloSucursales: true')
   })
 
   it('los listados siguen trayendo todo: ahí lo abierta es la información', () => {

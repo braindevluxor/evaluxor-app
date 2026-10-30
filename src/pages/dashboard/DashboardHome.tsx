@@ -36,6 +36,11 @@ function haceMeses(n: number): string {
   return d.toISOString().slice(0, 10)
 }
 
+/** Fecha ISO → 30/04/2026, para que el aviso de «qué se buscó» se lea como fecha. */
+function fechaLegible(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString('es')
+}
+
 /**
  * Gráfico "Ponderación por unidad y módulo": una curva por módulo con la barra
  * translúcida del promedio de la unidad. El mismo componente dibuja sucursales
@@ -335,9 +340,26 @@ export function DashboardHome() {
   const [hasta, setHasta] = useState('')
   const [sucursalSel, setSucursalSel] = useState('')
   const [moduloSel, setModuloSel] = useState('')
+  /**
+   * Contar también las evaluaciones ACTIVAS.
+   *
+   * A mitad de mes casi todo está abierto y un dashboard que sólo mira las
+   * cerradas se queda entero en ceros. La consulta ya recalcula el puntaje de
+   * CADA evaluación con sus respuestas (`conPuntajesRecalculados`), así que una
+   * abierta entra con su avance real y no como «cero disfrazado» —que era el
+   * motivo original de exuirlas. La KPI de COMPLETADAS sigue contando sólo las
+   * cerradas: una abierta todavía no está terminada.
+   */
+  const [incluirActivas, setIncluirActivas] = useState(true)
   const [lineaActiva, setLineaActiva] = useState<string | null>(null)
   const [tipoPonderacion, setTipoPonderacion] = useState<'sucursal' | 'departamento'>('sucursal')
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
+  /**
+   * Motivo por el que la carga falló. Sin esto, el `catch` de abajo convertía
+   * cualquier falla en «sin datos», que es un falso —mismo criterio que ya usa
+   * «Seguimiento por cargo»—: la pantalla tenía que decir qué se rompió.
+   */
+  const [errorCarga, setErrorCarga] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
 
   const sucursalesVisibles = scope ? sucursales.filter((s) => scope.includes(s.id)) : sucursales
@@ -356,20 +378,31 @@ export function DashboardHome() {
           hasta: hasta || undefined,
           modulo_id: moduloSel || undefined,
           // Los KPIs y los promedios dicen «completadas»: una evaluación que
-          // sigue abierta no cuenta como tal. Las de departamento también
-          // cuentan, porque este dashboard las lista por su propio promedio.
-          soloCerradas: true
+          // sigue abierta no cuenta como tal. Las activas SÍ entran a los
+          // gráficos y promedios, con su puntaje en curso (ver
+          // `incluirActivas`); sólo el corte de estado lo decide el filtro.
+          soloCerradas: incluirActivas ? undefined : true
         })
-        if (activo) setDatos(d)
-      } catch {
-        if (activo) setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [], instancias: [] })
+        if (activo) {
+          setDatos(d)
+          setErrorCarga(null)
+        }
+      } catch (e) {
+        // El motivo va a la consola Y a la pantalla: esconderlo era lo que
+        // dejaba el dashboard diciendo «sin datos» cuando lo que falló fue la
+        // consulta (mismo criterio que «Seguimiento por cargo»).
+        console.error('No se pudieron cargar los indicadores:', e)
+        if (activo) {
+          setErrorCarga(e instanceof Error ? e.message : 'No se pudieron cargar los indicadores.')
+          setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [], instancias: [] })
+        }
       } finally {
         if (activo) setCargando(false)
       }
     })()
     return () => { activo = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desde, hasta, sucursalSel, moduloSel, scope?.join(',')])
+  }, [desde, hasta, sucursalSel, moduloSel, incluirActivas, scope?.join(',')])
 
   const sucursalesRanking = useMemo(
     () => (datos ? rankingSucursales(datos, sucursalesVisibles) : []),
@@ -472,7 +505,9 @@ export function DashboardHome() {
     ).size
     return {
       global,
-      completadas: datos.evaluaciones.length,
+      // «Completadas» sigue siendo sólo lo cerrado: una abierta, por mucho que
+      // su puntaje en curso ayude a ver el mes, todavía no está terminada.
+      completadas: datos.evaluaciones.filter((e) => e.estado === 'CERRADA').length,
       cobertura: Math.round((cubiertas / totalSuc) * 100),
       incumplimientos
     }
@@ -522,8 +557,21 @@ export function DashboardHome() {
           sucursales={sucursalesVisibles}
           modulos={modulos}
           soloSucursal={!!scope}
+          incluirActivas={incluirActivas}
+          setIncluirActivas={setIncluirActivas}
         />
       </DashboardFiltersPortal>
+
+      {/* Si la consulta falló, la pantalla lo dice: «sin datos» con la carga
+          rota es un falso que no deja saber por dónde empezar. */}
+      {errorCarga ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+        >
+          No se pudieron cargar los indicadores: {errorCarga} Revisa la conexión y recarga la página.
+        </div>
+      ) : null}
 
       {cargando ? (
         <div className="space-y-6">
@@ -556,6 +604,33 @@ export function DashboardHome() {
         // ventana y cada lista scrollea dentro, para que la pantalla entre
         // completa y el scroll —si hace falta— sea de la lista y no de la página.
         <div className="flex flex-col gap-4">
+          {/* Un vacío que explique QUÉ se buscó: «sin datos» a secas no dice
+              si no hay datos o si un filtro (oculto tras «Filtros») los está
+              escondiendo —que era justo lo indescifrable de este caso. Con la
+              consulta fallida manda el recuadro rojo de arriba, no éste. */}
+          {!errorCarga && !datos.evaluaciones.length ? (
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+              <p className="font-semibold text-slate-800">No se encontraron evaluaciones con estos criterios.</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {`Se buscaron evaluaciones ${incluirActivas ? '(activas y cerradas)' : 'cerradas'} desde el ${fechaLegible(desde)}`}
+                {hasta ? ` hasta el ${fechaLegible(hasta)}` : ' hasta hoy'}
+                {sucursalSel
+                  ? ` · sucursal: ${sucursalesVisibles.find((s) => s.id === sucursalSel)?.nombre ?? 'la elegida'}`
+                  : ' · sin filtrar sucursal'}
+                {moduloSel
+                  ? ` · módulo: ${modulos.find((m) => m.id === moduloSel)?.nombre ?? 'el elegido'}`
+                  : ' · todos los módulos'}
+                .
+              </p>
+              {/* El texto sigue al modo elegido: antes decía «cuenta únicamente
+                  las cerradas» a secas, que era verdad —y el problema—. */}
+              <p className="mt-1 text-xs text-slate-500">
+                {incluirActivas
+                  ? 'Las activas entran con su puntaje en curso, a medida que se van llenando; el contador de «completadas» sólo cuenta las cerradas.'
+                  : 'Sólo se contaron las cerradas: marca «Contar también las evaluaciones activas» en Filtros para ver el avance del mes.'}
+              </p>
+            </div>
+          ) : null}
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
             {/* 1. Cumplimiento por módulo: una tarjeta por módulo, sólo con el
                 porcentaje y su icono; el detalle se lee en el tooltip. */}
@@ -726,6 +801,9 @@ function FiltrosBar(props: {
   sucursales: { id: string; nombre: string }[]
   modulos: { id: string; nombre: string }[]
   soloSucursal: boolean
+  /** Contar también las evaluaciones abiertas, con su puntaje en curso. */
+  incluirActivas: boolean
+  setIncluirActivas: (v: boolean) => void
 }) {
   return (
     <div className={cn('grid gap-3 rounded-2xl border border-slate-200 p-4 sm:grid-cols-2 lg:grid-cols-4', CLASE_CONTENEDOR_DASHBOARD)}>
@@ -747,6 +825,23 @@ function FiltrosBar(props: {
           {props.modulos.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
         </Select>
       </Field>
+      {/* A mitad de mes casi todo está abierto: sin esta casilla el dashboard
+          se quedaba en ceros. El puntaje de una abierta es su avance real
+          (recalculado con las respuestas), no el cero que tenía guardado. */}
+      <label className="flex items-start gap-2 text-sm font-medium text-slate-700 sm:col-span-2 lg:col-span-4">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-5 w-5 accent-primary"
+          checked={props.incluirActivas}
+          onChange={(e) => props.setIncluirActivas(e.target.checked)}
+        />
+        <span>
+          Contar también las evaluaciones activas
+          <span className="block text-xs font-normal text-slate-400">
+            Entran con su puntaje en curso, a medida que se van llenando. La casilla de «completadas» sólo cuenta las cerradas.
+          </span>
+        </span>
+      </label>
     </div>
   )
 }
