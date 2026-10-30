@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Card, Puntaje, cn } from '../ui'
+import { Puntaje, cn } from '../ui'
 
 export function KpiCard({
   titulo,
@@ -12,12 +12,12 @@ export function KpiCard({
   titulo: string
   valor: ReactNode
   sub?: ReactNode
-  icono?: string
+  icono?: ReactNode
   color?: string
   children?: ReactNode
 }) {
   return (
-    <Card className={cn('flex flex-col gap-1', color)}>
+    <div className={cn('flex flex-col gap-1 rounded-2xl border border-slate-200 p-4', color)}>
       <div className="flex items-center gap-2 text-sm font-semibold opacity-90">
         {icono ? <span>{icono}</span> : null}
         {titulo}
@@ -25,7 +25,7 @@ export function KpiCard({
       <div className="text-3xl font-extrabold leading-none">{valor}</div>
       {sub ? <div className="text-xs opacity-80">{sub}</div> : null}
       {children}
-    </Card>
+    </div>
   )
 }
 

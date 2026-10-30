@@ -1,16 +1,34 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import { AlertTriangle } from 'lucide-react'
+import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
-import { consultarEvaluaciones, evolucionMensual, peoresItems, puntajePorModulo, rankingSucursales } from '../../lib/data/indicadores'
-import { valorBinario } from '../../lib/scoring'
-import type { ConjuntoDatos } from '../../lib/data/indicadores'
-import { KpiCard } from '../../components/dashboard/Kpi'
-import { Fotogaleria } from '../../components/dashboard/Fotogaleria'
-import { Card, Field, Input, Puntaje, Select, Spinner, Badge } from '../../components/ui'
-import { verTodo } from '../../lib/roles'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Line, ComposedChart, Cell
+  consultarEvaluaciones,
+  detalleDeEvaluacion,
+  incumplimientosEnRango,
+  medidoresPorModulo,
+  puntajePorSucursalModulo,
+  puntajePorUnidadModulo,
+  rankingDepartamentos,
+  rankingResponsables,
+  rankingSucursales,
+  renglonesDrilldown
+} from '../../lib/data/indicadores'
+import type { AlcanceDrilldown, ConjuntoDatos } from '../../lib/data/indicadores'
+import { Card, Field, Input, Select, Skeleton, cn } from '../../components/ui'
+import { subtituloMedidor } from '../../components/dashboard/subtituloMedidor'
+import { IconoModulo } from '../../components/IconoModulo'
+import { ModalDrilldown, DetalleEvalCabecera, DetalleRespuestasLista } from '../../components/dashboard/ModalDrilldown'
+import { verTodo } from '../../lib/roles'
+import { setKpisGlobal } from '../../lib/kpisGlobal'
+import { pct as pctComa } from '../../lib/numeros'
+import {
+  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ReferenceLine,
+  PieChart, Pie, Cell
 } from 'recharts'
+import { CLASE_CONTENEDOR_DASHBOARD, COLORES_MODULOS, HEX_PRIMARY, HEX_CUMPLE, HEX_RIESGO, colorPuntajeClase, colorSerie, coloresTarjetaPuntaje } from '../../lib/diseno'
 
 function haceMeses(n: number): string {
   const d = new Date()
@@ -18,9 +36,298 @@ function haceMeses(n: number): string {
   return d.toISOString().slice(0, 10)
 }
 
+/** Fecha ISO → 30/04/2026, para que el aviso de «qué se buscó» se lea como fecha. */
+function fechaLegible(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString('es')
+}
+
+/**
+ * Gráfico "Ponderación por unidad y módulo": una curva por módulo con la barra
+ * translúcida del promedio de la unidad. El mismo componente dibuja sucursales
+ * y departamentos; solo cambian las filas y a qué unidad apunta el clic.
+ */
+function GraficoPonderacion({
+  titulo,
+  descripcion,
+  filas,
+  modulos,
+  nombrePromedio,
+  lineaActiva,
+  setLineaActiva,
+  onClic,
+  sinDatos,
+  className,
+  modo = 'sucursal',
+  selector
+}: {
+  titulo: string
+  descripcion: string
+  filas: { nombre: string; porModulo: Record<string, number | null> }[]
+  modulos: { modulo_id: string; nombre: string }[]
+  /** Nombre de la barra en la leyenda ('Promedio por sucursal' / '… por departamento'). */
+  nombrePromedio: string
+  lineaActiva: string | null
+  setLineaActiva: (valor: string | null) => void
+  onClic: (data: unknown) => void
+  sinDatos: string
+  /** Ancho de la columna en la grilla (p. ej. 'xl:col-span-2'). */
+  className?: string
+  modo?: 'sucursal' | 'departamento'
+  /** Selector opcional para alternar unidades (p. ej. switch Sucursales / Departamentos). */
+  selector?: ReactNode
+}) {
+  const tituloVisible = modo === 'departamento' ? 'Ponderación por departamento y módulo' : titulo
+  const descripcionVisible =
+    modo === 'departamento'
+      ? 'Curvas por módulo con la barra translúcida del promedio por departamento; pasa el cursor por la leyenda para elevar una curva y haz clic en una barra o punto para ver las evaluaciones de ese departamento'
+      : descripcion
+  const filasGrafico = filas.map((f) => {
+    const valores = Object.values(f.porModulo).filter((v): v is number => v != null)
+    return {
+      unidad: f.nombre,
+      ...f.porModulo,
+      promedio: valores.length ? Math.round((valores.reduce((a, b) => a + b, 0) / valores.length) * 100) / 100 : null
+    }
+  })
+  return (
+    <Card className={cn('border-0!', CLASE_CONTENEDOR_DASHBOARD, className)}>
+      <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h3 className="font-bold text-primary-900">{tituloVisible}</h3>
+        {selector}
+      </div>
+      <p className="mb-3 text-xs text-slate-400">{descripcionVisible}</p>
+      {modulos.length && filas.length ? (
+        <ResponsiveContainer width="100%" height={ALTO_GRAFICO}>
+          <ComposedChart data={filasGrafico} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+            <XAxis dataKey="unidad" interval={0} angle={-38} textAnchor="end" height={90} tick={{ fontSize: 11, fill: '#475569' }} />
+            <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+            <ReferenceLine y={80} stroke={HEX_CUMPLE} strokeDasharray="4 4" strokeOpacity={0.4} />
+            <ReferenceLine y={60} stroke={HEX_RIESGO} strokeDasharray="4 4" strokeOpacity={0.4} />
+            <Tooltip
+              formatter={(v, nombre) => [pctComa(Number(v)), String(nombre)]}
+              contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
+            />
+            <Legend
+              iconType="plainline"
+              wrapperStyle={{ fontSize: 12 }}
+              onMouseEnter={(d) => setLineaActiva(d.value === nombrePromedio ? null : (d.value ?? null))}
+              onMouseLeave={() => setLineaActiva(null)}
+            />
+            {/* Barra translúcida: ponderación promedio de la unidad (detrás de las curvas) */}
+            <Bar
+              dataKey="promedio"
+              name={nombrePromedio}
+              fill={HEX_PRIMARY}
+              fillOpacity={0.14}
+              radius={[4, 4, 0, 0]}
+              barSize={16}
+              legendType="rect"
+              onClick={onClic}
+              style={{ cursor: 'pointer' }}
+            />
+            {modulos.map((m, i) => (
+              <Line
+                key={m.modulo_id}
+                type="monotone"
+                dataKey={m.nombre}
+                stroke={COLORES_MODULOS[i % COLORES_MODULOS.length]}
+                strokeWidth={lineaActiva === m.nombre ? 4 : 2}
+                connectNulls
+                dot={{ r: 3, strokeWidth: 1 }}
+                activeDot={{ r: 5 }}
+                opacity={lineaActiva && lineaActiva !== m.nombre ? 0.3 : 1}
+                onClick={onClic}
+                style={{ cursor: 'pointer' }}
+              />
+            ))}
+          </ComposedChart>
+        </ResponsiveContainer>
+      ) : <p className="text-sm text-slate-400">{sinDatos}</p>}
+    </Card>
+  )
+}
+
+/**
+ * Alto del gráfico de ponderación de la fila de arriba: baja de 380 a 300
+ * para que la fila 1 + la de las donas quepan en la ventana sin scrollear.
+ */
+const ALTO_GRAFICO = 300
+
+/** Alto fijo de cada dona de la fila de abajo y de su leyenda al lado. */
+const ALTO_DONA = 260
+
+/** Fila de la dona: la misma forma que traían las listas, para no tocar la capa de datos. */
+type FilaDona = {
+  nombre: string
+  puntaje: number | null
+  completadas: number
+  /** Clave única del nombre (los cargos pueden repetir forma de escribirse). */
+  clave?: string
+}
+
+/** Tooltip de la porción: nombre, puntaje con su umbral y evaluaciones que lo respaldan. */
+function TooltipDona({ active, payload }: { active?: boolean; payload?: readonly { payload?: FilaDona }[] }) {
+  const f = payload?.[0]?.payload
+  if (!active || !f) return null
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">
+      <p className="font-bold text-slate-800">{f.nombre}</p>
+      <p className={cn('font-black tabular-nums', colorPuntajeClase(f.puntaje))}>
+        {f.puntaje == null ? '—' : pctComa(f.puntaje)}
+      </p>
+      <p className="text-slate-400">{f.completadas} {f.completadas === 1 ? 'evaluación' : 'evaluaciones'}</p>
+    </div>
+  )
+}
+
+/**
+ * Dona de promedios: reemplazó a la lista con barras (se pidió en 2026-01).
+ * Cada porción es la participación de la unidad en el total —su puntaje sobre
+ * la suma de todos— y su color la identifica; el puntaje real de la unidad
+ * está en el tooltip de la porción y en la leyenda al lado. Esa leyenda además
+ * es la forma accesible de recorrer el listado: una porción de recharts no se
+ * puede enfocar con el teclado ni leer de corrido.
+ */
+function GraficoDona({
+  titulo,
+  descripcion,
+  icono,
+  filas,
+  etiqueta,
+  sinDatos,
+  onClic,
+  className
+}: {
+  titulo: string
+  descripcion: string
+  /** Icono junto al título (la tarjeta de cargos trae el de alerta). */
+  icono?: ReactNode
+  filas: FilaDona[]
+  /** Plural para lo que quedó afuera por no tener puntaje: 'sucursales' / 'departamentos' / 'cargos'. */
+  etiqueta: string
+  sinDatos: string
+  /** Sin clic queda sólo informativa: la tarjeta de cargos no tiene drilldown. */
+  onClic?: (fila: FilaDona) => void
+  className?: string
+}) {
+  // Una dona no puede dibujar un ángulo sin puntaje: en vez de perder esas
+  // unidades en silencio se cuentan en el rótulo de abajo.
+  const conPuntaje = filas.filter((f): f is FilaDona & { puntaje: number } => f.puntaje != null)
+  const sinPuntaje = filas.length - conPuntaje.length
+  return (
+    <Card className={cn('border-0!', CLASE_CONTENEDOR_DASHBOARD, className)}>
+      <div className="mb-3 flex items-center gap-2.5">
+        {icono}
+        <div className="min-w-0">
+          <h3 className="font-bold text-primary-900">{titulo}</h3>
+          <p className="text-xs text-slate-400">{descripcion}</p>
+        </div>
+      </div>
+      {!filas.length ? (
+        <p className="text-sm text-slate-400">{sinDatos}</p>
+      ) : !conPuntaje.length ? (
+        <p className="text-sm text-slate-400">Sin {etiqueta} con puntaje en el rango.</p>
+      ) : (
+        <>
+          <div className="flex gap-3">
+            <div className="w-[45%] shrink-0">
+              <ResponsiveContainer width="100%" height={ALTO_DONA}>
+                <PieChart>
+                  <Pie
+                    data={conPuntaje}
+                    dataKey="puntaje"
+                    nameKey="nombre"
+                    innerRadius="55%"
+                    outerRadius="82%"
+                    paddingAngle={0.5}
+                    onClick={(sector) => {
+                      const fila = (sector as { payload?: FilaDona } | null)?.payload
+                      if (fila) onClic?.(fila)
+                    }}
+                  >
+                    {conPuntaje.map((f, i) => (
+                      <Cell key={f.clave ?? f.nombre} fill={colorSerie(i)} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<TooltipDona />} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <ul
+              className="min-w-0 flex-1 divide-y divide-slate-200 overflow-y-auto rounded-xl border border-slate-200"
+              style={{ height: ALTO_DONA }}
+            >
+              {conPuntaje.map((f, i) => (
+                <li key={f.clave ?? f.nombre}>
+                  {onClic ? (
+                    <button
+                      type="button"
+                      onClick={() => onClic(f)}
+                      title={`${f.nombre}: ${pctComa(f.puntaje)} · ${f.completadas} ${f.completadas === 1 ? 'evaluación' : 'evaluaciones'}`}
+                      className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors hover:bg-primary-50/40"
+                    >
+                      <DatoDona fila={f} color={colorSerie(i)} />
+                    </button>
+                  ) : (
+                    <div className="flex w-full items-center gap-2 px-2 py-1.5">
+                      <DatoDona fila={f} color={colorSerie(i)} />
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+          {sinPuntaje ? (
+            <p className="mt-2 text-[11px] text-slate-400">Sin puntaje en el rango: {sinPuntaje} {etiqueta}</p>
+          ) : null}
+        </>
+      )}
+    </Card>
+  )
+}
+
+/** Renglón de la leyenda de una porción: color, nombre y su puntaje. */
+function DatoDona({ fila, color }: { fila: FilaDona; color: string }) {
+  return (
+    <>
+      <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: color }} />
+      <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-800">{fila.nombre}</span>
+      <span className={cn('shrink-0 text-xs font-black tabular-nums', colorPuntajeClase(fila.puntaje))}>
+        {pctComa(fila.puntaje)}
+      </span>
+    </>
+  )
+}
+
+/**
+ * Cumplimiento por módulo en su forma mínima: sólo el porcentaje y el icono
+ * que identifica al módulo, sobre el fondo PASTEL del puntaje (verde, ámbar o
+ * rojo según la nota, y gris si nunca se midió) con el texto y el icono en el
+ * tono profundo del mismo matiz —blanco no se lee sobre pastel—. El nombre y
+ * la cobertura no se pintan: van en el tooltip del enlace que envuelve la
+ * tarjeta. Es el `title` nativo del HTML y no un tooltip armado con CSS porque
+ * la grilla tiene `overflow-y-auto` (se lleva la altura que queda de la
+ * ventana) y se lo comería igual.
+ */
+function TarjetaModulo({ promedio, icono }: { promedio: number | null; icono?: string }) {
+  const { fondo, claseTexto } = coloresTarjetaPuntaje(promedio)
+  return (
+    <div
+      className="flex items-center justify-center gap-2.5 rounded-xl px-3 py-2.5"
+      style={{ background: fondo }}
+    >
+      <span className={cn('shrink-0 text-2xl font-black tabular-nums leading-none', claseTexto)}>
+        {promedio == null ? '—' : pctComa(promedio, 0)}
+      </span>
+      <IconoModulo nombre={icono} className={cn('h-5 w-5 shrink-0', claseTexto)} />
+    </div>
+  )
+}
+
 export function DashboardHome() {
   const { profile } = useAuth()
-  const { sucursales, modulos } = useCatalog()
+  const { sucursales, departamentos, modulos, sucursalModulos } = useCatalog()
 
   const scope = useMemo(() => {
     if (!profile) return null
@@ -33,10 +340,32 @@ export function DashboardHome() {
   const [hasta, setHasta] = useState('')
   const [sucursalSel, setSucursalSel] = useState('')
   const [moduloSel, setModuloSel] = useState('')
+  /**
+   * Contar también las evaluaciones ACTIVAS.
+   *
+   * A mitad de mes casi todo está abierto y un dashboard que sólo mira las
+   * cerradas se queda entero en ceros. La consulta ya recalcula el puntaje de
+   * CADA evaluación con sus respuestas (`conPuntajesRecalculados`), así que una
+   * abierta entra con su avance real y no como «cero disfrazado» —que era el
+   * motivo original de exuirlas. La KPI de COMPLETADAS sigue contando sólo las
+   * cerradas: una abierta todavía no está terminada.
+   */
+  const [incluirActivas, setIncluirActivas] = useState(true)
+  const [lineaActiva, setLineaActiva] = useState<string | null>(null)
+  const [tipoPonderacion, setTipoPonderacion] = useState<'sucursal' | 'departamento'>('sucursal')
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
+  /**
+   * Motivo por el que la carga falló. Sin esto, el `catch` de abajo convertía
+   * cualquier falla en «sin datos», que es un falso —mismo criterio que ya usa
+   * «Seguimiento por cargo»—: la pantalla tenía que decir qué se rompió.
+   */
+  const [errorCarga, setErrorCarga] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
 
   const sucursalesVisibles = scope ? sucursales.filter((s) => scope.includes(s.id)) : sucursales
+  // GERENTE_S (con `scope`) solo ve su sucursal: sin departamentos, como en Historial.
+  // Se memoiza: el `[]` nuevo en cada render re-dispararía los useMemo que lo usan.
+  const departamentosVisibles = useMemo(() => (scope ? [] : departamentos), [scope, departamentos])
 
   useEffect(() => {
     let activo = true
@@ -47,23 +376,119 @@ export function DashboardHome() {
           sucursal_ids: sucursalSel ? [sucursalSel] : scope,
           desde: desde || undefined,
           hasta: hasta || undefined,
-          modulo_id: moduloSel || undefined
+          modulo_id: moduloSel || undefined,
+          // Los KPIs y los promedios dicen «completadas»: una evaluación que
+          // sigue abierta no cuenta como tal. Las activas SÍ entran a los
+          // gráficos y promedios, con su puntaje en curso (ver
+          // `incluirActivas`); sólo el corte de estado lo decide el filtro.
+          soloCerradas: incluirActivas ? undefined : true
         })
-        if (activo) setDatos(d)
-      } catch {
-        if (activo) setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [] })
+        if (activo) {
+          setDatos(d)
+          setErrorCarga(null)
+        }
+      } catch (e) {
+        // El motivo va a la consola Y a la pantalla: esconderlo era lo que
+        // dejaba el dashboard diciendo «sin datos» cuando lo que falló fue la
+        // consulta (mismo criterio que «Seguimiento por cargo»).
+        console.error('No se pudieron cargar los indicadores:', e)
+        if (activo) {
+          setErrorCarga(e instanceof Error ? e.message : 'No se pudieron cargar los indicadores.')
+          setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [], instancias: [] })
+        }
       } finally {
         if (activo) setCargando(false)
       }
     })()
     return () => { activo = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desde, hasta, sucursalSel, moduloSel, scope?.join(',')])
+  }, [desde, hasta, sucursalSel, moduloSel, incluirActivas, scope?.join(',')])
 
-  const ranking = useMemo(() => (datos ? rankingSucursales(datos) : []), [datos])
-  const serie = useMemo(() => (datos ? evolucionMensual(datos) : []), [datos])
-  const porModulo = useMemo(() => (datos ? puntajePorModulo(datos) : []), [datos])
-  const peores = useMemo(() => (datos ? peoresItems(datos) : []), [datos])
+  const sucursalesRanking = useMemo(
+    () => (datos ? rankingSucursales(datos, sucursalesVisibles) : []),
+    [datos, sucursalesVisibles]
+  )
+  const departamentosRanking = useMemo(
+    () => (datos ? rankingDepartamentos(datos, departamentosVisibles) : []),
+    [datos, departamentosVisibles]
+  )
+  const cargosRanking = useMemo(() => (datos ? rankingResponsables(datos, 20) : []), [datos])
+  const matrizModulos = useMemo(
+    () => (datos ? puntajePorSucursalModulo(datos, sucursalesVisibles) : null),
+    [datos, sucursalesVisibles]
+  )
+  const matrizDepartamentos = useMemo(
+    () => (datos && departamentosVisibles.length ? puntajePorUnidadModulo(datos, departamentosVisibles) : null),
+    [datos, departamentosVisibles]
+  )
+  const modulosOrden = useMemo(() => {
+    const base = datos?.modulos.map((m) => ({ modulo_id: m.id, nombre: m.nombre })) ?? []
+    if (!lineaActiva) return base
+    // El módulo "hovered" se dibuja al final para quedar encima de los demás (z-index dinámico).
+    return [...base].sort((a, b) => (a.nombre === lineaActiva ? 1 : 0) - (b.nombre === lineaActiva ? 1 : 0))
+  }, [datos, lineaActiva])
+
+  // Drilldown (modal): alcance clickeado y sus evaluaciones filtradas.
+  const [drill, setDrill] = useState<{ titulo: string; subtitulo?: string; alcance: AlcanceDrilldown; etiquetaScope?: string } | null>(null)
+  const drillFilas = useMemo(
+    () => (datos && drill ? renglonesDrilldown(datos, drill.alcance) : []),
+    [datos, drill]
+  )
+  const idPorNombreSucursal = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const s of sucursalesVisibles) m.set(s.nombre, s.id)
+    return m
+  }, [sucursalesVisibles])
+  const idPorNombreDepartamento = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const d of departamentosVisibles) m.set(d.nombre, d.id)
+    return m
+  }, [departamentosVisibles])
+
+  const abrirDrill = (p: { titulo: string; subtitulo?: string; alcance: AlcanceDrilldown; etiquetaScope?: string }) => setDrill(p)
+
+  /** Nombre de la fila clickeada en el gráfico de ponderación (payload de recharts). */
+  const nombreClickeado = (data: unknown): string | null => {
+    const d = data as { payload?: Record<string, unknown>; unidad?: unknown } | null | undefined
+    const nombre = d?.payload?.unidad ?? d?.unidad
+    return typeof nombre === 'string' ? nombre : null
+  }
+
+  const abrirDrillSucursal = (data: unknown) => {
+    const nombre = nombreClickeado(data)
+    if (!nombre) return
+    const id = idPorNombreSucursal.get(nombre)
+    if (id) abrirDrill({ titulo: nombre, subtitulo: 'Evaluaciones de esta sucursal en el rango seleccionado', alcance: { sucursal_id: id } })
+  }
+
+  const abrirDrillDepartamento = (data: unknown) => {
+    const nombre = nombreClickeado(data)
+    if (!nombre) return
+    const id = idPorNombreDepartamento.get(nombre)
+    if (id) abrirDrill({ titulo: nombre, subtitulo: 'Evaluaciones de este departamento en el rango seleccionado', alcance: { departamento_id: id } })
+  }
+
+  const detalleDe = (id: string) => {
+    const r = drillFilas.find((x) => x.id === id)
+    return (
+      <div className="space-y-3">
+        {r ? (
+          <DetalleEvalCabecera
+            fecha={r.fecha}
+            sucursal={r.sucursal}
+            estado={r.estado}
+            puntaje={r.puntaje}
+            puntajeScope={r.puntajeScope}
+            etiquetaScope={drill?.etiquetaScope}
+            muestras={r.muestras}
+          />
+        ) : null}
+        <DetalleRespuestasLista filas={datos ? detalleDeEvaluacion(datos, id, drill?.alcance ?? {}) : []} />
+      </div>
+    )
+  }
+
+  const incumplimientos = useMemo(() => (datos ? incumplimientosEnRango(datos) : 0), [datos])
 
   const kpis = useMemo(() => {
     if (!datos) return { global: null as number | null, completadas: 0, cobertura: 0, incumplimientos: 0 }
@@ -72,153 +497,295 @@ export function DashboardHome() {
       ? Math.round((conPuntaje.reduce((a, e) => a + (e.puntuacion ?? 0), 0) / conPuntaje.length) * 100) / 100
       : null
     const totalSuc = sucursalesVisibles.length || 1
-    const cubiertas = new Set(datos.evaluaciones.map((e) => e.sucursal_id)).size
+    // Cobertura = cuántas sucursales del alcance tienen evaluación en el rango.
+    // Las de departamento no son de ninguna sucursal: meter su `null` en el set
+    // sumaría una "tienda" que no existe y subiría el porcentaje de mentira.
+    const cubiertas = new Set(
+      datos.evaluaciones.map((e) => e.sucursal_id).filter((s): s is string => !!s)
+    ).size
     return {
       global,
-      completadas: datos.evaluaciones.length,
+      // «Completadas» sigue siendo sólo lo cerrado: una abierta, por mucho que
+      // su puntaje en curso ayude a ver el mes, todavía no está terminada.
+      completadas: datos.evaluaciones.filter((e) => e.estado === 'CERRADA').length,
       cobertura: Math.round((cubiertas / totalSuc) * 100),
-      incumplimientos: peores.reduce((a, p) => a + (p.total - p.ok), 0)
+      incumplimientos
     }
-  }, [datos, peores, sucursalesVisibles.length])
+  }, [datos, incumplimientos, sucursalesVisibles.length])
 
+  // Publica los KPIs a la barra global (ancho completo, debajo de la barra de navegación).
+  useEffect(() => {
+    setKpisGlobal(kpis)
+  }, [kpis])
+
+  // Un reloj por módulo activo: promedio de la última evaluación de cada
+  // UNIDAD —sucursal o departamento— que midió ese módulo.
+  const medidores = useMemo(() => {
+    if (!datos) return []
+    const listaModulos = modulos.filter((m) => m.activo && (!moduloSel || m.id === moduloSel))
+    return medidoresPorModulo(datos, listaModulos, sucursalesVisibles, sucursalModulos, departamentosVisibles)
+  }, [datos, modulos, moduloSel, sucursalesVisibles, sucursalModulos, departamentosVisibles])
+
+  // Icono de cada módulo desde el catálogo: como la tarjeta ya no pinta el
+  // nombre, el icono es lo único que dice de qué módulo se trata.
+  const iconoPorModulo = useMemo(() => {
+    const m = new Map<string, string | undefined>()
+    for (const x of modulos) m.set(x.id, x.icono)
+    return m
+  }, [modulos])
+
+  // El filtro por sucursal no aplica a departamentos: con la sucursal elegida
+  // la lista quedaría vacía. Además define si la fila de abajo son tres
+  // columnas o dos (si no, quedaba un hueco vacío al final de la grilla).
+  const verDepartamentos = !sucursalSel && departamentosVisibles.length > 0
+
+  // El rótulo debajo del reloj vive en `subtituloMedidor`, compartido con el
+  // dashboard del módulo: eran dos textos distintos para la misma pieza.
+  // "ver detalle" va acá y no adentro, porque es propio de esta pantalla.
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-extrabold text-primary-900">Indicadores de gestión</h2>
-          <p className="text-sm text-slate-500">Desempeño de las evaluaciones 360</p>
+      <DashboardFiltersPortal>
+        <FiltrosBar
+          desde={desde}
+          setDesde={setDesde}
+          hasta={hasta}
+          setHasta={setHasta}
+          sucursal={sucursalSel}
+          setSucursal={setSucursalSel}
+          modulo={moduloSel}
+          setModulo={setModuloSel}
+          sucursales={sucursalesVisibles}
+          modulos={modulos}
+          soloSucursal={!!scope}
+          incluirActivas={incluirActivas}
+          setIncluirActivas={setIncluirActivas}
+        />
+      </DashboardFiltersPortal>
+
+      {/* Si la consulta falló, la pantalla lo dice: «sin datos» con la carga
+          rota es un falso que no deja saber por dónde empezar. */}
+      {errorCarga ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+        >
+          No se pudieron cargar los indicadores: {errorCarga} Revisa la conexión y recarga la página.
         </div>
-        {profile?.rol === 'LIDER' || profile?.rol === 'GERENTE_C' || profile?.rol === 'GERENTE_TH' ? (
-          <div className="flex gap-2">
-            <LabelBtn activo={desde === haceMeses(3)} onClick={() => setDesde(haceMeses(3))}>3m</LabelBtn>
-            <LabelBtn activo={desde === haceMeses(6)} onClick={() => setDesde(haceMeses(6))}>6m</LabelBtn>
-            <LabelBtn activo={desde === haceMeses(12)} onClick={() => setDesde(haceMeses(12))}>12m</LabelBtn>
-            <LabelBtn activo={desde === ''} onClick={() => setDesde('')}>Todo</LabelBtn>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard titulo="Cumplimiento global" valor={<Puntaje value={kpis.global} className="text-3xl text-white" />} icono="🎯" />
-        <KpiCard titulo="Evaluaciones completadas" valor={kpis.completadas} icono="✅" color="bg-slate-800 text-white" />
-        <KpiCard titulo="Cobertura de sucursales" valor={`${kpis.cobertura}%`} icono="🏬" color="bg-green-700 text-white" />
-        <KpiCard titulo="Ítems incumplidos" valor={kpis.incumplimientos} icono="⚠️" color="bg-red-600 text-white" />
-      </div>
-
-      <FiltrosBar
-        desde={desde}
-        setDesde={setDesde}
-        hasta={hasta}
-        setHasta={setHasta}
-        sucursal={sucursalSel}
-        setSucursal={setSucursalSel}
-        modulo={moduloSel}
-        setModulo={setModuloSel}
-        sucursales={sucursalesVisibles}
-        modulos={modulos}
-        soloSucursal={!!scope}
-      />
+      ) : null}
 
       {cargando ? (
-        <div className="flex justify-center py-20"><Spinner className="h-10 w-10" /></div>
-      ) : !datos || datos.evaluaciones.length === 0 ? (
-        <Card>
-          <div className="py-10 text-center">
-            <p className="text-lg font-bold text-primary-900">Sin datos en el rango seleccionado</p>
-            <p className="text-sm text-slate-500">Ajusta los filtros o espera a que se sincronicen evaluaciones.</p>
-          </div>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <Card className="lg:col-span-2">
-            <h3 className="mb-3 font-bold text-primary-900">Evolución del cumplimiento</h3>
-            {serie.length ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <ComposedChart data={serie}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="mes" />
-                  <YAxis yAxisId="l" domain={[0, 100]} />
-                  <YAxis yAxisId="r" orientation="right" />
-                  <Tooltip />
-                  <Line yAxisId="l" type="monotone" dataKey="puntaje" name="Cumplimiento %" stroke="#0B2545" strokeWidth={3} dot={{ r: 4 }} />
-                  <Bar yAxisId="r" dataKey="completadas" name="Completadas" fill="#93c5fd" radius={[4, 4, 0, 0]} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            ) : <p className="text-sm text-slate-400">Sin meses con datos.</p>}
-          </Card>
-
-          <Card>
-            <h3 className="mb-3 font-bold text-primary-900">Ranking de sucursales</h3>
-            {ranking.length ? (
-              <ResponsiveContainer width="100%" height={Math.max(200, ranking.length * 42)}>
-                <BarChart data={ranking} layout="vertical" margin={{ left: 8, right: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} />
-                  <YAxis type="category" dataKey="nombre" width={120} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v) => [`${v}%`, 'Cumplimiento']} />
-                  <Bar dataKey="puntaje" radius={[0, 6, 6, 0]}>
-                    {ranking.map((_, i) => (
-                      <Cell key={i} fill={i === 0 ? '#16a34a' : i === 1 ? '#0B2545' : '#64748b'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            ) : <p className="text-sm text-slate-400">Sin datos.</p>}
-          </Card>
-
-          <Card>
-            <h3 className="mb-3 font-bold text-primary-900">Resultado por módulo</h3>
-            {porModulo.length ? (
-              <ResponsiveContainer width="100%" height={Math.max(160, porModulo.length * 36)}>
-                <BarChart data={porModulo} layout="vertical" margin={{ left: 8, right: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} />
-                  <YAxis type="category" dataKey="nombre" width={140} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v) => [`${v}%`, 'Cumplimiento']} />
-                  <Bar dataKey="puntaje" fill="#1D4ED8" radius={[0, 6, 6, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : <p className="text-sm text-slate-400">Sin datos.</p>}
-          </Card>
-
-          <Card className="lg:col-span-2">
-            <h3 className="mb-3 font-bold text-primary-900">Matriz módulo × sucursal</h3>
-            <MatrizTabla datos={datos} />
-          </Card>
-
-          <Card>
-            <h3 className="mb-3 font-bold text-primary-900">Alertas: ítems con menor cumplimiento</h3>
-            <div className="space-y-2">
-              {peores.length ? peores.slice(0, 6).map((p) => (
-                <div key={p.item_id} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-700">{p.texto}</p>
-                    <p className="text-xs text-slate-400">{p.ok} de {p.total} cumplen</p>
-                  </div>
-                  <Badge color={p.ratio > 0.6 ? 3 : 4}>{Math.round(p.ratio * 100)}%</Badge>
+        <div className="space-y-6">
+          <Card className={CLASE_CONTENEDOR_DASHBOARD}>
+            <div className="mb-4 space-y-2">
+              <Skeleton className="h-5 w-52" />
+              <Skeleton className="h-3 w-72" />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex h-20 overflow-hidden rounded-xl border border-slate-200">
+                  <Skeleton className="w-16 rounded-none sm:w-20" />
+                  <Skeleton className="flex-1 rounded-none" />
+                  <Skeleton className="w-16 rounded-none sm:w-20" />
                 </div>
-              )) : <p className="text-sm text-slate-400">No hay datos binarios todavía.</p>}
+              ))}
             </div>
           </Card>
-
-          <Card>
-            <h3 className="mb-3 font-bold text-primary-900">Últimas evidencias fotográficas</h3>
-            <Fotogaleria fotos={datos.fotos} />
+          <Card className={CLASE_CONTENEDOR_DASHBOARD}>
+            <div className="mb-4 space-y-2">
+              <Skeleton className="h-5 w-64" />
+              <Skeleton className="h-3 w-80" />
+            </div>
+            <Skeleton className="h-80 w-full" />
           </Card>
         </div>
-      )}
-    </div>
-  )
-}
+      ) : datos ? (
+        // Dos filas: arriba los módulos con el gráfico de ponderación, abajo
+        // las tres listas. Las columnas se reparten todo el ancho de la
+        // ventana y cada lista scrollea dentro, para que la pantalla entre
+        // completa y el scroll —si hace falta— sea de la lista y no de la página.
+        <div className="flex flex-col gap-4">
+          {/* Un vacío que explique QUÉ se buscó: «sin datos» a secas no dice
+              si no hay datos o si un filtro (oculto tras «Filtros») los está
+              escondiendo —que era justo lo indescifrable de este caso. Con la
+              consulta fallida manda el recuadro rojo de arriba, no éste. */}
+          {!errorCarga && !datos.evaluaciones.length ? (
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+              <p className="font-semibold text-slate-800">No se encontraron evaluaciones con estos criterios.</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {`Se buscaron evaluaciones ${incluirActivas ? '(activas y cerradas)' : 'cerradas'} desde el ${fechaLegible(desde)}`}
+                {hasta ? ` hasta el ${fechaLegible(hasta)}` : ' hasta hoy'}
+                {sucursalSel
+                  ? ` · sucursal: ${sucursalesVisibles.find((s) => s.id === sucursalSel)?.nombre ?? 'la elegida'}`
+                  : ' · sin filtrar sucursal'}
+                {moduloSel
+                  ? ` · módulo: ${modulos.find((m) => m.id === moduloSel)?.nombre ?? 'el elegido'}`
+                  : ' · todos los módulos'}
+                .
+              </p>
+              {/* El texto sigue al modo elegido: antes decía «cuenta únicamente
+                  las cerradas» a secas, que era verdad —y el problema—. */}
+              <p className="mt-1 text-xs text-slate-500">
+                {incluirActivas
+                  ? 'Las activas entran con su puntaje en curso, a medida que se van llenando; el contador de «completadas» sólo cuenta las cerradas.'
+                  : 'Sólo se contaron las cerradas: marca «Contar también las evaluaciones activas» en Filtros para ver el avance del mes.'}
+              </p>
+            </div>
+          ) : null}
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            {/* 1. Cumplimiento por módulo: una tarjeta por módulo, sólo con el
+                porcentaje y su icono; el detalle se lee en el tooltip. */}
+            <Card className={cn('border-0!', CLASE_CONTENEDOR_DASHBOARD)}>
+              <h3 className="mb-1 font-bold text-primary-900">Cumplimiento por módulo</h3>
+              <p className="mb-3 text-xs text-slate-400">Promedio de la última evaluación de cada sucursal con el módulo activo y de cada departamento que lo midió, en el rango seleccionado · el nombre y la cobertura de cada módulo aparecen al pasar el cursor; el clic abre su dashboard</p>
+              {medidores.length ? (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:max-h-[max(13rem,calc(100vh_-_46rem))] xl:overflow-y-auto">
+                  {medidores.map((m) => {
+                    // El detalle que ya no se pinta en la tarjeta vive en el
+                    // tooltip del enlace, que a la vez es su nombre accesible.
+                    const detalle = `${m.nombre} · ${subtituloMedidor(m)} · ver detalle`
+                    return (
+                      <Link
+                        key={m.modulo_id}
+                        to={`/dashboard/modulo/${m.modulo_id}`}
+                        title={detalle}
+                        aria-label={detalle}
+                        className="rounded-xl transition-all hover:-translate-y-0.5 hover:bg-primary-50/60 hover:shadow-md hover:ring-2 hover:ring-primary/30"
+                      >
+                        <TarjetaModulo promedio={m.promedio} icono={iconoPorModulo.get(m.modulo_id)} />
+                      </Link>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">Sin módulos activos.</p>
+              )}
+            </Card>
 
-function LabelBtn({ activo, onClick, children }: { activo: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${activo ? 'bg-primary text-white' : 'bg-white text-slate-600 border border-slate-200'}`}
-    >
-      {children}
-    </button>
+            {/* 2. Ponderación por sucursal y módulo: ocupa las dos columnas que
+                le quedan a la fila, porque su eje X necesita ancho. Permite alternar
+                a Departamentos mediante el switch superior. */}
+            <GraficoPonderacion
+              className="xl:col-span-2"
+              titulo="Ponderación por sucursal y módulo"
+              descripcion="Curvas por módulo con la barra translúcida del promedio por sucursal; pasa el cursor por la leyenda para elevar una curva y haz clic en una barra o punto para ver las evaluaciones de esa sucursal"
+              filas={
+                (verDepartamentos && tipoPonderacion === 'departamento')
+                  ? (matrizDepartamentos?.unidades ?? [])
+                  : (matrizModulos?.sucursales ?? [])
+              }
+              modulos={modulosOrden}
+              nombrePromedio={
+                (verDepartamentos && tipoPonderacion === 'departamento')
+                  ? 'Promedio por departamento'
+                  : 'Promedio por sucursal'
+              }
+              lineaActiva={lineaActiva}
+              setLineaActiva={setLineaActiva}
+              onClic={
+                (verDepartamentos && tipoPonderacion === 'departamento')
+                  ? abrirDrillDepartamento
+                  : abrirDrillSucursal
+              }
+              sinDatos={
+                (verDepartamentos && tipoPonderacion === 'departamento')
+                  ? 'Sin datos de departamentos para mostrar en el rango.'
+                  : 'Sin datos de módulos para mostrar en el rango.'
+              }
+              modo={verDepartamentos && tipoPonderacion === 'departamento' ? 'departamento' : 'sucursal'}
+              selector={
+                verDepartamentos ? (
+                  <div className="inline-flex items-center rounded-lg bg-slate-100 p-0.5 text-xs font-medium text-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => setTipoPonderacion('sucursal')}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 transition-all',
+                        tipoPonderacion === 'sucursal'
+                          ? 'bg-white font-semibold text-primary-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-900'
+                      )}
+                    >
+                      Sucursales
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTipoPonderacion('departamento')}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 transition-all',
+                        tipoPonderacion === 'departamento'
+                          ? 'bg-white font-semibold text-primary-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-900'
+                      )}
+                    >
+                      Departamentos
+                    </button>
+                  </div>
+                ) : null
+              }
+            />
+          </div>
+
+          {/* Fila de donas: con departamento son tres columnas; sin él (filtro
+              por sucursal) se reparten en dos y no queda un hueco al final. */}
+          <div className={cn('grid grid-cols-1 gap-4 md:grid-cols-2', verDepartamentos ? 'xl:grid-cols-3' : 'xl:grid-cols-2')}>
+            {/* 3. Promedio por sucursal. */}
+            <GraficoDona
+              titulo="Promedio por sucursal"
+              descripcion="Puntaje de cumplimiento promedio de cada sucursal en el rango, de mayor a menor · el tamaño de la porción es su participación en el total; el cursor muestra el puntaje y las evaluaciones, y el clic abre las de esa sucursal"
+              filas={sucursalesRanking.map((s) => ({ nombre: s.nombre, puntaje: s.puntaje, completadas: s.completadas }))}
+              etiqueta="sucursales"
+              sinDatos="Sin sucursales en el rango."
+              onClic={(fila) => {
+                const id = idPorNombreSucursal.get(fila.nombre)
+                if (id) abrirDrill({ titulo: fila.nombre, subtitulo: 'Evaluaciones de esta sucursal en el rango seleccionado', alcance: { sucursal_id: id } })
+              }}
+            />
+
+            {/* 4. Promedio por departamento. El filtro por sucursal no aplica a
+                departamentos: con la sucursal elegida quedaría vacía. */}
+            {verDepartamentos ? (
+              <GraficoDona
+                titulo="Promedio por departamento"
+                descripcion="Puntaje de cumplimiento promedio de cada departamento en el rango, de mayor a menor · el tamaño de la porción es su participación en el total; el cursor muestra el puntaje y las evaluaciones, y el clic abre las de ese departamento"
+                filas={departamentosRanking.map((d) => ({ nombre: d.nombre, puntaje: d.puntaje, completadas: d.completadas }))}
+                etiqueta="departamentos"
+                sinDatos="Sin departamentos evaluados en el rango."
+                onClic={(fila) => {
+                  const id = idPorNombreDepartamento.get(fila.nombre)
+                  if (id) abrirDrill({ titulo: fila.nombre, subtitulo: 'Evaluaciones de este departamento en el rango seleccionado', alcance: { departamento_id: id } })
+                }}
+              />
+            ) : null}
+
+            {/* 5. Los 20 cargos con peor porcentaje de resultado en el rango:
+                la nota manda, no la cantidad de fallas. Se queda informativa:
+                el drilldown no tiene alcance por cargo. */}
+            <GraficoDona
+              icono={
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-600">
+                  <AlertTriangle className="h-5 w-5" />
+                </span>
+              }
+              titulo="20 cargos con menor porcentaje de resultado"
+              descripcion="Top 20 por su porcentaje de resultado en el rango (lo logrado sobre lo que se le pudo medir, con el mismo reparto que la página de seguimiento por cargo) · el cursor muestra cuántas evaluaciones lo respaldan"
+              filas={cargosRanking.map((c) => ({ clave: c.clave, nombre: c.cargo, puntaje: c.nota, completadas: c.evaluaciones }))}
+              etiqueta="cargos"
+              sinDatos="Sin cargos con evaluaciones en el rango."
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <ModalDrilldown
+        open={drill != null}
+        onCerrar={() => setDrill(null)}
+        titulo={drill?.titulo ?? 'Detalle'}
+        subtitulo={drill?.subtitulo}
+        filas={drillFilas}
+        renderDetalle={detalleDe}
+        urlDe={(id) => `/evaluaciones/${id}`}
+      />
+    </div>
   )
 }
 
@@ -234,9 +801,12 @@ function FiltrosBar(props: {
   sucursales: { id: string; nombre: string }[]
   modulos: { id: string; nombre: string }[]
   soloSucursal: boolean
+  /** Contar también las evaluaciones abiertas, con su puntaje en curso. */
+  incluirActivas: boolean
+  setIncluirActivas: (v: boolean) => void
 }) {
   return (
-    <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className={cn('grid gap-3 rounded-2xl border border-slate-200 p-4 sm:grid-cols-2 lg:grid-cols-4', CLASE_CONTENEDOR_DASHBOARD)}>
       <Field label="Desde">
         <Input type="date" value={props.desde} onChange={(e) => props.setDesde(e.target.value)} />
       </Field>
@@ -255,69 +825,23 @@ function FiltrosBar(props: {
           {props.modulos.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
         </Select>
       </Field>
+      {/* A mitad de mes casi todo está abierto: sin esta casilla el dashboard
+          se quedaba en ceros. El puntaje de una abierta es su avance real
+          (recalculado con las respuestas), no el cero que tenía guardado. */}
+      <label className="flex items-start gap-2 text-sm font-medium text-slate-700 sm:col-span-2 lg:col-span-4">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-5 w-5 accent-primary"
+          checked={props.incluirActivas}
+          onChange={(e) => props.setIncluirActivas(e.target.checked)}
+        />
+        <span>
+          Contar también las evaluaciones activas
+          <span className="block text-xs font-normal text-slate-400">
+            Entran con su puntaje en curso, a medida que se van llenando. La casilla de «completadas» sólo cuenta las cerradas.
+          </span>
+        </span>
+      </label>
     </div>
   )
-}
-
-function MatrizTabla({ datos }: { datos: ConjuntoDatos }) {
-  const modulos = datos.modulos
-  const sucursales = Array.from(new Set(datos.evaluaciones.map((e) => e.sucursal_id)))
-  const nombres: Record<string, string> = {}
-  for (const ev of datos.evaluaciones) nombres[ev.sucursal_id] = ev.sucursal?.nombre ?? ev.sucursal_id
-
-  const celdas: Record<string, Record<string, { ok: number; n: number }>> = {}
-  for (const ev of datos.evaluaciones) {
-    for (const r of datos.respuestas.filter((x) => x.evaluacion_id === ev.id)) {
-      const item = datos.items.find((i) => i.id === r.item_id)
-      if (!item) continue
-      const bin = valorBinario(item, r.valor)
-      if (bin === null) continue
-      const c = celdas[ev.sucursal_id]?.[item.modulo_id] ?? { ok: 0, n: 0 }
-      c.n++
-      if (bin) c.ok++
-      if (!celdas[ev.sucursal_id]) celdas[ev.sucursal_id] = {}
-      celdas[ev.sucursal_id][item.modulo_id] = c
-    }
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-xs uppercase text-slate-400">
-            <th className="py-2 pr-4">Sucursal</th>
-            {modulos.map((m) => <th key={m.id} className="px-2 py-2">{m.nombre}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {sucursales.map((suc) => (
-            <tr key={suc} className="border-t border-slate-100">
-              <td className="py-2 pr-4 font-medium text-slate-700">{nombres[suc]}</td>
-              {modulos.map((m) => {
-                const c = celdas[suc]?.[m.id]
-                const pct = c && c.n ? (c.ok / c.n) * 100 : null
-                return (
-                  <td key={m.id} className="px-2 py-2">
-                    <span
-                      className="inline-flex min-w-[52px] items-center justify-center rounded-lg px-2 py-1 text-xs font-bold text-white"
-                      style={{ backgroundColor: colorPct(pct) }}
-                    >
-                      {pct == null ? '—' : `${Math.round(pct)}%`}
-                    </span>
-                  </td>
-                )
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function colorPct(pct: number | null): string {
-  if (pct == null) return '#e2e8f0'
-  if (pct >= 80) return '#16a34a'
-  if (pct >= 60) return '#d97706'
-  return '#dc2626'
 }
