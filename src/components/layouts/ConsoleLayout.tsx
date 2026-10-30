@@ -1,6 +1,6 @@
 import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { DashboardFiltersProvider, useDashboardFilters } from '../../context/DashboardFiltersContext'
 import { puedeConfigurar } from '../../lib/roles'
@@ -44,7 +44,6 @@ export function ConsoleLayout() {
 function ConsoleLayoutContenido() {
   const { profile, signOut } = useAuth()
   const { abierto: filtrosAbiertos, alternar: alternarFiltros } = useDashboardFilters()
-  const navigate = useNavigate()
   const { pathname } = useLocation()
   const tituloVista =
     titulosVista[pathname] ??
@@ -152,14 +151,23 @@ function ConsoleLayoutContenido() {
             />
           ) : null}
           <div className="space-y-6">
+            {/* «Ir a evaluaciones» estaba en la cabecera, a la derecha de
+                Filtros; se muda al menú para que la barra superior quede sólo
+                para filtros y acciones de la vista. Mismo destino de siempre,
+                y sólo para quien puede evaluar (antes el botón existía para
+                todos pero no hacía nada si no era EVALUADOR/LÍDER). */}
             {puedeEvaluar ? (
               <Link
                 to="/evaluar"
                 onClick={() => setAbierto(false)}
-                className="flex items-center gap-3 rounded-xl bg-primary px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700 lg:hidden"
+                title="Ir a evaluaciones"
+                className={cn(
+                  'flex items-center gap-3 rounded-xl bg-primary px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700',
+                  colapsado && 'lg:justify-center lg:px-0'
+                )}
               >
                 <ClipboardCheck className="h-5 w-5 shrink-0" />
-                Evaluaciones
+                <span className={cn(colapsado && 'lg:hidden')}>Ir a evaluaciones</span>
               </Link>
             ) : null}
             {secciones.length ? secciones.map((s) => (
@@ -265,27 +273,26 @@ function ConsoleLayoutContenido() {
               <p className="truncate text-xs leading-tight text-slate-500">{tituloVista.subtitulo}</p>
             </div>
           ) : <div className="text-primary font-extrabold lg:hidden">EvaLuxor</div>}
-          {esDashboard ? (
-            <button
-              type="button"
-              onClick={alternarFiltros}
-              aria-expanded={filtrosAbiertos}
-              aria-controls="dashboard-filters-panel"
-              className={cn('ml-auto inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition-colors', filtrosAbiertos ? 'border-primary bg-primary-50 text-primary-800' : 'border-slate-200 text-slate-600 hover:border-primary-300 hover:bg-primary-50 hover:text-primary')}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              Filtros
-            </button>
-          ) : null}
-          <button
-            onClick={() => {
-              const target = profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER' ? '/evaluar' : '#'
-              if (target !== '#') navigate(target)
-            }}
-            className={cn('hidden rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 lg:block', !esDashboard && 'ml-auto', esDashboard && 'ml-2')}
-          >
-            Ir a evaluaciones
-          </button>
+          {/* Acciones de la vista, a la derecha del título: «Filtros» (sólo en
+              el dashboard) y el hueco al que cada página se cuelga sus botones
+              por portal —el Historial el de aperturar, Unidades el selector de
+              pestañas y «+ Nueva». El hueco está siempre, aunque hoy sólo
+              esas dos vistas lo usen. */}
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {esDashboard ? (
+              <button
+                type="button"
+                onClick={alternarFiltros}
+                aria-expanded={filtrosAbiertos}
+                aria-controls="dashboard-filters-panel"
+                className={cn('inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition-colors', filtrosAbiertos ? 'border-primary bg-primary-50 text-primary-800' : 'border-slate-200 text-slate-600 hover:border-primary-300 hover:bg-primary-50 hover:text-primary')}
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                Filtros
+              </button>
+            ) : null}
+            <div id="acciones-vista" className="flex items-center gap-2" />
+          </div>
         </header>
         {esDashboard ? (
           <div className={cn('grid transition-[grid-template-rows] duration-300 ease-out', filtrosAbiertos ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')}>

@@ -3,6 +3,7 @@ import { Pencil, Settings2, Trash2 } from 'lucide-react'
 import { listarDepartamentosAdmin, guardarDepartamento, eliminarDepartamento } from '../../lib/data/departamentos'
 import type { Departamento } from '../../lib/types'
 import { Button, ButtonIcon, Field, Input, Modal, Badge, SkeletonFilas } from '../../components/ui'
+import { PortalCabecera } from '../../components/PortalCabecera'
 import { DepartamentoConfigModal } from './SucursalConfig'
 
 /**
@@ -77,13 +78,18 @@ export function DepartamentosPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-2xl text-sm text-slate-500">
-          Áreas de la organización que se evalúan por separado y no son tiendas. Central no es una
-          sucursal: lo que se evalúa ahí es cada uno de estos departamentos.
-        </p>
-        <Button onClick={() => abrir(null)}>+ Nuevo</Button>
-      </div>
+      {/* El alta se ofrece en la barra superior, junto al selector de
+          pestañas; acá queda sólo la nota que explica qué es un departamento. */}
+      <PortalCabecera>
+        <Button onClick={() => abrir(null)} title="Nuevo departamento" aria-label="Nuevo departamento">
+          + Nuevo
+        </Button>
+      </PortalCabecera>
+
+      <p className="max-w-2xl text-sm text-slate-500">
+        Áreas de la organización que se evalúan por separado y no son tiendas. Central no es una
+        sucursal: lo que se evalúa ahí es cada uno de estos departamentos.
+      </p>
 
       {cargando ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4">

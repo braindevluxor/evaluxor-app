@@ -56,6 +56,14 @@ export interface FiltrosIndicadores {
    * inflaba «Evaluaciones en el rango».
    */
   soloSucursales?: boolean
+  /**
+   * Solo evaluaciones de departamento: el corte contrario al anterior. El
+   * Historial lo usa para su selector Sucursal/Departamento de la barra
+   * superior —separar la lista en dos—, y el espejo se consigue con
+   * `soloSucursales`. Se declara aparte de `departamento_ids` porque éste
+   * acota a departamentos CONCRETOS y éste sólo pide la clase de unidad.
+   */
+  soloDepartamentos?: boolean
 }
 
 /**
@@ -320,6 +328,10 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
   if (departamentos) query = query.in('departamento_id', departamentos)
   if (f.soloCerradas) query = query.eq('estado', 'CERRADA')
   if (f.soloSucursales) query = query.is('departamento_id', null)
+  // Espejo de `soloSucursales`: una evaluación de DEPARTAMENTO es la que no
+  // tiene sucursal (`sucursal_id` en null) y lleva `departamento_id`; la de
+  // sucursal es al revés. Un `.not(...)` acá traería justo las sucursales.
+  if (f.soloDepartamentos) query = query.is('sucursal_id', null)
   if (f.desde) query = query.gte('fecha', f.desde)
   if (f.hasta) query = query.lte('fecha', f.hasta)
 
