@@ -505,6 +505,36 @@ describe('informe imprimible de resultados', () => {
     expect(firstCheck).toBeLessThan(firstFail)
     expect(output).toContain('Descripción')
     expect(output).not.toContain('check-ok.jpg')
+    // El estado de cada punto va ESCRITO y el ítem cuenta sus puntos: antes era
+    // una palomita dibujada a mano y una equis suelta, y en papel no decían si
+    // el punto estaba aprobado o no. El resumen se calcula sobre el total
+    // (2 de 4), no sobre lo que muestre el filtro. Los fragmentos evitan
+    // paréntesis y acentos: el PDF los escribe escapados en su flujo.
+    expect(output).toContain('NO APROBADO')
+    expect(output).toContain('Puntos aprobados: 2 de 4')
+    expect(output).toContain('2 NO aprobado')
+  })
+
+  it('el doble check imprime su propio estado: existe, sin validar', () => {
+    const detalleConExiste: DetalleEvaluacion = {
+      ...detalle,
+      respuestas: respuestas.map((respuesta) => respuesta.item_id === 'it-cl1'
+        ? {
+            ...respuesta,
+            // Con doble check, `existe` es la presencia confirmada en la tienda
+            // y `selected` es lo validado: o3 está presente pero nadie lo
+            // validó, así que no puntúa y no es lo mismo que un incumplimiento.
+            // El o5 informativo sigue fuera, igual que en el caso anterior.
+            valor: { selected: ['o1', 'o2'], existe: ['o1', 'o2', 'o3'], informativos: ['o5'] }
+          }
+        : respuesta)
+    }
+
+    const output = buildPdfDocument(detalleConExiste).output()
+    expect(output).toContain('SIN VALIDAR')
+    expect(output).toContain('Puntos aprobados: 2 de 4')
+    expect(output).toContain('1 sin validar')
+    expect(output).toContain('1 NO aprobado')
   })
 
   it('mantiene comentarios largos en el PDF sin desbordar páginas', () => {

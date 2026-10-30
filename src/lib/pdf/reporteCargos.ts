@@ -33,7 +33,8 @@ import {
   pintarTituloSeccion,
   type Geometria
 } from './composicion'
-import { barra, FONDO, formatoFecha, GRIS, GRIS_CLARO, MARINO, MARINO_CLARO } from './graficos'
+import { barra, FONDO, formatoFecha, GRIS, GRIS_CLARO, MARINO, MARINO_CLARO, ROJO } from './graficos'
+import { ESTADO_NO_APROBADO } from './estados'
 import { ponerLogoAlPie, xTextoDelPie } from './marcaPie'
 
 /** Un ítem que le salió mal a un cargo, tal como lo muestra el modal del detalle. */
@@ -173,7 +174,18 @@ export function buildReporteCargos(
   const tabla = (
     headers: string[],
     rows: Celda[][],
-    opciones?: { columnStyles?: Record<number, { cellWidth?: number; halign?: 'left' | 'center' | 'right' }> }
+    opciones?: {
+      columnStyles?: Record<
+        number,
+        {
+          cellWidth?: number
+          halign?: 'left' | 'center' | 'right'
+          /** Color de texto: el mismo tipo de tupla que usa jsPDF (`RGB` de graficos). */
+          textColor?: [number, number, number]
+          fontStyle?: 'normal' | 'bold' | 'italic' | 'bolditalic'
+        }
+      >
+    }
   ) => {
     if (!rows.length) return
     autoTable(pdf, {
@@ -323,28 +335,39 @@ export function buildReporteCargos(
       subtitulo(pendiente.item, `${pendiente.modulo ?? 'Sin módulo'} | ${etiquetaTipo(pendiente.tipo)}`)
 
       if (pendiente.checks.length) {
+        // El estado va con la MISMA palabra que el informe general: el lector
+        // no puede tener que adivinar que acá «sin fila roja» significa lo
+        // mismo que «NO APROBADO» allá.
         tabla(
-          ['Punto sin cumplir', 'Puntos'],
+          ['Punto sin cumplir', 'Estado', 'Puntos'],
           [
-            ...pendiente.checks.map((check) => [check, '']),
+            ...pendiente.checks.map((check) => [
+              check,
+              { content: ESTADO_NO_APROBADO, styles: { fontStyle: 'bold', textColor: ROJO } },
+              ''
+            ]),
             [
               // La fila de cierre destaca por su fondo, no por una línea negra
               // más gruesa: mismo criterio que el resto del documento.
-              { content: 'TOTAL del ítem', styles: { fontStyle: 'bold', fillColor: MARINO_CLARO, textColor: MARINO } },
+              {
+                content: 'TOTAL del ítem',
+                colSpan: 2,
+                styles: { fontStyle: 'bold', fillColor: MARINO_CLARO, textColor: MARINO }
+              },
               {
                 content: fmt(pendiente.perdidos),
                 styles: { fontStyle: 'bold', halign: 'right', fillColor: MARINO_CLARO, textColor: MARINO }
               }
             ]
           ],
-          { columnStyles: { 1: { cellWidth: 22, halign: 'right' } } }
+          { columnStyles: { 1: { cellWidth: 36, halign: 'center' }, 2: { cellWidth: 22, halign: 'right' } } }
         )
       } else {
         // Ítems binarios y de plano: el ítem entero es la falla. Se imprime una
         // sola fila con los puntos, sin repetir «el ítem falló», que sería
         // tautológico.
         tabla(
-          ['Falla', 'Puntos'],
+          ['Falla', 'Estado', 'Puntos'],
           [
             [
               {
@@ -352,12 +375,16 @@ export function buildReporteCargos(
                 styles: { fontStyle: 'bold', fillColor: FONDO }
               },
               {
+                content: ESTADO_NO_APROBADO,
+                styles: { fontStyle: 'bold', textColor: ROJO, fillColor: FONDO }
+              },
+              {
                 content: fmt(pendiente.perdidos),
                 styles: { fontStyle: 'bold', halign: 'right', fillColor: FONDO, textColor: MARINO }
               }
             ]
           ],
-          { columnStyles: { 1: { cellWidth: 22, halign: 'right' } } }
+          { columnStyles: { 1: { cellWidth: 36, halign: 'center' }, 2: { cellWidth: 22, halign: 'right' } } }
         )
       }
       // Las fotos del ítem, después de lo que falló: es la evidencia de esa

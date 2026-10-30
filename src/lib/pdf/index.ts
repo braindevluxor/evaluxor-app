@@ -57,7 +57,8 @@ import {
   pintarTituloSeccion,
   type Geometria
 } from './composicion'
-import { colorPuntaje, GRIS, GRIS_CLARO, MARINO, MARINO_CLARO } from './graficos'
+import { colorPuntaje, AMBAR, GRIS, GRIS_CLARO, MARINO, MARINO_CLARO, ROJO, VERDE } from './graficos'
+import { ESTADO_APROBADO, ESTADO_NO_APROBADO, ESTADO_SIN_VALIDAR } from './estados'
 import { ponerLogoAlPie, xTextoDelPie } from './marcaPie'
 
 export type FiltroPdfCumplimiento = 'ambos' | 'cumple' | 'no-cumple'
@@ -282,8 +283,19 @@ export function buildPdfDocument(
         ? { 0: { cellWidth: 52 }, 1: { cellWidth: 45 }, 2: { cellWidth: 85 } }
         : {},
       didParseCell: (data) => {
-        if (data.section === 'body' && data.column.index === 0 && data.cell.raw === '✓') {
-          data.cell.text = []
+        // El estado de cada punto va ESCRITO y coloreado. Antes era una palomita
+        // dibujada a mano y una equis suelta: en papel no decían si el punto
+        // estaba aprobado o no, que es lo primero que se lee del informe.
+        if (data.section === 'body' && data.column.index === 0) {
+          if (data.cell.raw === 'APROBADO') {
+            data.cell.styles.textColor = VERDE
+            data.cell.styles.fontStyle = 'bold'
+          } else if (data.cell.raw === 'NO APROBADO') {
+            data.cell.styles.textColor = ROJO
+            data.cell.styles.fontStyle = 'bold'
+          } else if (data.cell.raw === ESTADO_SIN_VALIDAR) {
+            data.cell.styles.textColor = AMBAR
+          }
         }
         if (data.section === 'body' && data.column.index === columnaFirma) {
           data.cell.styles.minCellHeight = 14
@@ -300,15 +312,7 @@ export function buildPdfDocument(
             data.cell.x + data.cell.width - 3,
             data.cell.y + data.cell.height - 3
           )
-          return
         }
-        if (data.section !== 'body' || data.column.index !== 0 || data.cell.raw !== '✓') return
-        const left = data.cell.x + data.cell.width / 2 - 1.2
-        const middle = data.cell.y + data.cell.height / 2
-        pdf.setDrawColor(...TINTA)
-        pdf.setLineWidth(0.55)
-        pdf.line(left, middle, left + 0.8, middle + 0.8)
-        pdf.line(left + 0.8, middle + 0.8, left + 2.2, middle - 1)
       }
     })
     y = (pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y
@@ -518,7 +522,25 @@ export function buildPdfDocument(
   const checklist = (item: Item, valor: unknown) => {
     const v = valor as ValorChecklist | null
     const opcionesItem = (item.opciones ?? []).filter((option) => !(v?.informativos ?? []).includes(option.id))
-    const rows = opcionesItem.map((option) => ({ option, cumple: opcionCumplida(option, v, option.id) }))
+    const todas = opcionesItem.map((option) => ({ option, cumple: opcionCumplida(option, v, option.id) }))
+    const esExiste = (id: string) => Array.isArray(v?.existe) && v.existe.includes(id)
+    // El resumen se calcula sobre TODOS los puntos y no sobre los filtrados:
+    // con el filtro «sólo lo no cumplido» no podía seguir diciendo «12 de 12».
+    // Van dos líneas cortas en vez de una larga: una sola se partía al ajustar
+    // el ancho y en el papel quedaba el resumen cortado por la mitad.
+    const aprobados = todas.filter((row) => row.cumple).length
+    const sinValidar = todas.filter((row) => !row.cumple && esExiste(row.option.id)).length
+    const noAprobados = todas.length - aprobados - sinValidar
+    textoLinea(`Puntos aprobados: ${aprobados} de ${todas.length}`, { bold: true, gap: 1 })
+    if (sinValidar || noAprobados) {
+      textoLinea(
+        [sinValidar ? `${sinValidar} sin validar` : '', noAprobados ? `${noAprobados} NO aprobado(s)` : '']
+          .filter(Boolean)
+          .join(' · '),
+        { gap: 2 }
+      )
+    }
+    const rows = todas
       .filter((row) => !soloIncumplimientos || !row.cumple)
       .sort((a, b) => Number(b.cumple) - Number(a.cumple))
     if (!rows.length) {
@@ -546,11 +568,7 @@ export function buildPdfDocument(
                 : option.responsable
                   ? [option.responsable]
                   : item.responsables ?? []
-        // Con doble check, un punto que está en la tienda pero sin validar es un
-        // estado propio (existe, no puntúa); sin doble check todo lo no cumplido
-        // es simplemente "X".
-        const existe = Array.isArray(v?.existe) && v.existe.includes(option.id)
-        const estado = cumple ? '✓' : existe ? 'Existe' : 'X'
+        const estado = cumple ? ESTADO_APROBADO : esExiste(option.id) ? ESTADO_SIN_VALIDAR : ESTADO_NO_APROBADO
         const comentario = mostrarComentarios ? leerComentario(v?.comentarios, option.id).trim() : ''
         return [
           estado,

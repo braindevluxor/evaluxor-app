@@ -60,6 +60,11 @@ describe('reporte de pendientes por cargo · PDF', () => {
     // El ítem que no es de checks entra como ítem completo, no como lista vacía.
     expect(output).toContain('Ítem completo')
     expect(output).toContain('Cumple / No cumple')
+    // La condición de aprobado / no aprobado va ESCRITA en cada fila, con la
+    // misma palabra que el informe general: leer el reporte no puede depender
+    // de adivinar qué significa una fila sin más.
+    expect(output).toContain('Estado')
+    expect(output).toContain('NO APROBADO')
     // Un cargo sin pendientes no desaparece: se imprime su nota y la aclaración.
     expect(output).toContain('Este cargo no tiene ítems con pendientes en esta evaluación.')
   })
