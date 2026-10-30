@@ -57,7 +57,7 @@ import {
   pintarTituloSeccion,
   type Geometria
 } from './composicion'
-import { colorPuntaje, GRIS, GRIS_CLARO, MARINO_CLARO } from './graficos'
+import { colorPuntaje, GRIS, GRIS_CLARO, MARINO, MARINO_CLARO } from './graficos'
 import { ponerLogoAlPie, xTextoDelPie } from './marcaPie'
 
 export type FiltroPdfCumplimiento = 'ambos' | 'cumple' | 'no-cumple'
