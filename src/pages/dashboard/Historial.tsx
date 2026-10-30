@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarPlus, Eye, FileDown, Lock, Pencil, Play, Trash2, Unlock } from 'lucide-react'
+import { CalendarPlus, Eye, FileDown, FileSpreadsheet, Lock, Pencil, Play, Trash2, Unlock, Users } from 'lucide-react'
 import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
@@ -13,13 +13,25 @@ import {
   obtenerEvaluacion,
   resumirEvaluacion,
   puntajeEnCurso,
-  type ConjuntoDatos
+  unidadDe,
+  type ConjuntoDatos,
+  type DetalleEvaluacion
 } from '../../lib/data/indicadores'
-import type { VistaEvaluacion } from '../../lib/types'
+import type { Foto, Item, Respuesta, SucursalOpcion, VistaEvaluacion } from '../../lib/types'
 import { descargarInformePdf } from '../../lib/pdf'
 import { useModulosExportables } from '../../lib/pdf/modulosExportables'
 import type { OpcionesPdf } from '../../lib/pdf/opciones'
+import { armarReporteCargos, cargarImagenesReporte, descargarReporteCargos } from '../../lib/pdf/reporteCargos'
+import { descargarExcelEvaluacion, type IncidenciaExcel } from '../../lib/excelEvaluacion'
+import { descargarExcelCargos } from '../../lib/excelCargos'
+import { fallasDeResponsable, valorPorResponsable, type FallaResponsable } from '../../lib/scoring'
+import { pathsDeFotosFalla } from '../../lib/evidencias'
+import { aplicarPermisosChecklist } from '../../lib/permisosChecklist'
+import { normalizarResponsables } from '../../lib/data/responsablesIncidencia'
+import { supabase } from '../../lib/supabase'
 import { SelectorPdf } from '../../components/SelectorPdf'
+import { SelectorReporteCargo, type CargoSeleccionable } from '../../components/SelectorReporteCargo'
+import { MenuDescargas } from '../../components/MenuDescargas'
 import { verTodo } from '../../lib/roles'
 import { Badge, Button, ButtonIcon, Card, claseBotonIcono, Confirmar, EmptyState, Field, Input, Modal, Puntaje, Select, Skeleton, SkeletonFilas, Textarea } from '../../components/ui'
 import { CompartirEvaluacion } from '../../components/CompartirEvaluacion'
@@ -29,6 +41,24 @@ function haceMeses(n: number): string {
   const d = new Date()
   d.setMonth(d.getMonth() - n)
   return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Qué opciones de checklist aplican en la unidad de la evaluación, por ítem.
+ *
+ * Espejo de `EvaluacionDetalle.opcionesQueAplican`: el reporte por cargos que
+ * baja el Historial tiene que nombrar los MISMOS checks que el detalle, ni uno
+ * que allá no aparece, y acá no se importa desde una pantalla para no acoplar
+ * el dashboard al detalle.
+ */
+function opcionesQueAplican(sucursalId: string, sucursalOpciones: SucursalOpcion[]): Map<string, string[]> {
+  const mapa = new Map<string, string[]>()
+  for (const o of sucursalOpciones.filter((x) => x.sucursal_id === sucursalId && x.activa)) {
+    const arr = mapa.get(o.item_id) ?? []
+    arr.push(o.opcion_id)
+    mapa.set(o.item_id, arr)
+  }
+  return mapa
 }
 
 /** Puntaje en curso de una evaluación activa: valor en vivo + estado de avance. */
@@ -72,6 +102,19 @@ export function Historial() {
   const [descargando, setDescargando] = useState<string | null>(null)
   /** Evaluación cuyo selector de PDF está abierto. null = cerrado. */
   const [elegirEn, setElegirEn] = useState<string | null>(null)
+  /**
+   * Selector de cargos preparado: la tabla no trae respuestas ni puntajes,
+   * así que al tocar la opción «por cargo» se pide el detalle y se guarda todo
+   * lo que el reporte necesita (ver `prepararCargos`). null = cerrado.
+   */
+  const [cargosEn, setCargosEn] = useState<{
+    detalle: DetalleEvaluacion
+    puntaje: number | null
+    itemsFiltrados: Item[]
+    cargos: CargoSeleccionable[]
+  } | null>(null)
+  /** Formato del reporte por cargos que se está generando, para el spinner. */
+  const [generandoReporte, setGenerandoReporte] = useState<'pdf' | 'excel' | null>(null)
   const { modulos: modulosDeElegir, cargando: cargandoModulosElegir } = useModulosExportables(elegirEn)
   const [aEliminar, setAEliminar] = useState<VistaEvaluacion | null>(null)
   const [aReabrir, setAReabrir] = useState<VistaEvaluacion | null>(null)
@@ -157,6 +200,142 @@ export function Historial() {
     }
     setDescargando(null)
     setElegirEn(null)
+  }
+
+  /**
+   * Excel general de una fila del historial: el MISMO que baja el detalle
+   * (resultados + pestaña de incidencias). La tabla no trae el detalle en
+   * memoria, así que se pide recién al tocar; la incidencia se consulta con
+   * el mismo join de módulo que usa la pantalla del detalle.
+   */
+  const descargarExcelHistorial = async (ev: VistaEvaluacion) => {
+    setError(null)
+    setDescargando(ev.id)
+    try {
+      const detalle = await obtenerEvaluacion(ev.id)
+      if (!detalle) throw new Error('sin detalle')
+      const { data } = await supabase
+        .from('incidencias')
+        .select('descripcion, responsables, created_at, fotos, modulo:modulos!incidencias_modulo_id_fkey(nombre)')
+        .eq('evaluacion_id', ev.id)
+        .order('created_at', { ascending: false })
+      const incidencias: IncidenciaExcel[] = (
+        (data ?? []) as Array<{
+          descripcion: string
+          responsables: unknown
+          created_at: string
+          fotos: string[] | null
+          modulo: { nombre: string }[] | null
+        }>
+      ).map((i) => ({
+        descripcion: i.descripcion,
+        responsables: normalizarResponsables(i.responsables),
+        fecha: i.created_at,
+        modulo: i.modulo?.[0]?.nombre ?? null,
+        fotos: (i.fotos ?? []).length
+      }))
+      await descargarExcelEvaluacion(detalle, incidencias)
+    } catch {
+      setError('No se pudo descargar el Excel. Intenta de nuevo.')
+    }
+    setDescargando(null)
+  }
+
+  /**
+   * Prepara el reporte POR CARGOS de una fila: como la tabla no tiene
+   * respuestas, se pide el detalle y se recalcula lo mismo que la pantalla del
+   * detalle —puntaje, opciones aplicables de la unidad y valor por responsable—
+   * y recién con la lista armada se abre el selector.
+   */
+  const prepararCargos = async (ev: VistaEvaluacion) => {
+    setError(null)
+    setDescargando(ev.id)
+    try {
+      const detalle = await obtenerEvaluacion(ev.id)
+      if (!detalle) throw new Error('sin detalle')
+      const { evaluacion, respuestas, items, sucursalOpciones, sucursalPermisos } = detalle
+      const { puntaje } = resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones, sucursalPermisos)
+      const unidad = unidadDe(evaluacion)
+      const aplicaOpciones = opcionesQueAplican(unidad, sucursalOpciones)
+      // Mismo filtro que `EvaluacionDetalle.aplicarOpciones`: los permisos
+      // arman la lista del checklist y las opciones de la unidad recortan el
+      // resto, para que el reporte no nombre checks que no aplican.
+      const itemsFiltrados = items.map((item) => {
+        const conPermisos = aplicarPermisosChecklist(item, unidad, { sucursalPermisos })
+        if (conPermisos !== item) return conPermisos
+        if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
+        const ids = aplicaOpciones.get(item.id)
+        if (!ids?.length) return item
+        return { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) }
+      })
+      const cargos = valorPorResponsable(itemsFiltrados, respuestas).map((v) => ({
+        cargo: v.responsable,
+        porciento: v.porciento
+      }))
+      if (cargos.length) {
+        setCargosEn({ detalle, puntaje, itemsFiltrados, cargos })
+      } else {
+        setError('Esta evaluación todavía no tiene cargos con datos.')
+      }
+    } catch {
+      setError('No se pudo preparar el reporte por cargos. Intenta de nuevo.')
+    }
+    setDescargando(null)
+  }
+
+  /**
+   * Qué fotos entran en CADA pendiente del reporte: las del punto que le falló
+   * a ESE cargo. Mismo criterio y misma función (`pathsDeFotosFalla`) que el
+   * detalle: sin esto, un cargo vería fotos de puntos que no son suyos.
+   */
+  const fotosDeFalla = (respuestas: Respuesta[], fotos: Foto[]) => {
+    const respuestasDe = new Map<string, Respuesta[]>()
+    for (const r of respuestas) {
+      const lista = respuestasDe.get(r.item_id)
+      if (lista) lista.push(r)
+      else respuestasDe.set(r.item_id, [r])
+    }
+    const fotosDe = new Map<string, string[]>()
+    for (const f of fotos) {
+      const lista = fotosDe.get(f.item_id)
+      if (lista) lista.push(f.path)
+      else fotosDe.set(f.item_id, [f.path])
+    }
+    return (falla: FallaResponsable) =>
+      pathsDeFotosFalla(falla.tipo, falla.checkIds, respuestasDe.get(falla.item_id) ?? [], fotosDe.get(falla.item_id) ?? [])
+  }
+
+  /** Baja el reporte por cargos armado en `prepararCargos`, en PDF o Excel. */
+  const descargarPorCargos = async (elegidos: string[], formato: 'pdf' | 'excel') => {
+    if (!cargosEn || !elegidos.length) return
+    const { detalle, puntaje, itemsFiltrados, cargos } = cargosEn
+    setGenerandoReporte(formato)
+    try {
+      const datos = armarReporteCargos(
+        {
+          unidad: detalle.evaluacion.sucursal?.nombre ?? detalle.evaluacion.departamento?.nombre ?? 'Evaluación',
+          referencia: detalle.evaluacion.sucursal?.shop_id ?? null,
+          fecha: detalle.evaluacion.fecha,
+          puntajeGeneral: puntaje
+        },
+        elegidos.map((cargo) => ({
+          cargo,
+          porciento: cargos.find((c) => c.cargo === cargo)?.porciento ?? null,
+          fallas: fallasDeResponsable(cargo, itemsFiltrados, detalle.respuestas)
+        })),
+        detalle.modulos,
+        fotosDeFalla(detalle.respuestas, detalle.fotos)
+      )
+      if (formato === 'pdf') {
+        descargarReporteCargos(datos, await cargarImagenesReporte(datos))
+      } else {
+        descargarExcelCargos(datos)
+      }
+      setCargosEn(null)
+    } catch {
+      setError('No se pudo generar el reporte por cargos. Intenta de nuevo.')
+    }
+    setGenerandoReporte(null)
   }
 
   const eliminar = async () => {
@@ -477,15 +656,34 @@ export function Historial() {
                             creadoPor={profile?.id ?? null}
                           />
                         ) : null}
-                        <ButtonIcon
-                          variant="secondary"
-                          disabled={descargando === ev.id}
-                          onClick={() => setElegirEn(ev.id)}
-                          title="Descargar PDF"
-                          aria-label="Descargar PDF"
-                        >
-                          <FileDown className="h-5 w-5" />
-                        </ButtonIcon>
+                        {/* UN solo botón de descargas, igual que en el detalle:
+                            PDF general (selector de módulos), Excel general y
+                            reporte por cargo. `claseBoton` cambia la cara: acá
+                            el fondo es blanco, no la barra azul. */}
+                        <MenuDescargas
+                          claseBoton={claseBotonIcono('secondary')}
+                          disabled={descargando === ev.id || generandoReporte != null}
+                          opciones={[
+                            {
+                              id: 'pdf',
+                              etiqueta: 'PDF general',
+                              icono: <FileDown className="h-5 w-5" />,
+                              onSelect: () => setElegirEn(ev.id)
+                            },
+                            {
+                              id: 'excel',
+                              etiqueta: 'Excel general',
+                              icono: <FileSpreadsheet className="h-5 w-5" />,
+                              onSelect: () => void descargarExcelHistorial(ev)
+                            },
+                            {
+                              id: 'cargos',
+                              etiqueta: 'Por cargo (PDF o Excel)',
+                              icono: <Users className="h-5 w-5" />,
+                              onSelect: () => void prepararCargos(ev)
+                            }
+                          ]}
+                        />
                         {esLider ? (
                           <ButtonIcon
                             variant="dangerGhost"
@@ -563,6 +761,17 @@ export function Historial() {
           if (objetivo) void descargar(objetivo, impresion)
         }}
         descargando={!!descargando}
+      />
+
+      {/* Selector de cargos del reporte por cargo: la lista sale de lo que
+          `prepararCargos` calculó al tocar la opción en la fila. También una
+          sola instancia para la tabla entera. */}
+      <SelectorReporteCargo
+        abierto={cargosEn != null}
+        onClose={() => setCargosEn(null)}
+        cargos={cargosEn?.cargos ?? []}
+        onDescargar={(elegidos, formato) => void descargarPorCargos(elegidos, formato)}
+        generando={generandoReporte}
       />
     </div>
   )

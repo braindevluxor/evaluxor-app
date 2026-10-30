@@ -26,14 +26,28 @@ describe('menú único de descargas', () => {
 
   it('el botón usa la cara de la barra y se anuncia como menú', () => {
     // En el HTML renderizado la clase sale EVALUADA (no el texto
-    // `BOTON_CABECERA`), así que el rostro se busca en el fuente.
+    // `BOTON_CABECERA`), así que el rostro se busca en el fuente. Por defecto
+    // es el de la barra azul, y `claseBoton` lo cambia para filas sobre
+    // blanco (el Historial pasa `claseBotonIcono('secondary')`).
     const fuente = readFileSync(fileURLToPath(new URL('./MenuDescargas.tsx', import.meta.url)), 'utf8')
-    expect(fuente).toContain('className={BOTON_CABECERA}')
+    expect(fuente).toContain('claseBoton ?? BOTON_CABECERA')
+    expect(fuente).toContain('claseBoton?: string')
     const markup = html()
     expect(markup).toContain('aria-haspopup="menu"')
     expect(markup).toContain('aria-expanded="false"')
     expect(markup).toContain('title="Descargar"')
     expect(markup).toContain('aria-label="Descargar"')
+  })
+
+  it('el menú sale por portal en fixed, fuera del overflow de la tabla', () => {
+    // La tabla del Historial vive en un `overflow-x-auto`: un menú `absolute`
+    // común queda cortado y las últimas filas no lo verían. Y como va por
+    // portal, el clic en una opción tiene que contar como "adentro" para que
+    // el mousedown no lo cierre antes del click.
+    const fuente = readFileSync(fileURLToPath(new URL('./MenuDescargas.tsx', import.meta.url)), 'utf8')
+    expect(fuente).toContain('createPortal(')
+    expect(fuente).toContain('fixed z-[100]')
+    expect(fuente).toContain('menuRef.current?.contains(destino)')
   })
 
   it('mientras se genera un archivo no se abre el menú', () => {
