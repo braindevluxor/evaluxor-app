@@ -5,6 +5,70 @@ const JPEG_QUALITY = 0.72
 const MAX_DIM_PLANO = 2400
 const JPEG_QUALITY_PLANO = 0.85
 
+/**
+ * Duración máxima de un VIDEO de evidencia.
+ *
+ * El navegador no transcodifica: lo que se graba sube tal cual a Storage, así
+ * que un video largo pesa megas y se traba la subida en el celular (y llena el
+ * bucket). Diez segundos alcanzan para mostrar un daño o un procedimiento; un
+ * archivo que lo exceda se rechaza al adjuntarlo, con el motivo a la vista.
+ */
+export const LIMITE_SEGUNDOS_VIDEO = 10
+
+/**
+ * ¿Es video? Los ids de evidencia son genéricos: foto y video comparten el
+ * mismo campo (`photoIds`), la misma cola de subida y la misma tabla `fotos`,
+ * que sólo guarda el path — el tipo se colige de la extensión del path.
+ */
+export function esVideo(mime: string): boolean {
+  return mime.startsWith('video/')
+}
+
+const EXTENSIONES_POR_MIME: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov'
+}
+
+/**
+ * Extensión del archivo según su MIME: la ruta en Storage la lleva puesta,
+ * y de ella se sabe qué es al mostrarla (una URL firmada no trae el
+ * contentType). Sin extensión conocida, lo video se queda en `mp4` y lo
+ * imagen en `jpg`, que es como se venía guardando.
+ */
+export function extensionDeMime(mime: string): string {
+  return EXTENSIONES_POR_MIME[mime] ?? (esVideo(mime) ? 'mp4' : 'jpg')
+}
+
+/** ¿Un path de evidencia apunta a un video? Se decide por la extensión. */
+export function esVideoPath(path: string): boolean {
+  return /\.(mp4|webm|mov|m4v)$/i.test(path.split('?')[0])
+}
+
+/**
+ * Duración en segundos de un video, o null si el navegador no pudo leerla
+ * (algunos contenedores no exponen el metadata sin decodificar; en ese caso
+ * el archivo pasa y el límite lo pondrá el servidor).
+ */
+export function duracionVideo(blob: Blob): Promise<number | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob)
+    const video = document.createElement('video')
+    const terminar = (duracion: number | null) => {
+      URL.revokeObjectURL(url)
+      video.removeAttribute('src')
+      resolve(duracion)
+    }
+    video.preload = 'metadata'
+    video.onloadedmetadata = () => terminar(Number.isFinite(video.duration) ? video.duration : null)
+    video.onerror = () => terminar(null)
+    video.src = url
+  })
+}
+
 export async function comprimirFoto(file: File): Promise<{ blob: Blob; mime: string }> {
   return comprimir(file, MAX_DIM, JPEG_QUALITY)
 }

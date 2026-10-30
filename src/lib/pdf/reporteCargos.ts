@@ -23,6 +23,7 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { etiquetaTipo, type FallaResponsable } from '../scoring'
+import { esVideoPath } from '../fotos'
 import { supabase } from '../supabase'
 import {
   ESTILO_TABLA,
@@ -460,7 +461,11 @@ export function descargarReporteCargos(datos: ReporteCargosDatos, imagenes: Reco
  * porque una imagen de hace seis meses ya no está sería peor que uno sin ella.
  */
 export async function cargarImagenesReporte(datos: ReporteCargosDatos): Promise<Record<string, string>> {
+  // Los videos quedan fuera: el PDF sólo sabe pegar imágenes (`addImage`) y un
+  // video no tiene un cuadro que imprimir. Siguen disponibles en la app, en la
+  // misma evidencia del punto.
   const paths = Array.from(new Set(datos.cargos.flatMap((c) => c.pendientes.flatMap((p) => p.fotos))))
+    .filter((p) => !esVideoPath(p))
   const imagenes: Record<string, string> = {}
   if (!paths.length) return imagenes
 

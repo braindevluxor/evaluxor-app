@@ -337,7 +337,8 @@ describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
     const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={valor} index={0} total={1} onChange={() => {}} />)
     expect(html).toContain('Sin evidencia fotográfica')
     expect(html).toContain('aria-label="Tomar foto de evidencia"')
-    expect(html).toContain('aria-label="Adjuntar foto de evidencia desde la galería"')
+    expect(html).toContain('aria-label="Adjuntar foto o video de evidencia desde la galería"')
+    expect(html).toContain('aria-label="Grabar video de evidencia"')
   })
 
   it('cuando el producto ya tiene fotos, la fila las abre en el visor', () => {
@@ -354,13 +355,14 @@ describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
     expect(html).not.toContain('Evidencia fotográfica')
   })
 
-  it('la evidencia de un producto ofrece cámara y galería, rotulada con su SKU', () => {
+  it('la evidencia de un producto ofrece cámara, video y galería, rotulada con su SKU', () => {
     const html = renderToStaticMarkup(
       <EvidenciaProducto sku="SKU-1" photoIds={[]} paths={[]} onChange={() => {}} />
     )
     expect(html).toContain('Evidencia fotográfica · SKU-1')
     expect(html).toContain('aria-label="Tomar foto"')
-    expect(html).toContain('aria-label="Adjuntar foto desde la galería"')
+    expect(html).toContain('aria-label="Grabar video"')
+    expect(html).toContain('aria-label="Adjuntar foto o video desde la galería"')
   })
 
   it('la descripción del producto escaneado se ve entera, en varios renglones si hace falta', () => {

@@ -47,7 +47,10 @@ function bloqueSql(nombre: string): string {
 
 describe('incidencias · ruta de la foto', () => {
   it('agrupa las fotos del reporte en su propia carpeta del bucket', () => {
-    expect(pathFotoIncidencia('inc-1', 'foto-2')).toBe('incidencias/inc-1/foto-2')
+    // La extensión la dicta el MIME: es lo que permite saber, al mostrarla,
+    // si es una foto o un video (una URL firmada no trae el contentType).
+    expect(pathFotoIncidencia('inc-1', 'foto-2')).toBe('incidencias/inc-1/foto-2.jpg')
+    expect(pathFotoIncidencia('inc-1', 'video-3', 'video/mp4')).toBe('incidencias/inc-1/video-3.mp4')
   })
 
   it('no se mezcla con las fotos de evidencia de los ítems', () => {

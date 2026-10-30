@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Camera, ChevronLeft, ChevronRight, Image as ImageIcon, Pencil } from 'lucide-react'
+import { AlertTriangle, Camera, ChevronLeft, ChevronRight, Image as ImageIcon, Pencil, Play } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { esVideoPath } from '../lib/fotos'
 import { ChipsResponsables } from './EditorResponsablesIncidencia'
 import { normalizarResponsables, type ResponsableIncidencia } from '../lib/data/responsablesIncidencia'
 import { claveNormalizada } from '../lib/data/responsables'
@@ -369,6 +370,7 @@ export function ListaIncidencias({
       </ul>
       <ModalImagen
         src={imagenAbierta ? (urlsFotos[imagenAbierta.incidenciaId]?.[imagenAbierta.path] ?? null) : null}
+        esVideo={!!imagenAbierta && esVideoPath(imagenAbierta.path)}
         alt="Foto de la incidencia"
         onClose={() => setImagenAbierta(null)}
         footer={imagenAbierta && incidenciaAbierta ? (
@@ -405,20 +407,23 @@ export function ListaIncidencias({
               <ChipsResponsables valor={incidenciaAbierta.responsables} className="mt-1" />
             </div>
             {/* Marcar una foto de incidencia que ya está en la nube: la baja,
-                deja dibujar y la vuelve a subir al mismo path. */}
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full"
-              onClick={() => {
-                const path = imagenAbierta.path
-                setImagenAbierta(null)
-                marcador.abrir(path)
-              }}
-            >
-              <Pencil className="h-4 w-4" />
-              Dibujar sobre la foto
-            </Button>
+                deja dibujar y la vuelve a subir al mismo path. A un video no
+                se le dibuja encima, así que el botón no aparece. */}
+            {!esVideoPath(imagenAbierta.path) ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full"
+                onClick={() => {
+                  const path = imagenAbierta.path
+                  setImagenAbierta(null)
+                  marcador.abrir(path)
+                }}
+              >
+                <Pencil className="h-4 w-4" />
+                Dibujar sobre la foto
+              </Button>
+            ) : null}
           </div>
         ) : undefined}
       />
@@ -437,7 +442,7 @@ function FotosIncidencia({ paths, urls, onAbrir }: {
   return (
     <div className="mt-2">
       <div className="mb-1.5 flex items-center gap-1 text-[11px] text-amber-700">
-        <Camera className="h-3.5 w-3.5" /> {paths.length} foto(s)
+        <Camera className="h-3.5 w-3.5" /> {paths.length} evidencia(s)
       </div>
       <div className="flex flex-wrap gap-2">
         {paths.map((p) =>
@@ -446,10 +451,22 @@ function FotosIncidencia({ paths, urls, onAbrir }: {
               key={p}
               type="button"
               onClick={() => onAbrir(p)}
-              title="Ver foto de la incidencia"
-              aria-label="Ampliar foto de la incidencia"
+              title={esVideoPath(p) ? 'Ver video de la incidencia' : 'Ver foto de la incidencia'}
+              aria-label={esVideoPath(p) ? 'Reproducir video de la incidencia' : 'Ampliar foto de la incidencia'}
+              className="relative"
             >
-              <img src={urls[p]} alt="Foto de la incidencia" className="h-16 w-16 rounded-lg border border-slate-200 object-cover" />
+              {esVideoPath(p) ? (
+                <>
+                  <video src={urls[p]} preload="metadata" muted playsInline className="h-16 w-16 rounded-lg border border-slate-200 object-cover" />
+                  <span aria-hidden className="pointer-events-none absolute inset-0 grid place-items-center">
+                    <span className="grid h-6 w-6 place-items-center rounded-full bg-slate-900/60 text-white">
+                      <Play className="h-3 w-3" />
+                    </span>
+                  </span>
+                </>
+              ) : (
+                <img src={urls[p]} alt="Foto de la incidencia" className="h-16 w-16 rounded-lg border border-slate-200 object-cover" />
+              )}
             </button>
           ) : (
             <div key={p} className="grid h-16 w-16 place-items-center rounded-lg border border-slate-200 bg-slate-50">

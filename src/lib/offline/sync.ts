@@ -2,7 +2,8 @@ import { supabase } from '../supabase'
 import { causaSubida, detalleTecnico, errorSubida, mensajeSubida, type ErrorSubida } from '../subida'
 import { bloqueosDeGuardado, explicacionBloqueos, type ReglasGuardado } from '../permisos-guardado'
 import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, respuestasConInstancia, incidentesPendientes, eliminarIncidente, type SyncJob, type DraftEval } from './db'
-import { photoPath, convertirValor, extraerPhotoIds, idsFotosRespuesta } from './transform'
+import { photoPath, pathsCandidatosFoto, convertirValor, extraerPhotoIds, idsFotosRespuesta } from './transform'
+import { extensionDeMime } from '../fotos'
 import { normalizarResponsables, responsablesAColumna } from '../data/responsablesIncidencia'
 
 export { respuestasConInstancia }
@@ -26,6 +27,19 @@ export function instanciasDeDraft(draft: DraftEval): { id: string; item_id: stri
   )
 }
 
+/**
+ * ¿Ya está subida? Se prueba cada extensión conocida: si el registro local se
+ * borró en una vuelta incompleta de la cola, sólo queda el nombre con la
+ * extensión que le dio su MIME (jpg para foto, mp4/webm/mov para video).
+ */
+async function buscarEnStorage(paths: string[]): Promise<string | null> {
+  for (const path of paths) {
+    const { data, error } = await supabase.storage.from('evidencias').download(path)
+    if (!error && data) return path
+  }
+  return null
+}
+
 async function subirFotosDeRespuestas(
   evaluacionId: string,
   respuestas: { item_id: string; valor: unknown }[]
@@ -34,20 +48,20 @@ async function subirFotosDeRespuestas(
   for (const respuesta of respuestas) {
     for (const id of extraerPhotoIds(respuesta.valor)) {
       if (map.has(id)) continue
-      const path = photoPath(evaluacionId, 'evidencia', id)
+      // El registro viene primero: su MIME dicta la extensión de la ruta.
+      const rec = await getPhotos([id]).then((r) => r[0])
+      const path = photoPath(evaluacionId, 'evidencia', id, rec?.mime)
       if (fotosSubidasEnEstaSesion.has(path)) {
         map.set(id, path)
         continue
       }
-      const rec = await getPhotos([id]).then((r) => r[0])
       if (!rec) {
-        const { data, error } = await supabase.storage.from('evidencias').download(path)
-        if (error || !data) {
-          const detalle = error ? ` Storage respondió: ${error.message}` : ''
-          throw new Error(`No se encontró la foto local ${id} ni una copia ya subida a Storage; no se sincronizó el borrador con sus evidencias.${detalle}`)
+        const subido = await buscarEnStorage(pathsCandidatosFoto(evaluacionId, id))
+        if (!subido) {
+          throw new Error(`No se encontró la foto local ${id} ni una copia ya subida a Storage; no se sincronizó el borrador con sus evidencias.`)
         }
-        fotosSubidasEnEstaSesion.add(path)
-        map.set(id, path)
+        fotosSubidasEnEstaSesion.add(subido)
+        map.set(id, subido)
         continue
       }
       const { error } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
@@ -475,7 +489,7 @@ export async function procesarCola(): Promise<{
       for (const id of photoIds) {
         const rec = await getPhotos([id]).then((r) => r[0])
         if (!rec) throw new Error(`No se encontró la foto local ${id}; la evaluación quedó pendiente y no se descartó.`)
-        const path = photoPath(evaluacionId, 'evidencia', id)
+        const path = photoPath(evaluacionId, 'evidencia', id, rec.mime)
         const { error: upErr } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
           contentType: rec.mime,
           upsert: false
@@ -537,9 +551,16 @@ export async function procesarCola(): Promise<{
   return { ok, fail, descartes, errores, mensajes }
 }
 
-/** Dónde vive la foto de una incidencia en el bucket `evidencias`. */
-export function pathFotoIncidencia(incidenteId: string, photoId: string): string {
-  return `incidencias/${incidenteId}/${photoId}`
+/**
+ * Dónde vive la evidencia de una incidencia en el bucket `evidencias`.
+ *
+ * La extensión la dicta el MIME del archivo (antes no llevaba ninguna): es lo
+ * que permite saber al mostrarla si es una foto o un video —una URL firmada no
+ * trae el contentType—. Las filas viejas siguen sin extensión y se tratan como
+ * fotos, que es lo único que había cuando se guardaron.
+ */
+export function pathFotoIncidencia(incidenteId: string, photoId: string, mime = 'image/jpeg'): string {
+  return `incidencias/${incidenteId}/${photoId}.${extensionDeMime(mime)}`
 }
 
 /**
@@ -587,7 +608,7 @@ export async function sincronizarIncidentes(): Promise<{ ok: number; fail: numbe
       for (const id of inc.photoIds) {
         const rec = await getPhotos([id]).then((r) => r[0])
         if (!rec) continue
-        const path = pathFotoIncidencia(inc.id, id)
+        const path = pathFotoIncidencia(inc.id, id, rec.mime)
         const { error: upErr } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
           contentType: rec.mime,
           upsert: true

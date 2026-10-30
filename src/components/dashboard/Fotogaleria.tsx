@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Pencil } from 'lucide-react'
+import { Pencil, Play } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { esVideoPath } from '../../lib/fotos'
 import type { Foto } from '../../lib/types'
 import { Button, Skeleton } from '../ui'
 import { ModalImagen } from '../ModalImagen'
@@ -88,17 +89,40 @@ export function FotogaleriaRutas({ paths: pathsEntrada, compacta = false }: { pa
             key={p}
             type="button"
             onClick={() => setImagenAbierta(p)}
-            aria-label="Ampliar evidencia"
-            className={compacta ? 'block min-w-0' : undefined}
+            aria-label={esVideoPath(p) ? 'Reproducir video' : 'Ampliar evidencia'}
+            className={compacta ? 'relative block min-w-0' : 'relative'}
           >
-            <img
-              src={urls[p]}
-              alt="Evidencia"
-              className={compacta
-                ? 'aspect-square w-full rounded-md border border-slate-200 object-cover transition-transform hover:scale-110'
-                : 'aspect-square w-full rounded-lg border border-slate-200 object-cover transition-transform hover:scale-105'}
-              loading="lazy"
-            />
+            {/* El video se pinta como `<video>` (no como `<img>`): así trae su
+                primer cuadro de póster, y la cruz de «play» encima avisa de
+                qué es. El tipo se colige de la extensión del path: una URL
+                firmada no trae el contentType. */}
+            {esVideoPath(p) ? (
+              <>
+                <video
+                  src={urls[p]}
+                  preload="metadata"
+                  muted
+                  playsInline
+                  className={compacta
+                    ? 'aspect-square w-full rounded-md border border-slate-200 object-cover transition-transform hover:scale-110'
+                    : 'aspect-square w-full rounded-lg border border-slate-200 object-cover transition-transform hover:scale-105'}
+                />
+                <span aria-hidden className="pointer-events-none absolute inset-0 grid place-items-center">
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-slate-900/60 text-white">
+                    <Play className="h-3.5 w-3.5" />
+                  </span>
+                </span>
+              </>
+            ) : (
+              <img
+                src={urls[p]}
+                alt="Evidencia"
+                className={compacta
+                  ? 'aspect-square w-full rounded-md border border-slate-200 object-cover transition-transform hover:scale-110'
+                  : 'aspect-square w-full rounded-lg border border-slate-200 object-cover transition-transform hover:scale-105'}
+                loading="lazy"
+              />
+            )}
           </button>
         ))}
       {errorCarga ? (
@@ -108,9 +132,10 @@ export function FotogaleriaRutas({ paths: pathsEntrada, compacta = false }: { pa
       ) : null}
       <ModalImagen
         src={imagenAbierta ? (urls[imagenAbierta] ?? null) : null}
+        esVideo={!!imagenAbierta && esVideoPath(imagenAbierta)}
         alt="Evidencia"
         onClose={() => setImagenAbierta(null)}
-        footer={imagenAbierta ? (
+        footer={imagenAbierta && !esVideoPath(imagenAbierta) ? (
           <Button
             type="button"
             variant="ghost"

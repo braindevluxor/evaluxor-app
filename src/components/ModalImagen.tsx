@@ -19,12 +19,18 @@ export function ModalImagen({
   src,
   alt,
   onClose,
-  footer
+  footer,
+  esVideo = false
 }: {
   src: string | null
   alt: string
   onClose: () => void
   footer?: ReactNode
+  /**
+   * El `src` es un video: se pinta el reproductor nativo y se apaga el zoom y
+   * el arrastre, que sólo tienen sentido sobre una imagen fija.
+   */
+  esVideo?: boolean
 }) {
   const [zoom, setZoom] = useState(1)
   const [posicion, setPosicion] = useState<Posicion>({ x: 0, y: 0 })
@@ -83,12 +89,23 @@ export function ModalImagen({
     <Modal
       open={!!src}
       onClose={onClose}
-      title="Vista previa de imagen"
+      title={esVideo ? 'Vista previa de video' : 'Vista previa de imagen'}
       wide
       footer={footer}
       backdropClassName="bg-slate-950/80"
     >
-      {src ? (
+      {src && esVideo ? (
+        <div className="overflow-hidden rounded-lg bg-slate-950">
+          <video
+            src={src}
+            controls
+            autoPlay
+            playsInline
+            className="mx-auto max-h-[65vh] w-full select-none"
+          />
+        </div>
+      ) : null}
+      {src && !esVideo ? (
         <div
           ref={areaImagenRef}
           className={`overflow-hidden rounded-lg bg-slate-950 ${zoom > 1 ? (arrastrando ? 'cursor-grabbing' : 'cursor-grab') : ''}`}
@@ -113,7 +130,7 @@ export function ModalImagen({
           />
         </div>
       ) : null}
-      {src ? <p className="mt-2 text-center text-xs text-slate-500">Rueda para zoom · arrastra para desplazarte · {Math.round(zoom * 100)}%</p> : null}
+      {src && !esVideo ? <p className="mt-2 text-center text-xs text-slate-500">Rueda para zoom · arrastra para desplazarte · {Math.round(zoom * 100)}%</p> : null}
     </Modal>
   )
 }

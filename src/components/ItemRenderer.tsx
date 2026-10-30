@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
-import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, MessageSquare, Pencil, Plus, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
+import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, MessageSquare, Pencil, Plus, RefreshCw, ScanLine, Trash2, Video, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
 import { etiquetaTipo, conciliacionPorcentaje, esMatchConciliacion, totalConciliacion, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionesAplicablesUnidad, checkMarcado, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, formatearMontoPerdida, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, resumenPerdidaConciliacion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
@@ -15,6 +15,7 @@ import { IdCopiable } from './IdCopiable'
 import { COLOR_BADGE_TIPO_ITEM, EYEBROW, HEX_CUMPLE, HEX_NO_CUMPLE, HEX_RIESGO } from '../lib/diseno'
 import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
+import { LIMITE_SEGUNDOS_VIDEO } from '../lib/fotos'
 import { FotogaleriaRutas } from './dashboard/Fotogaleria'
 import { BarcodeScanner } from './BarcodeScanner'
 import { BotonNoAplica, SelectorResponsables } from './WidgetsEvaluacion'
@@ -2870,6 +2871,7 @@ function CampoConciliacion({
 
 function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids: string[]) => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const videoRef = useRef<HTMLInputElement>(null)
   const galeriaRef = useRef<HTMLInputElement>(null)
   const [subiendo, setSubiendo] = useState(false)
   // En PC no se respalda fuera de la app, así que el título sólo promete el
@@ -2895,10 +2897,19 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
         className="hidden"
         onChange={(e) => void agregar(e.target, true)}
       />
+      {/* Cámara en modo video: la duración máxima se valida al adjuntar. */}
+      <input
+        ref={videoRef}
+        type="file"
+        accept="video/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => void agregar(e.target, true)}
+      />
       <input
         ref={galeriaRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         multiple
         className="hidden"
         onChange={(e) => void agregar(e.target, false)}
@@ -2915,9 +2926,19 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
       </button>
       <button
         type="button"
+        onClick={() => videoRef.current?.click()}
+        disabled={subiendo}
+        aria-label="Grabar video de evidencia"
+        title={`Grabar video (máximo ${LIMITE_SEGUNDOS_VIDEO} segundos)`}
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-full border-2 border-primary bg-white text-primary transition-colors hover:bg-primary-50 disabled:opacity-50"
+      >
+        <Video className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
         onClick={() => galeriaRef.current?.click()}
         disabled={subiendo}
-        aria-label="Adjuntar foto de evidencia desde la galería"
+        aria-label="Adjuntar foto o video de evidencia desde la galería"
         className="grid h-9 w-9 shrink-0 place-items-center rounded-full border-2 border-primary bg-white text-primary transition-colors hover:bg-primary-50 disabled:opacity-50"
       >
         <ImageIcon className="h-4 w-4" />
