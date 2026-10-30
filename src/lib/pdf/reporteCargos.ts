@@ -13,17 +13,27 @@
  * puntos igual que la tarjeta de porcentaje). Este archivo sólo compone el
  * documento.
  *
- * Monocromo, como el resto de los PDF del proyecto: negro sobre blanco, y sin
- * `·` ni otros caracteres que jsPDF no escribe bien con las fuentes WinAnsi.
+ * Composición: la familia visual de `composicion.ts` — banda de marca arriba,
+ * títulos en marino con regla suave y tablas con cabecera coloreada y filas
+ * alternadas, no negro sobre blanco con rejilla. Sin `·` ni otros caracteres
+ * que jsPDF no escribe bien con las fuentes WinAnsi.
+ * Las fotos de evidencia van debajo del ítem al que pertenecen
+ * (ver `cargarImagenesReporte`).
  */
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { etiquetaTipo } from '../scoring'
-import { formatoFecha } from './graficos'
+import { etiquetaTipo, type FallaResponsable } from '../scoring'
+import { supabase } from '../supabase'
+import {
+  ESTILO_TABLA,
+  MARGEN,
+  pintarBanda,
+  pintarTextoLinea,
+  pintarTituloSeccion,
+  type Geometria
+} from './composicion'
+import { barra, FONDO, formatoFecha, GRIS, GRIS_CLARO, MARINO, MARINO_CLARO } from './graficos'
 import { ponerLogoAlPie, xTextoDelPie } from './marcaPie'
-
-const MARGEN = 14
-const TAMANO_FUENTE = 10
 
 /** Un ítem que le salió mal a un cargo, tal como lo muestra el modal del detalle. */
 export interface PendienteCargo {
@@ -37,6 +47,12 @@ export interface PendienteCargo {
   perdidos: number
   /** Checks concretos que fallaron y se le atribuyen. Vacío si el ítem no es de checks. */
   checks: string[]
+  /**
+   * Rutas de las fotos en Storage, en el mismo orden en que las pinta la
+   * pantalla: en ítems de lista, sólo las de los puntos que le fallaron a ESTE
+   * cargo. Vacío cuando no hay: el documento sale igual, sin fotos.
+   */
+  fotos: string[]
 }
 
 /** Un cargo del reporte, con lo que se le descontó. */
@@ -70,67 +86,77 @@ const fmt = (n: number): string => (Number.isInteger(n) ? `${n}` : `${redondear2
 
 const pct = (valor: number | null): string => (valor == null ? '-' : `${valor}%`)
 
-export function buildReporteCargos(datos: ReporteCargosDatos): jsPDF {
+export function buildReporteCargos(
+  datos: ReporteCargosDatos,
+  /** Fotos ya bajadas de Storage, por path. Sin ellas el documento sale igual, sin fotos. */
+  imagenes: Record<string, string> = {}
+): jsPDF {
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: false })
   const ancho = pdf.internal.pageSize.getWidth()
   const alto = pdf.internal.pageSize.getHeight()
   const anchoUtil = ancho - MARGEN * 2
   let y = MARGEN
 
+  /** La posición actual del cursor y las medidas de la hoja, para `composicion.ts`. */
+  const geo = (): Geometria => ({ y, anchoUtil, ancho, alto })
+
   const textoLinea = (
     value: string,
-    options: { bold?: boolean; size?: number; gap?: number } = {}
+    options: { bold?: boolean; size?: number; gap?: number; color?: [number, number, number] } = {}
   ) => {
-    const size = options.size ?? TAMANO_FUENTE
-    pdf.setFont('helvetica', options.bold ? 'bold' : 'normal')
-    pdf.setFontSize(size)
-    pdf.setTextColor(0, 0, 0)
-    const lineas = pdf.splitTextToSize(value, anchoUtil) as string[]
-    const altoLinea = size * 0.42
-    if (y + lineas.length * altoLinea > alto - MARGEN) {
-      pdf.addPage()
-      y = MARGEN
-    }
-    pdf.text(lineas, MARGEN, y)
-    y += lineas.length * altoLinea + (options.gap ?? 2)
+    y = pintarTextoLinea(pdf, value, geo(), options)
   }
 
-  const tituloSeccion = (value: string) => {
+  /**
+   * Renglón de cifras sobre fondo suave: lo que se quiere que salte a la vista
+   * (la nota del cargo, sus puntos) en pastilla en vez de texto flotando.
+   *
+   * Va en UNA sola llamada de texto: el PDF se lee con búsquedas y con tests
+   * que esperan la frase entera, y partirla en varias llamadas la rompería.
+   */
+  const dato = (texto: string, size = 9) => {
     pdf.setFont('helvetica', 'bold')
-    pdf.setFontSize(TAMANO_FUENTE)
-    pdf.setTextColor(0, 0, 0)
-    const lineas = pdf.splitTextToSize(value, anchoUtil) as string[]
-    const altoLinea = 5.2
-    const separacionLinea = 8
-    const espacioPosterior = 8
-    const desplazamientoLinea = Math.max(0, lineas.length - 1) * altoLinea + separacionLinea
-    if (y + desplazamientoLinea + espacioPosterior > alto - MARGEN) {
+    pdf.setFontSize(size)
+    const lineas = pdf.splitTextToSize(texto, anchoUtil - 8) as string[]
+    const altoLinea = size * 0.5
+    const altoPastilla = lineas.length * altoLinea + 5.5
+    if (y + altoPastilla - 4 > alto - MARGEN) {
       pdf.addPage()
       y = MARGEN
     }
-    lineas.forEach((linea, index) => pdf.text(linea, MARGEN, y + index * altoLinea))
-    pdf.setDrawColor(0)
-    pdf.setLineWidth(0.25)
-    const posicionLinea = y + desplazamientoLinea
-    pdf.line(MARGEN, posicionLinea, ancho - MARGEN, posicionLinea)
-    y = posicionLinea + espacioPosterior
+    pdf.setFillColor(...MARINO_CLARO)
+    pdf.roundedRect(MARGEN, y - 4, anchoUtil, altoPastilla, 2.2, 2.2, 'F')
+    pdf.setTextColor(...MARINO)
+    lineas.forEach((linea, i) => pdf.text(linea, MARGEN + 4, y + i * altoLinea))
+    y += altoPastilla - 4
   }
 
-  /** Rótulo de un cargo: encabezado del bloque, más chico que un título de sección. */
+  /** Título de sección: el de `composicion.ts`, en marino con regla suave. */
+  const tituloSeccion = (value: string) => {
+    y = pintarTituloSeccion(pdf, value, geo())
+  }
+
+  /**
+   * Rótulo de un ítem dentro del bloque de un cargo: el módulo y el tipo
+   * quedan como bajada gris, que es lo único que aportan —lo que importa es el
+   * nombre del ítem.
+   */
   const subtitulo = (value: string, detalle: string) => {
-    if (y + 16 > alto - MARGEN) {
+    const espacioAnterior = y > MARGEN + 1 ? 3 : 0
+    if (y + espacioAnterior + 16 > alto - MARGEN) {
       pdf.addPage()
       y = MARGEN
     }
+    y += espacioAnterior
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(10.5)
-    pdf.setTextColor(0, 0, 0)
+    pdf.setTextColor(...MARINO)
     const lineas = pdf.splitTextToSize(value, anchoUtil) as string[]
     pdf.text(lineas, MARGEN, y)
     y += lineas.length * 4.8
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(8.5)
-    pdf.setTextColor(90, 90, 90)
+    pdf.setTextColor(...GRIS)
     const resumen = pdf.splitTextToSize(detalle, anchoUtil) as string[]
     pdf.text(resumen, MARGEN, y)
     y += resumen.length * 3.8 + 2
@@ -138,6 +164,11 @@ export function buildReporteCargos(datos: ReporteCargosDatos): jsPDF {
 
   type Celda = string | { content: string; colSpan?: number; styles?: Record<string, unknown> }
 
+  /**
+   * Tabla del reporte: el estilo de `composicion.ts` (cabecera marino, filas
+   * alternadas, separadores de 0,1 mm). La rejilla negra de antes era lo que
+   * hacía que cada bloque pareciera una planilla de contabilidad.
+   */
   const tabla = (
     headers: string[],
     rows: Celda[][],
@@ -145,42 +176,84 @@ export function buildReporteCargos(datos: ReporteCargosDatos): jsPDF {
   ) => {
     if (!rows.length) return
     autoTable(pdf, {
+      ...ESTILO_TABLA,
       head: [headers],
       body: rows,
       startY: y,
       margin: { top: MARGEN, right: MARGEN, bottom: MARGEN, left: MARGEN },
-      theme: 'grid',
-      styles: {
-        font: 'helvetica',
-        fontSize: TAMANO_FUENTE,
-        cellPadding: 1.4,
-        textColor: 0,
-        lineColor: 0,
-        lineWidth: 0.2,
-        overflow: 'linebreak',
-        valign: 'top'
-      },
-      headStyles: { fontStyle: 'bold', fillColor: [255, 255, 255], textColor: 0 },
-      bodyStyles: { fillColor: [255, 255, 255] },
-      alternateRowStyles: { fillColor: [255, 255, 255] },
-      columnStyles: opciones?.columnStyles ?? {},
-      rowPageBreak: 'avoid',
-      showHead: 'everyPage'
+      columnStyles: opciones?.columnStyles ?? {}
     })
     y = (pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y
     y += 3
   }
 
+  /**
+   * Las fotos de un pendiente, en grilla debajo de su tabla: tres por fila y
+   * con la proporción original, para que una foto de celular no salga estirada.
+   *
+   * Sólo se pegan las que ya se bajaron (`imagenes`): una foto que no se pudo
+   * leer —sin conexión, borrada, sin permiso— no tumba el reporte, simplemente
+   * no sale impresa. Y si una fila no cabe, se corta la hoja: nunca se pega una
+   * foto a medias en el margen.
+   */
+  const pintarFotos = (paths: string[]) => {
+    const conImagen = paths.filter((path) => imagenes[path])
+    if (!conImagen.length) return
+
+    const anchoFoto = 56
+    const hueco = 6
+    const porFila = Math.max(1, Math.floor((anchoUtil + hueco) / (anchoFoto + hueco)))
+
+    let x = MARGEN
+    let yFila = y
+    let altoFila = 0
+    let pintadas = 0
+
+    for (const path of conImagen) {
+      const dataUrl = imagenes[path]
+      try {
+        const props = pdf.getImageProperties(dataUrl)
+        if (!props.width || !props.height) continue
+        const altoFoto = (anchoFoto * props.height) / props.width
+        if (pintadas % porFila === 0 && pintadas > 0) {
+          x = MARGEN
+          yFila += altoFila + hueco
+          altoFila = 0
+        }
+        if (yFila + altoFoto > alto - MARGEN) {
+          pdf.addPage()
+          x = MARGEN
+          yFila = MARGEN
+          altoFila = 0
+        }
+        pdf.addImage(dataUrl, dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG', x, yFila, anchoFoto, altoFoto)
+        // Marco suave: la foto se desprende del fondo sin el recuadro negro.
+        pdf.setDrawColor(...GRIS_CLARO)
+        pdf.setLineWidth(0.3)
+        pdf.rect(x, yFila, anchoFoto, altoFoto)
+        x += anchoFoto + hueco
+        altoFila = Math.max(altoFila, altoFoto)
+        pintadas++
+      } catch {
+        // Imagen ilegible o que jsPDF no puede decodificar: se salta, no rompe
+        // el documento.
+      }
+    }
+
+    if (pintadas) y = yFila + altoFila + 4
+  }
+
   // --- Encabezado -----------------------------------------------------------
-  tituloSeccion('Reporte por cargos: pendientes')
+  // Banda de marca: el documento arranca con el color de la casa y no con una
+  // línea negra sobre fondo blanco. Baja la unidad y la fecha, que es lo que
+  // hace falta para saber qué evaluación se está mirando.
+  y = pintarBanda(pdf, 'Reporte por cargos: pendientes', `${datos.unidad} | ${formatoFecha(datos.fecha)}`, geo())
 
   const referencia = datos.referencia?.trim()
   tabla(
     ['Dato', 'Detalle'],
     [
-      ['Unidad evaluada', datos.unidad],
       ...(referencia ? [['Referencia', referencia]] : []),
-      ['Fecha de evaluación', formatoFecha(datos.fecha)],
       [
         'Puntaje general',
         datos.puntajeGeneral == null ? 'Sin puntaje (evaluación abierta)' : `${fmt(datos.puntajeGeneral)}%`
@@ -217,21 +290,28 @@ export function buildReporteCargos(datos: ReporteCargosDatos): jsPDF {
   textoLinea(
     'La nota del cargo es logrado sobre lo posible, con los mismos pesos que el resto de la app. ' +
       'Los puntos no cumplidos son los que se le descontaron por los ítems de cada bloque.',
-    { size: 8, gap: 4 }
+    { size: 8, gap: 7, color: GRIS }
   )
 
   // --- Un bloque por cargo --------------------------------------------------
   for (const cargo of datos.cargos) {
     tituloSeccion(`Cargo: ${cargo.cargo}`)
-    textoLinea(
+    // Las tres cifras del cargo juntas en una pastilla: es lo primero que se
+    // mira de cada bloque, y suelto en texto se perdían entre los títulos.
+    dato(
       `Nota del cargo: ${pct(cargo.porciento)}  |  Puntos no cumplidos: ${fmt(
         cargo.perdidos
-      )}  |  Ítems con pendientes: ${cargo.pendientes.length}`,
-      { size: 9, gap: 4 }
+      )}  |  Ítems con pendientes: ${cargo.pendientes.length}`
     )
+    if (cargo.porciento != null) {
+      // Misma barra y mismos colores que la app para el puntaje: verde arriba,
+      // ámbar en riesgo, rojo abajo.
+      barra(pdf, MARGEN, y + 3, anchoUtil, 2.6, cargo.porciento)
+      y += 9
+    }
 
     if (!cargo.pendientes.length) {
-      textoLinea('Este cargo no tiene ítems con pendientes en esta evaluación.')
+      textoLinea('Este cargo no tiene ítems con pendientes en esta evaluación.', { color: GRIS })
       continue
     }
 
@@ -243,12 +323,17 @@ export function buildReporteCargos(datos: ReporteCargosDatos): jsPDF {
 
       if (pendiente.checks.length) {
         tabla(
-          ['Punto del checklist sin cumplir', 'Puntos'],
+          ['Punto sin cumplir', 'Puntos'],
           [
-            ...pendiente.checks.map((check) => [check, { content: '', styles: {} }]),
+            ...pendiente.checks.map((check) => [check, '']),
             [
-              { content: `TOTAL de «${pendiente.item}»`, styles: { fontStyle: 'bold' } },
-              { content: fmt(pendiente.perdidos), styles: { fontStyle: 'bold', halign: 'right' } }
+              // La fila de cierre destaca por su fondo, no por una línea negra
+              // más gruesa: mismo criterio que el resto del documento.
+              { content: 'TOTAL del ítem', styles: { fontStyle: 'bold', fillColor: MARINO_CLARO, textColor: MARINO } },
+              {
+                content: fmt(pendiente.perdidos),
+                styles: { fontStyle: 'bold', halign: 'right', fillColor: MARINO_CLARO, textColor: MARINO }
+              }
             ]
           ],
           { columnStyles: { 1: { cellWidth: 22, halign: 'right' } } }
@@ -261,13 +346,22 @@ export function buildReporteCargos(datos: ReporteCargosDatos): jsPDF {
           ['Falla', 'Puntos'],
           [
             [
-              { content: `Ítem completo (${etiquetaTipo(pendiente.tipo)})`, styles: {} },
-              { content: fmt(pendiente.perdidos), styles: { halign: 'right' } }
+              {
+                content: `Ítem completo (${etiquetaTipo(pendiente.tipo)})`,
+                styles: { fontStyle: 'bold', fillColor: FONDO }
+              },
+              {
+                content: fmt(pendiente.perdidos),
+                styles: { fontStyle: 'bold', halign: 'right', fillColor: FONDO, textColor: MARINO }
+              }
             ]
           ],
           { columnStyles: { 1: { cellWidth: 22, halign: 'right' } } }
         )
       }
+      // Las fotos del ítem, después de lo que falló: es la evidencia de esa
+      // misma tabla, así que van pegadas a ella y no en un anexo aparte.
+      pintarFotos(pendiente.fotos)
     }
   }
 
@@ -292,6 +386,51 @@ export function buildReporteCargos(datos: ReporteCargosDatos): jsPDF {
   }
 }
 
+/**
+ * Arma los datos del reporte a partir de las fallas YA resueltas por el
+ * detalle: acá no se recalcula nada (ni puntos ni checks), sólo se convierte la
+ * salida de `fallasDeResponsable` en la forma que imprimen el PDF y el Excel.
+ *
+ * Está afuera de la pantalla a propósito: es la frontera entre «lo que la
+ * pantalla calcula» y «lo que el documento imprime», y con ella se prueba que
+ * los dos formatos reciben exactamente los mismos pendientes que el modal de
+ * fallas, sin tener que montar la página entera.
+ *
+ * Los pendientes quedan ordenados del más costoso al más barato, que es el
+ * orden en que conviene leerlos en una reunión.
+ */
+export function armarReporteCargos(
+  encabezado: Omit<ReporteCargosDatos, 'cargos'>,
+  elegidos: { cargo: string; porciento: number | null; fallas: FallaResponsable[] }[],
+  modulos: { id: string; nombre: string }[],
+  /**
+   * Qué fotos entran en cada pendiente, resueltas por la pantalla con
+   * `pathsDeFotosFalla`: las del punto que le falló A ESE CARGO. Sin función,
+   * los pendientes salen sin fotos.
+   */
+  fotosDeFalla: (falla: FallaResponsable) => string[] = () => []
+): ReporteCargosDatos {
+  const nombreModulo = new Map(modulos.map((m) => [m.id, m.nombre]))
+  return {
+    ...encabezado,
+    cargos: elegidos.map((e) => ({
+      cargo: e.cargo,
+      porciento: e.porciento,
+      perdidos: e.fallas.reduce((suma, f) => suma + f.perdidos, 0),
+      pendientes: [...e.fallas]
+        .sort((a, b) => b.perdidos - a.perdidos)
+        .map((f) => ({
+          item: f.texto,
+          modulo: f.modulo_id ? (nombreModulo.get(f.modulo_id) ?? null) : null,
+          tipo: f.tipo,
+          perdidos: f.perdidos,
+          checks: f.checks,
+          fotos: fotosDeFalla(f) ?? []
+        }))
+    }))
+  }
+}
+
 function slug(texto: string): string {
   return texto
     .normalize('NFD')
@@ -301,8 +440,49 @@ function slug(texto: string): string {
     .replace(/^-|-$/g, '')
 }
 
-export function descargarReporteCargos(datos: ReporteCargosDatos): void {
-  const pdf = buildReporteCargos(datos)
+export function descargarReporteCargos(datos: ReporteCargosDatos, imagenes: Record<string, string> = {}): void {
+  const pdf = buildReporteCargos(datos, imagenes)
   const unidad = slug(datos.unidad) || 'evaluacion'
   pdf.save(`pendientes-por-cargo-${unidad}-${datos.fecha}.pdf`)
+}
+
+/**
+ * Baja las fotos del reporte desde Storage y las deja como data-URL, la forma
+ * en que jsPDF las pega en el documento.
+ *
+ * Toma sólo los paths que el reporte va a imprimir (los de los cargos
+ * elegidos): en una evaluación con cien fotos, pedir todas sería cien
+ * descargas para las que el PDF no tiene lugar.
+ *
+ * UNA FOTO QUE NO BAJA NO TUMBA EL REPORTE: si el bucket no responde, la ruta
+ * no existe o el archivo está corrupto, esa foto queda fuera y el documento se
+ * genera igual con las que sí se pudieron leer. Un informe que falla entero
+ * porque una imagen de hace seis meses ya no está sería peor que uno sin ella.
+ */
+export async function cargarImagenesReporte(datos: ReporteCargosDatos): Promise<Record<string, string>> {
+  const paths = Array.from(new Set(datos.cargos.flatMap((c) => c.pendientes.flatMap((p) => p.fotos))))
+  const imagenes: Record<string, string> = {}
+  if (!paths.length) return imagenes
+
+  await Promise.all(
+    paths.map(async (path) => {
+      try {
+        const { data, error } = await supabase.storage.from('evidencias').download(path)
+        if (error || !data) return
+        imagenes[path] = await blobADataUrl(data)
+      } catch {
+        // Sin conexión o archivo ilegible: sigue sin esa foto.
+      }
+    })
+  )
+  return imagenes
+}
+
+function blobADataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolver, rechazar) => {
+    const lector = new FileReader()
+    lector.onload = () => resolver(String(lector.result))
+    lector.onerror = () => rechazar(lector.error)
+    lector.readAsDataURL(blob)
+  })
 }

@@ -1759,6 +1759,15 @@ export interface FallaResponsable {
   perdidos: number
   /** Checks concretos que fallaron. Vacío en los ítems que no son de checks. */
   checks: string[]
+  /**
+   * Los MISMOS checks anteriores pero por id (`opciones[i].id`), que es como
+   * están guardadas sus fotos dentro del valor (`evidencias[checkId]`).
+   *
+   * Va aparte de `checks` porque esos son para leer: dos puntos distintos
+   * pueden llamarse igual, y el reporte que filtrara fotos por nombre le
+   * atribuiría la foto de un punto a quien no es su responsable.
+   */
+  checkIds: string[]
 }
 
 /**
@@ -1772,7 +1781,7 @@ export interface FallaResponsable {
  * restar nada por ellos.
  */
 export function checksFallados(responsable: string, item: ItemFalla, valor: unknown): string[] {
-  return checksDeFalla(item, responsable, [valor])
+  return checksDeFalla(item, responsable, [valor]).map((c) => c.nombre)
 }
 
 /**
@@ -1828,13 +1837,15 @@ export function fallasDeResponsable(
     }
     if (perdidos <= 0) continue
 
+    const fallados = checksDeFalla(it, responsable, muestras)
     salida.push({
       item_id: it.id,
       tipo: it.tipo ?? '',
       texto: it.texto?.trim() || 'Ítem sin texto',
       modulo_id: it.modulo_id ?? null,
       perdidos: redondear3(perdidos),
-      checks: checksDeFalla(it, responsable, muestras)
+      checks: [...new Set(fallados.map((c) => c.nombre).filter(Boolean))],
+      checkIds: fallados.map((c) => c.id)
     })
   }
   // El que más puntos cuesta arriba: es el primero que hay que mirar.
@@ -1842,18 +1853,21 @@ export function fallasDeResponsable(
 }
 
 /**
- * Checks que fallaron y se atribuyen a este responsable.
+ * Checks que fallaron y se atribuyen a este responsable, con su id y su nombre.
  *
  * Reusa `responsablesDeFalla` para no abrir un segundo criterio de atribución:
  * el contador de fallas y este listado tienen que salir de la misma decisión.
+ *
+ * El **id** es el que abre la evidencia del punto (sus fotos viven en
+ * `evidencias[id]`); el **nombre** es el que se imprime. Se deduplica por id —
+ * no por nombre— porque dos puntos distintos pueden llamarse igual.
  */
-function checksDeFalla(it: ItemFalla, responsable: string, muestras: unknown[]): string[] {
+function checksDeFalla(it: ItemFalla, responsable: string, muestras: unknown[]): { id: string; nombre: string }[] {
   const esChecklist = it.tipo === 'CHECKLIST' || it.tipo === 'LISTA_COLABORADORES' || it.tipo === 'UNIDAD_CHECKLIST'
   const opts = ((it.opciones ?? []) as OpcionConTexto[]).filter((o) => o.id)
-  const vistos = new Set<string>()
-  const agregar = (texto: string) => {
-    const t = texto.trim()
-    if (t) vistos.add(t)
+  const vistos = new Map<string, string>()
+  const agregar = (id: string, texto: string) => {
+    if (!vistos.has(id)) vistos.set(id, texto.trim())
   }
   const nombre = (o: OpcionConTexto) => o.etiqueta?.trim() || 'Punto sin nombre'
 
@@ -1871,7 +1885,7 @@ function checksDeFalla(it: ItemFalla, responsable: string, muestras: unknown[]):
       for (const o of opts) {
         if (informative.includes(o.id as string)) continue
         if (opcionCumplida(o as { tipo_respuesta?: 'CHECK' | 'RANGO'; minimo?: number }, valor as ValorChecklist, o.id as string)) continue
-        if (responsablesDeFalla(it, o, record, gerente).includes(responsable)) agregar(nombre(o))
+        if (responsablesDeFalla(it, o, record, gerente).includes(responsable)) agregar(o.id as string, nombre(o))
       }
     } else if (it.tipo === 'UNIDAD_CHECKLIST') {
       for (const u of (valor as ValorUnidadChecklist | null)?.unidades ?? []) {
@@ -1879,7 +1893,7 @@ function checksDeFalla(it: ItemFalla, responsable: string, muestras: unknown[]):
           // Los puntos «no aplica» de esa unidad no son fallas: no se esperan.
           if ((u.informativos ?? []).includes(o.id as string)) continue
           if (checkMarcado(u, o.id as string)) continue
-          if (responsablesDeFalla(it, o, record, gerente).includes(responsable)) agregar(nombre(o))
+          if (responsablesDeFalla(it, o, record, gerente).includes(responsable)) agregar(o.id as string, nombre(o))
         }
       }
     } else {
@@ -1907,12 +1921,12 @@ function checksDeFalla(it: ItemFalla, responsable: string, muestras: unknown[]):
                 : gerente
                   ? [gerente]
                   : responsablesDeOpcion(o)
-          if (rs.includes(responsable)) agregar(nombre(o))
+          if (rs.includes(responsable)) agregar(id, nombre(o))
         }
       }
     }
   }
-  return [...vistos]
+  return [...vistos.entries()].map(([id, nom]) => ({ id, nombre: nom }))
 }
 
 export interface RespuestaItem {

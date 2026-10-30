@@ -1799,6 +1799,22 @@ describe('fallasDeResponsable · qué ítems y checks le costaron los puntos', (
     expect(conBeto[0].checks).toEqual(['Señalización'])
   })
 
+  it('trae también el ID de cada check caído: con esos ids están guardadas sus fotos', () => {
+    // Mismo caso de arriba: lo que cambia es que se pide el id y no el nombre.
+    // El reporte filtra fotos por id (`evidencias[idDelPunto]`) porque dos
+    // puntos distintos pueden llamarse igual.
+    const items = [itemChecklist(12, [
+      { id: 'a', etiqueta: 'Refrigeración', responsable: 'Ana' },
+      { id: 'b', etiqueta: 'Señalización', responsable: 'Beto' },
+      { id: 'c', etiqueta: 'Puerta cerrada', responsable: 'Ana' }
+    ])]
+    const conAna = fallasDeResponsable('Ana', items, [{ item_id: 'i1', valor: { selected: ['c'] } }])
+    const conBeto = fallasDeResponsable('Beto', items, [{ item_id: 'i1', valor: { selected: ['c'] } }])
+    expect(conAna[0].checkIds).toEqual(['a'])
+    expect(conBeto[0].checkIds).toEqual(['b'])
+    expect(conAna[0].checkIds).toHaveLength(conAna[0].checks.length)
+  })
+
   it('los puntos perdidos son los mismos que el posible menos lo logrado', () => {
     // Si el modal dice otra cosa que la tarjeta, los dos números pierden
     // credibilidad. LaTarjeta calcula con valorPorResponsable; acá se comprueba

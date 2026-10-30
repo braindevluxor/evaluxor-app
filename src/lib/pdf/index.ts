@@ -47,6 +47,17 @@ import { supabase } from '../supabase'
 import { ordenarTrabajadores } from '../data/colaboradores'
 import { imprimeBloque, imprimeCargos, imprimeModulo, imprimePortada, type OpcionesPdf } from './opciones'
 import { leerComentario, lineasDeComentario, textoDeComentarios } from '../comentariosPunto'
+import {
+  ESTILO_TABLA,
+  MARGEN,
+  TAMANO_FUENTE,
+  TINTA,
+  pintarBanda,
+  pintarTextoLinea,
+  pintarTituloSeccion,
+  type Geometria
+} from './composicion'
+import { colorPuntaje, GRIS, GRIS_CLARO, MARINO_CLARO } from './graficos'
 import { ponerLogoAlPie, xTextoDelPie } from './marcaPie'
 
 export type FiltroPdfCumplimiento = 'ambos' | 'cumple' | 'no-cumple'
@@ -90,12 +101,12 @@ function claveCargo(cargo: string): string {
   return cargo.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-const MARGEN = 14
-const TAMANO_FUENTE = 10
 /**
- * El informe es monocromo salvo por la pérdida: el rojo es lo único que separa
- * "mercadería que hay que buscar" de "plata que se está perdiendo", y por eso no
- * se usa en las filas, solo en el cierre.
+ * El informe es de la familia visual de `composicion.ts`: banda de marca,
+ * títulos en marino y tablas con cabecera coloreada. El rojo es lo único que
+ * se escapa de la paleta y marca lo que no se usa en las filas, sólo en el
+ * cierre de la conciliación: "plata que se está perdiendo", no "mercadería que
+ * hay que buscar".
  */
 const ROJO_PERDIDA: [number, number, number] = [178, 34, 34]
 const fmt = (value: number): string => Number.isInteger(value) ? `${value}` : `${Math.round(value * 100) / 100}`
@@ -197,20 +208,11 @@ export function buildPdfDocument(
   const anchoUtil = ancho - MARGEN * 2
   let y = MARGEN
 
+  /** La posición actual del cursor y las medidas de la hoja, para `composicion.ts`. */
+  const geo = (): Geometria => ({ y, anchoUtil, ancho, alto })
+
   const textoLinea = (value: string, options: { bold?: boolean; size?: number; gap?: number; color?: [number, number, number] } = {}) => {
-    const size = options.size ?? TAMANO_FUENTE
-    pdf.setFont('helvetica', options.bold ? 'bold' : 'normal')
-    pdf.setFontSize(size)
-    const [r, g, b] = options.color ?? [0, 0, 0]
-    pdf.setTextColor(r, g, b)
-    const lineas = pdf.splitTextToSize(value, anchoUtil) as string[]
-    const altoLinea = size * 0.42
-    if (y + lineas.length * altoLinea > alto - MARGEN) {
-      pdf.addPage()
-      y = MARGEN
-    }
-    pdf.text(lineas, MARGEN, y)
-    y += lineas.length * altoLinea + (options.gap ?? 2)
+    y = pintarTextoLinea(pdf, value, geo(), options)
   }
 
   /**
@@ -226,8 +228,8 @@ export function buildPdfDocument(
    * jsPDF no pinta dos colores dentro de un mismo `text`, así que se mide cada
    * tramo y se dibuja el siguiente justo donde terminó el anterior. Si la línea
    * completa no entra en el ancho útil —con muchos dígitos y muchos miles de
-   * unidades pasa— se cae a `textoLinea` en negro: es peor que perder el color
-   * que perder el texto en el borde de la hoja.
+   * unidades pasa— se cae a `textoLinea` con la tinta del documento: es peor
+   * que perder el color que perder el texto en el borde de la hoja.
    */
   const textoLineaTrozos = (
     trozos: { texto: string; color?: [number, number, number] }[],
@@ -248,7 +250,7 @@ export function buildPdfDocument(
     }
     let x = MARGEN
     for (const trozo of trozos) {
-      const [r, g, b] = trozo.color ?? [0, 0, 0]
+      const [r, g, b] = trozo.color ?? TINTA
       pdf.setTextColor(r, g, b)
       pdf.text(trozo.texto, x, y)
       x += pdf.getTextWidth(trozo.texto)
@@ -256,25 +258,9 @@ export function buildPdfDocument(
     y += altoLinea + (options.gap ?? 2)
   }
 
+  /** Título de sección: el de `composicion.ts`, en marino con regla suave. */
   const tituloSeccion = (value: string) => {
-    pdf.setFont('helvetica', 'bold')
-    pdf.setFontSize(TAMANO_FUENTE)
-    pdf.setTextColor(0, 0, 0)
-    const lineas = pdf.splitTextToSize(value, anchoUtil) as string[]
-    const altoLinea = 5.2
-    const separacionLinea = 8
-    const espacioPosterior = 8
-    const desplazamientoLinea = Math.max(0, lineas.length - 1) * altoLinea + separacionLinea
-    if (y + desplazamientoLinea + espacioPosterior > alto - MARGEN) {
-      pdf.addPage()
-      y = MARGEN
-    }
-    lineas.forEach((linea, index) => pdf.text(linea, MARGEN, y + index * altoLinea))
-    pdf.setDrawColor(0)
-    pdf.setLineWidth(0.25)
-    const posicionLinea = y + desplazamientoLinea
-    pdf.line(MARGEN, posicionLinea, ancho - MARGEN, posicionLinea)
-    y = posicionLinea + espacioPosterior
+    y = pintarTituloSeccion(pdf, value, geo())
   }
 
   /**
@@ -287,29 +273,14 @@ export function buildPdfDocument(
   const tabla = (headers: string[], rows: CeldaTabla[][], columnaFirma?: number) => {
     if (!rows.length) return
     autoTable(pdf, {
+      ...ESTILO_TABLA,
       head: [headers],
       body: rows,
       startY: y,
       margin: { top: MARGEN, right: MARGEN, bottom: MARGEN, left: MARGEN },
-      theme: 'grid',
-      styles: {
-        font: 'helvetica',
-        fontSize: TAMANO_FUENTE,
-        cellPadding: 1.4,
-        textColor: 0,
-        lineColor: 0,
-        lineWidth: 0.2,
-        overflow: 'linebreak',
-        valign: 'top'
-      },
-      headStyles: { fontStyle: 'bold', fillColor: [255, 255, 255], textColor: 0 },
-      bodyStyles: { fillColor: [255, 255, 255] },
-      alternateRowStyles: { fillColor: [255, 255, 255] },
       columnStyles: columnaFirma === 2
         ? { 0: { cellWidth: 52 }, 1: { cellWidth: 45 }, 2: { cellWidth: 85 } }
         : {},
-      rowPageBreak: 'avoid',
-      showHead: 'everyPage',
       didParseCell: (data) => {
         if (data.section === 'body' && data.column.index === 0 && data.cell.raw === '✓') {
           data.cell.text = []
@@ -320,7 +291,8 @@ export function buildPdfDocument(
       },
       didDrawCell: (data) => {
         if (data.section === 'body' && data.column.index === columnaFirma) {
-          pdf.setDrawColor(0)
+          // Línea de firma en gris: se escribe encima, no compite con el resto.
+          pdf.setDrawColor(...GRIS)
           pdf.setLineWidth(0.2)
           pdf.line(
             data.cell.x + 3,
@@ -333,7 +305,7 @@ export function buildPdfDocument(
         if (data.section !== 'body' || data.column.index !== 0 || data.cell.raw !== '✓') return
         const left = data.cell.x + data.cell.width / 2 - 1.2
         const middle = data.cell.y + data.cell.height / 2
-        pdf.setDrawColor(0)
+        pdf.setDrawColor(...TINTA)
         pdf.setLineWidth(0.55)
         pdf.line(left, middle, left + 0.8, middle + 0.8)
         pdf.line(left + 0.8, middle + 0.8, left + 2.2, middle - 1)
@@ -357,8 +329,9 @@ export function buildPdfDocument(
 
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(7)
-    pdf.setTextColor(0)
-    pdf.setDrawColor(0)
+    pdf.setTextColor(...TINTA)
+    // Eje y guías en gris claro: acompañan la lectura sin cruzar la hoja.
+    pdf.setDrawColor(...GRIS_CLARO)
     pdf.setLineWidth(0.2)
     for (const tick of [0, 25, 50, 75, 100]) {
       const tickX = plotX + plotWidth * tick / 100
@@ -375,16 +348,16 @@ export function buildPdfDocument(
       const altoTexto = tamanoFuente * 0.38
       pdf.setFont('helvetica', 'normal')
       pdf.setFontSize(tamanoFuente)
-      pdf.setTextColor(0)
+      pdf.setTextColor(...TINTA)
       pdf.text(lineas, etiquetaX, filaY + Math.max(altoTexto, (altoFila - lineas.length * altoTexto) / 2 + altoTexto))
 
       const barY = filaY + Math.max(0.8, (altoFila - 3.2) / 2)
       const porcentaje = puntaje == null ? null : Math.max(0, Math.min(100, puntaje))
       if (porcentaje !== null && porcentaje > 0) {
-        pdf.setFillColor(105, 105, 105)
-        pdf.setDrawColor(0)
-        pdf.setLineWidth(0.25)
-        pdf.rect(plotX, barY, plotWidth * porcentaje / 100, 3.2, 'FD')
+        // Misma escala de color que la app para el puntaje: verde arriba,
+        // ámbar en riesgo, rojo abajo. En gris era un dato sin veredicto.
+        pdf.setFillColor(...colorPuntaje(porcentaje))
+        pdf.rect(plotX, barY, plotWidth * porcentaje / 100, 3.2, 'F')
       }
       pdf.setFont('helvetica', 'bold')
       pdf.setFontSize(tamanoFuente)
@@ -406,6 +379,16 @@ export function buildPdfDocument(
   const conPortada = imprimePortada(impresion, resumenDetalle.modulos.map((modulo) => modulo.id))
 
   if (conPortada) {
+    // Banda de marca: la hoja arranca con el color de la casa y con lo que hace
+    // falta para saber qué evaluación se está leyendo —unidad y fecha—. Al lado
+    // está el pie de todas las hojas, así que el papel se reconoce aunque se
+    // separe del resto.
+    y = pintarBanda(
+      pdf,
+      'Informe de evaluación',
+      `${texto(ev.departamento?.nombre ?? ev.sucursal?.nombre ?? 'Sucursal')} | ${fecha}`,
+      geo()
+    )
     tituloSeccion('Datos de la tienda')
     // Una evaluación mide una sola unidad: sucursal o departamento. Si es de
     // departamento no hay código de tienda ni dirección que imprimir.
@@ -463,12 +446,14 @@ export function buildPdfDocument(
     for (const [index, cargo] of ['Gerente de Talento Humano', 'Gerente Corporativo'].entries()) {
       const x = MARGEN + 10 + index * (anchoFirma + 20)
       const lineaY = y + 8
-      pdf.setDrawColor(0)
+      // Firma de gerencia: gris, no negro —se escribe encima y no debe pesar
+      // más que el título de la sección.
+      pdf.setDrawColor(...GRIS)
       pdf.setLineWidth(0.25)
       pdf.line(x, lineaY, x + anchoFirma, lineaY)
       pdf.setFont('helvetica', 'normal')
       pdf.setFontSize(9)
-      pdf.setTextColor(0)
+      pdf.setTextColor(...TINTA)
       pdf.text(cargo, x + anchoFirma / 2, lineaY + 5, { align: 'center' })
     }
   }
@@ -580,7 +565,7 @@ export function buildPdfDocument(
                 ? `${grupo.departamento ?? 'Sin departamento'} · Pérdida ${formatearPrecioBase(perdidaGrupo)}`
                 : grupo.departamento ?? 'Sin departamento',
               colSpan: columnas,
-              styles: { fontStyle: 'bold', fillColor: [240, 240, 240], minCellHeight: 15 }
+              styles: { fontStyle: 'bold', fillColor: MARINO_CLARO, textColor: MARINO, minCellHeight: 15 }
             }])
           }
           filas.push(...grupo.productos.map((product): CeldaTabla[] => {
@@ -922,12 +907,13 @@ export function buildPdfDocument(
   const anchoCampo = (anchoUtil - espacioColumnas) / 2
   const segundaColumna = MARGEN + anchoCampo + espacioColumnas
   const dibujarCampo = (etiqueta: string, x: number, lineaY: number, anchoLinea: number) => {
-    pdf.setDrawColor(0)
+    // Renglón para firmar a mano: gris medio, visible sobre el papel.
+    pdf.setDrawColor(...GRIS)
     pdf.setLineWidth(0.25)
     pdf.line(x, lineaY, x + anchoLinea, lineaY)
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(9)
-    pdf.setTextColor(0)
+    pdf.setTextColor(...TINTA)
     pdf.text(etiqueta, x, lineaY + 5)
   }
   dibujarCampo('Nombre de quien recibe por gerencia', MARGEN, y + 17, anchoCampo)

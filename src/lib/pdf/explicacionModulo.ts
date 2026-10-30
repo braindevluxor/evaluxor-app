@@ -23,7 +23,9 @@
  * usa la evaluación (tipo, contra dato, doble check, permisos, puntos
  * propios), así que el papel nunca contradice a la pantalla.
  *
- * Monocromo, como el resto de los PDF: negro sobre blanco.
+ * Composición: la familia visual de `composicion.ts` — banda de marca arriba,
+ * títulos en marino con regla suave y tablas con cabecera coloreada y filas
+ * alternadas, no negro sobre blanco con rejilla.
  */
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -35,11 +37,16 @@ import {
   responsablesDeOpcion
 } from '../scoring'
 import { itemsEnOrdenJerarquico } from '../hierarchy'
-import { formatoFecha } from './graficos'
+import {
+  ESTILO_TABLA,
+  MARGEN,
+  pintarBanda,
+  pintarTextoLinea,
+  pintarTituloSeccion,
+  type Geometria
+} from './composicion'
+import { formatoFecha, MARINO } from './graficos'
 import { ponerLogoAlPie, xTextoDelPie } from './marcaPie'
-
-const MARGEN = 14
-const TAMANO_FUENTE = 10
 
 export interface ExplicacionModuloDatos {
   moduloNombre: string
@@ -362,54 +369,32 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
   const anchoUtil = ancho - MARGEN * 2
   let y = MARGEN
 
+  /** La posición actual del cursor y las medidas de la hoja, para `composicion.ts`. */
+  const geo = (): Geometria => ({ y, anchoUtil, ancho, alto })
+
   const textoLinea = (
     value: string,
-    options: { bold?: boolean; size?: number; gap?: number } = {}
+    options: { bold?: boolean; size?: number; gap?: number; color?: [number, number, number] } = {}
   ) => {
-    const size = options.size ?? TAMANO_FUENTE
-    pdf.setFont('helvetica', options.bold ? 'bold' : 'normal')
-    pdf.setFontSize(size)
-    pdf.setTextColor(0, 0, 0)
-    const lineas = pdf.splitTextToSize(value, anchoUtil) as string[]
-    const altoLinea = size * 0.42
-    if (y + lineas.length * altoLinea > alto - MARGEN) {
-      pdf.addPage()
-      y = MARGEN
-    }
-    pdf.text(lineas, MARGEN, y)
-    y += lineas.length * altoLinea + (options.gap ?? 2)
+    y = pintarTextoLinea(pdf, value, geo(), options)
   }
 
+  /** Título de sección: el de `composicion.ts`, en marino con regla suave. */
   const tituloSeccion = (value: string) => {
-    pdf.setFont('helvetica', 'bold')
-    pdf.setFontSize(TAMANO_FUENTE)
-    pdf.setTextColor(0, 0, 0)
-    const lineas = pdf.splitTextToSize(value, anchoUtil) as string[]
-    const altoLinea = 5.2
-    const separacionLinea = 8
-    const espacioPosterior = 8
-    const desplazamientoLinea = Math.max(0, lineas.length - 1) * altoLinea + separacionLinea
-    if (y + desplazamientoLinea + espacioPosterior > alto - MARGEN) {
-      pdf.addPage()
-      y = MARGEN
-    }
-    lineas.forEach((linea, index) => pdf.text(linea, MARGEN, y + index * altoLinea))
-    pdf.setDrawColor(0)
-    pdf.setLineWidth(0.25)
-    const posicionLinea = y + desplazamientoLinea
-    pdf.line(MARGEN, posicionLinea, ancho - MARGEN, posicionLinea)
-    y = posicionLinea + espacioPosterior
+    y = pintarTituloSeccion(pdf, value, geo())
   }
 
   /** Rótulo de ítem dentro del tercer bloque: más chico que un título de sección. */
   const subtitulo = (value: string, sangria = 0) => {
-    if (y + 16 > alto - MARGEN) {
+    const espacioAnterior = y > MARGEN + 1 ? 3 : 0
+    if (y + espacioAnterior + 16 > alto - MARGEN) {
       pdf.addPage()
       y = MARGEN
     }
+    y += espacioAnterior
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(9.5)
-    pdf.setTextColor(0, 0, 0)
+    pdf.setTextColor(...MARINO)
     const lineas = pdf.splitTextToSize(value, anchoUtil - sangria) as string[]
     pdf.text(lineas, MARGEN + sangria, y)
     y += lineas.length * 4.4 + 2
@@ -425,36 +410,22 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
   ) => {
     if (!rows.length) return
     autoTable(pdf, {
+      ...ESTILO_TABLA,
       head: [headers],
       body: rows,
       foot: opciones?.foot,
       startY: y,
       margin: { top: MARGEN, right: MARGEN, bottom: MARGEN, left: MARGEN },
-      theme: 'grid',
-      styles: {
-        font: 'helvetica',
-        fontSize: TAMANO_FUENTE,
-        cellPadding: 1.4,
-        textColor: 0,
-        lineColor: 0,
-        lineWidth: 0.2,
-        overflow: 'linebreak',
-        valign: 'top'
-      },
-      headStyles: { fontStyle: 'bold', fillColor: [255, 255, 255], textColor: 0 },
-      footStyles: { fontStyle: 'bold', fillColor: [255, 255, 255], textColor: 0 },
-      bodyStyles: { fillColor: [255, 255, 255] },
-      alternateRowStyles: { fillColor: [255, 255, 255] },
-      columnStyles: opciones?.columnStyles ?? {},
-      rowPageBreak: 'avoid',
-      showHead: 'everyPage'
+      columnStyles: opciones?.columnStyles ?? {}
     })
     y = (pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y
     y += 3
   }
 
   // --- 1) Datos del módulo --------------------------------------------------
-  tituloSeccion(`Qué mide y cómo se mide: ${datos.moduloNombre}`)
+  // La banda de marca abre el documento: el título de arranque y el nombre del
+  // módulo, que es lo único que hace falta para saber qué metodología se lee.
+  y = pintarBanda(pdf, 'Qué mide y cómo se mide', datos.moduloNombre, geo())
 
   const items = itemsEnOrdenJerarquico(datos.items)
   const secciones = items.filter((i) => i.tipo === 'CONTENEDOR')
