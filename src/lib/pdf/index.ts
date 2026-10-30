@@ -315,16 +315,59 @@ export function buildPdfDocument(
     y += 3
   }
 
-  const graficoBarrasModulos = (datos: { nombre: string; puntaje: number | null }[]) => {
+  /**
+   * Bloque de «Puntaje final por módulo» de la portada: el título, la gráfica
+   * de barras y el aire que se reserva para las firmas de abajo.
+   *
+   * El título va adentro a propósito: si el bloque no entra en lo que queda de
+   * hoja, salta completo a la siguiente —un título huérfano con la gráfica en
+   * la hoja de al lado se lee peor que el bloque entero en una página aparte—.
+   *
+   * Cada fila tiene PISO: mide como mínimo lo que ocupa su etiqueta (hasta dos
+   * renglones). Sin piso, cuando la portada llega hasta acá con poco aire, las
+   * filas colapsan a casi cero y los nombres de los módulos salen impresos uno
+   * encima del otro. Primero se achica la tipografía para que todo quepa; sólo
+   * si ni a 6 pt cabe, se pasa de hoja.
+   */
+  const bloquePuntajeFinal = (datos: { nombre: string; puntaje: number | null }[]) => {
     const plotX = MARGEN + 82
     const plotWidth = ancho - MARGEN - plotX - 18
     const etiquetaX = MARGEN
     const etiquetaWidth = plotX - etiquetaX - 5
     const espacioEje = 9
     const espacioFirmas = 24
-    const altoDisponible = Math.max(0, alto - MARGEN - y - espacioEje - espacioFirmas)
-    const altoFila = datos.length ? Math.min(10, altoDisponible / datos.length) : 0
-    const tamanoFuente = datos.length > 8 ? 7 : 8.5
+    /** Lo que consume `tituloSeccion` con una sola línea: se reserva al medir. */
+    const espacioTitulo = 19
+
+    // `splitTextToSize` mide con la tipografía activa, así que hay que ponerla
+    // antes de contar renglones.
+    const renglonesDe = (fuente: number): number => {
+      if (!datos.length) return 1
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(fuente)
+      return Math.max(
+        ...datos.map((d) => Math.min(2, (pdf.splitTextToSize(d.nombre, etiquetaWidth) as string[]).length))
+      )
+    }
+    /** Alto de la fila: la etiqueta entera (hasta dos renglones) más un poco de aire. */
+    const pisoDeFila = (fuente: number): number => renglonesDe(fuente) * fuente * 0.45 + 1.5
+    const aire = (): number => Math.max(0, alto - MARGEN - y - espacioTitulo - espacioEje - espacioFirmas)
+
+    // Medición ANTES de pintar nada: así el salto de hoja, si hace falta, se
+    // lleva el título junto con la gráfica.
+    let tamanoFuente = datos.length > 8 ? 7 : 8.5
+    while (datos.length && tamanoFuente > 6 && pisoDeFila(tamanoFuente) * datos.length > aire()) {
+      tamanoFuente -= 0.5
+    }
+    if (datos.length && pisoDeFila(tamanoFuente) * datos.length > aire()) {
+      pdf.addPage()
+      y = MARGEN
+    }
+    const altoFila = datos.length
+      ? Math.min(10, Math.max(pisoDeFila(tamanoFuente), aire() / datos.length))
+      : 0
+
+    tituloSeccion('Puntaje final por módulo')
     const ejeY = y + 4
 
     pdf.setFont('helvetica', 'normal')
@@ -436,8 +479,7 @@ export function buildPdfDocument(
         ]
       }), 2)
 
-    tituloSeccion('Puntaje final por módulo')
-    graficoBarrasModulos(resumenDetalle.modulos.map((modulo) => {
+    bloquePuntajeFinal(resumenDetalle.modulos.map((modulo) => {
       const resultado = puntajeModulo(resumenDetalle, modulo.id, opcionesResumen)
       return { nombre: modulo.nombre, puntaje: resultado }
     }))
