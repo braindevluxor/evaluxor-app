@@ -15,7 +15,8 @@ import { fileURLToPath } from 'node:url'
 const codigo = readFileSync(fileURLToPath(new URL('./EvaluacionDetalle.tsx', import.meta.url)), 'utf8')
 
 describe('EvaluacionDetalle · reporte por cargos', () => {
-  it('la barra de descargas tiene el botón que abre el selector de cargos', () => {
+  it('la barra de descargas tiene la opción que abre el selector de cargos', () => {
+    // La opción vive dentro del menú único de descargas (`MenuDescargas`).
     expect(codigo).toContain('setSelectorCargosAbierto(true)')
     expect(codigo).toContain('<SelectorReporteCargo')
   })

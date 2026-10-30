@@ -213,8 +213,9 @@ describe('nombreArchivoEvaluacion', () => {
 describe('botón en EvaluacionDetalle', () => {
   const pagina = readFileSync(fileURLToPath(new URL('../pages/EvaluacionDetalle.tsx', import.meta.url)), 'utf8')
 
-  it('ofrece el Excel junto al PDF y le pasa el detalle con las incidencias', () => {
-    expect(pagina).toContain('aria-label="Descargar Excel"')
+  it('ofrece el Excel en el menú de descargas y le pasa el detalle con las incidencias', () => {
+    // El Excel bajó del botón suelto de la barra al menú único de descargas.
+    expect(pagina).toContain("etiqueta: 'Excel general'")
     expect(pagina).toContain('<FileSpreadsheet className="h-5 w-5" />')
     expect(pagina).toContain('descargarExcelEvaluacion(detalle, incidenciasExcel)')
     expect(pagina).toContain('fila.modulo?.[0]?.nombre ?? null')

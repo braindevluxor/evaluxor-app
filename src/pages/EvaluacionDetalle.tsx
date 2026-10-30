@@ -21,6 +21,7 @@ import { Badge, BOTON_CABECERA, Button, Card, InfoTooltip, Modal, ProgressBar, S
 import { IncidenciasEvaluacion, ListaIncidencias, incidenciaEsDeCargo, useIncidenciasEvaluacion } from '../components/IncidenciasEvaluacion'
 import { SelectorPdf } from '../components/SelectorPdf'
 import { SelectorReporteCargo } from '../components/SelectorReporteCargo'
+import { MenuDescargas } from '../components/MenuDescargas'
 import { armarReporteCargos, cargarImagenesReporte, descargarReporteCargos } from '../lib/pdf/reporteCargos'
 import { descargarExcelCargos } from '../lib/excelCargos'
 import { Fotogaleria, FotogaleriaRutas } from '../components/dashboard/Fotogaleria'
@@ -1238,46 +1239,34 @@ export function EvaluacionDetalle() {
                 <Pencil className="h-5 w-5" />
               </button>
             ) : null}
-            {/* El PDF es icono sólo como los demás. Va en `<button>` plano y no en
-                `Button`: `Button` arrastra `px-4 py-2.5 min-h-[44px]`, y eso sobre
-                `h-10 w-10` queda decidido por el orden del CSS de Tailwind, no por
-                el orden de las clases. Acá no hay nada que pisarse. */}
-            <button
-              type="button"
-              className={BOTON_CABECERA}
-              disabled={descargando}
-              onClick={() => setSelectorAbierto(true)}
-              title="Elegir qué incluye el PDF"
-              aria-label="Descargar PDF"
-            >
-              <FileDown className="h-5 w-5" />
-            </button>
-            {/* El Excel es el hermano del PDF para quien quiere filtrar o cruzar
-                los resultados en una hoja de cálculo: mismos datos, sin selector,
-                un solo clic y cuatro pestañas. Mismo botón de icono sólo. */}
-            <button
-              type="button"
-              className={BOTON_CABECERA}
-              disabled={descargando}
-              onClick={() => void descargarExcel()}
-              title="Descargar resultados en Excel"
-              aria-label="Descargar Excel"
-            >
-              <FileSpreadsheet className="h-5 w-5" />
-            </button>
-            {/* El reporte POR CARGOS es el único que se elige a quién va
-                dirigido, así que abre su propio selector y no va con los otros
-                dos: el PDF y el Excel de arriba bajan la evaluación entera. */}
-            <button
-              type="button"
-              className={BOTON_CABECERA}
+            {/* UN solo botón para las descargas: PDF general, Excel general y
+                reporte por cargo salen del mismo menú. Antes eran tres botones
+                icono casi idénticos en la barra y no se sabía cuál bajaba qué.
+                El menú vive en `MenuDescargas`, que maneja apertura y cierre;
+                acá sólo se le pasa qué hace cada opción. */}
+            <MenuDescargas
               disabled={descargando || generandoReporte != null}
-              onClick={() => setSelectorCargosAbierto(true)}
-              title="Elegir cargos y descargar su reporte (PDF o Excel)"
-              aria-label="Reporte por cargos"
-            >
-              <Users className="h-5 w-5" />
-            </button>
+              opciones={[
+                {
+                  id: 'pdf',
+                  etiqueta: 'PDF general',
+                  icono: <FileDown className="h-5 w-5" />,
+                  onSelect: () => setSelectorAbierto(true)
+                },
+                {
+                  id: 'excel',
+                  etiqueta: 'Excel general',
+                  icono: <FileSpreadsheet className="h-5 w-5" />,
+                  onSelect: () => void descargarExcel()
+                },
+                {
+                  id: 'cargos',
+                  etiqueta: 'Por cargo (PDF o Excel)',
+                  icono: <Users className="h-5 w-5" />,
+                  onSelect: () => setSelectorCargosAbierto(true)
+                }
+              ]}
+            />
           </div>
         </div>
       </header>
