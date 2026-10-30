@@ -1141,19 +1141,29 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
--- Ver una incidencia: LIDER todas; el EVALUADOR las suyas, mientras la evaluaciÃ³n
--- siga ACTIVA y pueda reportar en ella. La regla va en una funciÃ³n (como
--- `puede_ver_evaluacion` y `puede_responder` en schema.sql) porque dentro del USING
--- de una polÃ­tica no se puede volver a nombrar a la tabla propia: la columna se le
--- pasa como argumento y es la polÃ­tica quien la resuelve.
+-- Ver una incidencia: LIDER todas; el EVALUADOR que participó en la evaluación
+-- (tiene un módulo asignado que aplica a ella), incluso cuando la evaluación ya
+-- se cerró: el detalle de la evaluación le sigue visible (`puede_ver_evaluacion`
+-- no mira el estado) y las incidencias las reportó él o sus compañeros durante
+-- la visita — cerrar no puede borrarles la memoria. Lo que SÓLO puede hacer con
+-- la evaluación ACTIVA es REPORTAR (`puede_reportar_incidencia`). La regla va en
+-- una función (como `puede_ver_evaluacion` y `puede_responder` en schema.sql)
+-- porque dentro del USING de una política no se puede volver a nombrar a la
+-- tabla propia: la columna se le pasa como argumento y es la política quien la
+-- resuelve.
 create or replace function public.puede_ver_incidencia(ev_id uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select public.es_lider() or exists (
     select 1
     from public.evaluaciones ev
     where ev.id = ev_id
-      and ev.estado = 'ACTIVA'
-      and public.puede_reportar_incidencia(ev.id, null)
+      and exists (
+        select 1
+        from public.asignaciones_modulos am
+        where am.evaluador_id = auth.uid()
+          and am.activa
+          and public.modulo_aplica_a_ev(ev, am.modulo_id)
+      )
   );
 $$;
 

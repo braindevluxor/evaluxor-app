@@ -341,6 +341,24 @@ describe('incidencias · SQL de Supabase', () => {
     expect(sql).toMatch(/ev\.estado = 'ACTIVA'/)
   })
 
+  it('el evaluador que participó ve las incidencias aunque la evaluación ya se cerró', () => {
+    /* Cerrar la evaluación (ACTIVA → CERRADA) no puede borrarle las incidencias
+       al evaluador: él mismo las reportó y el detalle de la evaluación le sigue
+       visible (`puede_ver_evaluacion` no mira el estado). Antes VER exigía
+       `ev.estado = 'ACTIVA'` y la tarjeta del detalle mostraba «Los evaluadores
+       no reportaron ninguna» en evaluaciones cerradas, mientras al Líder sí le
+       salían (él pasa el filtro sin mirar estado). Ver exige PARTICIPAR
+       (asignación activa que aplica a la evaluación); reportar sigue exigiendo
+       la evaluación ACTIVA. */
+    // El `$$;` de cierre: el `as $$` de la firma también contiene `$$` y un
+    // lazy match cortaría justo antes del cuerpo.
+    const ver = sql.match(/create or replace function public\.puede_ver_incidencia[\s\S]*?\$\$;/)?.[0] ?? ''
+    expect(ver).toContain('asignaciones_modulos')
+    expect(ver).not.toMatch(/ev\.estado/)
+    const reportar = sql.match(/create or replace function public\.puede_reportar_incidencia[\s\S]*?\$\$;/)?.[0] ?? ''
+    expect(reportar).toMatch(/ev\.estado = 'ACTIVA'/)
+  })
+
   it('el evaluador dueño puede ver y borrar sus fotos; el Líder puede verlas', () => {
     expect(sql).toContain('storage_incidencias_select')
     expect(sql).toMatch(/bucket_id = 'evidencias'/)
