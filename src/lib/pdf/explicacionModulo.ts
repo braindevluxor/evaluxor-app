@@ -168,32 +168,32 @@ export function comoSeMide(item: Item): string[] {
     case 'CHECKLIST': {
       const opciones = item.opciones ?? []
       lineas.push(
-        `Lista de ${opciones.length || 'varios'} puntos que se verifican uno a uno en el área. El ítem puntúa la fracción de puntos cumplidos: si todos los puntos llevan puntos propios, el reparto respeta esos puntos; si no, todos pesan lo mismo.`
+        `Lista de verificación compuesta por ${opciones.length || 'varios'} puntos de control evaluados de forma individual. El puntaje del ítem se calcula mediante una fracción proporcional al cumplimiento: si los subpuntos cuentan con ponderaciones específicas, se aplicará dicho reparto; en caso contrario, todos tendrán un peso equitativo.`
       )
       if (opciones.some((o) => o.tipo_respuesta === 'RANGO')) {
-        lineas.push('Los puntos de tipo valor se registran como número y sólo cumplen si alcanzan su mínimo aceptable.')
+        lineas.push('Los puntos de tipo valor se registran numéricamente y sólo se consideran cumplidos cuando alcanzan el mínimo establecido.')
       }
       if (item.permisos_sucursal) {
         lineas.push(
-          `La lista no se escribe a mano: se arma en cada evaluación desde ${item.permisos_sucursal === 'VENCIDOS' ? 'los permisos ya vencidos' : 'los permisos vigentes'} de la unidad, contra la fecha del día. Un permiso vencido nunca puede quedar cumplido.`
+          `La lista no se completa manualmente: se genera automáticamente en cada evaluación a partir de ${item.permisos_sucursal === 'VENCIDOS' ? 'los permisos ya vencidos' : 'los permisos vigentes'} de la unidad, confrontados con la fecha del día. Un permiso vencido no puede registrarse como cumplido.`
         )
       }
       break
     }
     case 'CUMPLE_NO_CUMPLE':
       lineas.push(
-        'Respuesta única: cumple o no cumple, con evidencia fotográfica y comentario. Cumple aporta el 100% del peso del ítem y no cumple el 0%.'
+        'Respuesta única (Cumple / No Cumple), respaldada obligatoriamente con evidencia fotográfica y un comentario explicativo. El estado «Cumple» otorga el 100% de la ponderación del ítem, mientras que «No Cumple» asigna el 0%.'
       )
       break
     case 'CONCILIACION': {
       const contraDato = ETIQUETAS_CONTRA_DATO[item.contra_dato ?? 'SOH']
       lineas.push(
         contraDato === ETIQUETAS_CONTRA_DATO.FINAL_BASE
-          ? 'Conciliación por precio: se escanean los SKU de la góndola y la teórica es el precio de la etiqueta (hablador) contra el precio de venta del sistema. Un producto sin hablador se registra sin precio y cuenta como descuadre.'
-          : 'Conciliación por conteo: se escanean los SKU de la góndola y la teórica es el stock del sistema contra la cantidad que se cuenta en el anaquel.'
+          ? 'Conciliación por precio: se escanean los SKU de la góndola y se compara el precio del hablador (etiqueta) contra el precio de venta registrado en el sistema. Los productos sin hablador se registran sin precio y computan como descuadre.'
+          : 'Conciliación por conteo: se escanean los SKU de la góndola y se compara el stock registrado en el sistema contra la cantidad física contada en el anaquel.'
       )
       lineas.push(
-        'Por cada SKU se compara teórica contra física y se marca la diferencia (falta o sobra), con la pérdida estimada en plata. El ítem sólo cumple cuando todos los SKU escaneados cuadran.'
+        'Por cada SKU se confronta el valor teórico contra el físico (falta o sobra) y se registra la pérdida estimada en dinero. El ítem sólo se considera cumplido cuando todos los SKU escaneados cuadran.'
       )
       break
     }
@@ -202,28 +202,28 @@ export function comoSeMide(item: Item): string[] {
       const conPuntos = opciones.length > 0 && opciones.every((o) => typeof o.puntos === 'number' && o.puntos > 0)
       lineas.push(
         conPuntos
-          ? `Se revisa a ${FILTRO_COLABORADORES[item.colaboradores_filtro ?? 'ACTIVOS'] ?? 'cada trabajador'} contra la lista de requisitos, requisito por requisito con su peso en puntos. El puntaje es el promedio, trabajador por trabajador, de los puntos obtenidos sobre los aplicables (quien no se revisa no entra en el cálculo); así un requisito pesado mueve más la aguja que uno menor.`
-          : `Se revisa a ${FILTRO_COLABORADORES[item.colaboradores_filtro ?? 'ACTIVOS'] ?? 'cada trabajador'} contra la lista de requisitos, requisito por requisito. El puntaje es por trabajador: los revisados que quedaron completos sobre los revisados. Quien no se revisa no entra en el cálculo.`
+          ? `Se revisa a ${FILTRO_COLABORADORES[item.colaboradores_filtro ?? 'ACTIVOS'] ?? 'cada trabajador'} contra la lista de requisitos, evaluando requisito por requisito con su ponderación en puntos. El puntaje corresponde al promedio, trabajador por trabajador, de los puntos obtenidos sobre los requisitos aplicables (los trabajadores no revisados no intervienen en el cálculo); de este modo, un requisito de mayor ponderación impacta proporcionalmente más que uno menor.`
+          : `Se revisa a ${FILTRO_COLABORADORES[item.colaboradores_filtro ?? 'ACTIVOS'] ?? 'cada trabajador'} contra la lista de requisitos, evaluando requisito por requisito. El puntaje se calcula por trabajador: los revisados que quedaron completos sobre los revisados. Los trabajadores no revisados no intervienen en el cálculo.`
       )
       break
     }
     case 'UNIDAD_CHECKLIST':
       lineas.push(
-        `Checklist que se repite${item.repetible === false ? ' una sola vez' : ' una vez por unidad (carretilla, nevera, equipo)'}: cada carga tiene sus propios puntos marcados contra la misma lista. El ítem sólo cumple cuando todas las unidades cargadas quedan completas.`
+        `Checklist que se repite${item.repetible === false ? ' una sola vez' : ' una vez por unidad (carretilla, nevera, equipo)'}: cada unidad cargada registra sus propios puntos contra la misma lista. El ítem sólo se considera cumplido cuando todas las unidades cargadas quedan completas.`
       )
       break
     case 'PLANO_XY':
       lineas.push(
-        'Cumplimiento XY: el evaluador sube el plano del área y marca un punto (pin) por cada lugar a revisar, con su veredicto. El puntaje es la fracción de pines que cumplen sobre los marcados; los pines sin marcar no cuentan.'
+        'El evaluador carga el plano del área y ubica un punto (pin) por cada lugar a revisar, con su veredicto. El puntaje es la fracción de pines cumplidos sobre los marcados; los pines no marcados no se consideran.'
       )
       break
     case 'CONTENEDOR':
       lineas.push(
-        'Sección que agrupa ítems. No se responde ni puntúa por sí sola: vale por el cumplimiento de sus hijos, que reparten el peso de la sección.'
+        'Sección que agrupa ítems. No se responde ni puntúa de manera directa: su valor se distribuye proporcionalmente entre los ítems (hijos) que la conforman.'
       )
       if (item.api_id) {
         lineas.push(
-          `Los registros del grupo se cargan desde ${item.api_id} y cada registro repite el mismo bloque de ítems de la sección (por ejemplo, un vehículo por registro).`
+          `Los registros del grupo se cargan desde ${item.api_id} y cada registro replica el mismo bloque de ítems de la sección (por ejemplo, un vehículo por registro).`
         )
       }
       break
@@ -231,7 +231,7 @@ export function comoSeMide(item: Item): string[] {
       lineas.push(`Ítem de tipo ${etiquetaTipo(item.tipo)}.`)
   }
   if (item.tipo !== 'CONTENEDOR') {
-    lineas.push('Puede marcarse como No aplica: en ese caso queda fuera del cálculo, ni suma ni resta.')
+    lineas.push('El ítem puede marcarse como «No aplica»: queda excluido del cálculo matemático, sin sumar ni restar.')
   }
   return lineas
 }
@@ -456,7 +456,7 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
     ['Dato', 'Detalle'],
     [
       ['Módulo', datos.moduloNombre],
-      ['Descripción', datos.moduloDescripcion?.trim() || 'Sin descripción en la configuración'],
+      ['Descripción', datos.moduloDescripcion?.trim() || 'Sin descripción registrada en la configuración'],
       ['Ítems activos', `${items.length}${secciones.length ? ` (${secciones.length} son secciones)` : ''}`],
       ['Pesos', resumenPesosModulo(items)],
       ['Generado', new Date().toLocaleDateString('es')]
@@ -468,12 +468,13 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
   tituloSeccion('Cómo se calcula el puntaje')
   textoLinea(
     'Cada ítem tiene un peso dentro del módulo. El puntaje es la suma de (peso x cumplimiento) de cada ítem ' +
-      'respondido: un ítem al 100% aporta todo su peso y uno al 0 no aporta nada. Cuando ningún ítem tiene peso, ' +
-      'el módulo no se pondera: promedia los ítems respondidos.'
+      'respondido. Un ítem al 100% aporta su valor íntegro, mientras que uno al 0% no aporta puntaje. ' +
+      'Cuando ningún ítem tiene peso, el módulo no se pondera, promedia los ítems respondidos.'
   )
   textoLinea(
-    'Las secciones agrupan ítems y valen por los suyos: los hijos reparten el peso de la sección y la sección no se ' +
-      'responde sola. Un ítem marcado como No aplica queda fuera del cálculo, ni suma ni resta.'
+    'Las secciones actúan como agrupadores y no se responden de manera directa; su valor se distribuye ' +
+      'proporcionalmente entre los ítems (hijos) que las conforman. Los ítems marcados como «No aplica» se ' +
+      'excluyen por completo del cálculo matemático (no suman ni restan).'
   )
   if (sumaRaiz > 0 && sumaRaiz !== 100) {
     textoLinea(
@@ -481,9 +482,10 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
     )
   }
   textoLinea(
-    'Veredictos: CUMPLE cuando el ítem llegó al 100%, NO CUMPLE cuando le faltó algo (puntúa lo que cumplió) y ' +
-      'SIN VEREDICTO cuando no hay respuesta, que no entra en el promedio. Cada punto incumplido se le atribuye a un ' +
-      'responsable: el que eligió el evaluador o, si no eligió, el gerente de la unidad.'
+    'CUMPLE: el ítem alcanzó el 100% de cumplimiento. NO CUMPLE: el ítem presenta deficiencias; se asigna ' +
+      'la puntuación proporcional al porcentaje efectivamente cumplido. Cada incumplimiento se atribuye al ' +
+      'responsable designado por el evaluador o, por defecto, al gerente de la unidad evaluada. SIN VEREDICTO: ' +
+      'el ítem carece de respuesta, por lo que se excluye del promedio.'
   )
 
   // --- 3) Detalle de cada ítem ----------------------------------------------
@@ -519,8 +521,8 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
   if (items.length) {
     tituloSeccion('Composición del 100% del módulo')
     textoLinea(
-      'La siguiente tabla resume cuánto vale y qué porcentaje exacto aporta cada ítem individual para conformar la calificación final del 100% del módulo. ' +
-      'En módulos con secciones (grupos), el porcentaje efectivo resulta de combinar el peso del grupo con el peso del ítem dentro de su grupo.'
+      'La siguiente tabla detalla la aportación de cada ítem individual para configurar la calificación final del 100% del módulo. ' +
+      'En módulos con secciones, el porcentaje efectivo se obtiene de combinar la ponderación de la sección con la ponderación del ítem dentro de ella.'
     )
 
     const comp = calcularComposicionModulo(items)
