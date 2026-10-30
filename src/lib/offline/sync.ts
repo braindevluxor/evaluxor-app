@@ -403,6 +403,56 @@ export async function marcarSyncNube(): Promise<void> {
   if (error) ultimaMarca = 0 // no se pudo marcar: se reintenta en la próxima subida
 }
 
+/**
+ * Registra en la tabla `fotos` las evidencias que ya están en Storage.
+ *
+ * `fotos` es el índice que usan el detalle de la evaluación, el reporte por
+ * cargos y el conteo del Excel para mostrar las evidencias por ítem. Las
+ * respuestas guardan la ruta adentro de su `valor`, pero ese índice lo
+ * llenaba sólo la cola del envío: mientras tanto, las fotos tomadas en la
+ * visita se veían en el teléfono y NO en el detalle, que es exactamente lo
+ * que se reportó.
+ *
+ * Se piden primero las ya registradas para no reintentar las mismas en cada
+ * autoguardado (que puede dispararse decenas de veces por evaluación), y un
+ * duplicado no es error (`23505`). Ninguna falla de índice tumbaría la subida:
+ * la cola del envío vuelve a intentarlo.
+ */
+async function indexarFotos(
+  evaluacionId: string,
+  respuestas: { item_id: string; instancia_id: string | null; valor: unknown }[],
+  fotos: Map<string, string>
+): Promise<void> {
+  try {
+    const items = [...new Set(respuestas.map((r) => r.item_id))]
+    if (!items.length) return
+    const { data: yaIndexadas } = await supabase
+      .from('fotos')
+      .select('path')
+      .eq('evaluacion_id', evaluacionId)
+      .in('item_id', items)
+    const conocidas = new Set((yaIndexadas ?? []).map((f) => f.path))
+    for (const r of respuestas) {
+      for (const id of extraerPhotoIds(r.valor)) {
+        const path = fotos.get(id)
+        if (!path || conocidas.has(path)) continue
+        conocidas.add(path)
+        const { error } = await supabase.from('fotos').insert({
+          evaluacion_id: evaluacionId,
+          item_id: r.item_id,
+          instancia_id: r.instancia_id ?? null,
+          path
+        })
+        if (error && error.code !== '23505') return
+      }
+    }
+  } catch {
+    // El índice no manda: las respuestas y las fotos ya están en la nube, y la
+    // cola del envío vuelve a intentar registrarlas. Un fallo acá no debe
+    // tumbar el autoguardado.
+  }
+}
+
 export async function guardarBorradorNube(
   evaluacionId: string,
   evaluadorId: string,
@@ -430,6 +480,8 @@ export async function guardarBorradorNube(
       respondido_por: evaluadorId
     }))
     descarte = await subirLote(instRows, respRows)
+    // Índice de evidencias DESPUÉS de las respuestas: lo importante primero.
+    await indexarFotos(evaluacionId, respuestas, fotos)
   } catch (e) {
     // Se propaga tipado (causa + detalle técnico + explicación si se pudo saber
     // qué regla falló) para que la pantalla diga qué pasó de verdad en vez de
@@ -442,7 +494,21 @@ export async function guardarBorradorNube(
   return descarte
 }
 
-export async function procesarCola(): Promise<{
+export async function procesarCola(
+  /**
+   * Un sync MANUAL (el botón «Sincronizar») es la persona pidiendo que se
+   * intente AHORA: reclama al instante los trabajos que quedaron en
+   * `processing` por una subida que no terminó (app cerrada a mitad de camino,
+   * pestaña recargada). Sin esto, ese trabajo espera el timeout de 15 minutos,
+   * la cola no baja y la pantalla sigue diciendo «N pendientes» mientras la
+   * subida no hace absolutamente nada.
+   *
+   * La subida es idempotente —Storage tolera «already exists» y la tabla
+   * tolera el 23505—, así que el peor caso de dos pestañas a la vez es subir
+   * dos veces lo mismo, nunca duplicar datos.
+   */
+  opciones: { reclamarProcesando?: boolean } = {}
+): Promise<{
   ok: number
   fail: number
   descartes: Descarte[]
@@ -464,7 +530,7 @@ export async function procesarCola(): Promise<{
   for (const queuedJob of jobs) {
     let job = queuedJob
     if (job.status === 'processing') {
-      if (!trabajoProcesandoVencido(job)) continue
+      if (!opciones.reclamarProcesando && !trabajoProcesandoVencido(job)) continue
       // Versiones anteriores no guardaban cuándo empezó el trabajo; esos estados
       // son abandonados y deben volver a intentar la carga de sus fotos.
       job = { ...job, status: 'pending' }

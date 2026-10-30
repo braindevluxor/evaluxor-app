@@ -43,6 +43,12 @@ beforeEach(() => {
   rpcMock.mockReset()
 })
 
+/** El índice `fotos`: vacío, sin quejas. Lo consulta el autoguardado. */
+const FOTOS = {
+  select: () => ({ eq: () => ({ in: () => res([], null) }) }),
+  insert: () => res(null, null)
+}
+
 /** Simula el catálogo: `vivos` son los ítems que siguen existiendo. */
 function catalogo(vivos: string[]) {
   fromMock.mockImplementation((tabla: string) => {
@@ -52,6 +58,7 @@ function catalogo(vivos: string[]) {
     if (tabla === 'instancias_grupo') {
       return { upsert: () => res(null, null) }
     }
+    if (tabla === 'fotos') return FOTOS
     throw new Error(`tabla inesperada: ${tabla}`)
   })
 }
@@ -95,6 +102,7 @@ describe('subida con ítems borrados del catálogo', () => {
     const subida: string[][] = []
     fromMock.mockImplementation((tabla: string) => {
       if (tabla === 'items') return { select: () => ({ in: (_c: string, ids: string[]) => res(ids.filter((i) => i === 'i1').map((id) => ({ id }))) }) }
+      if (tabla === 'fotos') return FOTOS
       if (tabla === 'instancias_grupo') {
         return {
           upsert: (filas: { item_id: string }[]) => {
@@ -119,6 +127,7 @@ describe('subida con ítems borrados del catálogo', () => {
   it('propaga el error si no se puede consultar el catálogo, antes que descartar de más', async () => {
     fromMock.mockImplementation((tabla: string) => {
       if (tabla === 'items') return { select: () => ({ in: () => res(null, { message: 'timeout' }) }) }
+      if (tabla === 'fotos') return FOTOS
       if (tabla === 'instancias_grupo') return { upsert: () => res(null, null) }
       throw new Error(`tabla inesperada: ${tabla}`)
     })
@@ -170,6 +179,7 @@ describe('subida con un ítem que el servidor ya no deja escribir', () => {
     fromMock.mockImplementation((tabla: string) => {
       if (tabla === 'items') return { select: () => ({ in: () => res(null, { message: 'no se usa' }) }) }
       if (tabla === 'evaluaciones') return { select: () => ({ eq: () => ({ maybeSingle: () => res({ estado: 'ACTIVA' }) }) }) }
+      if (tabla === 'fotos') return FOTOS
       const t = tablas[tabla]
       if (!t) throw new Error(`tabla inesperada: ${tabla}`)
       return t
