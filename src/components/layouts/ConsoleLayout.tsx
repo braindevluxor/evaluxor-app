@@ -1,4 +1,4 @@
-import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
+import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -6,7 +6,7 @@ import { DashboardFiltersProvider, useDashboardFilters } from '../../context/Das
 import { puedeConfigurar } from '../../lib/roles'
 import { SyncBanner } from './MobileLayout'
 import { BarraKpis } from '../dashboard/BarraKpis'
-import { ButtonIcon, cn } from '../ui'
+import { cn } from '../ui'
 
 interface EnlaceMenu {
   to: string
@@ -57,7 +57,9 @@ function ConsoleLayoutContenido() {
   const anchoTotal = pathname === '/dashboard' || pathname.startsWith('/dashboard/modulo/')
   const puedeEvaluar = profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER'
   const navRef = useRef<HTMLElement | null>(null)
+  const cuentaRef = useRef<HTMLDivElement | null>(null)
   const [abierto, setAbierto] = useState(false)
+  const [cuentaAbierta, setCuentaAbierta] = useState(false)
   // Por defecto la barra va cerrada (el modo de la imagen: sólo iconos, flotando);
   // quien la abra queda con su elección guardada.
   const [colapsado, setColapsado] = useState<boolean>(() => localStorage.getItem('evaluxor:menu_lateral_cerrado') !== '0')
@@ -97,6 +99,25 @@ function ConsoleLayoutContenido() {
     window.addEventListener('keydown', manejar)
     return () => window.removeEventListener('keydown', manejar)
   }, [abierto])
+
+  // El menú de la cuenta se cierra con Escape y con un toque afuera: un menú
+  // que sólo se cierra volviendo a tocar la inicial es una trampa en el
+  // teléfono.
+  useEffect(() => {
+    if (!cuentaAbierta) return
+    const manejar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCuentaAbierta(false)
+    }
+    const afuera = (e: MouseEvent) => {
+      if (!cuentaRef.current?.contains(e.target as Node)) setCuentaAbierta(false)
+    }
+    window.addEventListener('keydown', manejar)
+    window.addEventListener('mousedown', afuera)
+    return () => {
+      window.removeEventListener('keydown', manejar)
+      window.removeEventListener('mousedown', afuera)
+    }
+  }, [cuentaAbierta])
 
   function mostrarTip(label: string, el: HTMLElement) {
     const r = el.getBoundingClientRect()
@@ -202,34 +223,69 @@ function ConsoleLayoutContenido() {
           </div>
         </nav>
 
-        <div className={cn('border-t border-slate-200 px-3 py-3', colapsado && 'lg:flex lg:flex-col lg:items-center lg:px-0')}>
+        <div className={cn('relative border-t border-slate-200 px-3 py-3', colapsado && 'lg:flex lg:flex-col lg:items-center lg:px-0')}>
           <p className={cn('truncate px-2 pb-2 text-sm font-semibold text-slate-700', colapsado && 'lg:hidden')}>
             {profile?.nombre || profile?.email}
           </p>
-          {/* El pie de la barra: el avatar del usuario —su inicial— y debajo el
-              cierre de sesión, apilados: en una barra angosta uno al lado del
-              otro queda todo apretado contra el borde. */}
-          <div className="flex flex-col items-center gap-2">
-            <NavLink
-              to="/perfil"
-              title="Mi perfil / contraseña"
-              onMouseEnter={(e) => mostrarTip('Mi perfil / contraseña', e.currentTarget)}
-              onMouseLeave={() => setTip(null)}
-              onFocus={(e) => mostrarTip('Mi perfil / contraseña', e.currentTarget)}
-              onBlur={() => setTip(null)}
+          {/* Sólo la inicial en la barra; al tocarla se abre el menú con las
+              opciones —igual que en cualquier barra de atajos: la barra no se
+              llena de botones, el que necesita algo lo pide desde acá. */}
+          <div ref={cuentaRef} className="relative flex flex-col items-center">
+            {cuentaAbierta ? (
+              <div
+                role="menu"
+                className={cn(
+                  'absolute z-50 w-60 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl',
+                  'bottom-[calc(100%+0.5rem)] left-1/2 -translate-x-1/2',
+                  'lg:bottom-0 lg:left-full lg:translate-x-3'
+                )}
+              >
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-sm font-black text-white" aria-hidden>
+                    {(profile?.nombre || profile?.email || 'U').slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-slate-900">
+                      {profile?.nombre || 'Sin nombre'}
+                    </span>
+                    <span className="block truncate text-xs text-slate-500">{profile?.email}</span>
+                  </span>
+                </div>
+                <div className="border-t border-slate-100">
+                  <Link
+                    to="/perfil"
+                    role="menuitem"
+                    onClick={() => setCuentaAbierta(false)}
+                    className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    <Settings className="h-4 w-4 text-slate-400" />
+                    Configuración
+                  </Link>
+                </div>
+                <div className="border-t border-slate-100">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => void signOut()}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    <LogOut className="h-4 w-4 text-slate-400" />
+                    Cerrar sesión
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={cuentaAbierta}
+              aria-label="Mi cuenta"
+              title="Mi cuenta"
+              onClick={() => setCuentaAbierta((v) => !v)}
               className="grid h-10 w-10 place-items-center rounded-2xl bg-primary text-sm font-black text-white transition-colors hover:bg-primary-700"
             >
               <span aria-hidden>{(profile?.nombre || profile?.email || 'U').slice(0, 1).toUpperCase()}</span>
-              <span className="sr-only">Mi perfil / contraseña</span>
-            </NavLink>
-            <ButtonIcon
-              variant="danger"
-              onClick={() => void signOut()}
-              title="Cerrar sesión"
-              aria-label="Cerrar sesión"
-            >
-              <LogOut className="h-5 w-5" />
-            </ButtonIcon>
+            </button>
           </div>
         </div>
       </aside>

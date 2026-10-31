@@ -2,13 +2,37 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { ShieldCheck } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { Badge, Button, Card, Field, Input, Modal } from '../components/ui'
+import { supabase } from '../lib/supabase'
+import { ETIQUETAS_ROL } from '../lib/roles'
+import { Badge, Button, Card, Field, Input, Modal, cn } from '../components/ui'
 import { TarjetaVersionApp } from '../components/VersionApp'
 import { confirmarConfigTotp, desactivarTotp, factorsTotpActivos, iniciarConfigTotp } from '../lib/mfa'
 import type { FactorTotp } from '../lib/mfa'
 
+/**
+ * CONFIGURACIÓN DE LA CUENTA
+ * --------------------------
+ * Dos pestañas, porque son dos preguntas distintas: «quién soy» (Perfil) y
+ * «cómo protejo el acceso» (Seguridad). Antes vivían en una sola columna
+ * larga donde la contraseña y el correo se mezclaban con el 2FA.
+ *
+ * El nombre y el usuario son de la nómina y NO se editan acá: los asigna la
+ * administración, y un campo editable que la base no acepta sería una mentira
+ * en la pantalla justa. El correo sí se edita porque es el que usa Supabase
+ * Auth para iniciar sesión y avisar.
+ */
+
+type Pestana = 'perfil' | 'seguridad'
+
+const PESTANAS: { id: Pestana; texto: string; bajada: string }[] = [
+  { id: 'perfil', texto: 'Perfil', bajada: 'Consulta tus datos institucionales y gestiona tu información de contacto' },
+  { id: 'seguridad', texto: 'Seguridad', bajada: 'Contraseña y verificación en dos pasos' }
+]
+
 export function PerfilPage() {
   const { profile, session, cambiarPassword } = useAuth()
+  const [pestana, setPestana] = useState<Pestana>('perfil')
+
   const [actual, setActual] = useState('')
   const [nueva, setNueva] = useState('')
   const [confirmar, setConfirmar] = useState('')
@@ -23,6 +47,12 @@ export function PerfilPage() {
   const [codigoDes, setCodigoDes] = useState('')
   const [cargandoTotp, setCargandoTotp] = useState(false)
   const [msgTotp, setMsgTotp] = useState<{ tipo: 'ok' | 'err'; texto: string } | null>(null)
+
+  const emailActual = session?.user?.email || profile?.email || ''
+  const [correo, setCorreo] = useState(emailActual)
+  const [guardandoCorreo, setGuardandoCorreo] = useState(false)
+  const [msgCorreo, setMsgCorreo] = useState<{ tipo: 'ok' | 'err'; texto: string } | null>(null)
+  const correoCambiado = correo.trim() !== emailActual
 
   const cargarTotps = async () => setTotps(await factorsTotpActivos())
 
@@ -78,116 +108,255 @@ export function PerfilPage() {
     setCargandoTotp(false)
   }
 
+  const guardarCorreo = async () => {
+    if (!correoCambiado) return
+    setGuardandoCorreo(true)
+    setMsgCorreo(null)
+    const { error } = await supabase.auth.updateUser({ email: correo.trim() })
+    setGuardandoCorreo(false)
+    if (error) {
+      setMsgCorreo({ tipo: 'err', texto: error.message })
+      return
+    }
+    setMsgCorreo({
+      tipo: 'ok',
+      texto: 'Correo actualizado. Revisa ambas bandejas: el cambio se confirma desde un enlace que llega al correo nuevo.'
+    })
+  }
+
   const totpActiva = totps.length > 0
+  const nombre = profile?.nombre || 'Sin nombre'
+  const inicial = (nombre || profile?.email || 'U').slice(0, 1).toUpperCase()
 
   return (
-    <div className="mx-auto max-w-md space-y-4 px-4 py-6">
-      <div>
-        <Link to={profile?.rol === 'EVALUADOR' ? '/evaluar' : '/dashboard'} className="text-sm text-primary hover:underline">
-          ← Volver
-        </Link>
-        <h2 className="mt-1 text-xl font-extrabold text-primary-900">Mi perfil</h2>
+    <div className="mx-auto max-w-5xl px-4 py-6">
+      <Link to={profile?.rol === 'EVALUADOR' ? '/evaluar' : '/dashboard'} className="text-sm text-primary hover:underline">
+        ← Volver
+      </Link>
+
+      <div className="mt-2 border-b border-slate-200 pb-5">
+        <h1 className="text-2xl font-extrabold text-primary-900">Configuración</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Administra tus datos personales y la seguridad de tu cuenta
+        </p>
       </div>
 
-      <Card className="space-y-1">
-        <p className="text-sm text-slate-500">Nombre</p>
-        <p className="font-semibold text-slate-800">{profile?.nombre || '—'}</p>
-        <p className="mt-2 text-sm text-slate-500">Usuario</p>
-        <p className="font-semibold text-slate-800">{profile?.usuario || '—'}</p>
-        <p className="mt-2 text-sm text-slate-500">Correo</p>
-        <p className="font-semibold text-slate-800">{session?.user?.email || profile?.email || '—'}</p>
-      </Card>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[200px_1fr]">
+        {/* Las pestañas: a la izquierda en escritorio, en fila en el teléfono.
+            La activa es una píldora oscura —no un subrayado— para que se lea
+            como «sección», no como un enlace más. */}
+        <nav className="flex gap-1 lg:flex-col" aria-label="Secciones de configuración">
+          {PESTANAS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPestana(p.id)}
+              aria-current={pestana === p.id ? 'page' : undefined}
+              className={cn(
+                'rounded-full px-4 py-2 text-left text-sm font-semibold transition-colors',
+                pestana === p.id ? 'bg-primary-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+              )}
+            >
+              {p.texto}
+            </button>
+          ))}
+        </nav>
 
-      <Card>
-        <h3 className="mb-3 text-base font-bold text-slate-800">Seguridad</h3>
-
-        {msgTotp ? (
-          <div className={`mb-3 rounded-xl border px-3 py-2 text-sm ${msgTotp.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
-            {msgTotp.texto}
-          </div>
-        ) : null}
-
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary-50">
-              <ShieldCheck className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-800">Verificación en dos pasos</p>
-              <p className="text-xs text-slate-500">Inicio de sesión con código TOTP de tu app de autenticación.</p>
-              <div className="mt-1">
-                <Badge color={totpActiva ? 2 : 0}>{totpActiva ? 'Activo' : 'No configurado'}</Badge>
+        <div className="min-w-0">
+          {pestana === 'perfil' ? (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-lg font-bold text-primary-900">Perfil</h2>
+                <p className="text-sm text-slate-500">
+                  {PESTANAS[0].bajada}
+                </p>
               </div>
-            </div>
-          </div>
-        </div>
 
-        <div className="mt-3 flex gap-2">
-          {totpActiva ? (
-            <Button variant="secondary" onClick={() => setDesAbierto(true)} disabled={cargandoTotp}>
-              Desactivar
-            </Button>
+              {/* La identidad, con el avatar a la izquierda como en la app. */}
+              <Card>
+                <div className="flex items-center gap-4">
+                  <div className="grid h-20 w-20 shrink-0 place-items-center rounded-full bg-primary-900 text-3xl font-black text-white" aria-hidden>
+                    {inicial}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-xl font-extrabold text-primary-900">{nombre}</p>
+                      <Badge color={profile?.rol === 'LIDER' ? 2 : 0}>
+                        {ETIQUETAS_ROL[profile?.rol ?? 'SIN_ROL']}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-500">Usuario: {profile?.usuario || '—'}</p>
+                    <p className="text-sm text-slate-500">{emailActual || '—'}</p>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="space-y-4">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Información de acceso y contacto</h3>
+                  <p className="text-sm text-slate-500">
+                    Gestiona tu correo electrónico para inicio de sesión y comunicaciones oficiales
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    label="Nombre institucional"
+                    hint="Para corregir tu nombre institucional, contacta a la administración."
+                  >
+                    <Input value={nombre} disabled readOnly />
+                  </Field>
+                  <Field
+                    label="Correo electrónico"
+                    hint="Dirección empleada para iniciar sesión y recibir notificaciones."
+                  >
+                    <Input
+                      type="email"
+                      value={correo}
+                      onChange={(e) => setCorreo(e.target.value)}
+                      placeholder="tu@correo.com"
+                    />
+                  </Field>
+                </div>
+                {msgCorreo ? (
+                  <div className={`rounded-xl border px-3 py-2 text-sm ${msgCorreo.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                    {msgCorreo.texto}
+                  </div>
+                ) : null}
+              </Card>
+
+              {/* Lo que la aplicación sabe de vos y que nadie edita desde acá:
+                  es el dato que usa el resto de las pantallas para dirigirse a
+                  la persona correcta. */}
+              <Card className="space-y-4">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Identidad institucional</h3>
+                  <p className="text-sm text-slate-500">Datos asignados y administrados por la institución</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {[
+                    { rotulo: 'Nombre completo', valor: nombre },
+                    { rotulo: 'Usuario', valor: profile?.usuario || '—' },
+                    { rotulo: 'Rol en la aplicación', valor: ETIQUETAS_ROL[profile?.rol ?? 'SIN_ROL'] },
+                    { rotulo: 'Correo de acceso', valor: emailActual || '—' }
+                  ].map((d) => (
+                    <div key={d.rotulo} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{d.rotulo}</p>
+                      <p className="mt-1 truncate text-sm font-semibold text-slate-800" title={d.valor}>{d.valor}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
+                <p className="text-sm text-slate-500">Los cambios de correo se aplican al confirmar el enlace que llega a las dos bandejas.</p>
+                <Button onClick={() => void guardarCorreo()} disabled={!correoCambiado || guardandoCorreo}>
+                  {guardandoCorreo ? 'Guardando…' : 'Guardar cambios'}
+                </Button>
+              </div>
+
+              <TarjetaVersionApp />
+            </div>
           ) : (
-            <Button variant="secondary" onClick={() => void abrirConfig()} disabled={cargandoTotp}>
-              {cargandoTotp ? 'Generando…' : 'Activar con autenticador'}
-            </Button>
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-lg font-bold text-primary-900">Seguridad</h2>
+                <p className="text-sm text-slate-500">{PESTANAS[1].bajada}</p>
+              </div>
+
+              <Card>
+                <h3 className="mb-3 text-base font-bold text-slate-800">Verificación en dos pasos</h3>
+
+                {msgTotp ? (
+                  <div className={`mb-3 rounded-xl border px-3 py-2 text-sm ${msgTotp.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                    {msgTotp.texto}
+                  </div>
+                ) : null}
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary-50">
+                      <ShieldCheck className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">Verificación en dos pasos</p>
+                      <p className="text-xs text-slate-500">Inicio de sesión con código TOTP de tu app de autenticación.</p>
+                      <div className="mt-1">
+                        <Badge color={totpActiva ? 2 : 0}>{totpActiva ? 'Activo' : 'No configurado'}</Badge>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex gap-2">
+                  {totpActiva ? (
+                    <Button variant="secondary" onClick={() => setDesAbierto(true)} disabled={cargandoTotp}>
+                      Desactivar
+                    </Button>
+                  ) : (
+                    <Button variant="secondary" onClick={() => void abrirConfig()} disabled={cargandoTotp}>
+                      {cargandoTotp ? 'Generando…' : 'Activar con autenticador'}
+                    </Button>
+                  )}
+                </div>
+              </Card>
+
+              <Card>
+                <h3 className="mb-3 text-base font-bold text-slate-800">Cambiar contraseña</h3>
+
+                {msg ? (
+                  <div className={`mb-3 rounded-xl border px-3 py-2 text-sm ${msg.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                    {msg.texto}
+                  </div>
+                ) : null}
+
+                <form
+                  className="space-y-3"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    void (async () => {
+                      if (nueva.length < 6) {
+                        setMsg({ tipo: 'err', texto: 'La nueva contraseña debe tener al menos 6 caracteres.' })
+                        return
+                      }
+                      if (nueva !== confirmar) {
+                        setMsg({ tipo: 'err', texto: 'Las contraseñas no coinciden.' })
+                        return
+                      }
+                      setCargando(true)
+                      setMsg(null)
+                      const r = await cambiarPassword(actual, nueva)
+                      setCargando(false)
+                      if (r.error) {
+                        setMsg({ tipo: 'err', texto: r.error })
+                      } else {
+                        setMsg({ tipo: 'ok', texto: 'Contraseña actualizada correctamente.' })
+                        setActual('')
+                        setNueva('')
+                        setConfirmar('')
+                      }
+                    })()
+                  }}
+                >
+                  <Field label="Contraseña actual">
+                    <Input type="password" value={actual} onChange={(e) => setActual(e.target.value)} required placeholder="••••••••" />
+                  </Field>
+                  <Field label="Nueva contraseña" hint="Mínimo 6 caracteres">
+                    <Input type="password" value={nueva} onChange={(e) => setNueva(e.target.value)} required placeholder="••••••••" />
+                  </Field>
+                  <Field label="Confirmar nueva contraseña">
+                    <Input type="password" value={confirmar} onChange={(e) => setConfirmar(e.target.value)} required placeholder="••••••••" />
+                  </Field>
+                  <Button type="submit" className="w-full" disabled={cargando}>
+                    {cargando ? 'Guardando…' : 'Actualizar contraseña'}
+                  </Button>
+                </form>
+              </Card>
+
+              <TarjetaVersionApp />
+            </div>
           )}
         </div>
-      </Card>
-
-      <TarjetaVersionApp />
-
-      <Card>
-        <h3 className="mb-3 text-base font-bold text-slate-800">Cambiar contraseña</h3>
-
-        {msg ? (
-          <div className={`mb-3 rounded-xl border px-3 py-2 text-sm ${msg.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
-            {msg.texto}
-          </div>
-        ) : null}
-
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void (async () => {
-              if (nueva.length < 6) {
-                setMsg({ tipo: 'err', texto: 'La nueva contraseña debe tener al menos 6 caracteres.' })
-                return
-              }
-              if (nueva !== confirmar) {
-                setMsg({ tipo: 'err', texto: 'Las contraseñas no coinciden.' })
-                return
-              }
-              setCargando(true)
-              setMsg(null)
-              const r = await cambiarPassword(actual, nueva)
-              setCargando(false)
-              if (r.error) {
-                setMsg({ tipo: 'err', texto: r.error })
-              } else {
-                setMsg({ tipo: 'ok', texto: 'Contraseña actualizada correctamente.' })
-                setActual('')
-                setNueva('')
-                setConfirmar('')
-              }
-            })()
-          }}
-        >
-          <Field label="Contraseña actual">
-            <Input type="password" value={actual} onChange={(e) => setActual(e.target.value)} required placeholder="••••••••" />
-          </Field>
-          <Field label="Nueva contraseña" hint="Mínimo 6 caracteres">
-            <Input type="password" value={nueva} onChange={(e) => setNueva(e.target.value)} required placeholder="••••••••" />
-          </Field>
-          <Field label="Confirmar nueva contraseña">
-            <Input type="password" value={confirmar} onChange={(e) => setConfirmar(e.target.value)} required placeholder="••••••••" />
-          </Field>
-          <Button type="submit" className="w-full" disabled={cargando}>
-            {cargando ? 'Guardando…' : 'Actualizar contraseña'}
-          </Button>
-        </form>
-      </Card>
+      </div>
 
       <Modal
         open={configAbierto}
