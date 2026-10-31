@@ -284,7 +284,7 @@ beforeEach(() => {
 })
 
 describe('listarAlertas', () => {
-  it('pide los tres embeds y ordena de más nueva a más vieja (de ahí sale la vigente)', async () => {
+  it('pide los embeds —incluidos los trabajadores— y ordena de más nueva a más vieja', async () => {
     const order = vi.fn().mockResolvedValue({ data: [], error: null })
     const select = vi.fn().mockReturnValue({ order })
     fromMock.mockReturnValue({ select })
@@ -295,6 +295,7 @@ describe('listarAlertas', () => {
     expect(String(select.mock.calls[0][0])).toContain('atendida:atendida_por(nombre)')
     expect(String(select.mock.calls[0][0])).toContain('sucursal:sucursales(nombre)')
     expect(String(select.mock.calls[0][0])).toContain('departamento:departamentos_centralizados(nombre)')
+    expect(String(select.mock.calls[0][0])).toContain('trabajadores:alerta_trabajadores(nacionalidad, dni, nombre)')
     expect(order).toHaveBeenCalledWith('created_at', { ascending: false })
   })
 
@@ -306,20 +307,31 @@ describe('listarAlertas', () => {
   })
 })
 
+/** La cadena de la inserción: `.insert(...).select('id').single()`. */
+function mockInsercion(
+  respuesta: { data?: unknown; error?: unknown },
+  capturar?: (tabla: string, payload: Record<string, unknown> | Record<string, unknown>[]) => void
+) {
+  fromMock.mockImplementation((tabla: string) => ({
+    insert: (payload: Record<string, unknown> | Record<string, unknown>[]) => {
+      capturar?.(tabla, payload)
+      return {
+        select: () => ({ single: () => Promise.resolve(respuesta) })
+      }
+    }
+  }))
+}
+
 describe('registrarAlerta', () => {
   it('una alerta de sucursal lleva sucursal_id y departamento_id en null (y al revés)', async () => {
-    const insertado: Record<string, unknown>[] = []
-    fromMock.mockImplementation(() => ({
-      insert: (payload: Record<string, unknown>) => {
-        insertado.push(payload)
-        return { error: null }
-      }
-    }))
+    const insertados: { tabla: string; payload: unknown }[] = []
+    mockInsercion({ data: { id: 'a9' }, error: null }, (tabla, payload) => insertados.push({ tabla, payload }))
 
     await registrarAlerta({ clave: 'cajero', cargo: 'Cajero', unidadId: 'uN', unidadTipo: 'sucursal', evaluacionId: 'ev7', nivel: 'AMONESTACION', nota: 75 })
     await registrarAlerta({ clave: 'cont', cargo: 'Contador', unidadId: 'd1', unidadTipo: 'departamento', evaluacionId: 'ev8', nivel: 'LLAMADO', nota: 62 })
 
-    expect(insertado[0]).toEqual({
+    const deSucursal = insertados[0].payload
+    expect(deSucursal).toEqual({
       clave_cargo: 'cajero',
       cargo: 'Cajero',
       sucursal_id: 'uN',
@@ -328,21 +340,67 @@ describe('registrarAlerta', () => {
       nivel: 'AMONESTACION',
       nota: 75
     })
-    expect(insertado[1].sucursal_id).toBeNull()
-    expect(insertado[1].departamento_id).toBe('d1')
-    expect(insertado[1].evaluacion_id).toBe('ev8')
+    const deDepartamento = insertados[1].payload as Record<string, unknown>
+    expect(deDepartamento.sucursal_id).toBeNull()
+    expect(deDepartamento.departamento_id).toBe('d1')
+    expect(deDepartamento.evaluacion_id).toBe('ev8')
   })
 
-  it('la carrera de dos pantallas (23505, clave pendiente ya creada) no es error', async () => {
-    fromMock.mockReturnValue({ insert: () => ({ error: { message: 'duplicate key', code: '23505' } }) })
+  it('los trabajadores elegidos quedan guardados contra ESA alerta', async () => {
+    const insertados: { tabla: string; payload: unknown }[] = []
+    mockInsercion({ data: { id: 'a-nueva' }, error: null }, (tabla, payload) => insertados.push({ tabla, payload }))
+
+    await registrarAlerta({
+      clave: 'cajero',
+      cargo: 'Cajero integral',
+      unidadId: 'uN',
+      unidadTipo: 'sucursal',
+      evaluacionId: 'ev7',
+      nivel: 'AMONESTACION',
+      nota: 75,
+      trabajadores: [
+        { dni: 111, nacionalidad: 'V', nombre: 'Ana Pérez' },
+        { dni: 222, nacionalidad: 'E', nombre: 'Beto Gómez' }
+      ]
+    })
+
+    expect(insertados[1].tabla).toBe('alerta_trabajadores')
+    expect(insertados[1].payload).toEqual([
+      { alerta_id: 'a-nueva', nacionalidad: 'V', dni: 111, nombre: 'Ana Pérez' },
+      { alerta_id: 'a-nueva', nacionalidad: 'E', dni: 222, nombre: 'Beto Gómez' }
+    ])
+  })
+
+  it('sin trabajadores no se toca la tabla hija (los departamentos no tienen nómina)', async () => {
+    const insertados: { tabla: string }[] = []
+    mockInsercion({ data: { id: 'a9' }, error: null }, (tabla) => insertados.push({ tabla }))
+
+    await registrarAlerta({ clave: 'cont', cargo: 'Contador', unidadId: 'd1', unidadTipo: 'departamento', evaluacionId: 'ev8', nivel: 'LLAMADO', nota: 62 })
+
+    expect(insertados.map((i) => i.tabla)).toEqual(['alertas_cargo'])
+  })
+
+  it('la carrera de dos pantallas (23505, clave pendiente ya creada) no es error y no duplica trabajadores', async () => {
+    const insertados: { tabla: string }[] = []
+    mockInsercion({ data: null, error: { message: 'duplicate key', code: '23505' } }, (tabla) => insertados.push({ tabla }))
 
     await expect(
-      registrarAlerta({ clave: 'cajero', cargo: 'Cajero', unidadId: 'uN', unidadTipo: 'sucursal', evaluacionId: 'ev7', nivel: 'AMONESTACION', nota: 75 })
+      registrarAlerta({
+        clave: 'cajero',
+        cargo: 'Cajero',
+        unidadId: 'uN',
+        unidadTipo: 'sucursal',
+        evaluacionId: 'ev7',
+        nivel: 'AMONESTACION',
+        nota: 75,
+        trabajadores: [{ dni: 111, nacionalidad: 'V', nombre: 'Ana Pérez' }]
+      })
     ).resolves.toBeUndefined()
+    expect(insertados.map((i) => i.tabla)).toEqual(['alertas_cargo'])
   })
 
   it('cualquier otro error sí se propaga', async () => {
-    fromMock.mockReturnValue({ insert: () => ({ error: { message: 'rol insuficiente' } }) })
+    mockInsercion({ data: null, error: { message: 'rol insuficiente' } })
 
     await expect(
       registrarAlerta({ clave: 'cajero', cargo: 'Cajero', unidadId: 'uN', unidadTipo: 'sucursal', evaluacionId: 'ev7', nivel: 'AMONESTACION', nota: 75 })

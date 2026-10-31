@@ -4874,6 +4874,41 @@ create index if not exists idx_alertas_cargo_unidad
 create index if not exists idx_alertas_cargo_evaluacion
   on public.alertas_cargo (evaluacion_id, clave_cargo);
 
+-- A QUIÉN SE LE NOTIFICÓ
+-- El llamado o la amonestación se aplica a PERSONAS, no a un cargo abstracto:
+-- el Líder elige del listado de trabajadores activos de esa sucursal con ese
+-- cargo a quién se lo está aplicando, y esa elección queda acá. Va en una tabla
+-- hija y no en una columna array porque el historial por persona es el dato que
+-- después sirve para contar reincidencias de cada trabajador, y un array sólo
+-- se puede leer completo.
+create table if not exists public.alerta_trabajadores (
+  id uuid primary key default gen_random_uuid(),
+  alerta_id uuid not null references public.alertas_cargo(id) on delete cascade,
+  -- La identidad es (nacionalidad, dni), la misma con la que viene de la API
+  -- de trabajadores: el DNI sólo no basta porque se repite entre países.
+  nacionalidad text not null default 'V',
+  dni bigint not null,
+  nombre text not null,
+  created_at timestamptz not null default now(),
+  constraint alerta_trabajadores_unico unique (alerta_id, nacionalidad, dni)
+);
+
+create index if not exists idx_alerta_trabajadores_persona
+  on public.alerta_trabajadores (nacionalidad, dni);
+
+-- Mismo trato que su tabla madre: lectura con sesión, gestión sólo al LÍDER.
+alter table public.alerta_trabajadores enable row level security;
+
+drop policy if exists alerta_trabajadores_select on public.alerta_trabajadores;
+create policy alerta_trabajadores_select on public.alerta_trabajadores for select to authenticated using (true);
+drop policy if exists alerta_trabajadores_lider on public.alerta_trabajadores;
+create policy alerta_trabajadores_lider on public.alerta_trabajadores for all using (public.es_lider()) with check (public.es_lider());
+
+do $$
+begin
+  execute 'revoke select on public.alerta_trabajadores from anon';
+end $$;
+
 -- ROW LEVEL SECURITY: lectura con sesion, gestion solo al LIDER, igual que el
 -- resto de la configuracion. La pantalla de seguimiento es del LIDER; el
 -- `select` abierto a authenticated es el mismo trato que `sucursal_permisos`.

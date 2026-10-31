@@ -1,4 +1,4 @@
-import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
+import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -58,9 +58,10 @@ function ConsoleLayoutContenido() {
   const puedeEvaluar = profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER'
   const navRef = useRef<HTMLElement | null>(null)
   const [abierto, setAbierto] = useState(false)
-  const [colapsado, setColapsado] = useState<boolean>(() => localStorage.getItem('evaluxor:menu_lateral_cerrado') === '1')
+  // Por defecto la barra va cerrada (el modo de la imagen: sólo iconos, flotando);
+  // quien la abra queda con su elección guardada.
+  const [colapsado, setColapsado] = useState<boolean>(() => localStorage.getItem('evaluxor:menu_lateral_cerrado') !== '0')
   const [tip, setTip] = useState<{ label: string; top: number } | null>(null)
-  const [barra, setBarra] = useState<{ top: number; height: number } | null>(null)
 
   const config: { seccion: string; items: EnlaceMenu[] }[] = puedeConfigurar(profile?.rol ?? 'SIN_ROL') && profile ? [
     {
@@ -88,18 +89,7 @@ function ConsoleLayoutContenido() {
   const secciones = [...enlaces, ...config]
 
   useEffect(() => {
-    function actualizar() {
-      const nav = navRef.current
-      const activo = nav?.querySelector<HTMLElement>('a[aria-current="page"]')
-      setBarra(activo && !colapsado ? { top: activo.offsetTop, height: activo.offsetHeight } : null)
-    }
-    actualizar()
-    window.addEventListener('resize', actualizar)
-    return () => window.removeEventListener('resize', actualizar)
-  }, [colapsado, pathname])
-
-  // Cerrar el panel lateral móvil con Escape.
-  useEffect(() => {
+    // Cerrar el panel lateral móvil con Escape.
     if (!abierto) return
     const manejar = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setAbierto(false)
@@ -117,13 +107,17 @@ function ConsoleLayoutContenido() {
     <div className="min-h-screen bg-slate-100">
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-white text-slate-800 transition-[width,transform]',
+          // La barra FLOTA sobre el fondo: redondeada, sin borde y con sombra,
+          // pegada al borde izquierdo con un margen. En el teléfono sigue siendo
+          // un cajón que cubre la pantalla entera, por eso sólo flota en
+          // escritorio.
+          'fixed inset-y-0 left-0 z-40 my-4 ml-3 flex w-64 flex-col rounded-[1.75rem] bg-white text-slate-800 shadow-xl transition-[width,transform] max-lg:my-0 max-lg:ml-0 max-lg:rounded-none max-lg:shadow-none',
           colapsado && 'lg:w-16',
           abierto ? 'translate-x-0' : '-translate-x-full',
           'lg:translate-x-0'
         )}
       >
-        <div className={cn('flex items-center justify-between px-5 py-5', colapsado && 'lg:justify-center lg:px-1')}>
+        <div className={cn('flex items-center justify-between px-4 py-4', colapsado && 'lg:justify-center lg:px-1')}>
           {/* La marca se adapta al ancho del menú: desplegado entra el logo
               completo (isotipo + nombre) y cerrado queda sólo el isotipo, que es
               lo único que cabe en los 64px sin recortarse. El título sigue
@@ -134,35 +128,32 @@ function ConsoleLayoutContenido() {
             <img src="/completo.webp" alt="" className="h-auto w-40 max-w-full" />
             <p className="mt-1 text-xs text-slate-500">Indicadores de gestión</p>
           </div>
+          {/* El isotipo cerrado es el ancla visual de la barra: en su círculo,
+              arriba del todo, como en cualquier barra de atajos. */}
           <img
             src="/isotipo.webp"
             alt=""
-            className={cn('hidden h-9 w-auto', colapsado && 'lg:block')}
+            className={cn('hidden h-10 w-10 rounded-full bg-slate-50 object-contain p-1', colapsado && 'lg:block')}
           />
           <button onClick={() => setAbierto(false)} className="grid h-9 w-9 place-items-center rounded-full text-slate-400 hover:bg-slate-100 lg:hidden"><X className="h-5 w-5" /></button>
         </div>
 
-        <nav ref={navRef} className={cn('relative flex-1 space-y-6 overflow-y-auto px-3 pb-6', colapsado && 'lg:px-0')}>
-          {!colapsado && barra ? (
-            <span
-              aria-hidden
-              className="absolute left-3 right-3 z-0 rounded-xl bg-primary-100 transition-all duration-300 ease-out"
-              style={{ top: barra.top, height: barra.height }}
-            />
-          ) : null}
-          <div className="space-y-6">
+        <nav ref={navRef} className={cn('relative flex-1 space-y-4 overflow-y-auto px-3 pb-4', colapsado && 'lg:px-2')}>
+          <div className="space-y-4">
             {/* «Ir a evaluaciones» estaba en la cabecera, a la derecha de
                 Filtros; se muda al menú para que la barra superior quede sólo
                 para filtros y acciones de la vista. Mismo destino de siempre,
                 y sólo para quien puede evaluar (antes el botón existía para
-                todos pero no hacía nada si no era EVALUADOR/LÍDER). */}
+                todos pero no hacía nada si no era EVALUADOR/LÍDER). Es la
+                acción principal de la barra: por eso va en su cuadrito
+                azul, no como un enlace más. */}
             {puedeEvaluar ? (
               <Link
                 to="/evaluar"
                 onClick={() => setAbierto(false)}
                 title="Ir a evaluaciones"
                 className={cn(
-                  'flex items-center gap-3 rounded-xl bg-primary px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700',
+                  'flex items-center gap-3 rounded-2xl bg-primary px-3 py-2.5 text-sm font-semibold text-white shadow-md transition-colors hover:bg-primary-700',
                   colapsado && 'lg:justify-center lg:px-0'
                 )}
               >
@@ -185,18 +176,17 @@ function ConsoleLayoutContenido() {
                       onFocus={(e) => mostrarTip(i.label, e.currentTarget)}
                       onBlur={() => setTip(null)}
                       className={({ isActive }) =>
-                        cn('relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                        cn('relative flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors',
                           colapsado && 'lg:justify-center lg:px-0',
-                          isActive ? 'text-slate-900' : 'text-slate-700 hover:bg-primary-50')
+                          // La página activa es el cuadrito relleno: en una
+                          // barra sólo de iconos es lo único que dice «estás
+                          // acá» sin depender del hover.
+                          isActive ? 'bg-primary text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800')
                       }
                     >
-                      {({ isActive }) => (
+                      {() => (
                         <>
-                          <span className={cn(
-                            'shrink-0 rounded-lg text-primary transition-transform duration-300 ease-out',
-                            isActive ? 'scale-125' : 'scale-100',
-                            isActive && colapsado ? 'bg-primary-100 p-1' : ''
-                          )}>{i.icon}</span>
+                          <span className="shrink-0">{i.icon}</span>
                           <span className={cn('truncate', colapsado && 'lg:hidden')}>{i.label}</span>
                         </>
                       )}
@@ -209,28 +199,34 @@ function ConsoleLayoutContenido() {
           </div>
         </nav>
 
-        <div className={cn('border-t border-slate-200 px-5 py-4', colapsado && 'lg:flex lg:flex-col lg:items-center lg:px-0')}>
-          <p className={cn('truncate text-sm font-semibold', colapsado && 'lg:hidden')}>{profile?.nombre || profile?.email}</p>
-          <NavLink
-            to="/perfil"
-            onMouseEnter={(e) => mostrarTip('Mi perfil / contraseña', e.currentTarget)}
-            onMouseLeave={() => setTip(null)}
-            onFocus={(e) => mostrarTip('Mi perfil / contraseña', e.currentTarget)}
-            onBlur={() => setTip(null)}
-            className={cn('mt-2 flex items-center gap-2 text-sm font-medium text-primary hover:text-primary-700', colapsado && 'lg:justify-center lg:px-0')}
-          >
-            <Settings className="h-4 w-4" />
-            <span className={cn(colapsado && 'lg:hidden')}>Mi perfil / contraseña</span>
-          </NavLink>
-          <ButtonIcon
-            variant="danger"
-            className="mt-2"
-            onClick={() => void signOut()}
-            title="Cerrar sesión"
-            aria-label="Cerrar sesión"
-          >
-            <LogOut className="h-5 w-5" />
-          </ButtonIcon>
+        <div className={cn('border-t border-slate-200 px-3 py-3', colapsado && 'lg:flex lg:flex-col lg:items-center lg:px-0')}>
+          <p className={cn('truncate px-2 pb-2 text-sm font-semibold text-slate-700', colapsado && 'lg:hidden')}>
+            {profile?.nombre || profile?.email}
+          </p>
+          {/* El pie de la barra: el avatar del usuario —su inicial, en el mismo
+              azul que la acción principal— y el cierre de sesión al lado. */}
+          <div className="flex items-center gap-2">
+            <NavLink
+              to="/perfil"
+              title="Mi perfil / contraseña"
+              onMouseEnter={(e) => mostrarTip('Mi perfil / contraseña', e.currentTarget)}
+              onMouseLeave={() => setTip(null)}
+              onFocus={(e) => mostrarTip('Mi perfil / contraseña', e.currentTarget)}
+              onBlur={() => setTip(null)}
+              className="grid h-10 w-10 place-items-center rounded-2xl bg-primary text-sm font-black text-white transition-colors hover:bg-primary-700"
+            >
+              <span aria-hidden>{(profile?.nombre || profile?.email || 'U').slice(0, 1).toUpperCase()}</span>
+              <span className="sr-only">Mi perfil / contraseña</span>
+            </NavLink>
+            <ButtonIcon
+              variant="danger"
+              onClick={() => void signOut()}
+              title="Cerrar sesión"
+              aria-label="Cerrar sesión"
+            >
+              <LogOut className="h-5 w-5" />
+            </ButtonIcon>
+          </div>
         </div>
       </aside>
 
@@ -249,7 +245,7 @@ function ConsoleLayoutContenido() {
         </span>
       </span>
 
-      <div className={cn('transition-[padding]', colapsado ? 'lg:pl-16' : 'lg:pl-64')}>
+      <div className={cn('transition-[padding]', colapsado ? 'lg:pl-20' : 'lg:pl-72')}>
         <div className="sticky top-0 z-20 bg-white">
           <header className="flex min-h-16 items-center gap-1 border-b border-slate-200 bg-white px-4 py-2.5">
           <button

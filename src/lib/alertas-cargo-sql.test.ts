@@ -314,6 +314,82 @@ describe('alertas-cargo.sql · permisos', () => {
   })
 })
 
+describe('alertas-cargo.sql · a quién se le aplicó', () => {
+  async function insertarTrabajador(override: Record<string, unknown> = {}): Promise<void> {
+    const p = { evaluacion_id: EVAL_1, nacionalidad: 'V', dni: 12345678, nombre: 'Ana Pérez', ...override }
+    await db.query(
+      `insert into public.alerta_trabajadores (alerta_id, nacionalidad, dni, nombre)
+       select id, $1, $2, $3 from public.alertas_cargo
+       where evaluacion_id = $4 order by created_at limit 1`,
+      [p.nacionalidad, p.dni, p.nombre, p.evaluacion_id]
+    )
+  }
+
+  it('la tabla tiene la identidad del trabajador (nacionalidad + dni) y su nombre', async () => {
+    const columnas = await filas(`
+      select column_name, is_nullable
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'alerta_trabajadores'
+      order by column_name
+    `)
+    expect(columnas.map((c) => c.column_name)).toEqual([
+      'alerta_id',
+      'created_at',
+      'dni',
+      'id',
+      'nacionalidad',
+      'nombre'
+    ])
+    expect(columnas.find((c) => c.column_name === 'alerta_id')?.is_nullable).toBe('NO')
+  })
+
+  it('el mismo trabajador no se anota dos veces en la MISMA alerta, pero sí en otra', async () => {
+    await expect(insertarTrabajador()).resolves.toBeUndefined()
+    await expect(insertarTrabajador({ nombre: 'Ana Pérez (duplicada)' })).rejects.toThrow(/duplicate|única|unique/i)
+
+    // Otra alerta del mismo trabajador sí puede llevarlo: es la misma persona
+    // notificada en dos ocasiones (acá, una visita distinta ya atendida).
+    await db.query(
+      `insert into public.alertas_cargo (clave_cargo, cargo, sucursal_id, evaluacion_id, nivel, nota, estado)
+       select clave_cargo, cargo, sucursal_id, '${EVAL_2}', 'AMONESTACION', 70, 'ATENDIDA'
+       from public.alertas_cargo where evaluacion_id = '${EVAL_1}' order by created_at limit 1`
+    )
+    await expect(insertarTrabajador({ evaluacion_id: EVAL_2 })).resolves.toBeUndefined()
+
+    const total = await filas(`select count(*)::int as n from public.alerta_trabajadores`)
+    expect(total[0].n).toBe(2)
+  })
+
+  it('borrar la alerta se lleva a sus trabajadores', async () => {
+    const antes = await filas(`select count(*)::int as n from public.alerta_trabajadores`)
+    // Sólo las de la visita 1: el test de ciclos de vida de abajo necesita que
+    // siga habiendo una alerta pendiente.
+    await db.query(`delete from public.alertas_cargo where evaluacion_id = '${EVAL_1}'`)
+    const despues = await filas(`select count(*)::int as n from public.alerta_trabajadores`)
+    // Queda sólo el que estaba en la alerta de la visita 2.
+    expect(antes[0].n).toBe(2)
+    expect(despues[0].n).toBe(1)
+  })
+
+  it('RLS encendido, lectura con sesión, gestión sólo al Líder, y anon fuera', async () => {
+    const politicas = await filas(`
+      select policyname, cmd from pg_policies
+      where schemaname = 'public' and tablename = 'alerta_trabajadores'
+      order by policyname
+    `)
+    expect(politicas).toEqual([
+      { policyname: 'alerta_trabajadores_lider', cmd: 'ALL' },
+      { policyname: 'alerta_trabajadores_select', cmd: 'SELECT' }
+    ])
+
+    const permisos = await filas(`
+      select has_table_privilege('anon', 'public.alerta_trabajadores', 'select') as anon_lee,
+             has_table_privilege('authenticated', 'public.alerta_trabajadores', 'select') as sesion_lee
+    `)
+    expect(permisos).toEqual([{ anon_lee: false, sesion_lee: true }])
+  })
+})
+
 describe('alertas-cargo.sql · ciclos de vida', () => {
   it('borrar la sucursal se lleva sus alertas y el departamento las suyas', async () => {
     await db.query(`delete from public.sucursales where id = '${SUCURSAL_2}'`)

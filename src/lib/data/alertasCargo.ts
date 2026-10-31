@@ -24,6 +24,16 @@ import { nivelDeNota, type CeldaSeguimiento, type NivelAlerta } from './seguimie
 export { UMBRAL_AMONESTACION, UMBRAL_LLAMADO, nivelDeNota } from './seguimientoEvaluaciones'
 export type { NivelAlerta } from './seguimientoEvaluaciones'
 
+/**
+ * A quién se le aplicó el llamado o la amonestación: una persona concreta, con
+ * la identidad con la que viene la API de trabajadores (nacionalidad + dni).
+ */
+export interface TrabajadorAlerta {
+  dni: number
+  nacionalidad: string
+  nombre: string
+}
+
 export interface AlertaCargo {
   id: string
   clave_cargo: string
@@ -43,6 +53,8 @@ export interface AlertaCargo {
   atendida?: { nombre: string } | null
   sucursal?: { nombre: string } | null
   departamento?: { nombre: string } | null
+  /** Los trabajadores elegidos al registrarla (ver `alerta_trabajadores`). */
+  trabajadores?: TrabajadorAlerta[]
 }
 
 /** La unidad de una alerta, igual que `unidadDe` la decide en las evaluaciones. */
@@ -238,7 +250,8 @@ export async function listarAlertas(): Promise<AlertaCargo[]> {
   const { data, error } = await supabase
     .from('alertas_cargo')
     .select(
-      '*, atendida:atendida_por(nombre), sucursal:sucursales(nombre), departamento:departamentos_centralizados(nombre)'
+      '*, atendida:atendida_por(nombre), sucursal:sucursales(nombre), departamento:departamentos_centralizados(nombre), ' +
+        'trabajadores:alerta_trabajadores(nacionalidad, dni, nombre)'
     )
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message)
@@ -256,24 +269,49 @@ export interface AlertaAARegistrar {
   nivel: NivelAlerta
   /** La nota del cargo en ESA evaluación: con ésta se decide, no con un promedio. */
   nota: number
+  /**
+   * A quién se le aplica: las personas que el Líder eligió del listado de la
+   * sucursal. Sin ellos la alerta sigue siendo del cargo (queda registrada, sin
+   * destinatarios concretos), que es lo que pasa en los departamentos, donde no
+   * hay nómina que consultar.
+   */
+  trabajadores?: TrabajadorAlerta[]
 }
 
 /**
- * Registra la alerta. Si ya hay una pendiente para esa celda (dos pantallas a
- * la vez), la base devuelve `23505` y no es un error: el estado deseado ya
- * existe y la pantalla lo va a recargar igual.
+ * Registra la alerta y, si vienen, a quién se le aplicó. Si ya hay una pendiente
+ * para esa celda (dos pantallas a la vez), la base devuelve `23505` y no es un
+ * error: el estado deseado ya existe y la pantalla lo va a recargar igual.
  */
 export async function registrarAlerta(a: AlertaAARegistrar): Promise<void> {
-  const { error } = await supabase.from('alertas_cargo').insert({
-    clave_cargo: a.clave,
-    cargo: a.cargo,
-    sucursal_id: a.unidadTipo === 'sucursal' ? a.unidadId : null,
-    departamento_id: a.unidadTipo === 'departamento' ? a.unidadId : null,
-    evaluacion_id: a.evaluacionId,
-    nivel: a.nivel,
-    nota: a.nota
-  })
-  if (error && error.code !== '23505') throw new Error(error.message)
+  const { data, error } = await supabase
+    .from('alertas_cargo')
+    .insert({
+      clave_cargo: a.clave,
+      cargo: a.cargo,
+      sucursal_id: a.unidadTipo === 'sucursal' ? a.unidadId : null,
+      departamento_id: a.unidadTipo === 'departamento' ? a.unidadId : null,
+      evaluacion_id: a.evaluacionId,
+      nivel: a.nivel,
+      nota: a.nota
+    })
+    .select('id')
+    .single()
+  if (error) {
+    if (error.code === '23505') return
+    throw new Error(error.message)
+  }
+
+  if (!a.trabajadores?.length) return
+  const { error: errorTrabajadores } = await supabase.from('alerta_trabajadores').insert(
+    a.trabajadores.map((t) => ({
+      alerta_id: (data as { id: string }).id,
+      nacionalidad: t.nacionalidad,
+      dni: t.dni,
+      nombre: t.nombre
+    }))
+  )
+  if (errorTrabajadores) throw new Error(errorTrabajadores.message)
 }
 
 /**
