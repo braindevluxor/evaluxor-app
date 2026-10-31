@@ -49,6 +49,37 @@ describe('AvisoHost · el cartel flotante de confirmaciones', () => {
     expect(src).not.toContain('aria-live=')
   })
 
+  it('el formato es el de una notificación: banda de color, fondo tintado e icono en su burbuja', () => {
+    const src = fuente('./AvisoHost.tsx')
+    // La banda a la izquierda es lo que identifica el tipo de un vistazo.
+    expect(src).toContain('border-l-4')
+    expect(src).toContain('rounded-full text-white')
+    // El título va en su renglón y el texto debajo, no en la misma línea.
+    expect(src).toContain('font-bold text-slate-900')
+    expect(src).toContain('text-sm text-slate-600')
+  })
+
+  it('cubre los cuatro tonos, cada uno con su pinta y su título', () => {
+    const src = fuente('./AvisoHost.tsx')
+    expect(src).toMatch(/ok: \{ titulo: 'Listo'/)
+    expect(src).toMatch(/aviso: \{ titulo: 'Atención'/)
+    expect(src).toMatch(/error: \{ titulo: 'No se pudo'/)
+    expect(src).toMatch(/info: \{ titulo: 'Aviso'/)
+    // El azul de la información es el primario de la casa, no un azul suelto.
+    expect(src).toContain('bg-primary-500')
+
+    const aviso = fuente('../lib/aviso.ts')
+    expect(aviso).toContain("'ok' | 'aviso' | 'error' | 'info'")
+  })
+
+  it('la tarjeta se puede tocar para cerrarla, pero el aire de alrededor no', () => {
+    const src = fuente('./AvisoHost.tsx')
+    // El contenedor deja pasar el toque a la pantalla; sólo la tarjeta lo
+    // absorbe, y es la que lleva el botón de cerrar.
+    expect(src).toContain('pointer-events-auto')
+    expect(src).toContain('aria-label="Cerrar aviso"')
+  })
+
   it('está montado en App y FUERA de las rutas', () => {
     const app = fuente('../App.tsx')
     const rutas = app.slice(app.indexOf('function Rutas()'), app.indexOf('export default function App()'))
