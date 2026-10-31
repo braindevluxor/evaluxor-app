@@ -132,7 +132,14 @@ function ConsoleLayoutContenido() {
           // pegada al borde izquierdo con un margen. En el teléfono sigue siendo
           // un cajón que cubre la pantalla entera, por eso sólo flota en
           // escritorio.
-          'fixed inset-y-0 left-0 z-40 my-4 ml-3 flex w-64 flex-col rounded-2xl bg-white text-slate-800 shadow-xl transition-[width,transform] max-lg:my-0 max-lg:ml-0 max-lg:rounded-none max-lg:shadow-none',
+          //
+          // El ancho cambia con `duration-200 ease-out` y con `overflow-hidden`:
+          // sin lo primero la transición cae al default y se siente pastosa, y
+          // sin lo segundo los rótulos se salen y reacomodan la barra entera
+          // mientras se anima (ahí estaba el "lag" al abrir y cerrar). El
+          // contenido de la página NO transiciona: reacomodar el alto entero de
+          // la ventana por cuadro es lo que hacía lenta la apertura.
+          'fixed inset-y-0 left-0 z-40 my-4 ml-3 flex w-64 flex-col overflow-hidden rounded-2xl bg-white text-slate-800 shadow-xl transition-[width,transform] duration-200 ease-out max-lg:my-0 max-lg:ml-0 max-lg:rounded-none max-lg:shadow-none',
           colapsado && 'lg:w-16',
           abierto ? 'translate-x-0' : '-translate-x-full',
           'lg:translate-x-0'
@@ -159,7 +166,7 @@ function ConsoleLayoutContenido() {
           <button onClick={() => setAbierto(false)} className="grid h-9 w-9 place-items-center rounded-full text-slate-400 hover:bg-slate-100 lg:hidden"><X className="h-5 w-5" /></button>
         </div>
 
-        <nav ref={navRef} className={cn('relative flex-1 space-y-4 overflow-y-auto px-3 pb-4', colapsado && 'lg:px-2')}>
+        <nav ref={navRef} className={cn('relative min-h-0 flex-1 space-y-4 overflow-y-auto px-3 pb-4', colapsado && 'lg:px-2')}>
           <div className="space-y-4">
             {/* «Ir a evaluaciones» estaba en la cabecera, a la derecha de
                 Filtros; se muda al menú para que la barra superior quede sólo
@@ -223,14 +230,15 @@ function ConsoleLayoutContenido() {
           </div>
         </nav>
 
-        <div className={cn('relative border-t border-slate-200 px-3 py-3', colapsado && 'lg:flex lg:flex-col lg:items-center lg:px-0')}>
-          <p className={cn('truncate px-2 pb-2 text-sm font-semibold text-slate-700', colapsado && 'lg:hidden')}>
-            {profile?.nombre || profile?.email}
-          </p>
-          {/* Sólo la inicial en la barra; al tocarla se abre el menú con las
-              opciones —igual que en cualquier barra de atajos: la barra no se
-              llena de botones, el que necesita algo lo pide desde acá. */}
-          <div ref={cuentaRef} className="relative flex flex-col items-center">
+        {/* El pie es `shrink-0` y el nav de arriba `min-h-0`: sin eso el nav no
+            puede bajar de su contenido y empuja el pie fuera de la barra, donde
+            `overflow-hidden` se lo comía. */}
+        <div className={cn('relative shrink-0 border-t border-slate-200 px-3 py-3', colapsado && 'lg:flex lg:flex-col lg:items-center lg:px-0')}>
+          {/* Sólo UNA pieza a la vez: cerrada, la inicial en su pastilla azul;
+              abierta, el nombre del usuario. En el teléfono el cajón está
+              abierto, así que manda el nombre (las clases del modo cerrado son
+              de escritorio). */}
+          <div ref={cuentaRef} className="relative flex w-full flex-col items-center">
             {cuentaAbierta ? (
               <div
                 role="menu"
@@ -282,9 +290,27 @@ function ConsoleLayoutContenido() {
               aria-label="Mi cuenta"
               title="Mi cuenta"
               onClick={() => setCuentaAbierta((v) => !v)}
-              className="grid h-10 w-10 place-items-center rounded-2xl bg-primary text-sm font-black text-white transition-colors hover:bg-primary-700"
+              className={cn(
+                'place-items-center rounded-2xl bg-primary text-sm font-black text-white transition-colors hover:bg-primary-700',
+                'hidden h-10 w-10',
+                colapsado && 'lg:flex'
+              )}
             >
               <span aria-hidden>{(profile?.nombre || profile?.email || 'U').slice(0, 1).toUpperCase()}</span>
+            </button>
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={cuentaAbierta}
+              aria-label="Mi cuenta"
+              title="Mi cuenta"
+              onClick={() => setCuentaAbierta((v) => !v)}
+              className={cn(
+                'flex w-full items-center justify-center rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900',
+                colapsado && 'lg:hidden'
+              )}
+            >
+              <span className="truncate">{profile?.nombre || profile?.email}</span>
             </button>
           </div>
         </div>
@@ -305,7 +331,10 @@ function ConsoleLayoutContenido() {
         </span>
       </span>
 
-      <div className={cn('transition-[padding]', colapsado ? 'lg:pl-20' : 'lg:pl-72')}>
+      {/* Sin transición de padding: reacomodar el alto entero de la ventana por
+          cuadro era lo que hacía pesada la apertura de la barra. En el teléfono
+          no hay margen: el cajón se superpone. */}
+      <div className={cn(colapsado ? 'lg:pl-20' : 'lg:pl-72')}>
         <div className="sticky top-0 z-20 bg-white">
           <header className="flex min-h-16 items-center gap-1 border-b border-slate-200 bg-white px-4 py-2.5">
           <button
