@@ -133,13 +133,13 @@ function ConsoleLayoutContenido() {
           // un cajón que cubre la pantalla entera, por eso sólo flota en
           // escritorio.
           //
-          // El ancho cambia con `duration-200 ease-out` y con `overflow-hidden`:
-          // sin lo primero la transición cae al default y se siente pastosa, y
-          // sin lo segundo los rótulos se salen y reacomodan la barra entera
-          // mientras se anima (ahí estaba el "lag" al abrir y cerrar). El
-          // contenido de la página NO transiciona: reacomodar el alto entero de
-          // la ventana por cuadro es lo que hacía lenta la apertura.
-          'fixed inset-y-0 left-0 z-40 my-4 ml-3 flex w-64 flex-col overflow-hidden rounded-2xl bg-white text-slate-800 shadow-xl transition-[width,transform] duration-200 ease-out max-lg:my-0 max-lg:ml-0 max-lg:rounded-none max-lg:shadow-none',
+          // El ancho cambia con `duration-200 ease-out` para que la apertura se
+          // sienta ágil. NO lleva `overflow-hidden`: el menú de la cuenta se
+          // despliega hacia afuera de los 64px de la barra y ese recorte se lo
+          // comía en escritorio (en el teléfono no, porque el cajón es ancho y
+          // el menú cae adentro). El recorte de los rótulos durante la animación
+          // lo hace el `nav`, que ya es scroller.
+          'fixed inset-y-0 left-0 z-40 my-4 ml-3 flex w-64 flex-col rounded-2xl bg-white text-slate-800 shadow-xl transition-[width,transform] duration-200 ease-out max-lg:my-0 max-lg:ml-0 max-lg:rounded-none max-lg:shadow-none',
           colapsado && 'lg:w-16',
           abierto ? 'translate-x-0' : '-translate-x-full',
           'lg:translate-x-0'
@@ -166,7 +166,10 @@ function ConsoleLayoutContenido() {
           <button onClick={() => setAbierto(false)} className="grid h-9 w-9 place-items-center rounded-full text-slate-400 hover:bg-slate-100 lg:hidden"><X className="h-5 w-5" /></button>
         </div>
 
-        <nav ref={navRef} className={cn('relative min-h-0 flex-1 space-y-4 overflow-y-auto px-3 pb-4', colapsado && 'lg:px-2')}>
+        {/* `overflow-x-hidden`: durante el cambio de ancho los rótulos se
+            recortan acá (y no saliéndose de la barra) sin que el menú de la
+            cuenta se vea afectado, que vive en el pie. */}
+        <nav ref={navRef} className={cn('relative min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-3 pb-4', colapsado && 'lg:px-2')}>
           <div className="space-y-4">
             {/* «Ir a evaluaciones» estaba en la cabecera, a la derecha de
                 Filtros; se muda al menú para que la barra superior quede sólo
