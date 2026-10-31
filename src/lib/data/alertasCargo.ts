@@ -1,41 +1,28 @@
 import { supabase } from '../supabase'
-import { notaDe, type SeguimientoResponsables } from './indicadores'
+import { claveNormalizada } from './responsables'
+import { nivelDeNota, type CeldaSeguimiento, type NivelAlerta } from './seguimientoEvaluaciones'
 
 /**
- * ALERTAS DE SEGUIMIENTO POR CARGO
- * --------------------------------
+ * ALERTAS DE SEGUIMIENTO POR CARGO · UNA POR EVALUACIÓN
+ * ----------------------------------------------------
  * Dos capas que no se confunden:
  *
- * · El NIVEL se calcula siempre: la nota de la celda contra los umbrales (80%
- *   amonestación, 70% llamado de atención). Vive en la matriz y cambia sola
- *   cuando entran evaluaciones nuevas.
+ * · El NIVEL se calcula siempre: la nota del cargo EN ESA EVALUACIÓN contra los
+ *   umbrales (80% amonestación, 70% llamado de atención). Vive en las celdas de
+ *   `seguimientoPorEvaluacion` y cambia solo cuando se cierra una visita.
  * · La ALERTA es un registro: lo que el Líder decidió hacer con ese cargo en
- *   esa unidad, con la nota que tenía al decidirlo. Persiste en
- *   `alertas_cargo` y sólo avanza con las acciones de la pantalla.
+ *   ESA VISITA, con la nota que tenía ese día. Persiste en `alertas_cargo` y
+ *   sólo avanza con las acciones de la pantalla.
  *
- * Por eso `filasDeAlertas` cruza las dos: una fila aparece si está en nivel
- * (aún sin registrar) o si tiene registro (aunque hoy haya mejorado). La nota
- * actual es la de la matriz; la de la alerta explica por qué se creó.
+ * Una alerta por (cargo, unidad, evaluación): el llamado de atención pertenece
+ * a una visita concreta, no a la relación histórica entre el cargo y la
+ * tienda. Por eso, al atenderla, esa combinación queda LIMPIA: la fila deja de
+ * pedir acción hasta la próxima evaluación, que traerá sus propias fallas y
+ * dirá cuáles son reincidencias.
  */
 
-/** Por debajo de este porcentaje el cargo queda en amonestación. */
-export const UMBRAL_AMONESTACION = 80
-/** Por debajo de este porcentaje sube a llamado de atención (y deja amonestación). */
-export const UMBRAL_LLAMADO = 70
-
-export type NivelAlerta = 'AMONESTACION' | 'LLAMADO'
-
-/**
- * `79` → amonestación, `69` → llamado, `80` → nada. Sin nota no hay nivel: un
- * cargo al que no se le midió nada no está en alerta, está sin medir (que es
- * un dato distinto y bastante más grave).
- */
-export function nivelDeNota(nota: number | null): NivelAlerta | null {
-  if (nota == null) return null
-  if (nota < UMBRAL_LLAMADO) return 'LLAMADO'
-  if (nota < UMBRAL_AMONESTACION) return 'AMONESTACION'
-  return null
-}
+export { UMBRAL_AMONESTACION, UMBRAL_LLAMADO, nivelDeNota } from './seguimientoEvaluaciones'
+export type { NivelAlerta } from './seguimientoEvaluaciones'
 
 export interface AlertaCargo {
   id: string
@@ -43,14 +30,16 @@ export interface AlertaCargo {
   cargo: string
   sucursal_id: string | null
   departamento_id: string | null
+  /** La evaluación de la que habla el llamado. Toda alerta nueva tiene una. */
+  evaluacion_id: string
   nivel: NivelAlerta
-  /** La nota con la que se decidió registrarla (no la actual: ésa está en la matriz). */
+  /** La nota con la que se decidió registrarla (no la actual: ésa está en la celda). */
   nota: number
   estado: 'PENDIENTE' | 'ATENDIDA'
   atendida_en: string | null
   atendida_por: string | null
   created_at: string
-  /** Embeds: quién atendió y el nombre de la unidad, para las filas cuya unidad hoy no está en la matriz. */
+  /** Embeds: quién atendió y el nombre de la unidad, para las filas cuya unidad hoy no está en el conjunto. */
   atendida?: { nombre: string } | null
   sucursal?: { nombre: string } | null
   departamento?: { nombre: string } | null
@@ -62,73 +51,88 @@ export function unidadDeAlerta(a: AlertaCargo): { id: string; nombre: string } {
   return { id: a.sucursal_id ?? '', nombre: a.sucursal?.nombre ?? 'Sucursal' }
 }
 
-/** Una fila del panel de alertas: cargo × unidad, con su nivel actual y su registro. */
-export interface FilaAlerta {
-  clave: string
-  cargo: string
-  unidadId: string
-  unidadNombre: string
-  unidadTipo: 'sucursal' | 'departamento'
-  /** Nota ACTUAL en la matriz; `null` si hoy no se mide esa celda. */
-  nota: number | null
-  /** Nivel que corresponde según la nota actual. */
-  nivel: NivelAlerta | null
-  /** El registro persistido: pendiente si lo hay, si no la atendida más reciente. */
-  registro: AlertaCargo | null
+/**
+ * La clave con la que una alerta se cruza con su celda: cargo, unidad Y
+ * evaluación. Es la misma que usa el índice único de la base, así que dos
+ * llamados de visitas distintas del mismo cargo no se pisan.
+ */
+export function claveAlerta(claveCargo: string, unidadId: string, evaluacionId: string): string {
+  return `${claveCargo}|${unidadId}|${evaluacionId}`
 }
 
 /**
- * El registro vigente por (cargo, unidad): si hay uno pendiente manda ése (es
- * el único que puede haber, lo garantiza el índice único parcial de la base),
- * si no la atendida más reciente. `alertas` viene ordenado de más nueva a más
+ * La alerta vigente por celda: si hay una pendiente manda ése (es el único que
+ * puede haber por celda, lo garantiza el índice único parcial de la base), si
+ * no la atendida más reciente. `alertas` viene ordenado de más nueva a más
  * vieja desde `listarAlertas`.
  */
 export function mapaDeAlertas(alertas: AlertaCargo[]): Map<string, AlertaCargo> {
   const mapa = new Map<string, AlertaCargo>()
   for (const a of alertas) {
     const u = unidadDeAlerta(a)
-    if (!u.id) continue
-    const k = `${a.clave_cargo}|${u.id}`
+    if (!u.id || !a.evaluacion_id) continue
+    const k = claveAlerta(a.clave_cargo, u.id, a.evaluacion_id)
     const previo = mapa.get(k)
     if (!previo || (previo.estado === 'ATENDIDA' && a.estado === 'PENDIENTE')) mapa.set(k, a)
   }
   return mapa
 }
 
+/** Una fila del panel: el cargo en UNA evaluación, con su nivel y su registro. */
+export interface FilaAlerta {
+  clave: string
+  cargo: string
+  unidadId: string
+  unidadNombre: string
+  unidadTipo: 'sucursal' | 'departamento'
+  /** La evaluación de la que habla la fila. */
+  evaluacionId: string
+  /** Fecha de esa evaluación; `null` cuando la fila viene sólo del registro. */
+  fecha: string | null
+  /** Nota del cargo en ESA evaluación; `null` si el conjunto no la trae. */
+  nota: number | null
+  nivel: NivelAlerta | null
+  /** El registro persistido: pendiente si lo hay, si no la atendida más reciente. */
+  registro: AlertaCargo | null
+}
+
 /**
- * Las filas del panel: cada cargo × unidad que está en nivel o que tiene una
- * alerta registrada, lo peor primero (nota más baja arriba, sin nota al final,
- * lo pendiente antes que lo atendido entre notas iguales).
+ * Las filas del panel: cada celda que está en nivel o que tiene un llamado
+ * registrado, lo peor primero (nota más baja arriba, sin nota al final, lo que
+ * todavía pide acción antes que lo ya atendido entre notas iguales).
+ *
+ * `celdas` puede traer las del conjunto aunque no estén en nivel: el filtro
+ * vive acá para que el panel no dependa de que el llamador lo recuerde. Los
+ * registros que no encuentran su celda (una evaluación que salió del rango
+ * cargado) se agregan igual: perder el llamado sería perder el seguimiento
+ * justo donde más falta hace.
  */
-export function filasDeAlertas(seguimiento: SeguimientoResponsables, alertas: AlertaCargo[]): FilaAlerta[] {
+export function filasDeAlertas(celdas: CeldaSeguimiento[], alertas: AlertaCargo[]): FilaAlerta[] {
   const registros = mapaDeAlertas(alertas)
   const filas: FilaAlerta[] = []
   const vistas = new Set<string>()
 
-  for (const f of seguimiento.filas) {
-    for (const u of seguimiento.unidades) {
-      const base = f.porUnidad[u.id]
-      const nota = base ? notaDe(base.logrado, base.posible) : null
-      const registro = registros.get(`${f.clave}|${u.id}`) ?? null
-      const nivel = nivelDeNota(nota)
-      if (!nivel && !registro) continue
-      vistas.add(`${f.clave}|${u.id}`)
-      filas.push({
-        clave: f.clave,
-        cargo: f.cargo,
-        unidadId: u.id,
-        unidadNombre: u.nombre,
-        unidadTipo: u.tipo,
-        nota,
-        nivel,
-        registro
-      })
-    }
+  for (const c of celdas) {
+    const k = claveAlerta(c.clave, c.unidad.id, c.evaluacion_id)
+    const registro = registros.get(k) ?? null
+    // Sin nivel y sin registro, la celda no pide nada: no es ruido útil en un
+    // panel de acciones pendientes.
+    if (!nivelDeNota(c.nota) && !registro) continue
+    vistas.add(k)
+    filas.push({
+      clave: c.clave,
+      cargo: c.cargo,
+      unidadId: c.unidad.id,
+      unidadNombre: c.unidad.nombre,
+      unidadTipo: c.unidad.tipo,
+      evaluacionId: c.evaluacion_id,
+      fecha: c.fecha,
+      nota: c.nota,
+      nivel: nivelDeNota(c.nota),
+      registro
+    })
   }
 
-  // Los registros cuya unidad hoy no está en la matriz (una tienda sin
-  // evaluaciones cerradas): la alerta sigue viva y perderla del panel sería
-  // perder el seguimiento justo cuando dejó de "verse" en la matriz.
   for (const [k, a] of registros) {
     if (vistas.has(k)) continue
     const u = unidadDeAlerta(a)
@@ -138,6 +142,8 @@ export function filasDeAlertas(seguimiento: SeguimientoResponsables, alertas: Al
       unidadId: u.id,
       unidadNombre: u.nombre,
       unidadTipo: a.departamento_id ? 'departamento' : 'sucursal',
+      evaluacionId: a.evaluacion_id,
+      fecha: null,
       nota: null,
       nivel: null,
       registro: a
@@ -145,12 +151,86 @@ export function filasDeAlertas(seguimiento: SeguimientoResponsables, alertas: Al
   }
 
   const claveNota = (n: number | null): number => (n == null ? Number.MAX_SAFE_INTEGER : n)
+  // Lo que todavía pide acción va antes: tanto la celda en nivel sin registrar
+  // como la alerta pendiente; lo ya atendido cierra.
+  const pideAccion = (f: FilaAlerta): number => (f.registro?.estado === 'ATENDIDA' ? 1 : 0)
   return filas.sort(
     (a, b) =>
       claveNota(a.nota) - claveNota(b.nota) ||
-      Number(a.registro?.estado === 'PENDIENTE' ? 0 : 1) - Number(b.registro?.estado === 'PENDIENTE' ? 0 : 1) ||
+      pideAccion(a) - pideAccion(b) ||
+      (b.fecha ?? '').localeCompare(a.fecha ?? '') ||
       a.cargo.localeCompare(b.cargo, 'es')
   )
+}
+
+/** Una unidad con sus evaluaciones, para agrupar el panel. */
+export interface GrupoUnidad {
+  unidadId: string
+  nombre: string
+  tipo: 'sucursal' | 'departamento'
+  /** De más nueva a más vieja. */
+  evaluaciones: { evaluacionId: string; fecha: string | null; filas: FilaAlerta[] }[]
+  /** Cuántas filas de la unidad están esperando atención. */
+  pendientes: number
+}
+
+/**
+ * El panel agrupado: unidad → evaluación → cargos. Las unidades con más
+ * pendientes quedan arriba, porque son las que piden acción hoy; dentro, la
+ * visita más reciente primero, que es la que todavía se puede corregir.
+ */
+export function gruposPorUnidad(filas: FilaAlerta[]): GrupoUnidad[] {
+  const unidades = new Map<string, GrupoUnidad>()
+  for (const f of filas) {
+    const g =
+      unidades.get(f.unidadId) ??
+      { unidadId: f.unidadId, nombre: f.unidadNombre, tipo: f.unidadTipo, evaluaciones: [], pendientes: 0 }
+    const e =
+      g.evaluaciones.find((x) => x.evaluacionId === f.evaluacionId) ??
+      { evaluacionId: f.evaluacionId, fecha: f.fecha, filas: [] }
+    e.filas.push(f)
+    if (!g.evaluaciones.includes(e)) g.evaluaciones.push(e)
+    if (f.registro?.estado !== 'ATENDIDA') g.pendientes++
+    unidades.set(f.unidadId, g)
+  }
+  return Array.from(unidades.values())
+    .map((g) => ({
+      ...g,
+      evaluaciones: [...g.evaluaciones].sort((a, b) => (b.fecha ?? '').localeCompare(a.fecha ?? ''))
+    }))
+    .sort((a, b) => b.pendientes - a.pendientes || a.nombre.localeCompare(b.nombre, 'es'))
+}
+
+/** El filtro del panel, tal como lo pide la pantalla. */
+export interface FiltroSeguimiento {
+  /** Texto libre contra el nombre del cargo, normalizado («Enc. de turno» encuentra «Encargado de turno»). */
+  busqueda?: string
+  /** Id de la unidad, o vacío para todas. */
+  unidadId?: string
+  /** Estado del llamado: `todos`, `sin_registrar`, `pendientes` o `atendidas`. */
+  estado?: string
+}
+
+/**
+ * El recorte del panel. Va en la capa de datos y no en el componente porque es
+ * una regla de negocio, no de pantalla: «sin registrar» es exactamente la fila
+ * en nivel sin registro, y confundirlo con «pendiente» (que ya tiene alerta)
+ * cambiaría el sentido de los contadores del encabezado.
+ */
+export function filtrarFilas(filas: FilaAlerta[], filtro: FiltroSeguimiento = {}): FilaAlerta[] {
+  const q = (filtro.busqueda ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+  return filas.filter((f) => {
+    if (filtro.unidadId && f.unidadId !== filtro.unidadId) return false
+    if (q && !claveNormalizada(f.cargo).includes(q)) return false
+    if (filtro.estado === 'pendientes') return f.registro?.estado === 'PENDIENTE'
+    if (filtro.estado === 'sin_registrar') return !f.registro && f.nivel != null
+    if (filtro.estado === 'atendidas') return f.registro?.estado === 'ATENDIDA'
+    return true
+  })
 }
 
 /** Todas las alertas, de más nueva a más vieja: es el orden con el que se elige la vigente. */
@@ -166,20 +246,22 @@ export async function listarAlertas(): Promise<AlertaCargo[]> {
 }
 
 export interface AlertaAARegistrar {
-  /** Clave normalizada del cargo, la misma con la que agrupa la matriz. */
+  /** Clave normalizada del cargo, la misma con la que agrupa el seguimiento. */
   clave: string
   cargo: string
   unidadId: string
   unidadTipo: 'sucursal' | 'departamento'
+  /** La visita concreta que origina el llamado: no se registra sobre el histórico. */
+  evaluacionId: string
   nivel: NivelAlerta
-  /** La nota actual de la celda: con ésta se decide, no la histórica de la alerta. */
+  /** La nota del cargo en ESA evaluación: con ésta se decide, no con un promedio. */
   nota: number
 }
 
 /**
- * Registra la alerta. Si ya hay una pendiente para ese cargo y unidad (dos
- * pantallas a la vez), la base devuelve `23505` y no es un error: el estado
- * deseado ya existe y la pantalla lo va a recargar igual.
+ * Registra la alerta. Si ya hay una pendiente para esa celda (dos pantallas a
+ * la vez), la base devuelve `23505` y no es un error: el estado deseado ya
+ * existe y la pantalla lo va a recargar igual.
  */
 export async function registrarAlerta(a: AlertaAARegistrar): Promise<void> {
   const { error } = await supabase.from('alertas_cargo').insert({
@@ -187,6 +269,7 @@ export async function registrarAlerta(a: AlertaAARegistrar): Promise<void> {
     cargo: a.cargo,
     sucursal_id: a.unidadTipo === 'sucursal' ? a.unidadId : null,
     departamento_id: a.unidadTipo === 'departamento' ? a.unidadId : null,
+    evaluacion_id: a.evaluacionId,
     nivel: a.nivel,
     nota: a.nota
   })

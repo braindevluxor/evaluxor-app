@@ -4785,20 +4785,27 @@ comment on column public.items.permisos_sucursal is
 -- ============================================================================
 -- ALERTAS DE SEGUIMIENTO POR CARGO (AMONESTACION Y LLAMADO DE ATENCION)
 --
--- El dashboard de responsables muestra la nota de cada cargo por unidad. Cuando
--- esa nota cae por debajo del umbral (80% amonestacion, 70% llamado de
--- atencion) el LIDER registra una alerta: queda PENDIENTE hasta que alguien la
--- atiende, y ahi pasa a ATENDIDA con fecha y quien la atendio.
+-- El dashboard de seguimiento muestra, por unidad, cada EVALUACION cerrada y
+-- la nota que saco cada cargo EN ESA VISITA. Cuando esa nota cae por debajo
+-- del umbral (80% amonestacion, 70% llamado de atencion) el LIDER registra un
+-- llamado de atencion: queda PENDIENTE hasta que alguien lo atiende, y ahi
+-- pasa a ATENDIDA con fecha y quien lo atendio.
 --
--- No es un indicador calculado: la nota actual se recalcula siempre desde las
--- evaluaciones cerradas (seguimientoResponsables). Esta tabla guarda lo que se
--- decidio HACER, con la nota que tenia el cargo cuando se decidio. Por eso la
--- fila del panel se arma cruzando las dos cosas: la nota vieja de la alerta
--- explica por que se registro, y la nota de la matriz dice si sigue pasando.
+-- No es un indicador calculado: la nota de la visita se recalcula siempre
+-- desde las evaluaciones cerradas (seguimientoPorEvaluacion). Esta tabla
+-- guarda lo que se decidio HACER en esa visita, con la nota que tenia el
+-- cargo ese dia. Por eso la fila del panel se arma cruzando las dos cosas.
 --
--- Una sola alerta PENDIENTE por cargo y unidad: atender cierra la anterior, y
--- si el cargo vuelve a caer se registra otra. Asi el historial son los
--- atendidos y no una pila de duplicados abiertos.
+-- UNA ALERTA POR (CARGO, UNIDAD, EVALUACION): el llamado pertenece a una
+-- visita concreta, no a la relacion historica entre el cargo y la tienda. Al
+-- atenderla esa celda queda LIMPIA y no vuelve a pedir accion hasta la
+-- proxima evaluacion, que trae sus propias fallas y dice cuales son
+-- reincidencias.
+--
+-- Las alertas que no tienen evaluacion (el modelo viejo, que era por cargo y
+-- unidad sobre el PROMEDIO historico) se BORRAN al aplicar este bloque: no
+-- describen ninguna visita y el panel por evaluacion no sabe que hacer con
+-- ellas.
 --
 -- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
 -- nuevo.
@@ -4808,9 +4815,12 @@ create table if not exists public.alertas_cargo (
   clave_cargo text not null,
   cargo text not null,
   -- La unidad de la matriz: sucursal o departamento, una sola, igual que en
-  -- `evaluaciones` y `incidencias`.
+  -- `evaluaciones` e `incidencias`.
   sucursal_id uuid references public.sucursales(id) on delete cascade,
   departamento_id uuid references public.departamentos_centralizados(id) on delete cascade,
+  -- LA VISITA que origina el llamado. Sin ella no hay fila que armar en el
+  -- panel por evaluacion: por eso termina siendo not null.
+  evaluacion_id uuid,
   nivel text not null check (nivel in ('AMONESTACION', 'LLAMADO')),
   -- La nota CON la que se decidio actuar. Va de 0 a 100: es un porcentaje
   -- redondeado que sale de `notaDe`, y un valor fuera de ese rango describe
@@ -4823,17 +4833,46 @@ create table if not exists public.alertas_cargo (
   constraint alertas_cargo_unidad_check check ((sucursal_id is null) <> (departamento_id is null))
 );
 
--- El indice que sostiene la regla de "una sola pendiente". Va sobre una
--- EXPRESION, no sobre las dos columnas: en un indice unico dos NULL no se
+-- La columna nueva nace sin `references` y sin `not null` a propósito: el
+-- bloque tiene que migrar una tabla que ya existe en producción. Se agrega,
+-- se borran las filas del modelo viejo (las que no tienen evaluacion) y recien
+-- ahi se cierra con la FK y el `not null`. Un `create table` nuevo no puede
+-- hacer ese orden, y el bloque tiene que poder correr dos veces.
+alter table public.alertas_cargo
+  add column if not exists evaluacion_id uuid;
+
+delete from public.alertas_cargo where evaluacion_id is null;
+
+alter table public.alertas_cargo
+  alter column evaluacion_id set not null;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'alertas_cargo_evaluacion_fkey'
+  ) then
+    alter table public.alertas_cargo
+      add constraint alertas_cargo_evaluacion_fkey
+      foreign key (evaluacion_id) references public.evaluaciones(id) on delete cascade;
+  end if;
+end $$;
+
+-- El indice que sostiene la regla de "una sola pendiente POR VISITA". Va sobre
+-- una EXPRESION, no sobre las dos columnas: en un indice unico dos NULL no se
 -- consideran iguales y sin el `coalesce` cabrian dos pendientes con la misma
 -- unidad. El `where estado = 'PENDIENTE'` deja las atendidas acumularse: son
--- el historial.
+-- el historial. El indice viejo, sin la visita, se va con su regla.
+drop index if exists public.alertas_cargo_pendiente;
+
 create unique index if not exists alertas_cargo_pendiente
-  on public.alertas_cargo (clave_cargo, coalesce(sucursal_id, departamento_id))
+  on public.alertas_cargo (clave_cargo, coalesce(sucursal_id, departamento_id), evaluacion_id)
   where estado = 'PENDIENTE';
 
 create index if not exists idx_alertas_cargo_unidad
   on public.alertas_cargo (coalesce(sucursal_id, departamento_id), created_at desc);
+
+create index if not exists idx_alertas_cargo_evaluacion
+  on public.alertas_cargo (evaluacion_id, clave_cargo);
 
 -- ROW LEVEL SECURITY: lectura con sesion, gestion solo al LIDER, igual que el
 -- resto de la configuracion. La pantalla de seguimiento es del LIDER; el

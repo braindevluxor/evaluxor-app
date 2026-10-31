@@ -465,8 +465,12 @@ export function puntajeModuloDeRespuestas(
  * `unidadId` es el id de la sucursal o del departamento de la evaluación (ver
  * `unidadDe`); la lista de opciones marcadas puede traer las dos clases porque
  * las de departamento entran con su id en `sucursal_id`.
+ *
+ * Exportado para el seguimiento por evaluación (`seguimientoEvaluaciones.ts`):
+ * una nota calculada sin pasar por acá saldría distinta de la que pinta el
+ * detalle, porque el recorte de opciones cambia cuánto pesa cada punto.
  */
-function aplicarOpcionesSucursal(item: Item, unidadId: string, conf: ConfigOpciones): Item {
+export function aplicarOpcionesSucursal(item: Item, unidadId: string, conf: ConfigOpciones): Item {
   if (item.tipo !== 'CHECKLIST') return item
   const conPermisos = aplicarPermisosChecklist(item, unidadId, conf)
   if (conPermisos !== item) return conPermisos

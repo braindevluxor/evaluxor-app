@@ -3,21 +3,25 @@ import { PGlite } from '@electric-sql/pglite'
 import { bloqueSql } from './supabaseSql'
 
 /**
- * alertas_cargo.sql, ejecutado en un Postgres de verdad.
+ * alertas-cargo.sql, ejecutado en un Postgres de verdad.
  *
  * POR QUÉ EXISTE ESTE TEST
  * ------------------------
- * El bloque es corto pero carga tres reglas que sólo fallan cuando alguien
+ * El bloque es corto pero carga cuatro reglas que sólo fallan cuando alguien
  * escribe un dato inválido o consulta con otro rol:
  *
  *  1. El `check` de unidad XOR: una alerta es DE una sucursal o DE un
  *     departamento, nunca de las dos ni de ninguna. Sin el check, un insert
  *     mal armado crearía una fila que el panel no sabe a qué columna mirar.
  *  2. El índice único PARCIAL con `coalesce`: es el que sostiene «una sola
- *     alerta PENDIENTE por cargo y unidad». Un índice único común no serviría
- *     (dos NULL no son iguales) y sin el `where estado = 'PENDIENTE'` no
- *     podría acumularse historial.
- *  3. RLS con las dos políticas y el revoke a `anon`, que sólo se leen desde
+ *     alerta PENDIENTE por cargo, unidad Y VISITA». Un índice único común no
+ *     serviría (dos NULL no son iguales) y sin el `where estado = 'PENDIENTE'`
+ *     no podría acumularse historial.
+ *  3. La migración del modelo viejo: la tabla se crea como está hoy en
+ *     producción (SIN evaluación), con una alerta de ese modelo adentro, y el
+ *     bloque tiene que agregar la columna, borrar esa fila y cerrar la tabla
+ *     con `not null` + FK. Ese es el camino que va a recorrer en Supabase.
+ *  4. RLS con las dos políticas y el revoke a `anon`, que sólo se leen desde
  *     `pg_policies` y `has_table_privilege`.
  *
  * Acá se corre el bloque TAL CUAL se pega al SQL Editor, dos veces (tiene que
@@ -45,7 +49,13 @@ const DDL = `
     alter default privileges in schema public grant all on tables to anon, authenticated;
   end $$;
 
-  -- Espejo mínimo de lo que el bloque toca, copiado de schema.sql.
+  -- Espejo mínimo de lo que el bloque toca, copiado de schema.sql. Sólo lo que
+  -- las FK de alertas_cargo miran: la evaluación entra únicamente como
+  -- destino de la FK nueva, así que su espejo es su id.
+  create table public.evaluaciones (
+    id uuid primary key
+  );
+
   create table public.profiles (
     id uuid primary key references auth.users(id) on delete cascade,
     nombre text,
@@ -73,20 +83,53 @@ const DDL = `
   $$;
 `
 
+/** La tabla COMO ESTÁ HOY en producción: sin evaluación y con su índice viejo. */
+const MODELO_VIEJO = `
+  create table public.alertas_cargo (
+    id uuid primary key default gen_random_uuid(),
+    clave_cargo text not null,
+    cargo text not null,
+    sucursal_id uuid references public.sucursales(id) on delete cascade,
+    departamento_id uuid references public.departamentos_centralizados(id) on delete cascade,
+    nivel text not null check (nivel in ('AMONESTACION', 'LLAMADO')),
+    nota integer not null check (nota >= 0 and nota <= 100),
+    estado text not null default 'PENDIENTE' check (estado in ('PENDIENTE', 'ATENDIDA')),
+    atendida_en timestamptz,
+    atendida_por uuid references public.profiles(id) on delete set null,
+    created_at timestamptz not null default now(),
+    constraint alertas_cargo_unidad_check check ((sucursal_id is null) <> (departamento_id is null))
+  );
+
+  create unique index alertas_cargo_pendiente
+    on public.alertas_cargo (clave_cargo, coalesce(sucursal_id, departamento_id))
+    where estado = 'PENDIENTE';
+`
+
 const SUCURSAL = '00000000-0000-0000-0000-000000000001'
 const SUCURSAL_2 = '00000000-0000-0000-0000-000000000002'
 const DEPARTAMENTO = '00000000-0000-0000-0000-00000000000d'
+const EVAL_1 = '00000000-0000-0000-0000-000000000e01'
+const EVAL_2 = '00000000-0000-0000-0000-000000000e02'
 
 let db: PGlite
 
 beforeAll(async () => {
   db = new PGlite()
   await db.exec(DDL)
+  await db.exec(`insert into public.sucursales (id, nombre) values ('${SUCURSAL}', 'Eva Centro'), ('${SUCURSAL_2}', 'Eva Sur')`)
+  await db.exec(`insert into public.departamentos_centralizados (id, nombre) values ('${DEPARTAMENTO}', 'Contabilidad')`)
+  await db.exec(`insert into public.evaluaciones (id) values ('${EVAL_1}'), ('${EVAL_2}')`)
+  // Se arranca desde la tabla VIEJA, con una alerta de ese modelo adentro: es
+  // el camino que va a recorrer en Supabase.
+  await db.exec(MODELO_VIEJO)
+  await db.query(
+    `insert into public.alertas_cargo (clave_cargo, cargo, sucursal_id, nivel, nota)
+     values ('cajero', 'Cajero', $1, 'LLAMADO', 62)`,
+    [SUCURSAL]
+  )
   await db.exec(bloqueSql('alertas-cargo.sql'))
   // Segunda corrida: tiene que seguir limpio, el bloque es idempotente.
   await db.exec(bloqueSql('alertas-cargo.sql'))
-  await db.exec(`insert into public.sucursales (id, nombre) values ('${SUCURSAL}', 'Eva Centro'), ('${SUCURSAL_2}', 'Eva Sur')`)
-  await db.exec(`insert into public.departamentos_centralizados (id, nombre) values ('${DEPARTAMENTO}', 'Contabilidad')`)
 })
 
 afterAll(async () => {
@@ -105,20 +148,33 @@ async function insertar(override: Record<string, unknown> = {}): Promise<void> {
     cargo: 'Cajero',
     sucursal_id: SUCURSAL,
     departamento_id: null,
+    evaluacion_id: EVAL_1,
     nivel: 'AMONESTACION',
     nota: 75,
     estado: 'PENDIENTE',
     ...override
   }
   await db.query(
-    `insert into public.alertas_cargo (clave_cargo, cargo, sucursal_id, departamento_id, nivel, nota, estado)
-     values ($1, $2, $3, $4, $5, $6, $7)`,
-    [payload.clave_cargo, payload.cargo, payload.sucursal_id, payload.departamento_id, payload.nivel, payload.nota, payload.estado]
+    `insert into public.alertas_cargo (clave_cargo, cargo, sucursal_id, departamento_id, evaluacion_id, nivel, nota, estado)
+     values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [payload.clave_cargo, payload.cargo, payload.sucursal_id, payload.departamento_id, payload.evaluacion_id, payload.nivel, payload.nota, payload.estado]
   )
 }
 
-describe('alertas-cargo.sql · corre limpio', () => {
-  it('la tabla tiene las columnas esperadas, con su unidad XOR, su nivel y su nota de 0 a 100', async () => {
+describe('alertas-cargo.sql · corre limpio y migra el modelo viejo', () => {
+  it('las alertas sin evaluación (el modelo viejo) quedan borradas', async () => {
+    const sinEvaluacion = await filas(
+      `select count(*)::int as n from public.alertas_cargo where evaluacion_id is null`
+    )
+    expect(sinEvaluacion[0].n).toBe(0)
+    // Y la del modelo viejo en particular ya no está.
+    const vieja = await filas(
+      `select count(*)::int as n from public.alertas_cargo where clave_cargo = 'cajero' and nota = 62`
+    )
+    expect(vieja[0].n).toBe(0)
+  })
+
+  it('la tabla tiene las columnas esperadas, con su unidad XOR, la visita, su nivel y su nota de 0 a 100', async () => {
     const columnas = await filas(`
       select column_name, data_type, is_nullable
       from information_schema.columns
@@ -133,11 +189,14 @@ describe('alertas-cargo.sql · corre limpio', () => {
       'created_at',
       'departamento_id',
       'estado',
+      'evaluacion_id',
       'id',
       'nivel',
       'nota',
       'sucursal_id'
     ])
+    // La visita no es opcional: sin ella no hay fila que armar en el panel.
+    expect(columnas.find((c) => c.column_name === 'evaluacion_id')?.is_nullable).toBe('NO')
     expect(columnas.find((c) => c.column_name === 'nivel')?.is_nullable).toBe('NO')
 
     // Los checks que el bloque declara, leídos de la base y no del texto.
@@ -155,6 +214,19 @@ describe('alertas-cargo.sql · corre limpio', () => {
     expect(defs).toContain('nota >= 0')
     expect(defs).toContain('nota <= 100')
     expect(defs).toContain('(sucursal_id IS NULL) <> (departamento_id IS NULL)')
+  })
+
+  it('la evaluación es una FK real con cascada, y no admite una visita inexistente', async () => {
+    const fks = await filas(`
+      select pg_get_constraintdef(oid) as def
+      from pg_constraint
+      where conrelid = 'public.alertas_cargo'::regclass and contype = 'f'
+    `)
+    const deVisita = fks.find((f) => String(f.def).includes('evaluacion_id'))
+    expect(String(deVisita?.def)).toContain('REFERENCES evaluaciones(id)')
+    expect(String(deVisita?.def)).toContain('ON DELETE CASCADE')
+
+    await expect(insertar({ evaluacion_id: '00000000-0000-0000-0000-0000000000ff' })).rejects.toThrow()
   })
 })
 
@@ -174,25 +246,39 @@ describe('alertas-cargo.sql · reglas de escritura', () => {
   })
 })
 
-describe('alertas-cargo.sql · una sola pendiente por cargo y unidad', () => {
-  it('la segunda pendiente del mismo cargo y unidad choca con el índice único parcial', async () => {
+describe('alertas-cargo.sql · una sola pendiente por cargo, unidad y visita', () => {
+  it('la segunda pendiente de la MISMA visita choca con el índice único parcial', async () => {
     await expect(insertar()).rejects.toThrow(/duplicate|única|unique/i)
   })
 
-  it('otro cargo o otra unidad sí puede tener su pendiente', async () => {
+  it('otra VISITA del mismo cargo y unidad sí puede tener su pendiente', async () => {
+    // Ése es el cambio de modelo: el llamado es de la visita, no de la
+    // relación histórica entre el cargo y la tienda.
+    await expect(insertar({ evaluacion_id: EVAL_2 })).resolves.toBeUndefined()
+  })
+
+  it('otro cargo o otra unidad también puede tener su pendiente', async () => {
     await expect(insertar({ clave_cargo: 'encargado', cargo: 'Encargado' })).resolves.toBeUndefined()
     await expect(insertar({ clave_cargo: 'cajero', sucursal_id: SUCURSAL_2 })).resolves.toBeUndefined()
   })
 
-  it('atendida la primera, el cargo vuelve a poder tener una pendiente nueva (ahí está el historial)', async () => {
-    await db.query(`update public.alertas_cargo set estado = 'ATENDIDA' where clave_cargo = 'cajero' and sucursal_id = '${SUCURSAL}'`)
+  it('atendida la de una visita, la de la otra sigue pidiendo acción (ahí está el historial)', async () => {
+    await db.query(
+      `update public.alertas_cargo set estado = 'ATENDIDA'
+       where clave_cargo = 'cajero' and sucursal_id = '${SUCURSAL}' and evaluacion_id = '${EVAL_1}'`
+    )
 
     await expect(insertar()).resolves.toBeUndefined()
-    // Y las atendidas conviven con la nueva pendiente: no se borra el pasado.
-    const total = await filas(
-      `select count(*)::int as n from public.alertas_cargo where clave_cargo = 'cajero' and sucursal_id = '${SUCURSAL}'`
+    const estados = await filas(
+      `select evaluacion_id, estado from public.alertas_cargo
+       where clave_cargo = 'cajero' and sucursal_id = '${SUCURSAL}'
+       order by evaluacion_id, estado`
     )
-    expect(total[0].n).toBe(2)
+    expect(estados).toEqual([
+      { evaluacion_id: EVAL_1, estado: 'ATENDIDA' },
+      { evaluacion_id: EVAL_1, estado: 'PENDIENTE' },
+      { evaluacion_id: EVAL_2, estado: 'PENDIENTE' }
+    ])
   })
 })
 
