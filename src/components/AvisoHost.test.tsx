@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'vitest'
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { AvisoHost } from './AvisoHost'
+import { avisar } from '../lib/aviso'
 
 function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -90,5 +94,42 @@ describe('AvisoHost · el cartel flotante de confirmaciones', () => {
     expect(rutas).not.toContain('AvisoHost')
     expect(principal).toContain('<AvisoHost />')
     expect(principal).toContain('<Rutas />')
+  })
+})
+
+describe('AvisoHost · el cartel de verdad (jsdom)', () => {
+  let cont: HTMLElement
+  let root: Root
+
+  beforeEach(async () => {
+    cont = document.createElement('div')
+    document.body.appendChild(cont)
+    root = createRoot(cont)
+    await act(async () => root.render(<AvisoHost />))
+  })
+
+  afterEach(async () => {
+    await act(async () => root.unmount())
+    cont.remove()
+    document.body.innerHTML = ''
+  })
+
+  it('al avisar, el cartel aparece con su título y el mensaje', async () => {
+    await act(async () => {
+      avisar('Llamado de atención registrado para Cajero.', 'ok')
+    })
+
+    expect(document.body.textContent).toContain('Listo')
+    expect(document.body.textContent).toContain('Llamado de atención registrado para Cajero.')
+  })
+
+  it('el error se pinta con su pinta de error y su título', async () => {
+    await act(async () => {
+      avisar('No se pudo registrar el llamado.', 'error')
+    })
+
+    expect(document.body.textContent).toContain('No se pudo')
+    expect(document.body.textContent).toContain('No se pudo registrar el llamado.')
+    expect(document.querySelector('[class*="border-red-500"]')).not.toBeNull()
   })
 })

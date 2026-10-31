@@ -313,14 +313,20 @@ function DatoDona({ fila, color }: { fila: FilaDona; color: string }) {
 function TarjetaModulo({ promedio, icono }: { promedio: number | null; icono?: string }) {
   const { fondo, claseTexto } = coloresTarjetaPuntaje(promedio)
   return (
+    // El formato de la tarjeta de estado: el porcentaje a la izquierda —que es
+    // lo que se lee primero— y el icono del módulo a la derecha, en su círculo
+    // claro del mismo fondo pastel. El círculo va semitransparente y no del
+    // tono profundo para que la figura se lea sin competir con el número.
     <div
-      className="flex items-center justify-center gap-2.5 rounded-xl px-3 py-2.5"
+      className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3.5 shadow-sm"
       style={{ background: fondo }}
     >
-      <span className={cn('shrink-0 text-2xl font-black tabular-nums leading-none', claseTexto)}>
+      <span className={cn('shrink-0 text-2xl font-black tabular-nums leading-none sm:text-[1.7rem]', claseTexto)}>
         {promedio == null ? '—' : pctComa(promedio, 0)}
       </span>
-      <IconoModulo nombre={icono} className={cn('h-5 w-5 shrink-0', claseTexto)} />
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/70">
+        <IconoModulo nombre={icono} className={cn('h-5 w-5', claseTexto)} />
+      </span>
     </div>
   )
 }

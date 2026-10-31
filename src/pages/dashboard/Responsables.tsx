@@ -11,6 +11,8 @@ import {
   cn
 } from '../../components/ui'
 import { consultarEvaluaciones, type ConjuntoDatos } from '../../lib/data/indicadores'
+import { cedula, listarColaboradores, nombreCompleto, trabajadoresParaCargo, type ColaboradorAPI } from '../../lib/data/colaboradores'
+import { claveNormalizada } from '../../lib/data/responsables'
 import {
   puntosFalladosDeCargo,
   seguimientoPorEvaluacion,
@@ -34,6 +36,7 @@ import {
   type GrupoUnidad,
   type TrabajadorAlerta
 } from '../../lib/data/alertasCargo'
+import { descargarAmonestacion } from '../../lib/pdf/amonestacionTrabajador'
 import { avisar } from '../../lib/aviso'
 import { useAuth } from '../../context/AuthContext'
 import { setKpisGlobal, type EstadoKpis } from '../../lib/kpisGlobal'
@@ -141,6 +144,8 @@ export function SeguimientoVista({
   const [unidad, setUnidad] = useState('todas')
   const [estadoFiltro, setEstadoFiltro] = useState('todos')
   const [sel, setSel] = useState<FilaAlerta | null>(null)
+  /** La fila cuyo registro está en curso: su detalle abierto con el selector de personas. */
+  const [registrando, setRegistrando] = useState<FilaAlerta | null>(null)
 
   const listaAlertas = useMemo(() => alertas ?? [], [alertas])
 
@@ -176,22 +181,52 @@ export function SeguimientoVista({
   const gruposFiltrados = useMemo(() => gruposPorUnidad(filtradas), [filtradas])
 
   /**
-   * Las acciones de una fila se arman acá: el panel no conoce la clave ni el
-   * tipo de unidad, sólo qué tiene que hacer.
+   * Registrar YA NO es un toque directo: abre el detalle de la visita con el
+   * selector de personas. El llamado se aplica a trabajadores concretos y hay
+   * que poder elegirlos antes de que exista el registro (y de que se baje el
+   * PDF de amonestación, que es por persona).
    */
   const registrarDe = (f: FilaAlerta): (() => void) | undefined =>
     onRegistrar && f.nivel != null && f.nota != null
-      ? () =>
-          onRegistrar({
-            clave: f.clave,
-            cargo: f.cargo,
-            unidadId: f.unidadId,
-            unidadTipo: f.unidadTipo,
-            evaluacionId: f.evaluacionId,
-            nivel: f.nivel as NivelAlerta,
-            nota: f.nota as number
-          })
+      ? () => {
+          setSel(f)
+          setRegistrando(f)
+        }
       : undefined
+
+  /** El toque final del selector: registra con las personas elegidas y baja el PDF. */
+  const confirmarRegistro = (elegidos: TrabajadorAlerta[]) => {
+    const f = registrando
+    if (!f || !onRegistrar || f.nivel == null || f.nota == null) return
+    onRegistrar({
+      clave: f.clave,
+      cargo: f.cargo,
+      unidadId: f.unidadId,
+      unidadTipo: f.unidadTipo,
+      evaluacionId: f.evaluacionId,
+      nivel: f.nivel,
+      nota: f.nota,
+      trabajadores: elegidos
+    })
+    // Un PDF por persona, sólo para amonestaciones (decisión de producto): el
+    // llamado de atención queda en la base y en la pantalla, sin documento.
+    if (f.nivel === 'AMONESTACION' && datos && elegidos.length) {
+      const puntos = puntosFalladosDeCargo(datos, f.cargo, f.unidadId, f.evaluacionId)
+      const visita = datos.evaluaciones.find((e) => e.id === f.evaluacionId)
+      for (const t of elegidos) {
+        descargarAmonestacion({
+          trabajador: t,
+          cargo: f.cargo,
+          unidad: f.unidadNombre,
+          fechaVisita: visita?.fecha ?? f.fecha ?? '',
+          nota: f.nota,
+          puntos
+        })
+      }
+    }
+    setRegistrando(null)
+    setSel(null)
+  }
 
   return (
     <div className="space-y-6">
@@ -299,6 +334,9 @@ export function SeguimientoVista({
                 ocupado={ocupado}
                 registrarDe={registrarDe}
                 trabajadoresPorAlerta={trabajadoresPorAlerta}
+                registrando={registrando}
+                onConfirmarRegistro={confirmarRegistro}
+                onCancelarRegistro={() => setRegistrando(null)}
               />
             ))}
           </div>
@@ -325,7 +363,10 @@ function GrupoUnidadPanel({
   onAtender,
   ocupado,
   registrarDe,
-  trabajadoresPorAlerta
+  trabajadoresPorAlerta,
+  registrando,
+  onConfirmarRegistro,
+  onCancelarRegistro
 }: {
   grupo: GrupoUnidad
   datos: ConjuntoDatos | null
@@ -335,6 +376,10 @@ function GrupoUnidadPanel({
   ocupado?: string | null
   registrarDe: (f: FilaAlerta) => (() => void) | undefined
   trabajadoresPorAlerta?: Map<string, TrabajadorAlerta[]> | null
+  /** La fila cuyo registro está en curso (su detalle abierto con el selector). */
+  registrando?: FilaAlerta | null
+  onConfirmarRegistro?: (elegidos: TrabajadorAlerta[]) => void
+  onCancelarRegistro?: () => void
 }) {
   return (
     <section className="rounded-xl border border-slate-200 p-4">
@@ -368,7 +413,17 @@ function GrupoUnidadPanel({
                       ocupado={ocupado === claveFila(f) || (f.registro != null && ocupado === f.registro.id)}
                     />
                     {activa && datos && (
-                      <DetalleVisita fila={f} datos={datos} onCerrar={() => onSel(null)} />
+                      <DetalleVisita
+                        fila={f}
+                        datos={datos}
+                        registrando={registrando?.evaluacionId === f.evaluacionId && registrando.clave === f.clave && registrando.unidadId === f.unidadId}
+                        onConfirmarRegistro={onConfirmarRegistro}
+                        onCancelarRegistro={onCancelarRegistro}
+                        onCerrar={() => {
+                          onCancelarRegistro?.()
+                          onSel(null)
+                        }}
+                      />
                     )}
                   </li>
                 )
@@ -455,10 +510,17 @@ function FilaSeguimiento({
 export function DetalleVisita({
   fila,
   datos,
+  registrando = false,
+  onConfirmarRegistro,
+  onCancelarRegistro,
   onCerrar
 }: {
   fila: FilaAlerta
   datos: ConjuntoDatos
+  /** Este detalle está abierto en modo registro: abajo va el selector de personas. */
+  registrando?: boolean
+  onConfirmarRegistro?: (elegidos: TrabajadorAlerta[]) => void
+  onCancelarRegistro?: () => void
   onCerrar: () => void
 }) {
   const puntos = useMemo(
@@ -466,6 +528,50 @@ export function DetalleVisita({
     [datos, fila]
   )
   const reincidencias = puntos.filter((p) => p.esReincidente).length
+
+  // --- Nómina de la unidad ---------------------------------------------------
+  // Se pide recién al abrir el registro: es una llamada a la API externa de
+  // trabajadores y no hace falta para mirar el detalle.
+  const [trabajadores, setTrabajadores] = useState<ColaboradorAPI[] | null>(null)
+  const [porCargo, setPorCargo] = useState(true)
+  const [cargandoTrabajadores, setCargandoTrabajadores] = useState(false)
+  const [errorTrabajadores, setErrorTrabajadores] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!registrando) {
+      setTrabajadores(null)
+      return
+    }
+    // El cruce es por la SUCURSAL de la visita (`shop_id`, con `branch_id` de
+    // respaldo): es el mismo identificador que usa la app para pedir la nómina.
+    const ev = datos.evaluaciones.find((e) => e.id === fila.evaluacionId)
+    const branch = ev?.sucursal ? (ev.sucursal.shop_id ?? ev.sucursal.branch_id) : null
+    if (!branch) {
+      setTrabajadores([])
+      setErrorTrabajadores(
+        'Esta unidad no tiene nómina de trabajadores asociada: el llamado queda registrado contra el cargo, sin personas.'
+      )
+      return
+    }
+    let vivo = true
+    setCargandoTrabajadores(true)
+    setErrorTrabajadores(null)
+    void listarColaboradores(branch).then((r) => {
+      if (!vivo) return
+      setCargandoTrabajadores(false)
+      if (r.mensaje) {
+        setTrabajadores([])
+        setErrorTrabajadores(r.mensaje)
+        return
+      }
+      const { trabajadores: lista, porCargo: encaja } = trabajadoresParaCargo(r.colaboradores, fila.cargo)
+      setTrabajadores(lista)
+      setPorCargo(encaja)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [registrando, datos, fila])
 
   return (
     <div className="mt-1 rounded-xl bg-slate-50 p-4">
@@ -510,6 +616,180 @@ export function DetalleVisita({
             <PuntoFallaFila key={`${p.item_id}|${p.check ?? ''}`} punto={p} />
           ))}
         </ul>
+      )}
+
+      {registrando && onConfirmarRegistro ? (
+        <SelectorTrabajadores
+          cargo={fila.cargo}
+          unidad={fila.unidadNombre}
+          nivel={fila.nivel}
+          trabajadores={trabajadores}
+          cargando={cargandoTrabajadores}
+          error={errorTrabajadores}
+          porCargo={porCargo}
+          onConfirmar={onConfirmarRegistro}
+          onCancelar={onCancelarRegistro ?? (() => {})}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * El selector de personas a las que se aplica el llamado o la amonestación.
+ *
+ * Puro de presentación: la nómina la trae el detalle (`listarColaboradores`) y
+ * acá sólo se filtra y se tilda, para poder probarlo sin red. Sólo se muestran
+ * trabajadores ACTIVOS —el detalle ya vino recortado— y, si el cruce por cargo
+ * no encontró a nadie, el que llama decide igual: registrar sin personas es
+ * mejor que no poder registrar.
+ */
+export function SelectorTrabajadores({
+  cargo,
+  unidad,
+  nivel,
+  trabajadores,
+  cargando,
+  error,
+  porCargo,
+  onConfirmar,
+  onCancelar
+}: {
+  cargo: string
+  unidad: string
+  nivel: NivelAlerta | null
+  trabajadores: ColaboradorAPI[] | null
+  cargando: boolean
+  error: string | null
+  porCargo: boolean
+  onConfirmar: (elegidos: TrabajadorAlerta[]) => void
+  onCancelar: () => void
+}) {
+  const [busqueda, setBusqueda] = useState('')
+  const [elegidos, setElegidos] = useState<Set<number>>(new Set())
+
+  const q = claveNormalizada(busqueda.trim())
+  const visibles = (trabajadores ?? []).filter(
+    (t) => !q || claveNormalizada(`${t.name ?? ''} ${t.lastname ?? ''} ${cedula(t)}`).includes(q)
+  )
+
+  const alternar = (dni: number) =>
+    setElegidos((prev) => {
+      const siguiente = new Set(prev)
+      if (siguiente.has(dni)) siguiente.delete(dni)
+      else siguiente.add(dni)
+      return siguiente
+    })
+
+  const listaElegida: TrabajadorAlerta[] = (trabajadores ?? [])
+    .filter((t) => t.dni != null && elegidos.has(t.dni))
+    .map((t) => ({
+      dni: t.dni as number,
+      nacionalidad: (t.nationality ?? 'V').trim() || 'V',
+      nombre: nombreCompleto(t)
+    }))
+
+  const etiquetaConfirmar =
+    nivel === 'AMONESTACION' ? 'Registrar amonestación y descargar PDF' : 'Registrar llamado de atención'
+
+  /**
+   * Las dos caras del mismo cierre: con lista, se elige y se registra (y si es
+   * amonestación se baja el PDF); sin lista —nómina caída o unidad sin
+   * trabajadores— se registra contra el cargo, que es lo que se hacía antes.
+   */
+  const acciones = (sinPersonas = false) => (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+      <p className="text-xs font-semibold text-slate-500">
+        {sinPersonas
+          ? 'Sin personas: el registro queda contra el cargo.'
+          : `${listaElegida.length} de ${(trabajadores ?? []).length} seleccionados`}
+      </p>
+      <div className="flex gap-2">
+        <Button type="button" variant="ghost" onClick={onCancelar}>
+          Cancelar
+        </Button>
+        <Button
+          type="button"
+          disabled={!sinPersonas && !listaElegida.length}
+          onClick={() => onConfirmar(sinPersonas ? [] : listaElegida)}
+        >
+          {sinPersonas ? 'Registrar igual' : etiquetaConfirmar}
+        </Button>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+        ¿A quién se le aplica?
+      </span>
+      <h5 className="mt-1 text-sm font-bold text-primary-900">
+        {cargo} · {unidad}
+      </h5>
+
+      {cargando ? (
+        <p className="mt-3 text-sm text-slate-500">Cargando trabajadores de la unidad…</p>
+      ) : error ? (
+        <>
+          <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">{error}</p>
+          {acciones(true)}
+        </>
+      ) : !trabajadores?.length ? (
+        <>
+          <p className="mt-3 text-sm text-slate-500">
+            No hay trabajadores activos en esta unidad con los que registrar el documento.
+          </p>
+          {acciones(true)}
+        </>
+      ) : (
+        <>
+          {!porCargo ? (
+            <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              No hay coincidencias exactas con «{cargo}» en la nómina: se listan todos los activos de la
+              unidad para que elijas a mano.
+            </p>
+          ) : null}
+          <Input
+            className="mt-3"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar por nombre o cédula"
+            aria-label="Buscar persona"
+          />
+          {visibles.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-500">Nadie coincide con «{busqueda}».</p>
+          ) : (
+            <ul className="mt-2 max-h-56 divide-y divide-slate-100 overflow-y-auto">
+              {visibles.map((t) => {
+                const marcado = t.dni != null && elegidos.has(t.dni)
+                const nombre = nombreCompleto(t)
+                return (
+                  <li key={`${t.nationality ?? 'V'}-${t.dni}`}>
+                    <label className="flex cursor-pointer items-center gap-3 py-2">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-primary"
+                        checked={marcado}
+                        onChange={() => alternar(t.dni as number)}
+                      />
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary-50 text-xs font-black text-primary">
+                        {(nombre || 'U').slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-slate-800">{nombre}</span>
+                        <span className="block text-xs text-slate-500">
+                          {cedula(t)} · {t.role_name || 'Sin rol'}
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {acciones()}
+        </>
       )}
     </div>
   )

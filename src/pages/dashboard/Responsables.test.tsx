@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { DetalleVisita, SeguimientoVista } from './Responsables'
+import { DetalleVisita, SelectorTrabajadores, SeguimientoVista } from './Responsables'
 import { seguimientoPorEvaluacion } from '../../lib/data/seguimientoEvaluaciones'
 import { filasDeAlertas } from '../../lib/data/alertasCargo'
 import type { ConjuntoDatos } from '../../lib/data/indicadores'
@@ -227,6 +227,65 @@ describe('SeguimientoVista · estados', () => {
     )
     expect(html).toContain('animate-pulse')
     expect(html).not.toContain('Ningún cargo está en alerta')
+  })
+})
+
+describe('SelectorTrabajadores · a quién se le aplica', () => {
+  const base = {
+    cargo: 'Cajero integral',
+    unidad: 'Sucursal Norte',
+    nivel: 'AMONESTACION' as const,
+    cargando: false,
+    error: null,
+    porCargo: true,
+    onConfirmar: () => {},
+    onCancelar: () => {}
+  }
+  const lista = [
+    { nationality: 'V', dni: 111, name: 'Ana', lastname: 'Pérez', role_name: 'Cajera integral', active: true },
+    { nationality: 'V', dni: 222, name: 'Beto', lastname: 'Gómez', role_name: 'Cajero integral', active: true },
+    { nationality: 'V', dni: 333, name: 'Caro', lastname: 'Díaz', role_name: 'Depositaría', active: false }
+  ]
+
+  it('lista a las personas con su cédula y su cargo, y avisa si el cruce fue aproximado', () => {
+    const html = renderToStaticMarkup(<SelectorTrabajadores {...base} trabajadores={lista} porCargo={false} />)
+
+    expect(html).toContain('¿A quién se le aplica?')
+    expect(html).toContain('Cajero integral · Sucursal Norte')
+    expect(html).toContain('Ana Pérez')
+    expect(html).toContain('V-111')
+    expect(html).toContain('Cajera integral')
+    expect(html).toContain('No hay coincidencias exactas con')
+  })
+
+  it('la amonestación ofrece bajar el PDF; sin elegir a nadie el botón queda mudo', () => {
+    const html = renderToStaticMarkup(<SelectorTrabajadores {...base} trabajadores={lista} />)
+
+    expect(html).toContain('Registrar amonestación y descargar PDF')
+    expect(html).toContain('disabled')
+    expect(html).toContain('0 de 3 seleccionados')
+    // Sin el aviso de cruce aproximado: el cargo sí coincidió.
+    expect(html).not.toContain('No hay coincidencias exactas con')
+  })
+
+  it('para un llamado de atención no hay PDF: sólo se registra', () => {
+    const html = renderToStaticMarkup(
+      <SelectorTrabajadores {...base} nivel="LLAMADO" trabajadores={lista} />
+    )
+
+    expect(html).toContain('Registrar llamado de atención')
+    expect(html).not.toContain('descargar PDF')
+  })
+
+  it('sin nómina disponible todavía, lo dice y deja registrar contra el cargo', () => {
+    const cargando = renderToStaticMarkup(<SelectorTrabajadores {...base} trabajadores={null} cargando />)
+    expect(cargando).toContain('Cargando trabajadores de la unidad')
+
+    const conError = renderToStaticMarkup(
+      <SelectorTrabajadores {...base} trabajadores={[]} error="Sin conexión para consultar a los trabajadores." />
+    )
+    expect(conError).toContain('Sin conexión para consultar a los trabajadores.')
+    expect(conError).toContain('Registrar igual')
   })
 })
 
