@@ -121,6 +121,10 @@ grant execute on function public.email_por_usuario(text) to anon;
 -- Se invoca SIN sesiÃ³n (pantalla de login). Por eso es security definer y puede
 -- ejecutarse por anon. Respuesta JSON: { ok, bloqueado, restantes }.
 -- Usuarios inactivos/inexistentes devuelven respuesta genÃ©rica (no revela existencia).
+-- El campo de login dice "Correo electrÃ³nico" y acepta tambiÃ©n el usuario de la
+-- casa: por eso se buscan las DOS identidades (usuario O correo). Sin esto, quien
+-- escriba el correo saldrÃ­a siempre "contraseÃ±a incorrecta" y ademÃ¡s el conteo
+-- de intentos no correrÃ­a para Ã©l.
 create or replace function public.intento_login(p_usuario text, p_password text)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions, auth as $$
@@ -130,7 +134,8 @@ declare
   v_ok boolean;
 begin
   select * into v_prof from public.profiles p
-    where lower(p.usuario) = lower(p_usuario) and p.activo
+    where (lower(p.usuario) = lower(p_usuario) or lower(p.email) = lower(p_usuario))
+      and p.activo
     limit 1;
 
   if not found then

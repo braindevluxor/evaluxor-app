@@ -70,6 +70,12 @@ interface AuthContextValue {
    */
   perfilListo: boolean
   totpPendiente: boolean
+  /**
+   * Llegó un enlace de recuperación de contraseña (o se pidió uno): la pantalla
+   * de acceso muestra el formulario para definir la contraseña nueva en vez
+   * del login. Se limpia al guardarla.
+   */
+  recuperando: boolean
   signIn: (usuario: string, password: string, recordar?: boolean) => Promise<{ error?: string; totp?: boolean }>
   signUp: (email: string, password: string) => Promise<{ error?: string; pending?: boolean }>
   signOut: () => Promise<void>
@@ -77,6 +83,10 @@ interface AuthContextValue {
   updateNombre: (nombre: string) => Promise<void>
   cambiarPassword: (actual: string, nueva: string) => Promise<{ error?: string }>
   verificarTotp: (codigo: string) => Promise<{ error?: string }>
+  /** Pide el enlace de recuperación por correo. Acepta usuario o correo. */
+  recuperarAcceso: (entrada: string) => Promise<{ error?: string }>
+  /** Guarda la contraseña que vino en el enlace de recuperación. */
+  definirNuevaContrasena: (nueva: string) => Promise<{ error?: string }>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -99,6 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [perfilListo, setPerfilListo] = useState(false)
   const [totpPendiente, setTotpPendiente] = useState(false)
+  const [recuperando, setRecuperando] = useState(false)
 
   /**
    * ¿Este navegador ya tiene con qué pintar sin tocar la red?
@@ -253,6 +264,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // repetía el GET /auth/v1/user del MFA; con StrictMode en dev, dos veces
       // más. El resto de eventos sí interesan: SIGNED_IN, TOKEN_REFRESHED, etc.
       if (event === 'INITIAL_SESSION') return
+      // El enlace de recuperación abre sesión con este evento y no con
+      // SIGNED_IN: marcarlo acá es lo que hace que el login pida la contraseña
+      // nueva en lugar de mandar al usuario al dashboard como si nada.
+      if (event === 'PASSWORD_RECOVERY') setRecuperando(true)
       void procesarSesion(s)
     })
     return () => sub.subscription.unsubscribe()
@@ -265,6 +280,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       perfilListo,
       totpPendiente,
+      recuperando,
       async signIn(usuario, password, recordar = true) {
         let intento: Awaited<ReturnType<typeof intentoLogin>>
         try {
@@ -275,14 +291,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (intento.bloqueado) {
           return { error: 'Tu usuario está bloqueado por demasiados intentos fallidos. El Líder debe desbloquearlo asignándole una contraseña provisional.' }
         }
+        // El campo de acceso acepta el usuario de la casa o el correo: la
+        // identidad de Supabase es el correo y el usuario es sólo su alias.
+        // Con «@» se toma lo que escribió la persona; sin «@» se resuelve.
+        const correoDe = async (entrada: string): Promise<string | null> =>
+          entrada.includes('@') ? entrada.trim().toLowerCase() : emailPorUsuario(entrada)
+
         if (!intento.ok) {
-          const email = await emailPorUsuario(usuario)
+          const email = await correoDe(usuario)
           if (!email) return { error: 'Usuario no encontrado o inactivo.' }
           const n = intento.restantes
           if (n <= 0) return { error: 'Usuario bloqueado por intentos fallidos. Solo el Líder puede desbloquearte con una contraseña provisional.' }
           return { error: `Contraseña incorrecta. Te quedan ${n} intento${n === 1 ? '' : 's'} antes de quedar bloqueado.` }
         }
-        const email = await emailPorUsuario(usuario)
+        const email = await correoDe(usuario)
         if (!email) return { error: 'Usuario no encontrado o inactivo.' }
         const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) return { error: mensajeError(error.message) }
@@ -347,9 +369,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // El perfil pudo venir filtrado en el intento anterior, así que se recarga.
         if (session?.user?.id) await cargarPerfil(session.user.id)
         return {}
+      },
+      async recuperarAcceso(entrada) {
+        const bruto = entrada.trim()
+        if (!bruto) return { error: 'Escribí tu usuario o tu correo.' }
+        const email = bruto.includes('@') ? bruto.toLowerCase() : await emailPorUsuario(bruto)
+        // Como en el login, no se revela si la cuenta existe o no: si no se
+        // encuentra, igual se contesta como si se hubiera enviado.
+        if (!email) return { error: 'Si esa cuenta existe, le enviamos un enlace de recuperación.' }
+        const { error } = await supabase.auth.resetPasswordForEmail(email)
+        if (error) {
+          const m = error.message.toLowerCase()
+          if (m.includes('rate')) return { error: 'Demasiados pedidos de recuperación: esperá unos minutos y probá de nuevo.' }
+          return { error: mensajeError(error.message) }
+        }
+        return {}
+      },
+      async definirNuevaContrasena(nueva) {
+        if (nueva.length < 6) return { error: 'La contraseña debe tener al menos 6 caracteres.' }
+        const { error } = await supabase.auth.updateUser({ password: nueva })
+        if (error) return { error: mensajeError(error.message) }
+        setRecuperando(false)
+        return {}
       }
     }),
-    [session, profile, loading, perfilListo, totpPendiente, cargarPerfil, requiereNivel2]
+    [session, profile, loading, perfilListo, totpPendiente, recuperando, cargarPerfil, requiereNivel2]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
