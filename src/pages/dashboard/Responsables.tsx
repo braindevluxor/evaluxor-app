@@ -11,6 +11,8 @@ import {
   cn
 } from '../../components/ui'
 import { consultarEvaluaciones, type ConjuntoDatos } from '../../lib/data/indicadores'
+import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
+import { chipPastel } from '../../lib/diseno'
 import { cedula, listarColaboradores, nombreCompleto, trabajadoresParaCargo, type ColaboradorAPI } from '../../lib/data/colaboradores'
 import { claveNormalizada } from '../../lib/data/responsables'
 import {
@@ -166,6 +168,22 @@ export function SeguimientoVista({
   const pendientes = filas.filter((f) => f.registro?.estado === 'PENDIENTE').length
   const atendidas = filas.filter((f) => f.registro?.estado === 'ATENDIDA').length
 
+  // El resumen de lo que está recortando la lista: el filtro vive en el panel
+  // de la cabecera, así que la vista tiene que decirlo con sus palabras.
+  const ETIQUETA_ESTADO_FILTRO: Record<string, string> = {
+    sin_registrar: 'sin registrar',
+    pendientes: 'pendientes',
+    atendidas: 'atendidas'
+  }
+  const hayFiltro = !!busqueda.trim() || unidad !== 'todas' || estadoFiltro !== 'todos'
+  const resumenFiltro = [
+    busqueda.trim() ? `cargo «${busqueda.trim()}»` : '',
+    unidad !== 'todas' ? (unidades.find(([id]) => id === unidad)?.[1] ?? '') : '',
+    estadoFiltro !== 'todos' ? (ETIQUETA_ESTADO_FILTRO[estadoFiltro] ?? '') : ''
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
   const filtradas = useMemo(
     () =>
       filtrarFilas(filas, {
@@ -230,6 +248,22 @@ export function SeguimientoVista({
 
   return (
     <div className="space-y-6">
+      {/* Los filtros van al panel de la cabecera (botón «Filtros»): el mismo
+          hueco al que se cuelgan Historial, Indicadores y Comparativas. */}
+      <DashboardFiltersPortal>
+        <FiltrosSeguimiento
+          busqueda={busqueda}
+          setBusqueda={setBusqueda}
+          unidad={unidad}
+          setUnidad={setUnidad}
+          unidades={unidades}
+          estadoFiltro={estadoFiltro}
+          setEstadoFiltro={setEstadoFiltro}
+          sinRegistrar={sinRegistrar}
+          pendientes={pendientes}
+          atendidas={atendidas}
+        />
+      </DashboardFiltersPortal>
       <Card>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -246,42 +280,38 @@ export function SeguimientoVista({
               falló en ESA evaluación; el llamado registrado queda cerrado hasta la próxima visita.
             </p>
             {filas.length > 0 && (
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
-                <span className="rounded-full bg-red-100 px-3 py-1 font-bold text-red-700">
-                  {sinRegistrar} sin registrar
-                </span>
-                <span className="rounded-full bg-amber-100 px-3 py-1 font-bold text-amber-800">
-                  {pendientes} pendientes
-                </span>
-                <span className="rounded-full bg-green-100 px-3 py-1 font-bold text-green-800">
-                  {atendidas} atendidas
-                </span>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                {[
+                  { texto: `${sinRegistrar} sin registrar`, umbral: 'noCumple' as const },
+                  { texto: `${pendientes} pendientes`, umbral: 'riesgo' as const },
+                  { texto: `${atendidas} atendidas`, umbral: 'cumple' as const }
+                ].map((c) => (
+                  <span
+                    key={c.texto}
+                    className={cn('rounded-full px-2.5 py-1 font-semibold', chipPastel(c.umbral).claseTexto)}
+                    style={{ background: chipPastel(c.umbral).fondo }}
+                  >
+                    {c.texto}
+                  </span>
+                ))}
               </div>
             )}
           </div>
-          <div className="flex flex-wrap items-end gap-3">
-            <Field label="Buscar cargo" className="w-52">
-              <Input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Ej.: Depositaría" />
-            </Field>
-            <Field label="Unidad" className="w-52">
-              <Select value={unidad} onChange={(e) => setUnidad(e.target.value)}>
-                <option value="todas">Todas las unidades</option>
-                {unidades.map(([id, nombre]) => (
-                  <option key={id} value={id}>
-                    {nombre}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Estado" className="w-48">
-              <Select value={estadoFiltro} onChange={(e) => setEstadoFiltro(e.target.value)}>
-                <option value="todos">Todos</option>
-                <option value="sin_registrar">Sin registrar ({sinRegistrar})</option>
-                <option value="pendientes">Pendientes ({pendientes})</option>
-                <option value="atendidas">Atendidas ({atendidas})</option>
-              </Select>
-            </Field>
-          </div>
+          {/* Los filtros NO viven más en la vista: van al panel del botón
+              «Filtros» de la cabecera, igual que en las otras vistas del
+              dashboard. Acá sólo queda el aviso de que hay un filtro puesto,
+              para que una lista corta no se lea como «ya no hay nada». */}
+          {hayFiltro ? (
+            <div className="flex flex-wrap items-center gap-2 self-end text-xs">
+              <span
+                className="rounded-full px-2.5 py-1 font-semibold text-amber-800"
+                style={{ background: chipPastel('riesgo').fondo }}
+              >
+                Filtro activo
+              </span>
+              <span className="text-slate-500">{resumenFiltro}</span>
+            </div>
+          ) : null}
         </div>
 
         {cargando ? (
@@ -394,7 +424,7 @@ function GrupoUnidadPanel({
       <div className="mt-3 space-y-4">
         {grupo.evaluaciones.map((ev) => (
           <div key={ev.evaluacionId}>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Visita del {fechaCorta(ev.fecha)}
             </p>
             <ul className="mt-1 divide-y divide-slate-100">
@@ -460,11 +490,14 @@ function FilaSeguimiento({
   ocupado?: boolean
 }) {
   return (
+    // Dos tamaños en toda la fila: `text-sm` para el nombre del cargo y
+    // `text-xs` para todo lo demás —nota, estados y botones—. Antes cada pieza
+    // traía su propio peso y la fila se leía como cuatro cosas distintas.
     <div className="flex flex-wrap items-center justify-between gap-3 py-2.5">
       <div className="min-w-0">
         <p className="text-sm font-semibold text-slate-900">{fila.cargo}</p>
         <p className="text-xs text-slate-500">
-          <span className={cn('font-black tabular-nums', textoNota(fila.nota))}>{pct(fila.nota)}</span>
+          <span className={cn('font-bold tabular-nums', textoNota(fila.nota))}>{pct(fila.nota)}</span>
           {' de nota en esta visita'}
         </p>
         {aplicados?.length ? (
@@ -477,16 +510,16 @@ function FilaSeguimiento({
         <ChipNivel nivel={fila.nivel} />
         <ChipEstado registro={fila.registro} />
         {onAtender && (
-          <Button type="button" variant="secondary" disabled={ocupado} onClick={onAtender}>
+          <Button type="button" variant="secondary" className="text-xs" disabled={ocupado} onClick={onAtender}>
             {ocupado ? 'Atendiendo…' : 'Marcar atendida'}
           </Button>
         )}
         {onRegistrar && (
-          <Button type="button" variant="primary" disabled={ocupado} onClick={onRegistrar}>
+          <Button type="button" variant="primary" className="text-xs" disabled={ocupado} onClick={onRegistrar}>
             {ocupado ? 'Registrando…' : `Registrar ${ETIQUETA_NIVEL_LOCAL[fila.nivel as NivelAlerta].toLowerCase()}`}
           </Button>
         )}
-        <Button type="button" variant="ghost" aria-expanded={activa} onClick={onDetallar}>
+        <Button type="button" variant="ghost" className="text-xs" aria-expanded={activa} onClick={onDetallar}>
           {activa ? (
             <>
               <X className="h-4 w-4" /> Cerrar
@@ -831,12 +864,13 @@ export function ChipNivel({ nivel }: { nivel: NivelAlerta | null }) {
   if (!nivel) {
     return <span className="text-xs font-semibold text-slate-400">Sin alerta</span>
   }
+  // Pastel del sistema (ver `chipPastel`): el rojo sólido gritaba más de lo
+  // que informaba en una lista con cincuenta filas.
+  const { fondo, claseTexto } = chipPastel(nivel === 'LLAMADO' ? 'noCumple' : 'riesgo')
   return (
     <span
-      className={cn(
-        'inline-block rounded-full px-2.5 py-1 text-[11px] font-bold',
-        nivel === 'LLAMADO' ? 'bg-red-700 text-white' : 'bg-red-100 text-red-700'
-      )}
+      className={cn('inline-block rounded-full px-2.5 py-1 text-xs font-semibold', claseTexto)}
+      style={{ background: fondo }}
     >
       {ETIQUETA_NIVEL_LOCAL[nivel]}
     </span>
@@ -848,27 +882,75 @@ export function ChipNivel({ nivel }: { nivel: NivelAlerta | null }) {
  * registrar» es el estado de lo que todavía no pasó por la base, no un error.
  */
 export function ChipEstado({ registro }: { registro: AlertaCargo | null }) {
-  if (!registro) {
+  // Los tres estados con los pasteles del sistema, todos del mismo tamaño: en
+  // una lista larga el estado se compara de un vistazo, no se lee palabra a
+  // palabra.
+  const chip = (umbral: 'cumple' | 'riesgo' | 'sinDato', texto: string) => {
+    const { fondo, claseTexto } = chipPastel(umbral)
     return (
-      <span className="inline-block rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600">
-        Sin registrar
+      <span
+        className={cn('inline-block rounded-full px-2.5 py-1 text-xs font-semibold', claseTexto)}
+        style={{ background: fondo }}
+      >
+        {texto}
       </span>
     )
   }
-  if (registro.estado === 'PENDIENTE') {
-    return (
-      <span className="inline-block rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">
-        Pendiente
-      </span>
-    )
-  }
+
+  if (!registro) return chip('sinDato', 'Sin registrar')
+  if (registro.estado === 'PENDIENTE') return chip('riesgo', 'Pendiente')
+
   const fecha = registro.atendida_en ? fechaCorta(registro.atendida_en.slice(0, 10)) : ''
   const quien = registro.atendida?.nombre
+  return chip('cumple', `${fecha ? `Atendida el ${fecha}` : 'Atendida'}${quien ? ` por ${quien}` : ''}`)
+}
+
+/**
+ * Los filtros del seguimiento, dentro del panel de la cabecera (botón
+ * «Filtros»): las mismas piezas y la misma medida de campo que en Indicadores,
+ * para que los tres paneles se sientan el mismo.
+ */
+function FiltrosSeguimiento(props: {
+  busqueda: string
+  setBusqueda: (v: string) => void
+  unidad: string
+  setUnidad: (v: string) => void
+  unidades: [string, string][]
+  estadoFiltro: string
+  setEstadoFiltro: (v: string) => void
+  sinRegistrar: number
+  pendientes: number
+  atendidas: number
+}) {
   return (
-    <span className="inline-block rounded-full bg-green-100 px-2.5 py-1 text-[11px] font-bold text-green-800">
-      {fecha ? `Atendida el ${fecha}` : 'Atendida'}
-      {quien ? ` por ${quien}` : ''}
-    </span>
+    <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-3">
+      <Field label="Buscar cargo" className="w-56">
+        <Input
+          className="h-10"
+          value={props.busqueda}
+          onChange={(e) => props.setBusqueda(e.target.value)}
+          placeholder="Ej.: Depositaría"
+        />
+      </Field>
+      <Field label="Unidad" className="w-56">
+        <Select className="h-10" value={props.unidad} onChange={(e) => props.setUnidad(e.target.value)}>
+          <option value="todas">Todas las unidades</option>
+          {props.unidades.map(([id, nombre]) => (
+            <option key={id} value={id}>
+              {nombre}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Estado" className="w-52">
+        <Select className="h-10" value={props.estadoFiltro} onChange={(e) => props.setEstadoFiltro(e.target.value)}>
+          <option value="todos">Todos</option>
+          <option value="sin_registrar">Sin registrar ({props.sinRegistrar})</option>
+          <option value="pendientes">Pendientes ({props.pendientes})</option>
+          <option value="atendidas">Atendidas ({props.atendidas})</option>
+        </Select>
+      </Field>
+    </div>
   )
 }
 

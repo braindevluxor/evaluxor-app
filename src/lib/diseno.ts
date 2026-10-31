@@ -58,6 +58,24 @@ export function coloresTarjetaPuntaje(value: number | null): { fondo: string; cl
   return TARJETA_POR_UMBRAL[colorPuntajeHex(value)]
 }
 
+/**
+ * Los mismos pasteles, para los CHIPS de nivel y estado del seguimiento.
+ *
+ * Los chips se pedían «con la temática pastel del sistema»: por eso no se
+ * pinta un rojo sólido aparte sino el mismo pastel de las tarjetas de
+ * puntaje, con su texto oscuro del mismo matiz.
+ */
+export function chipPastel(umbral: 'cumple' | 'riesgo' | 'noCumple' | 'sinDato'): { fondo: string; claseTexto: string } {
+  const hex = umbral === 'cumple'
+    ? HEX_CUMPLE
+    : umbral === 'riesgo'
+      ? HEX_RIESGO
+      : umbral === 'noCumple'
+        ? HEX_NO_CUMPLE
+        : HEX_SIN_DATO
+  return TARJETA_POR_UMBRAL[hex]
+}
+
 /* --- Colores de marca (el navy EvaLuxor se escribía a mano en ~6 archivos) -- */
 export const HEX_PRIMARY = '#28315F'
 export const HEX_PRIMARY_400 = '#4f87c7'

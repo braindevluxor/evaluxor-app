@@ -32,13 +32,16 @@ export function useDashboardFilters(): DashboardFiltersContextValue {
 }
 
 export function DashboardFiltersPortal({ children }: { children: ReactNode }) {
-  const { abierto } = useDashboardFilters()
+  // Lee el contexto directamente y no con `useDashboardFilters`: fuera del
+  // provider —una prueba que renderiza la vista aislada— el portal no tiene
+  // nada que abrir y debe callarse en vez de tirar un error.
+  const contexto = useContext(DashboardFiltersContext)
   const [destino, setDestino] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
     setDestino(document.getElementById('dashboard-filters-panel'))
   }, [])
 
-  if (!abierto || !destino) return null
+  if (!contexto?.abierto || !destino) return null
   return createPortal(<div className="mx-auto max-h-[70vh] max-w-7xl overflow-y-auto px-4 py-4 lg:px-8">{children}</div>, destino)
 }

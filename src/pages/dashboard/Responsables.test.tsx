@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { DetalleVisita, SelectorTrabajadores, SeguimientoVista } from './Responsables'
 import { seguimientoPorEvaluacion } from '../../lib/data/seguimientoEvaluaciones'
 import { filasDeAlertas } from '../../lib/data/alertasCargo'
 import type { ConjuntoDatos } from '../../lib/data/indicadores'
 import type { AlertaCargo, FilaAlerta } from '../../lib/data/alertasCargo'
 import type { Item, Modulo, Respuesta, VistaEvaluacion } from '../../lib/types'
+
+function fuente(rel: string): string {
+  return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+}
 
 /**
  * La vista se renderiza sin efectos (SSR): lo que se prueba es que la lista
@@ -227,6 +233,37 @@ describe('SeguimientoVista · estados', () => {
     )
     expect(html).toContain('animate-pulse')
     expect(html).not.toContain('Ningún cargo está en alerta')
+  })
+})
+
+describe('SeguimientoVista · filtros y chips', () => {
+  it('los filtros viven en el panel de la cabecera, no en la vista', () => {
+    const src = fuente('./Responsables.tsx')
+    expect(src).toContain('<DashboardFiltersPortal>')
+    expect(src).toContain('<FiltrosSeguimiento')
+
+    // En la lista NO están: sólo queda el aviso de que hay un filtro puesto.
+    const html = vista()
+    expect(html).not.toContain('Buscar cargo')
+    expect(html).not.toContain('Filtro activo')
+
+    // El aviso se arma con lo que está recortando la lista.
+    expect(src).toContain('Filtro activo')
+    expect(src).toContain('cargo «${busqueda.trim()}»')
+  })
+
+  it('los chips van con la temática pastel del sistema, no en color sólido', () => {
+    const html = vista({
+      alertas: [alerta({ estado: 'ATENDIDA', atendida_en: '2026-03-05T10:00:00Z' })]
+    })
+
+    // El rojo sólido de «Llamado de atención» y el fondo crudo de los estados
+    // se reemplazan por los pasteles de `diseno.ts`.
+    expect(html).not.toContain('bg-red-700')
+    expect(html).toContain('background:#F5BCBC') // pastel de «no cumple»
+    expect(html).toContain('background:#C0EDD0') // pastel de «cumple» (atendida)
+    // Sólo dos tamaños de texto en la fila: el nombre del cargo y el resto.
+    expect(html).toContain('rounded-full px-2.5 py-1 text-xs font-semibold')
   })
 })
 
