@@ -806,40 +806,46 @@ function FiltrosBar(props: {
   setIncluirActivas: (v: boolean) => void
 }) {
   return (
-    <div className={cn('grid gap-3 rounded-2xl border border-slate-200 p-4 sm:grid-cols-2 lg:grid-cols-4', CLASE_CONTENEDOR_DASHBOARD)}>
-      <Field label="Desde">
-        <Input type="date" value={props.desde} onChange={(e) => props.setDesde(e.target.value)} />
+    // Una sola fila en escritorio: los cuatro campos y la casilla juntos, todos
+    // con la misma altura (h-10) — los inputs de fecha nativos son más altos que
+    // los selects y sin forzar la medida los renglones quedaban torcidos.
+    <div className={cn('flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 p-3', CLASE_CONTENEDOR_DASHBOARD)}>
+      <Field label="Desde" className="w-36">
+        <Input type="date" className="h-10" value={props.desde} onChange={(e) => props.setDesde(e.target.value)} />
       </Field>
-      <Field label="Hasta">
-        <Input type="date" value={props.hasta} onChange={(e) => props.setHasta(e.target.value)} />
+      <Field label="Hasta" className="w-36">
+        <Input type="date" className="h-10" value={props.hasta} onChange={(e) => props.setHasta(e.target.value)} />
       </Field>
-      <Field label="Sucursal">
-        <Select value={props.sucursal} onChange={(e) => props.setSucursal(e.target.value)} disabled={props.soloSucursal}>
+      <Field label="Sucursal" className="w-48">
+        <Select className="h-10" value={props.sucursal} onChange={(e) => props.setSucursal(e.target.value)} disabled={props.soloSucursal}>
           <option value="">Todas</option>
           {props.sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
         </Select>
       </Field>
-      <Field label="Módulo">
-        <Select value={props.modulo} onChange={(e) => props.setModulo(e.target.value)}>
+      <Field label="Módulo" className="min-w-48 flex-1">
+        <Select className="h-10" value={props.modulo} onChange={(e) => props.setModulo(e.target.value)}>
           <option value="">Todos</option>
           {props.modulos.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
         </Select>
       </Field>
       {/* A mitad de mes casi todo está abierto: sin esta casilla el dashboard
           se quedaba en ceros. El puntaje de una abierta es su avance real
-          (recalculado con las respuestas), no el cero que tenía guardado. */}
-      <label className="flex items-start gap-2 text-sm font-medium text-slate-700 sm:col-span-2 lg:col-span-4">
+          (recalculado con las respuestas), no el cero que tenía guardado. La
+          explicación completa vive en el `title`: en la fila no hay lugar para
+          ella sin duplicar la altura del panel. */}
+      <label
+        title="Entran con su puntaje en curso, a medida que se van llenando. La casilla de «completadas» sólo cuenta las cerradas."
+        className="flex shrink-0 items-center gap-2 pb-2.5 text-sm font-medium text-slate-700"
+      >
         <input
           type="checkbox"
-          className="mt-0.5 h-5 w-5 accent-primary"
+          className="h-4 w-4 accent-primary"
           checked={props.incluirActivas}
           onChange={(e) => props.setIncluirActivas(e.target.checked)}
         />
         <span>
           Contar también las evaluaciones activas
-          <span className="block text-xs font-normal text-slate-400">
-            Entran con su puntaje en curso, a medida que se van llenando. La casilla de «completadas» sólo cuenta las cerradas.
-          </span>
+          <span className="hidden text-xs font-normal text-slate-400 xl:inline"> · entran con su puntaje en curso</span>
         </span>
       </label>
     </div>
