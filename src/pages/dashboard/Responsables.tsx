@@ -25,12 +25,14 @@ import {
   filtrarFilas,
   gruposPorUnidad,
   listarAlertas,
+  listarTrabajadoresPorAlerta,
   marcarAtendida,
   registrarAlerta,
   type AlertaAARegistrar,
   type AlertaCargo,
   type FilaAlerta,
-  type GrupoUnidad
+  type GrupoUnidad,
+  type TrabajadorAlerta
 } from '../../lib/data/alertasCargo'
 import { avisar } from '../../lib/aviso'
 import { useAuth } from '../../context/AuthContext'
@@ -108,6 +110,12 @@ export interface SeguimientoVistaProps {
   alertasCargando?: boolean
   alertasError?: boolean
   onReintentarAlertas?: () => void
+  /**
+   * A quién se le aplicó cada alerta, por id de alerta. Viene de una consulta
+   * aparte: si la tabla nueva todavía no está aplicada, se pierden los nombres
+   * y el resto del panel sigue funcionando.
+   */
+  trabajadoresPorAlerta?: Map<string, TrabajadorAlerta[]> | null
   onRegistrar?: (a: AlertaAARegistrar) => void
   onAtender?: (id: string) => void
   /** Clave de la fila (o id de la alerta) con una acción en vuelo, para no apretar dos veces. */
@@ -124,6 +132,7 @@ export function SeguimientoVista({
   alertasCargando,
   alertasError,
   onReintentarAlertas,
+  trabajadoresPorAlerta,
   onRegistrar,
   onAtender,
   ocupado
@@ -289,6 +298,7 @@ export function SeguimientoVista({
                 onAtender={onAtender}
                 ocupado={ocupado}
                 registrarDe={registrarDe}
+                trabajadoresPorAlerta={trabajadoresPorAlerta}
               />
             ))}
           </div>
@@ -314,7 +324,8 @@ function GrupoUnidadPanel({
   onSel,
   onAtender,
   ocupado,
-  registrarDe
+  registrarDe,
+  trabajadoresPorAlerta
 }: {
   grupo: GrupoUnidad
   datos: ConjuntoDatos | null
@@ -323,6 +334,7 @@ function GrupoUnidadPanel({
   onAtender?: (id: string) => void
   ocupado?: string | null
   registrarDe: (f: FilaAlerta) => (() => void) | undefined
+  trabajadoresPorAlerta?: Map<string, TrabajadorAlerta[]> | null
 }) {
   return (
     <section className="rounded-xl border border-slate-200 p-4">
@@ -343,11 +355,13 @@ function GrupoUnidadPanel({
             <ul className="mt-1 divide-y divide-slate-100">
               {ev.filas.map((f) => {
                 const activa = sel?.clave === f.clave && sel.unidadId === f.unidadId && sel.evaluacionId === f.evaluacionId
+                const aplicados = f.registro ? trabajadoresPorAlerta?.get(f.registro.id) : undefined
                 return (
                   <li key={claveFila(f)}>
                     <FilaSeguimiento
                       fila={f}
                       activa={activa}
+                      aplicados={aplicados}
                       onDetallar={() => onSel(activa ? null : f)}
                       onRegistrar={registrarDe(f)}
                       onAtender={onAtender && f.registro?.estado === 'PENDIENTE' ? () => onAtender(f.registro!.id) : null}
@@ -375,6 +389,7 @@ function GrupoUnidadPanel({
 function FilaSeguimiento({
   fila,
   activa,
+  aplicados,
   onDetallar,
   onRegistrar,
   onAtender,
@@ -382,6 +397,8 @@ function FilaSeguimiento({
 }: {
   fila: FilaAlerta
   activa: boolean
+  /** A quién se le aplicó el llamado, si se pudo saber. */
+  aplicados?: TrabajadorAlerta[]
   onDetallar: () => void
   onRegistrar?: (() => void) | null
   onAtender?: (() => void) | null
@@ -395,6 +412,11 @@ function FilaSeguimiento({
           <span className={cn('font-black tabular-nums', textoNota(fila.nota))}>{pct(fila.nota)}</span>
           {' de nota en esta visita'}
         </p>
+        {aplicados?.length ? (
+          <p className="mt-0.5 truncate text-xs text-slate-500">
+            Aplicado a {aplicados.map((t) => t.nombre).join(', ')}
+          </p>
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <ChipNivel nivel={fila.nivel} />
@@ -582,6 +604,9 @@ export function Responsables() {
   const [alertas, setAlertas] = useState<AlertaCargo[] | null>(null)
   const [alertasError, setAlertasError] = useState(false)
   const [recargarAlertas, setRecargarAlertas] = useState(0)
+  // A quién se le aplicó cada alerta. Mapa vacío = no se pudo saber (la tabla
+  // nueva puede no estar aplicada todavía): el panel se ve igual, sin nombres.
+  const [trabajadores, setTrabajadores] = useState<Map<string, TrabajadorAlerta[]> | null>(null)
   // La fila (o la alerta) con una acción en vuelo: sin esto se podía apretar
   // «Registrar» dos veces y crear dos llamados iguales en el peor de los casos.
   const [ocupado, setOcupado] = useState<string | null>(null)
@@ -629,6 +654,15 @@ export function Responsables() {
           setAlertas(null)
           setAlertasError(true)
         }
+      }
+      // Los trabajadores elegidos van en SU consulta: si esa tabla todavía no
+      // existe (bloque nuevo sin aplicar), se pierden los nombres pero las
+      // alertas siguen listándose. Un detalle no tumba la pantalla entera.
+      try {
+        const mapa = await listarTrabajadoresPorAlerta()
+        if (activo) setTrabajadores(mapa)
+      } catch {
+        if (activo) setTrabajadores(new Map())
       }
     })()
     return () => {
@@ -706,6 +740,7 @@ export function Responsables() {
       alertasCargando={alertas === null && !alertasError}
       alertasError={alertasError}
       onReintentarAlertas={recargarTodoAlertas}
+      trabajadoresPorAlerta={trabajadores}
       onRegistrar={registrar}
       onAtender={atender}
       ocupado={ocupado}

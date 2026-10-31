@@ -14,6 +14,7 @@ const {
   filtrarFilas,
   gruposPorUnidad,
   listarAlertas,
+  listarTrabajadoresPorAlerta,
   registrarAlerta,
   marcarAtendida
 } = await import('./alertasCargo')
@@ -284,7 +285,7 @@ beforeEach(() => {
 })
 
 describe('listarAlertas', () => {
-  it('pide los embeds —incluidos los trabajadores— y ordena de más nueva a más vieja', async () => {
+  it('pide los embeds de unidad y quién atendió, y ordena de más nueva a más vieja', async () => {
     const order = vi.fn().mockResolvedValue({ data: [], error: null })
     const select = vi.fn().mockReturnValue({ order })
     fromMock.mockReturnValue({ select })
@@ -295,7 +296,9 @@ describe('listarAlertas', () => {
     expect(String(select.mock.calls[0][0])).toContain('atendida:atendida_por(nombre)')
     expect(String(select.mock.calls[0][0])).toContain('sucursal:sucursales(nombre)')
     expect(String(select.mock.calls[0][0])).toContain('departamento:departamentos_centralizados(nombre)')
-    expect(String(select.mock.calls[0][0])).toContain('trabajadores:alerta_trabajadores(nacionalidad, dni, nombre)')
+    // Los trabajadores NO van acá: la tabla es nueva y si no existe, el embed
+    // tumba el listado entero (pasó en producción).
+    expect(String(select.mock.calls[0][0])).not.toContain('alerta_trabajadores')
     expect(order).toHaveBeenCalledWith('created_at', { ascending: false })
   })
 
@@ -304,6 +307,35 @@ describe('listarAlertas', () => {
     fromMock.mockReturnValue({ select: () => ({ order }) })
 
     await expect(listarAlertas()).rejects.toThrow('se cayó')
+  })
+})
+
+describe('listarTrabajadoresPorAlerta', () => {
+  it('lee la tabla hija y agrupa los nombres por alerta', async () => {
+    const order = vi.fn().mockResolvedValue({
+      data: [
+        { alerta_id: 'a1', nacionalidad: 'V', dni: 1, nombre: 'Ana Pérez' },
+        { alerta_id: 'a1', nacionalidad: 'E', dni: 2, nombre: 'Beto Gómez' },
+        { alerta_id: 'a2', nacionalidad: 'V', dni: 3, nombre: 'Caro Díaz' }
+      ],
+      error: null
+    })
+    const select = vi.fn().mockReturnValue({ order })
+    fromMock.mockReturnValue({ select })
+
+    const mapa = await listarTrabajadoresPorAlerta()
+
+    expect(fromMock).toHaveBeenCalledWith('alerta_trabajadores')
+    expect(mapa.get('a1')?.map((t) => t.nombre)).toEqual(['Ana Pérez', 'Beto Gómez'])
+    expect(mapa.get('a2')?.map((t) => t.dni)).toEqual([3])
+    expect(mapa.get('a3')).toBeUndefined()
+  })
+
+  it('si la tabla todavía no existe, la pantalla la pide perdón y sigue: el mapa sale vacío', async () => {
+    const order = vi.fn().mockResolvedValue({ data: null, error: { message: 'relation does not exist' } })
+    fromMock.mockReturnValue({ select: () => ({ order }) })
+
+    await expect(listarTrabajadoresPorAlerta()).rejects.toThrow('relation does not exist')
   })
 })
 

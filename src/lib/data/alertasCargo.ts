@@ -250,12 +250,35 @@ export async function listarAlertas(): Promise<AlertaCargo[]> {
   const { data, error } = await supabase
     .from('alertas_cargo')
     .select(
-      '*, atendida:atendida_por(nombre), sucursal:sucursales(nombre), departamento:departamentos_centralizados(nombre), ' +
-        'trabajadores:alerta_trabajadores(nacionalidad, dni, nombre)'
+      '*, atendida:atendida_por(nombre), sucursal:sucursales(nombre), departamento:departamentos_centralizados(nombre)'
     )
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message)
   return (data ?? []) as unknown as AlertaCargo[]
+}
+
+/**
+ * Los trabajadores elegidos en cada alerta, agrupados por alerta.
+ *
+ * Va en SU PROPIA consulta y no como embed de `listarAlertas` porque la tabla
+ * `alerta_trabajadores` es recién agregada: con el embed, una base que todavía
+ * no aplicó ese bloque no puede siquiera LISTAR las alertas —PostgREST truena
+ * por la relación inexistente— y la pantalla entera se cae por lo que es un
+ * detalle. Acá lo que se pierde, si algo, son los nombres.
+ */
+export async function listarTrabajadoresPorAlerta(): Promise<Map<string, TrabajadorAlerta[]>> {
+  const { data, error } = await supabase
+    .from('alerta_trabajadores')
+    .select('alerta_id, nacionalidad, dni, nombre')
+    .order('nombre')
+  if (error) throw new Error(error.message)
+  const mapa = new Map<string, TrabajadorAlerta[]>()
+  for (const fila of (data ?? []) as unknown as (TrabajadorAlerta & { alerta_id: string })[]) {
+    const lista = mapa.get(fila.alerta_id) ?? []
+    lista.push({ dni: fila.dni, nacionalidad: fila.nacionalidad, nombre: fila.nombre })
+    mapa.set(fila.alerta_id, lista)
+  }
+  return mapa
 }
 
 export interface AlertaAARegistrar {

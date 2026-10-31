@@ -160,6 +160,27 @@ describe('SeguimientoVista · la lista por unidad y visita', () => {
     expect(html).toContain('Registrar llamado de atención')
   })
 
+  it('muestra a quién se le aplicó el llamado, cuando se pudo saber', () => {
+    const d = datos()
+    const registrada = alerta({ estado: 'ATENDIDA', atendida_en: '2026-03-05T10:00:00Z' })
+    const html = renderToStaticMarkup(
+      <SeguimientoVista
+        datos={d}
+        cargando={false}
+        error={false}
+        onReintentar={() => {}}
+        celdas={seguimientoPorEvaluacion(d)}
+        alertas={[registrada]}
+        onRegistrar={() => {}}
+        onAtender={() => {}}
+        trabajadoresPorAlerta={new Map([
+          [registrada.id, [{ dni: 1, nacionalidad: 'V', nombre: 'Ana Pérez' }, { dni: 2, nacionalidad: 'V', nombre: 'Beto Gómez' }]]
+        ])}
+      />
+    )
+    expect(html).toContain('Aplicado a Ana Pérez, Beto Gómez')
+  })
+
   it('cada visita con registro propio muestra su estado, y la limpia no pide acción', () => {
     const html = vista({
       alertas: [

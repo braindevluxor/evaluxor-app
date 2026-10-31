@@ -111,7 +111,7 @@ function ConsoleLayoutContenido() {
           // pegada al borde izquierdo con un margen. En el teléfono sigue siendo
           // un cajón que cubre la pantalla entera, por eso sólo flota en
           // escritorio.
-          'fixed inset-y-0 left-0 z-40 my-4 ml-3 flex w-64 flex-col rounded-[1.75rem] bg-white text-slate-800 shadow-xl transition-[width,transform] max-lg:my-0 max-lg:ml-0 max-lg:rounded-none max-lg:shadow-none',
+          'fixed inset-y-0 left-0 z-40 my-4 ml-3 flex w-64 flex-col rounded-2xl bg-white text-slate-800 shadow-xl transition-[width,transform] max-lg:my-0 max-lg:ml-0 max-lg:rounded-none max-lg:shadow-none',
           colapsado && 'lg:w-16',
           abierto ? 'translate-x-0' : '-translate-x-full',
           'lg:translate-x-0'
@@ -153,11 +153,14 @@ function ConsoleLayoutContenido() {
                 onClick={() => setAbierto(false)}
                 title="Ir a evaluaciones"
                 className={cn(
-                  'flex items-center gap-3 rounded-2xl bg-primary px-3 py-2.5 text-sm font-semibold text-white shadow-md transition-colors hover:bg-primary-700',
+                  // Amarillo con el icono azul: es la acción que no es de
+                  // navegación y tiene que leerse como un botón, no como un
+                  // enlace más de la lista.
+                  'flex items-center gap-3 rounded-2xl bg-yellow-400 px-3 py-2.5 text-sm font-semibold text-primary-900 shadow-md transition-colors hover:bg-yellow-300',
                   colapsado && 'lg:justify-center lg:px-0'
                 )}
               >
-                <ClipboardCheck className="h-5 w-5 shrink-0" />
+                <ClipboardCheck className="h-5 w-5 shrink-0 text-primary-700" />
                 <span className={cn(colapsado && 'lg:hidden')}>Ir a evaluaciones</span>
               </Link>
             ) : null}
@@ -178,10 +181,10 @@ function ConsoleLayoutContenido() {
                       className={({ isActive }) =>
                         cn('relative flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors',
                           colapsado && 'lg:justify-center lg:px-0',
-                          // La página activa es el cuadrito relleno: en una
-                          // barra sólo de iconos es lo único que dice «estás
-                          // acá» sin depender del hover.
-                          isActive ? 'bg-primary text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800')
+                          // La página activa se marca con una sombra amarilla:
+                          // en una barra sólo de iconos es lo único que dice
+                          // «estás acá» sin depender del hover.
+                          isActive ? 'bg-yellow-50 text-primary-900 shadow-[0_0_0_2px_#facc15]' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800')
                       }
                     >
                       {() => (
@@ -203,9 +206,10 @@ function ConsoleLayoutContenido() {
           <p className={cn('truncate px-2 pb-2 text-sm font-semibold text-slate-700', colapsado && 'lg:hidden')}>
             {profile?.nombre || profile?.email}
           </p>
-          {/* El pie de la barra: el avatar del usuario —su inicial, en el mismo
-              azul que la acción principal— y el cierre de sesión al lado. */}
-          <div className="flex items-center gap-2">
+          {/* El pie de la barra: el avatar del usuario —su inicial— y debajo el
+              cierre de sesión, apilados: en una barra angosta uno al lado del
+              otro queda todo apretado contra el borde. */}
+          <div className="flex flex-col items-center gap-2">
             <NavLink
               to="/perfil"
               title="Mi perfil / contraseña"
