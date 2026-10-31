@@ -246,9 +246,12 @@ function ConsoleLayoutContenido() {
               <div
                 role="menu"
                 className={cn(
-                  'absolute z-50 w-60 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl',
+                  'absolute z-50 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl',
+                  // Sale HACIA ARRIBA del nombre, sobre la barra. Sólo con la
+                  // barra cerrada se corre a su derecha: ahí no hay ancho para
+                  // desplegarlo encima sin taparlo con su propia pastilla.
                   'bottom-[calc(100%+0.5rem)] left-1/2 -translate-x-1/2',
-                  'lg:bottom-0 lg:left-full lg:translate-x-3'
+                  colapsado ? 'w-60 lg:bottom-0 lg:left-full lg:translate-x-3' : 'w-full'
                 )}
               >
                 <div className="flex items-center gap-3 px-4 py-3">
