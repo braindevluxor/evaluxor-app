@@ -291,8 +291,10 @@ function ConsoleLayoutContenido() {
               title="Mi cuenta"
               onClick={() => setCuentaAbierta((v) => !v)}
               className={cn(
-                'place-items-center rounded-2xl bg-primary text-sm font-black text-white transition-colors hover:bg-primary-700',
-                'hidden h-10 w-10',
+                // `items-center justify-center` y no `place-items-center`: éste
+                // sólo centra en grid y el botón es flex, así que la inicial
+                // se iba pegada al borde izquierdo de la pastilla.
+                'hidden h-10 w-10 items-center justify-center rounded-2xl bg-primary text-sm font-black text-white transition-colors hover:bg-primary-700',
                 colapsado && 'lg:flex'
               )}
             >
