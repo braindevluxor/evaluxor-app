@@ -33,10 +33,11 @@ describe('trabajadoresParaCargo', () => {
     expect(trabajadoresParaCargo(listado, 'cajero').trabajadores.map((c) => c.dni)).toEqual([1, 2])
   })
 
-  it('si el cargo no coincide con nadie, devuelve todos los activos y lo avisa', () => {
-    // Un cargo mal escrito en la evaluación no debe volver imposible notificar.
+  it('si el cargo no figura en la unidad, no se lista a nadie: es normal que no todos apliquen', () => {
+    // Listar a los demás en este caso invita a notificar a la persona
+    // equivocada: el cargo directamente no está habilitado en esa sucursal.
     const r = trabajadoresParaCargo(listado, 'Encargado de turno')
-    expect(r.trabajadores.map((c) => c.dni)).toEqual([1, 2, 3])
+    expect(r.trabajadores).toEqual([])
     expect(r.porCargo).toBe(false)
   })
 

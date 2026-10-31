@@ -284,15 +284,26 @@ describe('SelectorTrabajadores · a quién se le aplica', () => {
     { nationality: 'V', dni: 333, name: 'Caro', lastname: 'Díaz', role_name: 'Depositaría', active: false }
   ]
 
-  it('lista a las personas con su cédula y su cargo, y avisa si el cruce fue aproximado', () => {
-    const html = renderToStaticMarkup(<SelectorTrabajadores {...base} trabajadores={lista} porCargo={false} />)
+  it('lista a las personas con su cédula y su cargo', () => {
+    const html = renderToStaticMarkup(<SelectorTrabajadores {...base} trabajadores={lista} />)
 
     expect(html).toContain('¿A quién se le aplica?')
     expect(html).toContain('Cajero integral · Sucursal Norte')
     expect(html).toContain('Ana Pérez')
     expect(html).toContain('V-111')
     expect(html).toContain('Cajera integral')
-    expect(html).toContain('No hay coincidencias exactas con')
+  })
+
+  it('si el cargo no figura en la unidad, no se lista a nadie: sólo avisa y deja registrar', () => {
+    // No todos los cargos aplican en todas las sucursales: mostrar a los
+    // demás de la tienda invita a notificar a la persona equivocada.
+    const html = renderToStaticMarkup(<SelectorTrabajadores {...base} trabajadores={[]} porCargo={false} />)
+
+    expect(html).toContain('«Cajero integral» no figura en la nómina de Sucursal Norte')
+    expect(html).toContain('no todos los cargos aplican en todas las sucursales')
+    expect(html).toContain('Registrar igual')
+    expect(html).not.toContain('Ana Pérez')
+    expect(html).not.toContain('Buscar por nombre o cédula')
   })
 
   it('la amonestación ofrece bajar el PDF; sin elegir a nadie el botón queda mudo', () => {
@@ -301,8 +312,6 @@ describe('SelectorTrabajadores · a quién se le aplica', () => {
     expect(html).toContain('Registrar amonestación y descargar PDF')
     expect(html).toContain('disabled')
     expect(html).toContain('0 de 3 seleccionados')
-    // Sin el aviso de cruce aproximado: el cargo sí coincidió.
-    expect(html).not.toContain('No hay coincidencias exactas con')
   })
 
   it('para un llamado de atención no hay PDF: sólo se registra', () => {

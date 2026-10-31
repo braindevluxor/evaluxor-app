@@ -69,12 +69,11 @@ function raizCargo(texto: string): string {
 /**
  * Los trabajadores de UN cargo, para notificarles un llamado o una amonestación.
  *
- * Sólo los ACTIVOS: noificar a alguien que ya no está en la tienda no arregla
- * nada y deja un documento sin destinatario. El cruce es por raíz del cargo
- * (ver `raizCargo`), y cuando no hay ninguna coincidencia se devuelven todos
- * coincidencia se devuelven todos los activos con `porCargo: false` para que la
- * pantalla lo avise: un cargo mal escrito en la evaluación no debe volver
- * imposible notificar a nadie.
+ * Sólo los ACTIVOS y sólo los que ENCAJAN con el cargo: no todos los cargos
+ * aplican en todas las sucursales, y si «Cajero integral» no figura en la
+ * nómina de esa tienda, listar a los demás invita a notificar a la persona
+ * equivocada. En ese caso la lista sale VACÍA y la pantalla ofrece registrar
+ * contra el cargo, que es lo que corresponde.
  */
 export function trabajadoresParaCargo(
   colaboradores: readonly ColaboradorAPI[],
@@ -87,7 +86,7 @@ export function trabajadoresParaCargo(
     if (!rol || !objetivo) return false
     return rol.includes(objetivo) || objetivo.includes(rol)
   })
-  return { trabajadores: delCargo.length ? delCargo : activos, porCargo: delCargo.length > 0 }
+  return { trabajadores: delCargo, porCargo: delCargo.length > 0 }
 }
 
 interface RespuestaFuncion {

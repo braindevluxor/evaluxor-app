@@ -97,6 +97,17 @@ function claveFila(f: Pick<FilaAlerta, 'clave' | 'unidadId' | 'evaluacionId'>): 
   return `${f.clave}|${f.unidadId}|${f.evaluacionId}`
 }
 
+/**
+ * El motivo técnico del fallo, traducido a lo que le toca hacer a la persona:
+ * el error de PostgREST por una tabla inexistente no dice «andá al SQL Editor».
+ */
+function motivoLegible(motivo: string): string {
+  if (/does not exist|schema cache|not found/i.test(motivo)) {
+    return 'falta aplicar la tabla alerta_trabajadores (pegá supabase/schema.sql en el SQL Editor de Supabase).'
+  }
+  return motivo
+}
+
 export interface SeguimientoVistaProps {
   datos: ConjuntoDatos | null
   cargando: boolean
@@ -769,20 +780,20 @@ export function SelectorTrabajadores({
           {acciones(true)}
         </>
       ) : !trabajadores?.length ? (
+        // Sin coincidencias el cargo NO está habilitado en esa unidad, que es
+        // lo normal —no todos los cargos aplican en todas las sucursales—: la
+        // lista se queda vacía a propósito en vez de mostrar a los demás y
+        // terminar notificando a la persona equivocada.
         <>
-          <p className="mt-3 text-sm text-slate-500">
-            No hay trabajadores activos en esta unidad con los que registrar el documento.
+          <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {porCargo
+              ? 'No hay trabajadores activos en esta unidad.'
+              : `«${cargo}» no figura en la nómina de ${unidad}: es normal, no todos los cargos aplican en todas las sucursales. El registro queda contra el cargo.`}
           </p>
           {acciones(true)}
         </>
       ) : (
         <>
-          {!porCargo ? (
-            <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              No hay coincidencias exactas con «{cargo}» en la nómina: se listan todos los activos de la
-              unidad para que elijas a mano.
-            </p>
-          ) : null}
           <Input
             className="mt-3"
             value={busqueda}
@@ -1038,8 +1049,17 @@ export function Responsables() {
     setOcupado(`${a.clave}|${a.unidadId}|${a.evaluacionId}`)
     void (async () => {
       try {
-        await registrarAlerta(a)
-        avisar(`${ETIQUETA_NIVEL_LOCAL[a.nivel]} registrado para ${a.cargo}.`)
+        const r = await registrarAlerta(a)
+        if (r.motivo) {
+          // La ALERTA quedó creada: lo único que falló fue guardar a las
+          // personas, y el motivo más común es la tabla nueva sin aplicar.
+          avisar(
+            `${ETIQUETA_NIVEL_LOCAL[a.nivel]} registrado para ${a.cargo}. Personas sin guardar: ${motivoLegible(r.motivo)}`,
+            'aviso'
+          )
+        } else {
+          avisar(`${ETIQUETA_NIVEL_LOCAL[a.nivel]} registrado para ${a.cargo}.`)
+        }
       } catch {
         avisar('No se pudo registrar el llamado de atención.', 'error')
       } finally {

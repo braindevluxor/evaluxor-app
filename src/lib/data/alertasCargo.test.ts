@@ -382,7 +382,7 @@ describe('registrarAlerta', () => {
     const insertados: { tabla: string; payload: unknown }[] = []
     mockInsercion({ data: { id: 'a-nueva' }, error: null }, (tabla, payload) => insertados.push({ tabla, payload }))
 
-    await registrarAlerta({
+    const r = await registrarAlerta({
       clave: 'cajero',
       cargo: 'Cajero integral',
       unidadId: 'uN',
@@ -401,6 +401,35 @@ describe('registrarAlerta', () => {
       { alerta_id: 'a-nueva', nacionalidad: 'V', dni: 111, nombre: 'Ana Pérez' },
       { alerta_id: 'a-nueva', nacionalidad: 'E', dni: 222, nombre: 'Beto Gómez' }
     ])
+    expect(r).toEqual({ trabajadoresGuardados: true })
+  })
+
+  it('si las personas no se guardan, la alerta NO se pierde: vuelve el motivo', async () => {
+    // El caso real: la tabla `alerta_trabajadores` todavía no está aplicada en
+    // la base. La alerta ya quedó creada en el insert anterior, y decirle a la
+    // persona «no se pudo registrar» sería mentir.
+    fromMock.mockImplementation((tabla: string) => ({
+      insert: () =>
+        tabla === 'alerta_trabajadores'
+          ? { error: { message: 'relation "public.alerta_trabajadores" does not exist' } }
+          : { select: () => ({ single: () => Promise.resolve({ data: { id: 'a-nueva' }, error: null }) }) }
+    }))
+
+    const r = await registrarAlerta({
+      clave: 'cajero',
+      cargo: 'Cajero integral',
+      unidadId: 'uN',
+      unidadTipo: 'sucursal',
+      evaluacionId: 'ev7',
+      nivel: 'AMONESTACION',
+      nota: 75,
+      trabajadores: [{ dni: 111, nacionalidad: 'V', nombre: 'Ana Pérez' }]
+    })
+
+    expect(r).toEqual({
+      trabajadoresGuardados: false,
+      motivo: 'relation "public.alerta_trabajadores" does not exist'
+    })
   })
 
   it('sin trabajadores no se toca la tabla hija (los departamentos no tienen nómina)', async () => {
@@ -427,7 +456,7 @@ describe('registrarAlerta', () => {
         nota: 75,
         trabajadores: [{ dni: 111, nacionalidad: 'V', nombre: 'Ana Pérez' }]
       })
-    ).resolves.toBeUndefined()
+    ).resolves.toEqual({ trabajadoresGuardados: true })
     expect(insertados.map((i) => i.tabla)).toEqual(['alertas_cargo'])
   })
 

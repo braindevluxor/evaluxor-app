@@ -301,12 +301,28 @@ export interface AlertaAARegistrar {
   trabajadores?: TrabajadorAlerta[]
 }
 
+/** Qué salió del registro: la alerta y si las personas llegaron a guardarse. */
+export interface ResultadoRegistro {
+  /**
+   * `false` = la alerta SÍ quedó creada pero las personas no se pudieron
+   * guardar (tabla nueva sin aplicar, permiso, etc.). La pantalla lo avisa
+   * distinto: decir «no se pudo registrar» cuando la alerta existe es mentir.
+   */
+  trabajadoresGuardados: boolean
+  /** Motivo legible de por qué no se guardaron. */
+  motivo?: string
+}
+
 /**
- * Registra la alerta y, si vienen, a quién se le aplicó. Si ya hay una pendiente
- * para esa celda (dos pantallas a la vez), la base devuelve `23505` y no es un
- * error: el estado deseado ya existe y la pantalla lo va a recargar igual.
+ * Registra la alerta y, si vienen, a quién se le aplicó.
+ *
+ * Si ya hay una pendiente para esa celda (dos pantallas a la vez), la base
+ * devuelve `23505` y no es un error: el estado deseado ya existe.
+ *
+ * Las personas van en un segundo insert y su falla NO tumba el registro — ya
+ * está creado —: vuelve `motivo` para que la pantalla diga qué falta aplicar.
  */
-export async function registrarAlerta(a: AlertaAARegistrar): Promise<void> {
+export async function registrarAlerta(a: AlertaAARegistrar): Promise<ResultadoRegistro> {
   const { data, error } = await supabase
     .from('alertas_cargo')
     .insert({
@@ -321,11 +337,12 @@ export async function registrarAlerta(a: AlertaAARegistrar): Promise<void> {
     .select('id')
     .single()
   if (error) {
-    if (error.code === '23505') return
+    if (error.code === '23505') return { trabajadoresGuardados: true }
     throw new Error(error.message)
   }
 
-  if (!a.trabajadores?.length) return
+  if (!a.trabajadores?.length) return { trabajadoresGuardados: true }
+
   const { error: errorTrabajadores } = await supabase.from('alerta_trabajadores').insert(
     a.trabajadores.map((t) => ({
       alerta_id: (data as { id: string }).id,
@@ -334,7 +351,8 @@ export async function registrarAlerta(a: AlertaAARegistrar): Promise<void> {
       nombre: t.nombre
     }))
   )
-  if (errorTrabajadores) throw new Error(errorTrabajadores.message)
+  if (errorTrabajadores) return { trabajadoresGuardados: false, motivo: errorTrabajadores.message }
+  return { trabajadoresGuardados: true }
 }
 
 /**
