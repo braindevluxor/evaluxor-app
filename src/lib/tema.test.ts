@@ -124,10 +124,15 @@ describe('tema · dónde vive el efecto', () => {
     expect(diseno).toContain('var(--pastel-verde-fondo)')
     expect(diseno).not.toContain("fondo: '#C0EDD0'")
 
-    const menu = fuente('../components/layouts/ConsoleLayout.tsx')
-    expect(menu).toContain('Modo oscuro')
-    expect(menu).toContain('role="switch"')
-    expect(menu).toContain('alternarTema({ x: e.clientX, y: e.clientY })')
+    const interruptor = fuente('../components/TemaInterruptor.tsx')
+    expect(interruptor).toContain('Modo oscuro')
+    expect(interruptor).toContain('role="switch"')
+    expect(interruptor).toContain('alternarTema({ x: e.clientX, y: e.clientY })')
+
+    // En los DOS menús: el de la cuenta de la consola y el del modo de
+    // evaluación (teléfono). Una pieza, dos lugares.
+    expect(fuente('../components/layouts/ConsoleLayout.tsx')).toContain('<TemaInterruptor')
+    expect(fuente('../components/layouts/MobileLayout.tsx')).toContain('<TemaInterruptor')
   })
 
   it('la app arranca con el tema ya aplicado, antes de la primera pintura', () => {

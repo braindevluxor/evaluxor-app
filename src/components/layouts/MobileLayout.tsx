@@ -6,6 +6,7 @@ import { useOffline } from '../../context/OfflineContext'
 import { useVersion } from '../../context/VersionContext'
 import { versionCorta } from '../../lib/version'
 import { BOTON_CABECERA, cn, Spinner } from '../ui'
+import { TemaInterruptor } from '../TemaInterruptor'
 
 /**
  * Qué dice el botón según lo que la subida hizo de verdad.
@@ -201,6 +202,9 @@ export function MobileLayout({
             <div className="p-3">
               <p className="px-3 pb-2 text-sm font-semibold text-slate-800">{profile?.nombre || 'Usuario'}</p>
               <VersionEnMenu />
+              {/* El mismo interruptor de la consola: quien evalúa desde el
+                  teléfono también cambia el tema, sin pasar por Perfil. */}
+              <TemaInterruptor className="px-3" />
               <button
                 onClick={() => void signOut()}
                 className="flex w-full items-center gap-3 rounded-full px-3 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50"
