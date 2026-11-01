@@ -130,6 +130,8 @@ describe('tema · dónde vive el efecto', () => {
     // ítem activo invisible.
     expect(css).toContain('.dark .sup')
     expect(css).toContain('--color-yellow-50:')
+    // La franja de sincronización: fondo oscuro con texto blanco encima.
+    expect(css).toContain('.dark .bg-slate-800')
 
     const diseno = fuente('../lib/diseno.ts')
     expect(diseno).toContain('var(--pastel-verde-fondo)')

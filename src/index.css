@@ -491,6 +491,10 @@ input[type='date'] {
    pantallas distintas, y acá manda el relleno (el texto se restaura abajo). */
 .dark .bg-white { background-color: #101a2e; }
 .dark .bg-slate-900 { background-color: #020617; }
+/* La franja de sincronización es `bg-slate-800 text-white`: ese token aclarado
+   dejaba fondo claro con texto blanco (ilegible). El relleno mantiene su tono
+   oscuro; el texto blanco de encima ya estaba bien. */
+.dark .bg-slate-800 { background-color: #111a2e; }
 .dark .bg-primary-50 { background-color: #14223a; }
 .dark .hover\:bg-primary-50:hover { background-color: #14223a; }
 .dark .bg-primary-100 { background-color: #1a2c4a; }
