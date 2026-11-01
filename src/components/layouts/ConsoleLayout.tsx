@@ -1,9 +1,10 @@
-import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
+import { Gauge, FolderOpen, History, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Sun, Users, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { DashboardFiltersProvider, useDashboardFilters } from '../../context/DashboardFiltersContext'
 import { puedeConfigurar } from '../../lib/roles'
+import { alternarTema, temaActual } from '../../lib/tema'
 import { SyncBanner } from './MobileLayout'
 import { BarraKpis } from '../dashboard/BarraKpis'
 import { cn } from '../ui'
@@ -60,6 +61,9 @@ function ConsoleLayoutContenido() {
   const cuentaRef = useRef<HTMLDivElement | null>(null)
   const [abierto, setAbierto] = useState(false)
   const [cuentaAbierta, setCuentaAbierta] = useState(false)
+  // El estado se lee del DOM (la clase en <html> es la fuente de verdad): el
+  // tema puede cambiar desde otro lado y el interruptor nunca queda mintiendo.
+  const [oscuro, setOscuro] = useState(() => temaActual() === 'oscuro')
   // Por defecto la barra va cerrada (el modo de la imagen: sólo iconos, flotando);
   // quien la abra queda con su elección guardada.
   const [colapsado, setColapsado] = useState<boolean>(() => localStorage.getItem('evaluxor:menu_lateral_cerrado') !== '0')
@@ -275,6 +279,35 @@ function ConsoleLayoutContenido() {
                     <Settings className="h-4 w-4 text-slate-400" />
                     Configuración
                   </Link>
+                </div>
+                <div className="border-t border-slate-100">
+                  {/* El interruptor del tema va en el menú de la cuenta: es el
+                      único lugar común a escritorio y teléfono. Las
+                      coordenadas del toque marcan desde dónde nace el círculo
+                      del revelado. */}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={oscuro}
+                    onClick={(e) => setOscuro(alternarTema({ x: e.clientX, y: e.clientY }) === 'oscuro')}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    <span className="flex items-center gap-3">
+                      {oscuro ? <Moon className="h-4 w-4 text-slate-400" /> : <Sun className="h-4 w-4 text-slate-400" />}
+                      Modo oscuro
+                    </span>
+                    <span
+                      aria-hidden
+                      className={cn('relative h-5 w-9 shrink-0 rounded-full transition-colors', oscuro ? 'bg-primary' : 'bg-slate-300')}
+                    >
+                      <span
+                        className={cn(
+                          'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all',
+                          oscuro ? 'left-[1.125rem]' : 'left-0.5'
+                        )}
+                      />
+                    </span>
+                  </button>
                 </div>
                 <div className="border-t border-slate-100">
                   <button

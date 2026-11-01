@@ -438,3 +438,98 @@ input[type='date'] {
 .recharts-surface:focus:not(:focus-visible) {
   outline: none;
 }
+
+/* --- Modo oscuro ---------------------------------------------------------
+   Se vuelca la ESCALA y no cada pantalla: casi toda la app escribe
+   `bg-slate-100`, `text-slate-900` o `border-slate-200`, y en Tailwind 4 esas
+   clases salen con `var(--color-*)`, así que un bloque en `.dark` cambia las
+   miles de apariciones sin tocar un solo componente.
+   Donde el mismo token sirve de TEXTO y de RELLENO (slate-900, los azules de
+   la marca), la escala no alcanza: ahí se restaura el relleno con una regla
+   más abajo —que, al estar fuera de `@layer`, le gana a la utilidad sin
+   tocar el texto. */
+.dark {
+  /* Superficies: página, paneles, bordes. */
+  --color-slate-50: #0b1220;
+  --color-slate-100: #0f172a;
+  --color-slate-200: #16203a;
+  --color-slate-300: #1e293b;
+  /* Texto: de gris apagado a gris claro. */
+  --color-slate-400: #8494ab;
+  --color-slate-500: #a7b4c7;
+  --color-slate-600: #c4cede;
+  --color-slate-700: #dbe3ef;
+  --color-slate-800: #eaeff7;
+  --color-slate-900: #f5f8fc;
+
+  /* Tintes y textos de estado. Los rellenos sólidos (500/600) NO se tocan:
+     siguen siendo el verde/ámbar/rojo con texto blanco de siempre. */
+  --color-green-50: #0c271a;
+  --color-green-100: #10331f;
+  --color-green-200: #16472b;
+  --color-green-700: #6ee7a0;
+  --color-green-800: #a3f0c6;
+  --color-amber-50: #2b1e09;
+  --color-amber-100: #3b290c;
+  --color-amber-200: #4f3810;
+  --color-amber-700: #f2c46b;
+  --color-amber-800: #f9d68d;
+  --color-red-50: #2f1316;
+  --color-red-100: #40181d;
+  --color-red-200: #562027;
+  --color-red-700: #f79b9b;
+  --color-red-800: #f9c0c0;
+}
+
+/* Rellenos que conservan su tono: el mismo token es texto y relleno en
+   pantallas distintas, y acá manda el relleno (el texto se restaura abajo). */
+.dark .bg-white { background-color: #0f172a; }
+.dark .bg-slate-900 { background-color: #020617; }
+.dark .bg-primary-50 { background-color: #14223a; }
+.dark .hover\:bg-primary-50:hover { background-color: #14223a; }
+.dark .bg-primary-100 { background-color: #1a2c4a; }
+
+/* Los divisores necesitan un tono propio: `divide-slate-100` hereda el fondo
+   y sobre el mismo fondo desaparecería. */
+.dark .divide-slate-100 > :not(:last-child) { border-color: #1c2740; }
+.dark .divide-slate-200 > :not(:last-child) { border-color: #1e293b; }
+
+/* Azul de marca como TEXTO: sobre fondo claro el navy es tinta, sobre oscuro
+   hay que aclararlo. Los `bg-primary*` no se tocan: son la marca. */
+.dark .text-primary { color: #8ab4ea; }
+.dark .text-primary-700 { color: #9cc1ef; }
+.dark .text-primary-800 { color: #b9d2f7; }
+.dark .text-primary-900 { color: #e9effb; }
+
+/* Textos de estado en sus tonos sólidos: el 600 sobre oscuro queda corto de
+   contraste; el texto sube al 700, que ya está pensado para fondo claro. */
+.dark .text-red-600 { color: #f79b9b; }
+.dark .text-amber-600 { color: #f2c46b; }
+.dark .text-green-600 { color: #6ee7a0; }
+
+/* --- Revelado radial al cambiar de tema ------------------------------------
+   `startViewTransition` captura antes/después de aplicar el tema; la capa
+   NUEVA se recorta con un círculo que nace en el botón (`--tema-x` /
+   `--tema-y`, que pone `alternarTema`) y crece hasta `--tema-r`, el radio que
+   cubre las cuatro esquinas de la pantalla. La vieja queda entera debajo,
+   así que sólo el círculo cambia. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  clip-path: circle(0px at var(--tema-x, 50%) var(--tema-y, 50%));
+  animation: tema-revelar 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes tema-revelar {
+  to {
+    clip-path: circle(var(--tema-r, 100vmax) at var(--tema-x, 50%) var(--tema-y, 50%));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-new(root) {
+    animation: none;
+    clip-path: none;
+  }
+}
