@@ -40,7 +40,7 @@ describe('salir de la sesión llega al login sin recargar', () => {
     // fondo pintado por el propio cargador para que siga el tema (pintado en un
     // div sin fondo salía el blanco del navegador con tarjetas oscuras).
     const app = fuente('../App.tsx')
-    expect(app).toContain('<CargadorPantalla />')
+    expect(app).toContain('<CargadorPantalla completa />')
     expect(app).toContain('loadingFallback={<CargadorPantalla completa />}')
     expect(guards).toContain('<CargadorPantalla completa />')
     expect(guards).not.toContain('SkeletonPantalla')

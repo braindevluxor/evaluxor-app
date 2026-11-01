@@ -544,17 +544,19 @@ input[type='date'] {
   --serie-primaria: #28315f;
 }
 .dark {
-  /* El fondo del DOCUMENTO, no el de una pantalla: el skeleton del arranque (F5)
-   se pinta antes de que exista un layout con fondo propio, así que con el
-   default del navegador salía una página blanca con tarjetas ya oscuras.
+  /* El fondo del DOCUMENTO, no el de una pantalla: el arranque (F5) se pinta
+   antes de que exista un layout con fondo propio, así que con el default del
+   navegador salía blanco. Va con valor FIJO por tema y no con `var`: el valor
+   ya está decidido en cada regla y ningún minificador puede romperlo.
    `color-scheme` va de la mano: le dice al sistema que pinte scrollbars,
    campos y selección en clave clara u oscura según el tema. */
 html {
   color-scheme: light;
-  background-color: var(--color-slate-100);
+  background-color: #f1f5f9;
 }
 html.dark {
   color-scheme: dark;
+  background-color: #0b1220;
 }
 
 /* Pasteles → VÍVIDOS en oscuro (la paleta de referencia del dashboard: bloques

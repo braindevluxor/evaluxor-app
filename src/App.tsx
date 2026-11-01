@@ -53,7 +53,9 @@ const InspeccionHistorial = lazy(() =>
 const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH', 'EVALUADOR']
 
 function Susp() {
-  return <CargadorPantalla />
+  // A pantalla completa: si el cargador cubriera sólo una parte, debajo se
+  // vería el fondo del documento y el arranque se leía como dos colores.
+  return <CargadorPantalla completa />
 }
 
 /** Envuelve las rutas en un error boundary que se limpia al navegar: si algo
