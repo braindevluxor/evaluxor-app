@@ -464,6 +464,10 @@ input[type='date'] {
   --color-slate-800: #eaeff7;
   --color-slate-900: #f5f8fc;
 
+  /* El amarillo del menú lateral: sólo el tinte de la selección. El 400 sólido
+     (botón de evaluaciones) se queda como está —lleva texto oscuro—. */
+  --color-yellow-50: #3a3010;
+
   /* Tintes y textos de estado. Los rellenos sólidos (500/600) NO se tocan:
      siguen siendo el verde/ámbar/rojo con texto blanco de siempre. */
   --color-green-50: #0c271a;
@@ -490,6 +494,18 @@ input[type='date'] {
 .dark .bg-primary-50 { background-color: #14223a; }
 .dark .hover\:bg-primary-50:hover { background-color: #14223a; }
 .dark .bg-primary-100 { background-color: #1a2c4a; }
+
+/* Superficies del modo de evaluación: `.sup` / `.sup-anidada` escriben el
+   blanco A MANO (no pasan por Tailwind, por eso no los tocó la escala) mientras
+   sus textos sí son utilidades —en oscuro quedaba una tarjeta blanca con texto
+   claro y casi ilegible—. Mismo blanco que una tarjeta `bg-white`. */
+.dark .sup,
+.dark .sup-anidada {
+  background-color: #101a2e;
+}
+.dark .sup-activo:active {
+  background-color: rgb(30 41 59);
+}
 
 /* Pasteles del sistema: el par (fondo, tinta) viaja en variables para que en
    oscuro cambien LOS DOS JUNTOS. Los fondos se pintan en línea y no siguen la

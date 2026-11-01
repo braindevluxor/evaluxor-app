@@ -188,7 +188,11 @@ function ConsoleLayoutContenido() {
                   // Amarillo con el icono azul: es la acción que no es de
                   // navegación y tiene que leerse como un botón, no como un
                   // enlace más de la lista.
-                  'flex items-center gap-3 rounded-2xl bg-yellow-400 px-3 py-2.5 text-sm font-semibold text-primary-900 shadow-md transition-colors hover:bg-yellow-300',
+                  // Amarillo con texto fijo de marca: el amarillo no cambia en
+                  // oscuro, así que el texto tampoco puede aclararse (con
+                  // `text-primary-900`, que en oscuro se vuelve claro, quedaría
+                  // luz sobre amarillo).
+                  'flex items-center gap-3 rounded-2xl bg-yellow-400 px-3 py-2.5 text-sm font-semibold text-[#28315F] shadow-md transition-colors hover:bg-yellow-300',
                   colapsado && 'lg:justify-center lg:px-0'
                 )}
               >

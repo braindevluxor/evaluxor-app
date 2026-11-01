@@ -119,6 +119,11 @@ describe('tema · dónde vive el efecto', () => {
     // queda texto claro sobre pastel claro (ilegible).
     expect(css).toContain('--pastel-rojo-tinta:')
     expect(css).toContain('.dark .pastel-icono')
+    // Las superficies escritas a mano (`.sup`) y el tinte de selección de la
+    // barra: sin estas dos reglas quedaban tarjeta blanca con texto claro y un
+    // ítem activo invisible.
+    expect(css).toContain('.dark .sup')
+    expect(css).toContain('--color-yellow-50:')
 
     const diseno = fuente('../lib/diseno.ts')
     expect(diseno).toContain('var(--pastel-verde-fondo)')
