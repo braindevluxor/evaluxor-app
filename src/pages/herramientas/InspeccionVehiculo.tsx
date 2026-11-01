@@ -6,25 +6,23 @@ import { useCatalog, useModuloHerramienta } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
 import { obtenerRevisionPreEntrega } from '../../lib/data/revisionPreEntrega'
 import { buscarVehiculo } from '../../lib/data/vehicles'
-import { exportarRevisionPreEntrega } from '../../lib/pdf/exportarRevisionPreEntrega'
-import { resolverPregunta } from '../../lib/pdf/preguntasRevision'
+import { exportarInspeccion, nombresEnCarpeta } from '../../lib/pdf/exportarInspeccion'
 import {
-  getPhotos,
   getPreEntrega,
   getPreEntregaAbierta,
   putPreEntrega,
   type PreEntregaRecord
 } from '../../lib/offline/db'
-import { subirRevisionPreEntrega } from '../../lib/offline/syncPreEntrega'
 import { tieneRespuesta } from '../../lib/scoring'
-import { supabase } from '../../lib/supabase'
 import {
   CLAVE_INSPECCION,
   COMBUSTIBLES,
+  PERSONA_VACIA,
   RUTA_HISTORIAL,
-  evidenciasDeRespuestas,
+  personaDe,
   registroDesdeServidor,
-  seccionarItems
+  seccionarItems,
+  type Persona
 } from '../../lib/inspeccionVehiculo'
 import { FirmaCanvas } from '../../components/FirmaCanvas'
 import { ItemRenderer } from '../../components/ItemRenderer'
@@ -47,15 +45,6 @@ import type { Item } from '../../lib/types'
  * ficha de la persona: aquí la inspección es de un vehículo de un dueño
  * particular, no de una flota con chofer asignado.
  */
-
-interface Persona {
-  cedula: string
-  nombre: string
-  apellido: string
-  telefono: string
-}
-
-const PERSONA_VACIA: Persona = { cedula: '', nombre: '', apellido: '', telefono: '' }
 
 function hoy(): string {
   return new Date().toISOString().slice(0, 10)
@@ -83,16 +72,6 @@ function registroVacio(evaluador_id: string, modulo_id: string): PreEntregaRecor
   }
 }
 
-/** Persona del registro → los campos controlados del formulario. */
-function personaDe(chofer: Record<string, unknown>): Persona {
-  return {
-    cedula: String(chofer.cedula ?? ''),
-    nombre: String(chofer.nombre ?? ''),
-    apellido: String(chofer.apellido ?? ''),
-    telefono: String(chofer.telefono ?? '')
-  }
-}
-
 /** Fotos de las respuestas que siguen en el dispositivo (para subirlas después). */
 function fotosDe(respuestas: Record<string, unknown>): string[] {
   const out = new Set<string>()
@@ -109,21 +88,6 @@ function fotosDe(respuestas: Record<string, unknown>): string[] {
   return [...out]
 }
 
-/**
- * Nombres de los archivos que hay en la carpeta de una revisión
- * (`pre-entrega/<id>/`), para rehidratar las `paths` de sus respuestas.
- *
- * Devuelve `[]` si falla (sin red, sin permiso): la inspección se abre igual,
- * sólo que sin fotos resueltas desde el bucket. Nunca es motivo para no abrir.
- */
-async function nombresEnCarpeta(revisionId: string): Promise<string[]> {
-  const { data, error } = await supabase.storage.from('evidencias').list(`pre-entrega/${revisionId}`)
-  if (error) return []
-  return (data ?? [])
-    .map((f) => f.name)
-    .filter((n): n is string => typeof n === 'string' && !!n)
-}
-
 export function InspeccionVehiculo() {
   const { profile } = useAuth()
   const navigate = useNavigate()
@@ -135,9 +99,6 @@ export function InspeccionVehiculo() {
   // parámetro la pantalla se comporta como siempre (borrador abierto o nuevo).
   const [params, setParams] = useSearchParams()
   const registroBuscado = params.get('registro')
-  // El historial puede pedir el PDF de una vez (`&pdf=1`): en vez de abrir la
-  // inspección y esperar que alguien apriete el botón, se genera apenas carga.
-  const pdfPedido = params.get('pdf') === '1'
 
   const [reg, setReg] = useState<PreEntregaRecord | null>(null)
   const [cargando, setCargando] = useState(true)
@@ -151,8 +112,6 @@ export function InspeccionVehiculo() {
   const [aviso, setAviso] = useState<{ texto: string; ok: boolean } | null>(null)
 
   const regRef = useRef<PreEntregaRecord | null>(null)
-  /** Para que el doble effect del desarrollo no descargue dos veces. */
-  const pdfPedidoHecho = useRef(false)
 
   const itemsEvaluables = useMemo(() => items.filter((i) => i.tipo !== 'CONTENEDOR'), [items])
   // El checklist, partido en Estética / Mecánica / Gas vehicular.
@@ -190,22 +149,6 @@ export function InspeccionVehiculo() {
     // Sólo interesa el id del módulo, no el objeto módulo completo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cargado, modulo?.id, registroBuscado])
-
-  /* --- PDF pedido desde el historial (?pdf=1) ------------------------------- */
-
-  useEffect(() => {
-    // Se pide una vez: el parámetro se limpia antes de generar, así que un
-    // refresco de la página —o el segundo effect del desarrollo— no vuelve a
-    // descargar el documento.
-    if (!pdfPedido || pdfPedidoHecho.current || cargando || !reg || !modulo) return
-    pdfPedidoHecho.current = true
-    const limpio = new URLSearchParams(params)
-    limpio.delete('pdf')
-    setParams(limpio, { replace: true })
-    void exportarPDF()
-    // Se lee `params` completo porque el effect sólo depende del pedido.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pdfPedido, cargando, reg, modulo])
 
   /* --- Carga inicial: retomar la inspección a medias, si quedó una ---------- */
 
@@ -341,123 +284,40 @@ export function InspeccionVehiculo() {
     // en vez de bloquearle la salida al que hizo la revisión.
   )
 
-  /** El checklist resuelto a filas del PDF, con la sección de cada uno. */
-  const respuestas = reg?.respuestas
-  const filasPdf = useMemo(() => {
-    if (!respuestas) return []
-    const filas: { etiqueta: string; valor: string; grupo: string | null }[] = []
-    for (const g of grupos) {
-      for (const item of g.items) {
-        const p = resolverPregunta(item, respuestas[item.id])
-        for (const f of p.filas) {
-          filas.push({ etiqueta: `${item.texto} · ${f.etiqueta}`, valor: f.valor, grupo: g.seccion ?? 'Dictamen' })
-        }
-        if (p.veredicto) {
-          filas.push({ etiqueta: `${item.texto} · Nota`, valor: p.veredicto, grupo: g.seccion ?? 'Dictamen' })
-        }
-      }
-    }
-    return filas
-  }, [grupos, respuestas])
-
   /**
-   * Las fotos de las respuestas como URLs listas para `html2canvas`.
+   * Genera el documento y deja el registro finalizado.
    *
-   * Dos orígenes: las que siguen en el dispositivo (IndexedDB) y las que ya
-   * están en el bucket (paths firmados). Se revocan todas al terminar para no
-   * dejar blob: colgados de la memoria de la pestaña.
+   * La máquina vive en `lib/pdf/exportarInspeccion` —la comparte con el
+   * historial—; acá sólo se arma el pedido con el estado de la pantalla (la
+   * persona puede haberse editado sin guardar) y se traduce el resultado en el
+   * aviso de siempre.
    */
-  async function fotosParaPdf(r: PreEntregaRecord): Promise<{ urls: string[]; fotos: { src: string; pie: string }[] }> {
-    const evidencias = evidenciasDeRespuestas(itemsEvaluables, r.respuestas)
-    const urls: string[] = []
-    const fotos: { src: string; pie: string }[] = []
-
-    for (const ev of evidencias) {
-      for (const foto of await getPhotos(ev.photoIds)) {
-        const src = URL.createObjectURL(foto.blob)
-        urls.push(src)
-        fotos.push({ src, pie: ev.pie })
-      }
-    }
-
-    const firmadas = new Map<string, string>()
-    const paths = [...new Set(evidencias.flatMap((ev) => ev.paths))]
-    if (paths.length) {
-      const { data } = await supabase.storage.from('evidencias').createSignedUrls(paths, 3600)
-      const firmadasDeVuelta = data ?? []
-      for (let i = 0; i < firmadasDeVuelta.length; i++) {
-        const url = firmadasDeVuelta[i]?.signedUrl
-        if (url) firmadas.set(paths[i], url)
-      }
-    }
-    for (const ev of evidencias) {
-      for (const p of ev.paths) {
-        const src = firmadas.get(p)
-        if (src) fotos.push({ src, pie: ev.pie })
-      }
-    }
-
-    return { urls, fotos }
-  }
-
   async function exportarPDF() {
     const r = regRef.current
     if (!r || !modulo) return
     setExportando(true)
-    const creadas: string[] = []
     try {
-      const { urls, fotos } = await fotosParaPdf(r)
-      creadas.push(...urls)
-      await exportarRevisionPreEntrega({
-        titulo: modulo.nombre,
-        fecha: r.fecha,
+      const { resultado, registro } = await exportarInspeccion({
+        registro: r,
+        items,
+        persona,
+        moduloNombre: modulo.nombre,
         evaluador: profile?.nombre ?? null,
-        observaciones: r.observaciones.trim() || null,
-        vehiculo: {
-          placa: r.placa,
-          marca: typeof r.vehiculo.marca === 'string' ? r.vehiculo.marca : null,
-          modelo: typeof r.vehiculo.modelo === 'string' ? r.vehiculo.modelo : null,
-          color: typeof r.vehiculo.color === 'string' ? r.vehiculo.color : null,
-          anio: r.vehiculo.anio == null ? null : String(r.vehiculo.anio),
-          kilometraje: r.vehiculo.kilometraje == null ? null : String(r.vehiculo.kilometraje),
-          combustible: typeof r.vehiculo.combustible === 'string' ? r.vehiculo.combustible : null
-        },
-        chofer: {
-          cedula: persona.cedula || null,
-          nombre: persona.nombre || null,
-          apellido: persona.apellido || null,
-          cargo: null,
-          firma: r.chofer_firma
-        },
-        etiquetaPersona: 'propietario',
-        personaCampos: [
-          { etiqueta: 'Cédula / RIF', valor: persona.cedula || null },
-          { etiqueta: 'Nombre', valor: persona.nombre || null },
-          { etiqueta: 'Apellido', valor: persona.apellido || null },
-          { etiqueta: 'Teléfono', valor: persona.telefono || null }
-        ],
-        items: filasPdf,
-        fotos
+        online
       })
-      // La inspección quedó hecha: se marca finalizada y se sube en el acto si
-      // hay señal. Si no, la cola la sube sola y la borra de local al confirmarla.
-      const finalizada: PreEntregaRecord = { ...r, estado: 'FINALIZADA', updated_at: Date.now() }
-      guardarLocal(finalizada)
-      if (online) {
-        try {
-          await subirRevisionPreEntrega(finalizada)
-          setAviso({ texto: 'PDF generado e inspección guardada en la nube.', ok: true })
-        } catch {
-          setAviso({ texto: 'PDF generado. La inspección queda en el equipo hasta que vuelva la señal.', ok: false })
-        }
-      } else {
-        setAviso({ texto: 'PDF generado. La inspección queda en el equipo hasta que vuelva la señal.', ok: false })
-      }
+      // El registro finalizado vuelve del exportador: se pinta acá, sin volver
+      // a escribirlo en IndexedDB (allá ya quedó).
+      regRef.current = registro
+      setReg(registro)
+      setAviso(
+        resultado === 'subida'
+          ? { texto: 'PDF generado e inspección guardada en la nube.', ok: true }
+          : { texto: 'PDF generado. La inspección queda en el equipo hasta que vuelva la señal.', ok: false }
+      )
     } catch (e) {
       console.error('Error exportando PDF de inspección:', e)
       setAviso({ texto: 'No se pudo generar el PDF.', ok: false })
     } finally {
-      for (const u of creadas) URL.revokeObjectURL(u)
       setExportando(false)
     }
   }

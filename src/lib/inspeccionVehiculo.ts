@@ -334,3 +334,29 @@ export function fechaLegible(fecha: string): string {
   if (!y || !m || !d) return fecha
   return `${d} ${MESES[m - 1]} ${y}`
 }
+
+/**
+ * La persona dueña del vehículo: los campos del formulario y del PDF.
+ *
+ * Vive acá y no en la pantalla porque la exportación del documento también los
+ * necesita (desde el historial no hay formulario que leer), y con el mismo
+ * nombre de campo no hay que acordarse de dos formas de decir «cédula».
+ */
+export interface Persona {
+  cedula: string
+  nombre: string
+  apellido: string
+  telefono: string
+}
+
+export const PERSONA_VACIA: Persona = { cedula: '', nombre: '', apellido: '', telefono: '' }
+
+/** Persona del registro → los campos controlados del formulario. */
+export function personaDe(chofer: Record<string, unknown>): Persona {
+  return {
+    cedula: String(chofer.cedula ?? ''),
+    nombre: String(chofer.nombre ?? ''),
+    apellido: String(chofer.apellido ?? ''),
+    telefono: String(chofer.telefono ?? '')
+  }
+}

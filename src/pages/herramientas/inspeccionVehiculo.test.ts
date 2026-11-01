@@ -159,29 +159,34 @@ describe('Inspección de vehículo · borrador local', () => {
 describe('Inspección de vehículo · el PDF', () => {
   const pagina = fuente('./InspeccionVehiculo.tsx')
   const pdf = fuente('../../lib/pdf/exportarRevisionPreEntrega.ts')
+  // La máquina del documento se mudó a un módulo propio (la comparte el
+  // historial): ahí vive el pedido, las filas y las fotos.
+  const exportador = fuente('../../lib/pdf/exportarInspeccion.ts')
 
   it('habla de propietario y trae el sistema de combustible del vehículo', () => {
-    expect(pagina).toContain("etiquetaPersona: 'propietario'")
-    expect(pagina).toContain('personaCampos: [')
-    expect(pagina).toContain('combustible:')
+    expect(exportador).toContain("etiquetaPersona: 'propietario'")
+    expect(exportador).toContain('personaCampos: [')
+    expect(exportador).toContain('combustible:')
     expect(pdf).toContain('Sistema de combustible')
     expect(pdf).toContain('etiquetaPersona')
     // Sin sucursal no hay renglón de unidad en la hoja (ni en la llamada).
-    expect(pagina).not.toMatch(/^\s+sucursal: /m)
+    expect(exportador).not.toMatch(/^\s+sucursal: /m)
   })
 
   it('abre una banda por sección sobre sus filas', () => {
-    expect(pagina).toMatch(/grupo: g\.seccion \?\? 'Dictamen'/)
+    expect(exportador).toMatch(/grupo: g\.seccion \?\? 'Dictamen'/)
     expect(pdf).toContain('colspan="2"')
     expect(pdf).toContain('filasTabla(')
   })
 
   it('imprime las evidencias con su pie y las toma de las dos procedencias', () => {
     expect(pdf).toContain('Evidencias fotográficas')
-    expect(pagina).toContain('createSignedUrls(paths, 3600)')
-    expect(pagina).toMatch(/getPhotos\(ev\.photoIds\)/)
+    expect(exportador).toContain('createSignedUrls(paths, 3600)')
+    expect(exportador).toMatch(/getPhotos\(ev\.photoIds\)/)
     // Se revocan: si no, cada exportación deja blob: colgados en la pestaña.
-    expect(pagina).toMatch(/for \(const u of creadas\) URL\.revokeObjectURL\(u\)/)
+    expect(exportador).toMatch(/for \(const u of urls\) URL\.revokeObjectURL\(u\)/)
+    // Y la pantalla sigue avisando con el texto de siempre según el resultado.
+    expect(pagina).toContain('exportarInspeccion({')
   })
 
   it('pagina la hoja: ninguna A4 se corta con el contenido entero dentro', () => {
@@ -203,6 +208,7 @@ describe('Inspección de vehículo · el PDF', () => {
 
 describe('Inspección de vehículo · reabrir y descargar otra vez', () => {
   const pagina = fuente('./InspeccionVehiculo.tsx')
+  const exportador = fuente('../../lib/pdf/exportarInspeccion.ts')
 
   it('una finalizada puede volver a descargar su PDF sin abrir otra nueva', () => {
     // Síntoma real: al finalizar, el botón de PDF desaparecía y sólo quedaba
@@ -224,7 +230,7 @@ describe('Inspección de vehículo · reabrir y descargar otra vez', () => {
     // las filas subidas antes guardaron `photoIds` locales, que en otro equipo
     // no significan nada (ver `rehidratarEvidencias`).
     expect(pagina).toContain('registroDesdeServidor(fila, await nombresEnCarpeta(fila.id)')
-    expect(pagina).toContain('async function nombresEnCarpeta(')
+    expect(exportador).toContain('async function nombresEnCarpeta(')
     // Sólo se abre si es una inspección: un id de otra herramienta no secuestra
     // la pantalla, que sigue su flujo normal.
     expect(pagina).toContain('registro.modulo_id === modulo.id')
@@ -274,17 +280,17 @@ describe('Inspección de vehículo · el historial', () => {
     expect(historial).toContain('${RUTA_INSPECCION}?registro=${f.id}')
   })
 
-  it('cada fila puede pedir el PDF directo, y la pantalla lo genera al abrir', () => {
-    // El botón no reimplementa el documento: pide `&pdf=1` y la inspección —
-    // que ya sabe traer el registro de las dos orillas y las fotos— lo genera.
-    expect(historial).toContain('?registro=${f.id}&pdf=1')
+  it('cada fila descarga el PDF en el acto, sin pasar por la pantalla', () => {
+    // El botón no navega: arma el documento con el MISMO pipeline que la
+    // herramienta (una sola versión del PDF) y se queda en la lista.
     expect(historial).toContain('<FileDown className="h-4 w-4" />')
+    expect(historial).toContain('descargarPdf(f)')
+    expect(historial).toContain('exportarInspeccion({')
+    expect(historial).not.toContain('&pdf=1')
 
-    // La petición se atiende una sola vez y el parámetro se limpia.
-    expect(pagina).toContain("params.get('pdf')")
+    // Las dos pantallas llaman al exportador compartido.
     expect(pagina).toContain('void exportarPDF()')
-    expect(pagina).toContain("limpio.delete('pdf')")
-    expect(pagina).toContain('pdfPedidoHecho')
+    expect(pagina).toContain('exportarInspeccion({')
   })
 
   it('cada fila tiene papelera y pide confirmación antes de borrar', () => {

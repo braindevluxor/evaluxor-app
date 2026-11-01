@@ -13,9 +13,14 @@ import {
   RUTA_INSPECCION,
   fechaLegible,
   fusionarHistorial,
+  personaDe,
+  registroDesdeServidor,
   type FilaHistorial
 } from '../../lib/inspeccionVehiculo'
+import { exportarInspeccion, nombresEnCarpeta } from '../../lib/pdf/exportarInspeccion'
+import { obtenerRevisionPreEntrega } from '../../lib/data/revisionPreEntrega'
 import { deletePhoto, eliminarPreEntrega, getPreEntrega, listarPreEntregas } from '../../lib/offline/db'
+import { useAuth } from '../../context/AuthContext'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
 import { Button, Card, Confirmar, EmptyState, Spinner, cn } from '../../components/ui'
 
@@ -37,13 +42,16 @@ import { Button, Card, Confirmar, EmptyState, Spinner, cn } from '../../componen
  */
 export function InspeccionHistorial() {
   const navigate = useNavigate()
+  const { profile } = useAuth()
   const { cargado } = useCatalog()
   const { online } = useOffline()
-  const { modulo } = useModuloHerramienta(CLAVE_INSPECCION)
+  const { modulo, items } = useModuloHerramienta(CLAVE_INSPECCION)
 
   const [filas, setFilas] = useState<FilaHistorial[] | null>(null)
   const [aBorrar, setABorrar] = useState<FilaHistorial | null>(null)
   const [borrando, setBorrando] = useState(false)
+  /** Id de la inspección que se está descargando, para girar su ícono. */
+  const [generando, setGenerando] = useState<string | null>(null)
 
   /**
    * Vuelve a juntar las dos orillas.
@@ -111,6 +119,58 @@ export function InspeccionHistorial() {
       await recargar()
     } finally {
       setBorrando(false)
+    }
+  }
+
+  /**
+   * Descarga el PDF de una inspección SIN pasar por su pantalla.
+   *
+   * Usa el mismo pipeline que la herramienta (`exportarInspeccion`): registro
+   * del equipo o del servidor, fotos del equipo o del bucket, y el registro
+   * finalizado y subido. Reimplementarlo acá daría un segundo PDF que se
+   * diverge del primero — ése sin las fotos del bucket, o sin marcar la
+   * inspección como hecha.
+   */
+  async function descargarPdf(f: FilaHistorial) {
+    if (!modulo || generando) return
+    setGenerando(f.id)
+    try {
+      const local = await getPreEntrega(f.id).catch(() => undefined)
+      let registro = local
+      if (!registro) {
+        // Ya no está en el equipo: se trae la del servidor y con ella el PDF
+        // sale igual (las fotos van desde el bucket por las `paths`).
+        const fila = await obtenerRevisionPreEntrega(f.id).catch(() => null)
+        registro = fila
+          ? registroDesdeServidor(fila, await nombresEnCarpeta(fila.id).catch(() => []))
+          : undefined
+      }
+      if (!registro || registro.modulo_id !== modulo.id) {
+        avisar('No se pudo abrir la inspección para generar el PDF.', 'error')
+        return
+      }
+
+      const { resultado } = await exportarInspeccion({
+        registro,
+        items,
+        persona: personaDe(registro.chofer),
+        moduloNombre: modulo.nombre,
+        evaluador: profile?.nombre ?? null,
+        online
+      })
+      avisar(
+        resultado === 'subida'
+          ? 'PDF generado.'
+          : 'PDF generado. La inspección queda en el equipo hasta que vuelva la señal.',
+        resultado === 'subida' ? 'ok' : 'aviso'
+      )
+      // La exportación la deja finalizada: la fila tiene que reflejarlo.
+      await recargar()
+    } catch (e) {
+      console.error('Error exportando PDF desde el historial:', e)
+      avisar('No se pudo generar el PDF.', 'error')
+    } finally {
+      setGenerando(null)
     }
   }
 
@@ -208,19 +268,22 @@ export function InspeccionHistorial() {
                       ) : null}
                     </span>
                   </button>
-                  {/* Descargar el PDF sin pasar por la pantalla: se pide con
-                      `&pdf=1` y la inspección lo genera apenas abre. Va el
-                      mismo flujo de siempre (traer el registro de las dos
-                      orillas, las fotos y el documento), reimplementarlo acá
-                      sería una segunda versión del mismo PDF para mantener. */}
+                  {/* Descargar el PDF en el acto: no se navega a la
+                      inspección, la fila arma el documento con el mismo
+                      pipeline que la herramienta y se queda en esta lista. */}
                   <button
                     type="button"
-                    onClick={() => navigate(`${RUTA_INSPECCION}?registro=${f.id}&pdf=1`)}
+                    onClick={() => void descargarPdf(f)}
+                    disabled={generando === f.id || borrando}
                     title={`Descargar el PDF de la inspección ${f.placa || 'sin placa'}`}
                     aria-label={`Descargar el PDF de la inspección ${f.placa || 'sin placa'}`}
                     className="my-2 shrink-0 self-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-primary-50 hover:text-primary disabled:opacity-50"
                   >
-                    <FileDown className="h-4 w-4" />
+                    {generando === f.id ? (
+                      <Spinner className="h-4 w-4" />
+                    ) : (
+                      <FileDown className="h-4 w-4" />
+                    )}
                   </button>
                   <button
                     type="button"
