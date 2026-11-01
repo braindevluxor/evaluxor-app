@@ -25,7 +25,10 @@ import {
   type PuntoFalla
 } from '../../lib/data/seguimientoEvaluaciones'
 import {
+  cargarNomina,
+  cargoEnNomina,
   filasDeAlertas,
+  filasEnNomina,
   filtrarFilas,
   gruposPorUnidad,
   listarAlertas,
@@ -36,6 +39,7 @@ import {
   type AlertaCargo,
   type FilaAlerta,
   type GrupoUnidad,
+  type NominaUnidades,
   type TrabajadorAlerta
 } from '../../lib/data/alertasCargo'
 import { descargarAmonestacion } from '../../lib/pdf/amonestacionTrabajador'
@@ -132,6 +136,12 @@ export interface SeguimientoVistaProps {
    * y el resto del panel sigue funcionando.
    */
   trabajadoresPorAlerta?: Map<string, TrabajadorAlerta[]> | null
+  /**
+   * La nómina de las unidades del panel, contra la que se decide qué cargos
+   * entran a la lista. `null` todavía no se pidió: hasta que llegue no se
+   * esconde nada (ver `filasEnNomina`).
+   */
+  nomina?: NominaUnidades | null
   onRegistrar?: (a: AlertaAARegistrar) => void
   onAtender?: (id: string) => void
   /** Clave de la fila (o id de la alerta) con una acción en vuelo, para no apretar dos veces. */
@@ -149,6 +159,7 @@ export function SeguimientoVista({
   alertasError,
   onReintentarAlertas,
   trabajadoresPorAlerta,
+  nomina,
   onRegistrar,
   onAtender,
   ocupado
@@ -164,10 +175,16 @@ export function SeguimientoVista({
 
   // El panel: cada cargo × visita que está en nivel o tiene registro. Se
   // recalcula con las alertas porque el registro cambia el pedido de acción.
-  const filas = useMemo(
+  const filasTodas = useMemo(
     () => (celdas ? filasDeAlertas(celdas, listaAlertas) : []),
     [celdas, listaAlertas]
   )
+  // …y recortadas a los cargos que EXISTEN en la nómina de su unidad: no todos
+  // los cargos aplican en todas las sucursales, y un cargo sin nadie en la
+  // tienda no pide llamado (ver `filasEnNomina`). La diferencia entre las dos
+  // listas es lo que la nómina descartó, que la pantalla tiene que decir.
+  const filas = useMemo(() => filasEnNomina(filasTodas, nomina ?? null), [filasTodas, nomina])
+  const ocultasPorNomina = filasTodas.length - filas.length
 
   const unidades = useMemo(() => {
     const mapa = new Map<string, string>()
@@ -308,6 +325,17 @@ export function SeguimientoVista({
                     </span>
                   )
                 })}
+                {/* Lo que la nómina sacó de la lista se anuncia en vez de
+                    esconderse: una fila que no aparece no se puede buscar. */}
+                {ocultasPorNomina > 0 && (
+                  <span
+                    className="rounded-full px-2.5 py-1 font-semibold"
+                    style={{ background: chipPastel('sinDato').fondo, color: chipPastel('sinDato').tinta }}
+                  >
+                    {ocultasPorNomina} {ocultasPorNomina === 1 ? 'cargo oculto' : 'cargos ocultos'}: sin
+                    trabajadores en su unidad
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -356,10 +384,19 @@ export function SeguimientoVista({
           </div>
         ) : !filas.length ? (
           <div className="mt-4">
-            <EmptyState
-              title="Ningún cargo está en alerta"
-              subtitle={`Ninguna visita bajó de ${UMBRAL_AMONESTACION}% y no hay llamados registrados: el seguimiento empieza cuando un cargo entre en rojo.`}
-            />
+            {ocultasPorNomina > 0 ? (
+              // Sí hubo visitas en rojo, pero ningún cargo de esa lista tiene
+              // trabajadores en su tienda: decir «nada en alerta» sería mentir.
+              <EmptyState
+                title="Ningún cargo en alerta tiene trabajadores en su unidad"
+                subtitle={`Las ${ocultasPorNomina} visitas que bajaron de ${UMBRAL_AMONESTACION}% son de cargos que no figuran en la nómina de su sucursal: no todos los cargos aplican en todas las tiendas.`}
+              />
+            ) : (
+              <EmptyState
+                title="Ningún cargo está en alerta"
+                subtitle={`Ninguna visita bajó de ${UMBRAL_AMONESTACION}% y no hay llamados registrados: el seguimiento empieza cuando un cargo entre en rojo.`}
+              />
+            )}
           </div>
         ) : filtradas.length === 0 ? (
           <div className="mt-4">
@@ -388,6 +425,17 @@ export function SeguimientoVista({
 
         {alertasCargando && !cargando && !error && (
           <p className="mt-3 text-xs text-slate-500">Cargando el estado de los llamados…</p>
+        )}
+        {nomina?.cargando && !cargando && !error && (
+          <p className="mt-3 text-xs text-slate-500">
+            Verificando qué cargos existen en cada sucursal…
+          </p>
+        )}
+        {nomina?.fallo && !cargando && !error && (
+          <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            No se pudo leer la nómina de alguna unidad: sus cargos se listan igual hasta que la
+            consulta vuelva.
+          </p>
         )}
       </Card>
     </div>
@@ -1091,10 +1139,33 @@ export function Responsables() {
 
   const celdas = useMemo(() => (datos ? seguimientoPorEvaluacion(datos) : null), [datos])
 
+  // La nómina de las unidades con celdas: es lo que permite no listar cargos
+  // que no existen en esa tienda. Se pide por separado de las evaluaciones
+  // porque va a otra API, y mientras no vuelva no se recorta nada.
+  const [nomina, setNomina] = useState<NominaUnidades | null>(null)
+  useEffect(() => {
+    if (!datos || !celdas?.length) {
+      setNomina(null)
+      return
+    }
+    let vivo = true
+    setNomina({ porUnidad: new Map(), cargando: true, fallo: false })
+    const unidades = new Set(celdas.map((c) => c.unidad.id))
+    void cargarNomina(datos, unidades).then((n) => {
+      if (vivo) setNomina(n)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [celdas, datos])
+
   // La franja azul (BarraKpis) muestra los KPIs de esta pantalla en vez de los
   // globales, igual que Indicadores y el dashboard de módulo.
   const kpis = useMemo<EstadoKpis | null>(() => {
     if (!celdas) return null
+    // Los mismos criterios que la lista: un cargo sin trabajadores en su unidad
+    // tampoco cuenta como alerta, para que el número y la lista no se contradigan.
+    const visibles = celdas.filter((c) => cargoEnNomina(nomina, c.unidad.id, c.cargo))
     const listaAlertas = alertas ?? []
     const pendientes = listaAlertas.filter((a) => a.estado === 'PENDIENTE').length
     return {
@@ -1103,13 +1174,13 @@ export function Responsables() {
       cobertura: 0,
       incumplimientos: 0,
       items: [
-        { etiqueta: 'Cargos en alerta', valor: celdas.length, icono: 'alerta' },
-        { etiqueta: 'Visitas con alertas', valor: new Set(celdas.map((c) => c.evaluacion_id)).size, icono: 'lista' },
-        { etiqueta: 'Unidades', valor: new Set(celdas.map((c) => c.unidad.id)).size, icono: 'store' },
+        { etiqueta: 'Cargos en alerta', valor: visibles.length, icono: 'alerta' },
+        { etiqueta: 'Visitas con alertas', valor: new Set(visibles.map((c) => c.evaluacion_id)).size, icono: 'lista' },
+        { etiqueta: 'Unidades', valor: new Set(visibles.map((c) => c.unidad.id)).size, icono: 'store' },
         { etiqueta: 'Llamados pendientes', valor: pendientes, icono: 'alerta' }
       ]
     }
-  }, [datos, celdas, alertas])
+  }, [datos, celdas, alertas, nomina])
 
   useEffect(() => {
     setKpisGlobal(kpis)
@@ -1127,6 +1198,7 @@ export function Responsables() {
       alertasError={alertasError}
       onReintentarAlertas={recargarTodoAlertas}
       trabajadoresPorAlerta={trabajadores}
+      nomina={nomina}
       onRegistrar={registrar}
       onAtender={atender}
       ocupado={ocupado}

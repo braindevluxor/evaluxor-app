@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { DetalleVisita, SelectorTrabajadores, SeguimientoVista } from './Responsables'
 import { seguimientoPorEvaluacion } from '../../lib/data/seguimientoEvaluaciones'
 import { filasDeAlertas } from '../../lib/data/alertasCargo'
+import type { NominaUnidades } from '../../lib/data/alertasCargo'
 import type { ConjuntoDatos } from '../../lib/data/indicadores'
 import type { AlertaCargo, FilaAlerta } from '../../lib/data/alertasCargo'
 import type { Item, Modulo, Respuesta, VistaEvaluacion } from '../../lib/types'
@@ -266,6 +267,60 @@ describe('SeguimientoVista · filtros y chips', () => {
     expect(html).toContain('color:var(--pastel-verde-tinta)')
     // Sólo dos tamaños de texto en la fila: el nombre del cargo y el resto.
     expect(html).toContain('rounded-full px-2.5 py-1 text-xs font-semibold')
+  })
+})
+
+describe('SeguimientoVista · la nómina decide qué cargos se listan', () => {
+  /** Nómina de prueba: la unidad indicada tiene gente sólo de ese cargo. */
+  function nominaDe(unidad: string, cargo: string): NominaUnidades {
+    const porUnidad = new Map<string, { nationality: string; dni: number; name: string; lastname: string; role_name: string; active: boolean }[]>()
+    porUnidad.set(unidad, [
+      { nationality: 'V', dni: 1, name: 'Ana', lastname: 'Pérez', role_name: cargo, active: true }
+    ])
+    return { porUnidad, cargando: false, fallo: false }
+  }
+
+  it('un cargo que no existe en la sucursal no sale en la lista', () => {
+    // Norte evaluó a «Encargado de turno», pero en su nómina no hay ninguno:
+    // no hay a quién notificarle, así que no pide llamado y su unidad entera
+    // desaparece del panel. Sur queda en pie porque su nómina no se pidió (no
+    // tiene Nº de tienda en los datos) y eso no se juzga.
+    const html = vista({ nomina: nominaDe('s1', 'Cajero integral') })
+
+    expect(html).toContain('Sucursal Sur')
+    expect(html).not.toContain('Sucursal Norte')
+    expect(html).toContain('sin trabajadores en su unidad')
+  })
+
+  it('si el cargo sí figura en la nómina, la fila se queda', () => {
+    const html = vista({ nomina: nominaDe('s1', 'Encargado de turno') })
+    expect(html).toContain('Encargado de turno')
+    expect(html).not.toContain('sin trabajadores en su unidad')
+  })
+
+  it('mientras la nómina carga no se recorta nada: un vacío no es un veredicto', () => {
+    const html = vista({ nomina: { porUnidad: new Map(), cargando: true, fallo: false } })
+    expect(html).toContain('Encargado de turno')
+    expect(html).toContain('Verificando qué cargos existen en cada sucursal')
+  })
+
+  it('si la nómina se cayó, se lista todo y se avisa en vez de jurar que no hay nada', () => {
+    const html = vista({ nomina: { porUnidad: new Map(), cargando: false, fallo: true } })
+    expect(html).toContain('Encargado de turno')
+    expect(html).toContain('No se pudo leer la nómina de alguna unidad')
+  })
+
+  it('cuando NINGÚN cargo de la lista existe en su unidad, lo dice sin negar que hubo alertas', () => {
+    // Las dos sucursales evaluaron «Encargado de turno» y ninguna tiene ese
+    // cargo: el panel queda vacío, pero no puede decir «nada está en alerta».
+    const porUnidad = new Map<string, { role_name: string; active: boolean }[]>()
+    porUnidad.set('s1', [{ role_name: 'Cajero integral', active: true }])
+    porUnidad.set('s2', [{ role_name: 'Cajero integral', active: true }])
+    const html = vista({ nomina: { porUnidad: porUnidad as NominaUnidades['porUnidad'], cargando: false, fallo: false } })
+
+    expect(html).toContain('Ningún cargo en alerta tiene trabajadores en su unidad')
+    expect(html).not.toContain('Ningún cargo está en alerta')
+    expect(html).not.toContain('Encargado de turno')
   })
 })
 

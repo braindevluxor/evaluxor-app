@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { fromMock } = vi.hoisted(() => ({ fromMock: vi.fn() }))
-vi.mock('../supabase', () => ({ supabase: { from: fromMock } }))
+const { fromMock, invokeMock } = vi.hoisted(() => ({ fromMock: vi.fn(), invokeMock: vi.fn() }))
+vi.mock('../supabase', () => ({ supabase: { from: fromMock, functions: { invoke: invokeMock } } }))
 
 const {
   UMBRAL_AMONESTACION,
@@ -11,6 +11,9 @@ const {
   claveAlerta,
   mapaDeAlertas,
   filasDeAlertas,
+  cargoEnNomina,
+  filasEnNomina,
+  cargarNomina,
   filtrarFilas,
   gruposPorUnidad,
   listarAlertas,
@@ -18,8 +21,9 @@ const {
   registrarAlerta,
   marcarAtendida
 } = await import('./alertasCargo')
-import type { AlertaCargo, FilaAlerta } from './alertasCargo'
+import type { AlertaCargo, FilaAlerta, NominaUnidades } from './alertasCargo'
 import type { CeldaSeguimiento } from './seguimientoEvaluaciones'
+import type { ColaboradorAPI } from './colaboradores'
 
 /**
  * DOS CAPAS, DOS TIPOS DE PRUEBA
@@ -277,11 +281,203 @@ describe('filtrarFilas', () => {
 })
 
 // ---------------------------------------------------------------------------
+// La nómina: qué cargos existen de verdad en cada unidad
+// ---------------------------------------------------------------------------
+
+/** Nómina de prueba: sólo la unidad indicada tiene gente, y con ese cargo. */
+function nomina(
+  unidad: string,
+  cargos: string[],
+  extra: Partial<NominaUnidades> = {}
+): NominaUnidades {
+  const porUnidad = new Map<string, ColaboradorAPI[]>()
+  porUnidad.set(
+    unidad,
+    cargos.map((role_name, i) => ({
+      nationality: 'V',
+      dni: i + 1,
+      name: 'Ana',
+      lastname: 'Pérez',
+      role_name,
+      active: true
+    }))
+  )
+  return { porUnidad, cargando: false, fallo: false, ...extra }
+}
+
+describe('cargoEnNomina', () => {
+  it('un cargo sin trabajadores en la unidad no está en la nómina', () => {
+    const n = nomina('uN', ['Cajero integral'])
+    expect(cargoEnNomina(n, 'uN', 'Cajero integral')).toBe(true)
+    expect(cargoEnNomina(n, 'uN', 'Depositaría')).toBe(false)
+  })
+
+  it('el cruce es el mismo del selector: tildes, mayúsculas y género', () => {
+    const n = nomina('uN', ['Cajera Integral'])
+    expect(cargoEnNomina(n, 'uN', 'cajero integral')).toBe(true)
+    expect(cargoEnNomina(n, 'uN', 'CAJERO')).toBe(true)
+  })
+
+  it('sin nómina pedida o con la consulta en vuelo no se juzga nada', () => {
+    // Un vacío acá no es «no hay», es «todavía no sé»: filtrar con eso dejaría
+    // el panel entero en cero durante los segundos que tarda la API.
+    expect(cargoEnNomina(null, 'uN', 'Depositaría')).toBe(true)
+    expect(cargoEnNomina(nomina('uN', [], { cargando: true }), 'uN', 'Depositaría')).toBe(true)
+  })
+
+  it('una unidad que no está en el mapa se queda en pie: es un departamento o no se pudo leer', () => {
+    expect(cargoEnNomina(nomina('uN', ['Cajero']), 'uDepartamento', 'Contador')).toBe(true)
+  })
+
+  it('sólo cuentan los trabajadores activos', () => {
+    const n = nomina('uN', [])
+    n.porUnidad.set('uN', [
+      { dni: 1, name: 'Ana', lastname: 'Pérez', role_name: 'Depositaría', active: false }
+    ])
+    expect(cargoEnNomina(n, 'uN', 'Depositaría')).toBe(false)
+  })
+})
+
+describe('filasEnNomina', () => {
+  const filaDe = (extra: Partial<FilaAlerta>): FilaAlerta => ({
+    clave: 'cajero',
+    cargo: 'Cajero',
+    unidadId: 'uN',
+    unidadNombre: 'Norte',
+    unidadTipo: 'sucursal',
+    evaluacionId: 'ev1',
+    fecha: '2026-03-01',
+    nota: 60,
+    nivel: 'LLAMADO',
+    registro: null,
+    ...extra
+  })
+
+  it('saca los cargos que no existen en la unidad y deja los que sí', () => {
+    const filas = [
+      filaDe({}),
+      filaDe({ clave: 'dep', cargo: 'Depositaría', evaluacionId: 'ev2' }),
+      filaDe({
+        clave: 'enc',
+        cargo: 'Encargado de turno',
+        unidadId: 'uS',
+        unidadNombre: 'Sur',
+        evaluacionId: 'ev3'
+      })
+    ]
+    // Norte tiene cajeros; Sur no está en el mapa (no se pudo leer) y no se juzga.
+    const salida = filasEnNomina(filas, nomina('uN', ['Cajero']))
+    expect(salida.map((f) => f.clave)).toEqual(['cajero', 'enc'])
+  })
+
+  it('una fila con alerta ya registrada nunca se esconde', () => {
+    // Es seguimiento en curso: aunque el cargo ya no esté en la nómina, el
+    // llamado quedó pendiente y tiene que poder atenderse desde acá.
+    const registrada = filaDe({
+      clave: 'dep',
+      cargo: 'Depositaría',
+      registro: alerta({ id: 'a9', clave_cargo: 'dep', estado: 'PENDIENTE' })
+    })
+    expect(filasEnNomina([registrada], nomina('uN', ['Cajero']))).toHaveLength(1)
+  })
+
+  it('sin nómina cargada devuelve la lista entera', () => {
+    const filas = [filaDe({}), filaDe({ clave: 'dep', cargo: 'Depositaría' })]
+    expect(filasEnNomina(filas, null)).toHaveLength(2)
+    expect(filasEnNomina(filas, nomina('uN', ['Cajero'], { cargando: true }))).toHaveLength(2)
+  })
+})
+
+describe('cargarNomina', () => {
+  /** `listar-colaboradores` devuelve su listado anidado en `data.data`. */
+  function apiQue(listado: unknown[], ok = true) {
+    invokeMock.mockResolvedValue({
+      data: ok ? { ok: true, data: { data: listado } } : { ok: false, status: 500 },
+      error: null
+    })
+  }
+
+  const evaluacion = (sucursal_id: string, shop_id: string | null, branch_id: string | null = null) => ({
+    sucursal_id,
+    departamento_id: null,
+    sucursal: { id: sucursal_id, nombre: 'Norte', shop_id, branch_id }
+  })
+
+  it('pide la nómina branch por branch de las unidades pedidas y la guarda por unidad', async () => {
+    apiQue([{ nationality: 'V', dni: 7, name: 'Ana', lastname: 'Pérez', role_name: 'Cajero', active: true }])
+
+    const r = await cargarNomina(
+      { evaluaciones: [evaluacion('s1', '42')] as never },
+      new Set(['s1'])
+    )
+
+    expect(invokeMock).toHaveBeenCalledWith('listar-colaboradores', { body: { branchID: '42' } })
+    expect(r.fallo).toBe(false)
+    expect(r.cargando).toBe(false)
+    expect(r.porUnidad.get('s1')?.[0].role_name).toBe('Cajero')
+  })
+
+  it('usa branch de respaldo cuando la sucursal no tiene Nº de tienda', async () => {
+    apiQue([])
+    await cargarNomina({ evaluaciones: [evaluacion('s1', null, '9')] as never }, new Set(['s1']))
+    expect(invokeMock).toHaveBeenCalledWith('listar-colaboradores', { body: { branchID: '9' } })
+  })
+
+  it('sólo pide las unidades pedidas: las demás sucursales del conjunto no importan', async () => {
+    apiQue([])
+    await cargarNomina(
+      { evaluaciones: [evaluacion('s1', '42'), evaluacion('s2', '43')] as never },
+      new Set(['s1'])
+    )
+    expect(invokeMock).toHaveBeenCalledTimes(1)
+    expect(invokeMock).toHaveBeenCalledWith('listar-colaboradores', { body: { branchID: '42' } })
+  })
+
+  it('una tienda caída queda sin entrada y levanta el aviso, sin tumbar a las demás', async () => {
+    invokeMock
+      .mockResolvedValueOnce({ data: { ok: false, status: 500 }, error: null })
+      .mockResolvedValueOnce({ data: { ok: true, data: { data: [] } }, error: null })
+
+    const r = await cargarNomina(
+      { evaluaciones: [evaluacion('s1', '42'), evaluacion('s2', '43')] as never },
+      new Set(['s1', 's2'])
+    )
+
+    // La caída no queda como «esta tienda no tiene esa gente»: queda sin juzgar.
+    expect(r.fallo).toBe(true)
+    expect(r.porUnidad.has('s1')).toBe(false)
+    expect(r.porUnidad.has('s2')).toBe(true)
+  })
+
+  it('un departamento no tiene nómina de tienda: no se pide nada', async () => {
+    const r = await cargarNomina(
+      {
+        evaluaciones: [{ sucursal_id: null, departamento_id: 'd1', sucursal: null }] as never
+      },
+      new Set(['d1'])
+    )
+    expect(invokeMock).not.toHaveBeenCalled()
+    expect(r).toEqual({ porUnidad: new Map(), cargando: false, fallo: false })
+  })
+
+  it('si ninguna unidad tiene con qué pedirla, no hace ninguna consulta', async () => {
+    const r = await cargarNomina(
+      { evaluaciones: [evaluacion('s1', null, null)] as never },
+      new Set(['s1'])
+    )
+    expect(invokeMock).not.toHaveBeenCalled()
+    expect(r.fallo).toBe(false)
+    expect(r.porUnidad.size).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // La red
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
   fromMock.mockReset()
+  invokeMock.mockReset()
 })
 
 describe('listarAlertas', () => {

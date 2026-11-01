@@ -1,5 +1,7 @@
 import { supabase } from '../supabase'
 import { claveNormalizada } from './responsables'
+import { listarColaboradores, trabajadoresParaCargo, type ColaboradorAPI } from './colaboradores'
+import { unidadDe, type ConjuntoDatos } from './indicadores'
 import { nivelDeNota, type CeldaSeguimiento, type NivelAlerta } from './seguimientoEvaluaciones'
 
 /**
@@ -173,6 +175,100 @@ export function filasDeAlertas(celdas: CeldaSeguimiento[], alertas: AlertaCargo[
       (b.fecha ?? '').localeCompare(a.fecha ?? '') ||
       a.cargo.localeCompare(b.cargo, 'es')
   )
+}
+
+/**
+ * La nómina de las unidades del panel, leída contra la API de trabajadores.
+ *
+ * Va por UNIDADES y no en bloque porque la nómina se pide branch por branch:
+ * cada sucursal tiene la suya y una consulta caída no puede dejar sin filtrar a
+ * las demás. Las unidades que no están en `porUnidad` (departamentos, sucursales
+ * sin Nº de tienda, o las que no se pudieron leer) simplemente no se juzgan.
+ */
+export interface NominaUnidades {
+  /** Trabajadores por id de unidad; sólo las unidades que se leyeron bien. */
+  porUnidad: Map<string, ColaboradorAPI[]>
+  /** La consulta sigue en vuelo: hasta que no vuelva no se filtra nada. */
+  cargando: boolean
+  /** Alguna unidad no se pudo leer: el aviso lo dice para que no se lea como vacío. */
+  fallo: boolean
+}
+
+export const NOMINA_VACIA: NominaUnidades = { porUnidad: new Map(), cargando: false, fallo: false }
+
+/**
+ * ¿El cargo tiene trabajadores en esa unidad? La pregunta que decide si la fila
+ * entra al panel.
+ *
+ * Mientras no haya respuesta —`nomina` vacía, consulta en vuelo, o la unidad
+ * sin entrada porque es un departamento o no se pudo leer— la respuesta es
+ * «sí»: no se esconde nada con un dato a medias.
+ */
+export function cargoEnNomina(nomina: NominaUnidades | null, unidadId: string, cargo: string): boolean {
+  if (!nomina || nomina.cargando) return true
+  const trabajadores = nomina.porUnidad.get(unidadId)
+  if (!trabajadores) return true
+  return trabajadoresParaCargo(trabajadores, cargo).porCargo
+}
+
+/**
+ * El panel sólo lista cargos que EXISTEN en la nómina de su unidad.
+ *
+ * No todos los cargos aplican en todas las sucursales: un cargo que se cayó en
+ * una tienda donde no hay nadie con ese puesto no pide llamado de atención —no
+ * hay a quién notificarle— y listarlo obliga a pasar por el selector para
+ * llegar a «no figura en la nómina». El cruce es el MISMO del selector
+ * (`trabajadoresParaCargo`): si el panel lista el cargo, el selector encuentra
+ * personas; si no lo lista, es porque no las hay.
+ *
+ * Lo que NO se filtra, por el mismo motivo de siempre —no mentir con un
+ * vacío—: la fila con alerta YA registrada, que es seguimiento en curso y
+ * esconderla dejaría un llamado pendiente sin forma de atenderse.
+ */
+export function filasEnNomina(filas: FilaAlerta[], nomina: NominaUnidades | null): FilaAlerta[] {
+  if (!nomina) return filas
+  return filas.filter((f) => f.registro || cargoEnNomina(nomina, f.unidadId, f.cargo))
+}
+
+/**
+ * La nómina de las unidades que el panel va a mostrar, leída a la API.
+ *
+ * Sólo las SUCURSALES con Nº de tienda: los departamentos no tienen nómina de
+ * tienda y quedan sin entrada, que es lo que hace `cargoEnNomina` para no
+ * juzgarlos. Sucursales sin `shop_id`/`branch_id` tampoco entran —no hay con
+ * qué pedirlas—, y su ausencia en el mapa es exactamente el «no se sabe» que
+ * deja la fila en pie.
+ *
+ * Cada unidad se pide por separado y sólo se guarda la que salió bien: una
+ * tienda caída no puede dejar sin filtrar a las demás. Si ninguna se pudo leer
+ * queda `fallo`, que la pantalla traduce en aviso y no en lista vacía.
+ */
+export async function cargarNomina(
+  datos: Pick<ConjuntoDatos, 'evaluaciones'>,
+  unidades: ReadonlySet<string>
+): Promise<NominaUnidades> {
+  const branchDeUnidad = new Map<string, string>()
+  for (const ev of datos.evaluaciones) {
+    const unidad = unidadDe(ev)
+    if (!unidades.has(unidad)) continue
+    const branch = ev.sucursal ? (ev.sucursal.shop_id ?? ev.sucursal.branch_id) : null
+    if (branch && !branchDeUnidad.has(unidad)) branchDeUnidad.set(unidad, branch)
+  }
+  if (!branchDeUnidad.size) return NOMINA_VACIA
+
+  const porUnidad = new Map<string, ColaboradorAPI[]>()
+  let fallo = false
+  await Promise.all(
+    Array.from(branchDeUnidad).map(async ([unidad, branch]) => {
+      const r = await listarColaboradores(branch)
+      if (r.mensaje) {
+        fallo = true
+        return
+      }
+      porUnidad.set(unidad, r.colaboradores)
+    })
+  )
+  return { porUnidad, cargando: false, fallo }
 }
 
 /** Una unidad con sus evaluaciones, para agrupar el panel. */
