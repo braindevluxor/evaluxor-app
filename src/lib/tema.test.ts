@@ -132,6 +132,10 @@ describe('tema · dónde vive el efecto', () => {
     expect(css).toContain('--color-yellow-50:')
     // La franja de sincronización: fondo oscuro con texto blanco encima.
     expect(css).toContain('.dark .bg-slate-800')
+    // El documento entero sigue el tema: el skeleton del F5 no puede ser una
+    // página blanca con tarjetas oscuras.
+    expect(css).toContain('html {')
+    expect(css).toContain('color-scheme: dark')
 
     const diseno = fuente('../lib/diseno.ts')
     expect(diseno).toContain('var(--pastel-verde-fondo)')
