@@ -296,15 +296,18 @@ export function SeguimientoVista({
                   { texto: `${sinRegistrar} sin registrar`, umbral: 'noCumple' as const },
                   { texto: `${pendientes} pendientes`, umbral: 'riesgo' as const },
                   { texto: `${atendidas} atendidas`, umbral: 'cumple' as const }
-                ].map((c) => (
-                  <span
-                    key={c.texto}
-                    className={cn('rounded-full px-2.5 py-1 font-semibold', chipPastel(c.umbral).claseTexto)}
-                    style={{ background: chipPastel(c.umbral).fondo }}
-                  >
-                    {c.texto}
-                  </span>
-                ))}
+                ].map((c) => {
+                  const p = chipPastel(c.umbral)
+                  return (
+                    <span
+                      key={c.texto}
+                      className="rounded-full px-2.5 py-1 font-semibold"
+                      style={{ background: p.fondo, color: p.tinta }}
+                    >
+                      {c.texto}
+                    </span>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -315,8 +318,8 @@ export function SeguimientoVista({
           {hayFiltro ? (
             <div className="flex flex-wrap items-center gap-2 self-end text-xs">
               <span
-                className="rounded-full px-2.5 py-1 font-semibold text-amber-800"
-                style={{ background: chipPastel('riesgo').fondo }}
+                className="rounded-full px-2.5 py-1 font-semibold"
+                style={{ background: chipPastel('riesgo').fondo, color: chipPastel('riesgo').tinta }}
               >
                 Filtro activo
               </span>
@@ -876,12 +879,13 @@ export function ChipNivel({ nivel }: { nivel: NivelAlerta | null }) {
     return <span className="text-xs font-semibold text-slate-400">Sin alerta</span>
   }
   // Pastel del sistema (ver `chipPastel`): el rojo sólido gritaba más de lo
-  // que informaba en una lista con cincuenta filas.
-  const { fondo, claseTexto } = chipPastel(nivel === 'LLAMADO' ? 'noCumple' : 'riesgo')
+  // que informaba en una lista con cincuenta filas. Fondo y tinta por
+  // variable, para que en modo oscuro se oscurezcan los dos juntos.
+  const { fondo, tinta } = chipPastel(nivel === 'LLAMADO' ? 'noCumple' : 'riesgo')
   return (
     <span
-      className={cn('inline-block rounded-full px-2.5 py-1 text-xs font-semibold', claseTexto)}
-      style={{ background: fondo }}
+      className="inline-block rounded-full px-2.5 py-1 text-xs font-semibold"
+      style={{ background: fondo, color: tinta }}
     >
       {ETIQUETA_NIVEL_LOCAL[nivel]}
     </span>
@@ -897,11 +901,11 @@ export function ChipEstado({ registro }: { registro: AlertaCargo | null }) {
   // una lista larga el estado se compara de un vistazo, no se lee palabra a
   // palabra.
   const chip = (umbral: 'cumple' | 'riesgo' | 'sinDato', texto: string) => {
-    const { fondo, claseTexto } = chipPastel(umbral)
+    const { fondo, tinta } = chipPastel(umbral)
     return (
       <span
-        className={cn('inline-block rounded-full px-2.5 py-1 text-xs font-semibold', claseTexto)}
-        style={{ background: fondo }}
+        className="inline-block rounded-full px-2.5 py-1 text-xs font-semibold"
+        style={{ background: fondo, color: tinta }}
       >
         {texto}
       </span>

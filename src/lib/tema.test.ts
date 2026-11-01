@@ -115,6 +115,14 @@ describe('tema · dónde vive el efecto', () => {
     // El revelado: recorte de la capa nueva desde el punto del botón.
     expect(css).toContain('::view-transition-new(root)')
     expect(css).toContain('var(--tema-x, 50%)')
+    // Los pasteles cambian fondo Y tinta juntos: si sólo cambia la tinta,
+    // queda texto claro sobre pastel claro (ilegible).
+    expect(css).toContain('--pastel-rojo-tinta:')
+    expect(css).toContain('.dark .pastel-icono')
+
+    const diseno = fuente('../lib/diseno.ts')
+    expect(diseno).toContain('var(--pastel-verde-fondo)')
+    expect(diseno).not.toContain("fondo: '#C0EDD0'")
 
     const menu = fuente('../components/layouts/ConsoleLayout.tsx')
     expect(menu).toContain('Modo oscuro')

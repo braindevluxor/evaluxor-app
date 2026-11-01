@@ -258,10 +258,12 @@ describe('SeguimientoVista · filtros y chips', () => {
     })
 
     // El rojo sólido de «Llamado de atención» y el fondo crudo de los estados
-    // se reemplazan por los pasteles de `diseno.ts`.
+    // se reemplazan por los pasteles de `diseno.ts`, que en oscuro cambian
+    // fondo y tinta juntos (variables `--pastel-*`).
     expect(html).not.toContain('bg-red-700')
-    expect(html).toContain('background:#F5BCBC') // pastel de «no cumple»
-    expect(html).toContain('background:#C0EDD0') // pastel de «cumple» (atendida)
+    expect(html).toContain('var(--pastel-rojo-fondo)') // «no cumple»
+    expect(html).toContain('var(--pastel-verde-fondo)') // «cumple» (atendida)
+    expect(html).toContain('color:var(--pastel-verde-tinta)')
     // Sólo dos tamaños de texto en la fila: el nombre del cargo y el resto.
     expect(html).toContain('rounded-full px-2.5 py-1 text-xs font-semibold')
   })

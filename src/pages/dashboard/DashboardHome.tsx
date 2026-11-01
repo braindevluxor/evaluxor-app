@@ -311,21 +311,21 @@ function DatoDona({ fila, color }: { fila: FilaDona; color: string }) {
  * ventana) y se lo comería igual.
  */
 function TarjetaModulo({ promedio, icono }: { promedio: number | null; icono?: string }) {
-  const { fondo, claseTexto } = coloresTarjetaPuntaje(promedio)
+  const { fondo, tinta } = coloresTarjetaPuntaje(promedio)
   return (
     // El formato de la tarjeta de estado: el porcentaje a la izquierda —que es
     // lo que se lee primero— y el icono del módulo a la derecha, en su círculo
-    // claro del mismo fondo pastel. El círculo va semitransparente y no del
-    // tono profundo para que la figura se lea sin competir con el número.
+    // claro del mismo fondo pastel. Fondo y tinta van por variable CSS (ver
+    // `PASTEL_POR_UMBRAL`): en modo oscuro cambian los dos juntos.
     <div
       className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3.5 shadow-sm"
-      style={{ background: fondo }}
+      style={{ background: fondo, color: tinta }}
     >
-      <span className={cn('shrink-0 text-2xl font-black tabular-nums leading-none sm:text-[1.7rem]', claseTexto)}>
+      <span className="shrink-0 text-2xl font-black tabular-nums leading-none sm:text-[1.7rem]">
         {promedio == null ? '—' : pctComa(promedio, 0)}
       </span>
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/70">
-        <IconoModulo nombre={icono} className={cn('h-5 w-5', claseTexto)} />
+      <span className="pastel-icono grid h-9 w-9 shrink-0 place-items-center rounded-full">
+        <IconoModulo nombre={icono} className="h-5 w-5" />
       </span>
     </div>
   )

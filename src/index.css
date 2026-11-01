@@ -449,9 +449,11 @@ input[type='date'] {
    más abajo —que, al estar fuera de `@layer`, le gana a la utilidad sin
    tocar el texto. */
 .dark {
-  /* Superficies: página, paneles, bordes. */
-  --color-slate-50: #0b1220;
-  --color-slate-100: #0f172a;
+  /* Superficies: página, paneles, bordes. La página es lo más oscuro y la
+     tarjeta (`bg-white`) un paso más clara, para que un control activo que usa
+     `bg-white` sobre un fondo `bg-slate-100` se siga distinguiendo. */
+  --color-slate-50: #0a101f;
+  --color-slate-100: #0b1220;
   --color-slate-200: #16203a;
   --color-slate-300: #1e293b;
   /* Texto: de gris apagado a gris claro. */
@@ -483,11 +485,54 @@ input[type='date'] {
 
 /* Rellenos que conservan su tono: el mismo token es texto y relleno en
    pantallas distintas, y acá manda el relleno (el texto se restaura abajo). */
-.dark .bg-white { background-color: #0f172a; }
+.dark .bg-white { background-color: #101a2e; }
 .dark .bg-slate-900 { background-color: #020617; }
 .dark .bg-primary-50 { background-color: #14223a; }
 .dark .hover\:bg-primary-50:hover { background-color: #14223a; }
 .dark .bg-primary-100 { background-color: #1a2c4a; }
+
+/* Pasteles del sistema: el par (fondo, tinta) viaja en variables para que en
+   oscuro cambien LOS DOS JUNTOS. Los fondos se pintan en línea y no siguen la
+   escala de Tailwind: si sólo se aclara la tinta (que es lo que hacía la
+   escala), queda texto claro sobre pastel claro —ilegible—. Con `--pastel-*`,
+   fondo tintado oscuro + tinta clara, con el mismo matiz del umbral. */
+:root {
+  --pastel-verde-fondo: #c0edd0;
+  --pastel-verde-tinta: #166534;
+  --pastel-ambar-fondo: #f7dfb6;
+  --pastel-ambar-tinta: #92400e;
+  --pastel-rojo-fondo: #f5bcbc;
+  --pastel-rojo-tinta: #991b1b;
+  --pastel-gris-fondo: #d9dfe8;
+  --pastel-gris-tinta: #334155;
+}
+.dark {
+  --pastel-verde-fondo: #12301f;
+  --pastel-verde-tinta: #a3f0c6;
+  --pastel-ambar-fondo: #33240c;
+  --pastel-ambar-tinta: #f9d68d;
+  --pastel-rojo-fondo: #3a1a1d;
+  --pastel-rojo-tinta: #f9c0c0;
+  --pastel-gris-fondo: #1b2437;
+  --pastel-gris-tinta: #dbe3ef;
+}
+
+/* El círculo del icono dentro de una tarjeta pastel: en claro va blanco
+   semitransparente sobre el pastel, en oscuro se vuelve velo claro sobre el
+   fondo tintado (un blanco del 70% ahí daría círculo claro con icono claro). */
+.pastel-icono {
+  background-color: rgb(255 255 255 / 0.7);
+}
+.dark .pastel-icono {
+  background-color: rgb(255 255 255 / 0.12);
+}
+
+/* Selección: el azul del sistema sobre fondo oscuro dejaba texto azul con
+   fondo azul (se leía a medias al marcar filas de una tabla). */
+.dark ::selection {
+  background: #2e6ab0;
+  color: #ffffff;
+}
 
 /* Los divisores necesitan un tono propio: `divide-slate-100` hereda el fondo
    y sobre el mismo fondo desaparecería. */
