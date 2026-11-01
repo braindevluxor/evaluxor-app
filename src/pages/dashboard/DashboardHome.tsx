@@ -28,7 +28,7 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ReferenceLine,
   PieChart, Pie, Cell
 } from 'recharts'
-import { CLASE_CONTENEDOR_DASHBOARD, COLORES_MODULOS, HEX_PRIMARY, HEX_CUMPLE, HEX_RIESGO, colorPuntajeClase, colorSerie, coloresTarjetaPuntaje } from '../../lib/diseno'
+import { CLASE_CONTENEDOR_DASHBOARD, COLORES_MODULOS, HEX_CUMPLE, HEX_RIESGO, colorPuntajeClase, colorSerie, coloresTarjetaPuntaje } from '../../lib/diseno'
 
 function haceMeses(n: number): string {
   const d = new Date()
@@ -118,7 +118,7 @@ function GraficoPonderacion({
             <Bar
               dataKey="promedio"
               name={nombrePromedio}
-              fill={HEX_PRIMARY}
+              fill="var(--serie-primaria)"
               fillOpacity={0.14}
               radius={[4, 4, 0, 0]}
               barSize={16}

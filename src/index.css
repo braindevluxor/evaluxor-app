@@ -521,26 +521,60 @@ input[type='date'] {
   --pastel-rojo-tinta: #991b1b;
   --pastel-gris-fondo: #d9dfe8;
   --pastel-gris-tinta: #334155;
+
+  /* Series de los gráficos (mismos pasteles de siempre en claro; en oscuro
+     los reemplaza `.dark`). Van por variable porque el color viaja en el
+     `fill`/`stroke` de un SVG, que lee variables como cualquier CSS. */
+  --serie-1: #818ecf;
+  --serie-2: #a2c0e2;
+  --serie-3: #70e199;
+  --serie-4: #eacc9a;
+  --serie-5: #e17070;
+  --serie-6: #b29aea;
+  --serie-7: #70d0e1;
+  --serie-8: #ea9abe;
+  --serie-s: 62%;
+  --serie-l: 74%;
+  /* La barra primaria de los gráficos: en oscuro el navy se fundiría con el
+     fondo, así que sube al azul vivo de la marca. */
+  --serie-primaria: #28315f;
 }
 .dark {
-  --pastel-verde-fondo: #12301f;
-  --pastel-verde-tinta: #a3f0c6;
-  --pastel-ambar-fondo: #33240c;
-  --pastel-ambar-tinta: #f9d68d;
-  --pastel-rojo-fondo: #3a1a1d;
-  --pastel-rojo-tinta: #f9c0c0;
-  --pastel-gris-fondo: #1b2437;
-  --pastel-gris-tinta: #dbe3ef;
+  /* Pasteles → VÍVIDOS en oscuro (la paleta de referencia del dashboard: bloques
+     saturados con tinta oscura encima, no tintes apagados). El contraste se
+     sostiene bajando la tinta al tono casi negro del mismo matiz. */
+  --pastel-verde-fondo: #22c55e;
+  --pastel-verde-tinta: #052e16;
+  --pastel-ambar-fondo: #f59e0b;
+  --pastel-ambar-tinta: #431407;
+  --pastel-rojo-fondo: #ef4444;
+  --pastel-rojo-tinta: #450a0a;
+  --pastel-gris-fondo: #94a3b8;
+  --pastel-gris-tinta: #0f172a;
+
+  /* Series de los gráficos: mismo matiz, más saturadas y menos claras, para que
+     sobre fondo oscuro no se laven. */
+  --serie-1: #7c8cff;
+  --serie-2: #4ea1f0;
+  --serie-3: #2ee67b;
+  --serie-4: #f5b942;
+  --serie-5: #ef4444;
+  --serie-6: #a855f7;
+  --serie-7: #22d3ee;
+  --serie-8: #f472b6;
+  --serie-s: 72%;
+  --serie-l: 62%;
+  --serie-primaria: #4f87c7;
 }
 
 /* El círculo del icono dentro de una tarjeta pastel: en claro va blanco
-   semitransparente sobre el pastel, en oscuro se vuelve velo claro sobre el
-   fondo tintado (un blanco del 70% ahí daría círculo claro con icono claro). */
+   semitransparente sobre el pastel, en oscuro va velo OSCURO, porque el
+   pastel de oscuro es un bloque saturado con tinta oscura encima. */
 .pastel-icono {
   background-color: rgb(255 255 255 / 0.7);
 }
 .dark .pastel-icono {
-  background-color: rgb(255 255 255 / 0.12);
+  background-color: rgb(0 0 0 / 0.18);
 }
 
 /* Selección: el azul del sistema sobre fondo oscuro dejaba texto azul con

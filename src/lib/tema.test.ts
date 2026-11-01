@@ -119,6 +119,12 @@ describe('tema · dónde vive el efecto', () => {
     // queda texto claro sobre pastel claro (ilegible).
     expect(css).toContain('--pastel-rojo-tinta:')
     expect(css).toContain('.dark .pastel-icono')
+    // Y en oscuro pasan a VÍVIDOS (la paleta de referencia del dashboard):
+    // bloques saturados con tinta oscura, no tintes apagados. Las series de los
+    // gráficos viajan por variable, así que también se endurecen solas.
+    expect(css).toContain('--pastel-rojo-fondo: #ef4444')
+    expect(css).toContain('--serie-6: #a855f7')
+    expect(fuente('../lib/diseno.ts')).toContain('var(--serie-1)')
     // Las superficies escritas a mano (`.sup`) y el tinte de selección de la
     // barra: sin estas dos reglas quedaban tarjeta blanca con texto claro y un
     // ítem activo invisible.

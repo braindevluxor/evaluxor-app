@@ -105,15 +105,25 @@ export const HEX_PRIMARY_900 = '#0b2545'
  * y 65% y la luminosidad alternada 66/76, porque dos pasteles seguidos se
  * confunden si sólo cambia el matiz.
  */
-export const COLORES_MODULOS = ['#818ECF', '#A2C0E2', '#70E199', '#EACC9A', '#E17070', '#B29AEA', '#70D0E1', '#EA9ABE']
+export const COLORES_MODULOS = [
+  'var(--serie-1)',
+  'var(--serie-2)',
+  'var(--serie-3)',
+  'var(--serie-4)',
+  'var(--serie-5)',
+  'var(--serie-6)',
+  'var(--serie-7)',
+  'var(--serie-8)'
+]
 
 /* --- Color por serie en las donas del dashboard ---------------------------
  * Cada dona tiene una porción por sucursal / departamento / cargo: con la
  * paleta de módulos no alcanza y los tonos seguidos del arcoíris quedan casi
  * iguales entre vecinos, así que se avanza el ángulo dorado (137,5°). La
- * saturación y la luminosidad quedan en clave pastel, igual que las curvas. */
+ * saturación y la luminosidad quedan en clave pastel en claro y se endurecen
+ * en oscuro (mismas variables que las series de arriba). */
 export function colorSerie(i: number): string {
-  return `hsl(${Math.round(i * 137.508) % 360} 62% 74%)`
+  return `hsl(${Math.round(i * 137.508) % 360} var(--serie-s, 62%) var(--serie-l, 74%))`
 }
 
 /* --- Estados de evaluación (PROGRAMADA / ACTIVA / CERRADA) ------------------
