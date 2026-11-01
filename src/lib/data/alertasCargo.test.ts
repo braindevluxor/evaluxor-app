@@ -13,6 +13,7 @@ const {
   filasDeAlertas,
   cargoEnNomina,
   filasEnNomina,
+  celdasEnNomina,
   cargarNomina,
   filtrarFilas,
   gruposPorUnidad,
@@ -385,6 +386,37 @@ describe('filasEnNomina', () => {
     const filas = [filaDe({}), filaDe({ clave: 'dep', cargo: 'Depositaría' })]
     expect(filasEnNomina(filas, null)).toHaveLength(2)
     expect(filasEnNomina(filas, nomina('uN', ['Cajero'], { cargando: true }))).toHaveLength(2)
+  })
+})
+
+describe('celdasEnNomina · el contador de la barra sigue a la lista', () => {
+  const celdaDe = (extra: Partial<CeldaSeguimiento> = {}): CeldaSeguimiento => ({
+    evaluacion_id: 'ev1',
+    fecha: '2026-03-01',
+    unidad: { id: 'uN', nombre: 'Norte', tipo: 'sucursal' },
+    clave: 'dep',
+    cargo: 'Depositaría',
+    nota: 60,
+    puntos: 0,
+    ...extra
+  })
+
+  it('saca las celdas cuyo cargo no está en la unidad, igual que la lista', () => {
+    const salida = celdasEnNomina([celdaDe()], nomina('uN', ['Cajero']), [])
+    expect(salida).toHaveLength(0)
+    expect(celdasEnNomina([celdaDe()], nomina('uN', ['Depositaría']), [])).toHaveLength(1)
+  })
+
+  it('una celda con alerta registrada cuenta, aunque el cargo ya no esté en la nómina', () => {
+    // Es lo que hace que la lista la muestre: si el contador la sacara, el KPI
+    // y la pantalla dirían cosas distintas del mismo llamado pendiente.
+    const registrada = alerta({ clave_cargo: 'dep', sucursal_id: 'uN', evaluacion_id: 'ev1' })
+    expect(celdasEnNomina([celdaDe()], nomina('uN', ['Cajero']), [registrada])).toHaveLength(1)
+  })
+
+  it('sin nómina cargada cuenta todo, como la lista', () => {
+    expect(celdasEnNomina([celdaDe()], null, [])).toHaveLength(1)
+    expect(celdasEnNomina([celdaDe()], nomina('uN', [], { cargando: true }), [])).toHaveLength(1)
   })
 })
 

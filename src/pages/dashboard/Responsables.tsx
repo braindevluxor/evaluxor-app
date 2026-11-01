@@ -26,7 +26,7 @@ import {
 } from '../../lib/data/seguimientoEvaluaciones'
 import {
   cargarNomina,
-  cargoEnNomina,
+  celdasEnNomina,
   filasDeAlertas,
   filasEnNomina,
   filtrarFilas,
@@ -326,14 +326,15 @@ export function SeguimientoVista({
                   )
                 })}
                 {/* Lo que la nómina sacó de la lista se anuncia en vez de
-                    esconderse: una fila que no aparece no se puede buscar. */}
+                    esconderse: una fila que no aparece no se puede buscar. El
+                    número es de FILAS (cargo × visita), igual que los chips de
+                    al lado, no de cargos distintos. */}
                 {ocultasPorNomina > 0 && (
                   <span
                     className="rounded-full px-2.5 py-1 font-semibold"
                     style={{ background: chipPastel('sinDato').fondo, color: chipPastel('sinDato').tinta }}
                   >
-                    {ocultasPorNomina} {ocultasPorNomina === 1 ? 'cargo oculto' : 'cargos ocultos'}: sin
-                    trabajadores en su unidad
+                    {ocultasPorNomina} ocultos: sin trabajadores en su unidad
                   </span>
                 )}
               </div>
@@ -1163,10 +1164,12 @@ export function Responsables() {
   // globales, igual que Indicadores y el dashboard de módulo.
   const kpis = useMemo<EstadoKpis | null>(() => {
     if (!celdas) return null
-    // Los mismos criterios que la lista: un cargo sin trabajadores en su unidad
-    // tampoco cuenta como alerta, para que el número y la lista no se contradigan.
-    const visibles = celdas.filter((c) => cargoEnNomina(nomina, c.unidad.id, c.cargo))
+    // La MISMA regla que la lista (`celdasEnNomina`): un cargo sin trabajadores
+    // en su unidad tampoco cuenta como alerta, y el que ya tiene llamado
+    // registrado cuenta en los dos lados. Si no, el número de arriba y la lista
+    // de abajo dirían cosas distintas de la misma pantalla.
     const listaAlertas = alertas ?? []
+    const visibles = celdasEnNomina(celdas, nomina, listaAlertas)
     const pendientes = listaAlertas.filter((a) => a.estado === 'PENDIENTE').length
     return {
       global: null,

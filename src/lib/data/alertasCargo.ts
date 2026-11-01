@@ -231,6 +231,30 @@ export function filasEnNomina(filas: FilaAlerta[], nomina: NominaUnidades | null
 }
 
 /**
+ * Las celdas que el panel CUENTA como alerta: la misma regla que
+ * `filasEnNomina`, aplicada al otro lado del mismo número.
+ *
+ * Hacía falta porque la barra de KPIs cuenta celdas y la lista pinta filas: sin
+ * este recorte, una celda con alerta ya registrada cuyo cargo no está en la
+ * nómina se mostraba en la lista y no se contaba arriba, y los dos números
+ * decían cosas distintas de la misma pantalla. El registro manda en los dos
+ * lados: hay un llamado pendiente y no se puede esconder ni del listado ni del
+ * contador.
+ */
+export function celdasEnNomina(
+  celdas: CeldaSeguimiento[],
+  nomina: NominaUnidades | null,
+  alertas: AlertaCargo[]
+): CeldaSeguimiento[] {
+  const registradas = mapaDeAlertas(alertas)
+  return celdas.filter(
+    (c) =>
+      registradas.has(claveAlerta(c.clave, c.unidad.id, c.evaluacion_id)) ||
+      cargoEnNomina(nomina, c.unidad.id, c.cargo)
+  )
+}
+
+/**
  * La nómina de las unidades que el panel va a mostrar, leída a la API.
  *
  * Sólo las SUCURSALES con Nº de tienda: los departamentos no tienen nómina de
