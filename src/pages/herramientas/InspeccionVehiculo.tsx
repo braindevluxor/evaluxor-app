@@ -109,6 +109,21 @@ function fotosDe(respuestas: Record<string, unknown>): string[] {
   return [...out]
 }
 
+/**
+ * Nombres de los archivos que hay en la carpeta de una revisión
+ * (`pre-entrega/<id>/`), para rehidratar las `paths` de sus respuestas.
+ *
+ * Devuelve `[]` si falla (sin red, sin permiso): la inspección se abre igual,
+ * sólo que sin fotos resueltas desde el bucket. Nunca es motivo para no abrir.
+ */
+async function nombresEnCarpeta(revisionId: string): Promise<string[]> {
+  const { data, error } = await supabase.storage.from('evidencias').list(`pre-entrega/${revisionId}`)
+  if (error) return []
+  return (data ?? [])
+    .map((f) => f.name)
+    .filter((n): n is string => typeof n === 'string' && !!n)
+}
+
 export function InspeccionVehiculo() {
   const { profile } = useAuth()
   const navigate = useNavigate()
@@ -154,7 +169,9 @@ export function InspeccionVehiculo() {
         // puede regenerar el PDF aunque las fotos originales hayan salido del
         // teléfono (el PDF las toma del bucket por las `paths` de las respuestas).
         const fila = await obtenerRevisionPreEntrega(registroBuscado).catch(() => null)
-        registro = fila ? registroDesdeServidor(fila) : undefined
+        registro = fila
+          ? registroDesdeServidor(fila, await nombresEnCarpeta(fila.id).catch(() => []))
+          : undefined
       }
       // Un id de otra herramienta no se abre: se sigue el flujo normal de la
       // pantalla (borrador abierto o inspección nueva).

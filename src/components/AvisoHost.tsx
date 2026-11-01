@@ -73,9 +73,13 @@ export function AvisoHost() {
       aria-hidden="true"
       className={[
         // `bottom-24` deja libre la barra de controles (72px de alto): el
-        // cartel nunca tapa Anterior / Incidencia / Siguiente.
-        'aviso-entrar pointer-events-none fixed bottom-24 left-1/2 z-[150]',
-        '-translate-x-1/2 max-w-[calc(100vw-2rem)]'
+        // cartel nunca tapa Anterior / Incidencia / Siguiente. Va a la esquina
+        // derecha y no al centro, donde tapaba el contenido de la página.
+        // Se quitó el centrado horizontal: además de innecesario ya, chocaba con
+        // la animación, que termina en `transform: none` con `fill-mode: both`
+        // y le pisaba la traslación al terminar de entrar.
+        'aviso-entrar pointer-events-none fixed bottom-24 right-4 z-[150]',
+        'max-w-[calc(100vw-2rem)]'
       ].join(' ')}
     >
       <div

@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Car } from 'lucide-react'
+import { ArrowLeft, Car, Trash2 } from 'lucide-react'
 import { useCatalog, useModuloHerramienta } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
-import { listarRevisionesPreEntrega } from '../../lib/data/revisionPreEntrega'
+import { avisar } from '../../lib/aviso'
+import {
+  eliminarRevisionPreEntrega,
+  listarRevisionesPreEntrega
+} from '../../lib/data/revisionPreEntrega'
 import {
   CLAVE_INSPECCION,
   RUTA_INSPECCION,
@@ -11,9 +15,9 @@ import {
   fusionarHistorial,
   type FilaHistorial
 } from '../../lib/inspeccionVehiculo'
-import { listarPreEntregas } from '../../lib/offline/db'
+import { deletePhoto, eliminarPreEntrega, getPreEntrega, listarPreEntregas } from '../../lib/offline/db'
 import { MobileLayout } from '../../components/layouts/MobileLayout'
-import { Button, Card, EmptyState, Spinner, cn } from '../../components/ui'
+import { Button, Card, Confirmar, EmptyState, Spinner, cn } from '../../components/ui'
 
 /**
  * Historial de inspecciones de vehículo particular.
@@ -26,7 +30,10 @@ import { Button, Card, EmptyState, Spinner, cn } from '../../components/ui'
  *
  * Tocar una fila reabre la inspección en su propia pantalla con
  * `?registro=<id>`, donde se puede regenerar su PDF cuantas veces haga falta.
- * Misma puerta que la herramienta: `/evaluar`, EVALUADOR/LIDER, sin sucursal.
+ * Cada fila lleva su papelera, que pide confirmación antes de borrar: saca la
+ * inspección de las dos orillas (el equipo con sus fotos y el servidor si hay
+ * conexión). Misma puerta que la herramienta: `/evaluar`, EVALUADOR/LIDER, sin
+ * sucursal.
  */
 export function InspeccionHistorial() {
   const navigate = useNavigate()
@@ -35,24 +42,77 @@ export function InspeccionHistorial() {
   const { modulo } = useModuloHerramienta(CLAVE_INSPECCION)
 
   const [filas, setFilas] = useState<FilaHistorial[] | null>(null)
+  const [aBorrar, setABorrar] = useState<FilaHistorial | null>(null)
+  const [borrando, setBorrando] = useState(false)
+
+  /**
+   * Vuelve a juntar las dos orillas.
+   *
+   * Se lee `modulo` completo, pero sólo interesa su id. Va en un `useCallback`
+   * (y no adentro del `useEffect`) porque la misma carga se repite después de
+   * borrar una fila: sin esto el historial quedaría mostrando la inspección
+   * ya borrada hasta que alguien recargue la pantalla.
+   */
+  const recargar = useCallback(async () => {
+    if (!cargado || !modulo) return
+    const local = await listarPreEntregas().catch(() => [])
+    // Sin conexión (o sin permiso sobre la tabla) el historial no se cae:
+    // muestra lo que queda en el equipo y ya.
+    const servidor = await listarRevisionesPreEntrega().catch(() => [])
+    setFilas(
+      fusionarHistorial(
+        local.filter((r) => r.modulo_id === modulo.id),
+        servidor.filter((r) => r.modulo_id === modulo.id)
+      )
+    )
+  }, [cargado, modulo])
 
   useEffect(() => {
-    if (!cargado || !modulo) return
-    void (async () => {
-      const local = await listarPreEntregas().catch(() => [])
-      // Sin conexión (o sin permiso sobre la tabla) el historial no se cae:
-      // muestra lo que queda en el equipo y ya.
-      const servidor = await listarRevisionesPreEntrega().catch(() => [])
-      setFilas(
-        fusionarHistorial(
-          local.filter((r) => r.modulo_id === modulo.id),
-          servidor.filter((r) => r.modulo_id === modulo.id)
-        )
-      )
-    })()
-    // Se lee `modulo` completo, pero sólo interesa su id.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cargado, modulo?.id])
+    void recargar()
+  }, [recargar])
+
+  /**
+   * Borra una inspección de las dos orillas, empezando por el equipo.
+   *
+   * El orden importa: primero IndexedDB (es la única que no depende de red) y
+   * después el servidor, que sólo se intenta con conexión —sin ella el delete
+   * rechazaría y quedaría un aviso de error para algo que es sólo temporal—.
+   *
+   * Las fotos locales se borran junto con el registro. `eliminarPreEntrega`
+   * no las toca (en la subida se quedan porque ya están en el bucket), pero
+   * acá nadie las va a volver a pedir: dejarlas sería peso muerto en el
+   * teléfono sin ningún registro que las referencie.
+   *
+   * Si el servidor rechaza el borrado (RLS: cada evaluador sólo borra las
+   * suyas) se avisa y la fila se queda en la nube, que es la verdad.
+   */
+  async function borrar() {
+    if (!aBorrar || borrando) return
+    setBorrando(true)
+    try {
+      const registro = await getPreEntrega(aBorrar.id).catch(() => undefined)
+      await eliminarPreEntrega(aBorrar.id)
+      for (const id of registro?.photoIds ?? []) {
+        await deletePhoto(id).catch(() => {})
+      }
+
+      if (online) {
+        try {
+          await eliminarRevisionPreEntrega(aBorrar.id)
+          avisar('Inspección borrada.')
+        } catch {
+          avisar('Se borró de este equipo, pero el servidor rechazó el borrado. Vuelve a intentarlo.', 'error')
+        }
+      } else {
+        avisar('Sin conexión: se borró de este equipo. La copia del servidor sigue ahí.', 'aviso')
+      }
+
+      setABorrar(null)
+      await recargar()
+    } finally {
+      setBorrando(false)
+    }
+  }
 
   if (!cargado || (filas === null && modulo)) {
     return (
@@ -110,11 +170,14 @@ export function InspeccionHistorial() {
           <Card>
             <ul className="divide-y divide-slate-100">
               {filas.map((f) => (
-                <li key={f.id}>
+                <li key={f.id} className="flex items-stretch gap-1">
+                  {/* Abrir la inspección. Es un botón y no un <Link> para que
+                      la papelera de al lado pueda ser hermano suyo: dos botones
+                      anidados no se pueden tocar por separado. */}
                   <button
                     type="button"
                     onClick={() => navigate(`${RUTA_INSPECCION}?registro=${f.id}`)}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50"
+                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50"
                   >
                     <Car className="h-5 w-5 shrink-0 text-primary" />
                     <span className="min-w-0 flex-1">
@@ -145,12 +208,42 @@ export function InspeccionHistorial() {
                       ) : null}
                     </span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setABorrar(f)}
+                    disabled={borrando}
+                    title={`Borrar la inspección ${f.placa || 'sin placa'}`}
+                    aria-label={`Borrar la inspección ${f.placa || 'sin placa'}`}
+                    className="my-2 mr-2 shrink-0 self-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </li>
               ))}
             </ul>
           </Card>
         )}
       </div>
+
+      {/* Borrar es definitivo y la inspección puede estar en dos lados, así que
+          el texto dice los dos: la del equipo se pierde siempre y la del
+          servidor sólo si hay conexión. Si nunca subió, se va entera. */}
+      <Confirmar
+        open={!!aBorrar}
+        texto={
+          aBorrar
+            ? `Se borrará la inspección ${aBorrar.placa ? `de ${aBorrar.placa}` : 'sin placa'} (${fechaLegible(aBorrar.fecha)}). ` +
+              (aBorrar.pendiente
+                ? 'Todavía no se había subido: se pierde para siempre.'
+                : online
+                  ? 'Se quita también del servidor y no se puede deshacer.'
+                  : 'Sin conexión se borra de este equipo; la copia del servidor seguirá ahí.')
+            : ''
+        }
+        textoConfirmar={borrando ? 'Borrando…' : 'Borrar inspección'}
+        onConfirm={() => void borrar()}
+        onCancel={() => setABorrar(null)}
+      />
     </MobileLayout>
   )
 }

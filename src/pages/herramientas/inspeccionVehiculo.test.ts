@@ -220,7 +220,11 @@ describe('Inspección de vehículo · reabrir y descargar otra vez', () => {
     // Si ya no está en el equipo (las finalizadas subidas se borran de local),
     // se trae la fila del servidor y con ella se regenera el PDF.
     expect(pagina).toContain('obtenerRevisionPreEntrega(registroBuscado)')
-    expect(pagina).toContain('registroDesdeServidor(fila)')
+    // Al abrir, la carpeta del bucket se lista para rehidratar las `paths`:
+    // las filas subidas antes guardaron `photoIds` locales, que en otro equipo
+    // no significan nada (ver `rehidratarEvidencias`).
+    expect(pagina).toContain('registroDesdeServidor(fila, await nombresEnCarpeta(fila.id)')
+    expect(pagina).toContain('async function nombresEnCarpeta(')
     // Sólo se abre si es una inspección: un id de otra herramienta no secuestra
     // la pantalla, que sigue su flujo normal.
     expect(pagina).toContain('registro.modulo_id === modulo.id')
@@ -268,5 +272,26 @@ describe('Inspección de vehículo · el historial', () => {
 
   it('tocar una fila reabre esa inspección en su pantalla', () => {
     expect(historial).toContain('${RUTA_INSPECCION}?registro=${f.id}')
+  })
+
+  it('cada fila tiene papelera y pide confirmación antes de borrar', () => {
+    // El borrado es de las dos orillas: el equipo (con sus fotos) y el servidor.
+    expect(historial).toContain('eliminarPreEntrega(')
+    expect(historial).toContain('eliminarRevisionPreEntrega(')
+    expect(historial).toContain('deletePhoto(')
+    // Sin confirmación no se borra nada: la papelera abre el modal, no borra.
+    expect(historial).toContain('setABorrar(')
+    expect(historial).toContain('<Confirmar')
+    expect(historial).toContain('textoConfirmar={borrando')
+    // El servidor sólo se toca con conexión, y si rechaza se avisa en vez de
+    // fingir que la inspección desapareció.
+    expect(historial).toContain('if (online)')
+    expect(historial).toMatch(/avisar\('Se borró de este equipo[^']*', 'error'\)/)
+  })
+
+  it('la carga vive en un useCallback para poder refrescar tras borrar', () => {
+    expect(historial).toContain('const recargar = useCallback(')
+    expect(historial).toContain('await recargar()')
+    expect(historial).toMatch(/useEffect\(\(\) => \{\s*void recargar\(\)/)
   })
 })

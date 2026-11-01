@@ -1000,6 +1000,37 @@ describe('ItemRenderer · filas heredadas de la nube (sin campos nuevos)', () =>
   })
 })
 
+describe('ItemRenderer · el CHECKLIST sí pinta las fotos que ya subieron', () => {
+  const fuente = (rel: string): string =>
+    readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+  // Una inspección finalizada sale del equipo al subir (ver `syncPreEntrega`),
+  // así que al reabrirla desde el historial su registro sólo trae `paths`. El
+  // CHECKLIST leía únicamente `photoIds`: la pantalla se veía sin ninguna
+  // evidencia aunque el PDF sí la imprimiera desde el bucket.
+  it('lee `paths` además de `photoIds` y los renderiza', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).toContain('evidencias[o.id]?.paths ?? []')
+    expect(src).toContain('<FotogaleriaRutas paths={pathsEv} compacta />')
+    // Las dos orillas conviven en la misma fila: equipo y bucket.
+    expect(src).toContain('<MinaFotos photoIds={idsEv} />')
+  })
+
+  it('las fotos que nunca subieron no se piden al bucket', () => {
+    // `.local/<id>` es el marcador de `transform.ts` para una foto que quedó
+    // sin subir: pedirle una URL firmada devuelve 404.
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).toContain("!p.startsWith('.local/')")
+  })
+
+  it('al adjuntar una foto conserva las que ya estaban en el bucket', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    // Reemplazar el objeto entero por `{ photoIds }` borraba `paths` del
+    // registro: con sólo sacar una foto más, las anteriores dejaban de verse.
+    expect(src).toContain('[id]: { ...previa, photoIds }')
+  })
+})
+
 /**
  * El veredicto de CUMPLE_NO_CUMPLE se eligió con sólo icono: verde pastel y
  * rojo pastel, y el contrario al elegido se apaga en gris. Sin texto que lo

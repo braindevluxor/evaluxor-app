@@ -32,6 +32,18 @@ describe('AvisoHost · el cartel flotante de confirmaciones', () => {
     expect(src).toContain('pointer-events-none')
   })
 
+  it('va a la esquina inferior derecha, sin pisar el contenido de la página', () => {
+    const src = fuente('./AvisoHost.tsx')
+    // A la derecha y no al centro: en el centro tapaba lo que la página
+    // estuviera mostrando en su mitad.
+    expect(src).toContain('right-4')
+    // Sin `left-1/2` ni `-translate-x-1/2`: la animación termina en
+    // `transform: none` con `fill-mode: both` y les pisa el centrado, así que
+    // además de innecesarios dejaban el cartel desalineado al entrar.
+    expect(src).not.toContain('left-1/2')
+    expect(src).not.toContain('-translate-x-1/2')
+  })
+
   it('se pinta en el body, fuera de cualquier contenedor con overflow', () => {
     const src = fuente('./AvisoHost.tsx')
     expect(src).toMatch(/createPortal\(/)

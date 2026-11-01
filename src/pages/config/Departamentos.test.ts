@@ -125,8 +125,15 @@ describe('departamentos · configurar módulos, ítems y puntos', () => {
     expect(config).toContain('export function DepartamentoConfigModal')
     expect(config).toContain('cargar={listarSucursalConfigAdmin}')
     expect(config).toContain('cargar={listarDepartamentoConfigAdmin}')
-    // La herramienta Revisión Pre-Entrega no se asigna por unidad, ni acá ni en sucursales.
-    expect(config).toContain('mods.filter((m) => !m.herramienta)')
+    // Las herramientas no se asignan por unidad, salvo la lista blanca que
+    // cada una declare: el departamento puede llevar la Inspección de vehículo.
+    expect(config).toContain(
+      'mods.filter((m) => !m.herramienta || herramientasAsignables.includes(m.herramienta))'
+    )
+    expect(config).toContain('herramientasAsignables={HERRAMIENTAS_DEPARTAMENTO}')
+    expect(config).toContain('herramientasAsignables={HERRAMIENTAS_SUCURSAL}')
+    // La sucursal no lleva ninguna herramienta.
+    expect(config).toContain('const HERRAMIENTAS_SUCURSAL: string[] = []')
   })
 
   it('se guarda en las tres tablas departamento_*', () => {

@@ -28,7 +28,16 @@ export interface ValorChecklist {
    */
   existe?: string[]
   informativos?: string[]
-  evidencias?: Record<string, { photoIds: string[] }>
+  /**
+   * Fotos de cada punto (id de la opción → dónde están sus evidencias).
+   *
+   * Las dos orillas conviven en el mismo registro y por eso las dos claves son
+   * opcionales: `photoIds` es lo que está en el equipo (IndexedDB) y `paths` lo
+   * que ya subió al bucket. Una fila bajada de la nube trae `paths` y sin
+   * `photoIds`, y una foto que nunca llegó al bucket queda marcada
+   * `.local/<id>` en `paths` (ver `offline/transform.ts`).
+   */
+  evidencias?: Record<string, { photoIds?: string[]; paths?: string[] }>
   /** Valores numéricos ingresados para las opciones de tipo RANGO (id de la opción → valor). */
   valores?: Record<string, number>
   /** Responsables elegidos por el evaluador para atribuir una FALLA del ítem: cada uno absorbe el punto fallado. */

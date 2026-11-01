@@ -416,7 +416,12 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
       const setEvidencia = (id: string, photoIds: string[]) => {
         guardar((prev: unknown) => {
           const base = desde(prev)
-          return { ...base, evidencias: { ...(base.evidencias ?? {}), [id]: { photoIds } } }
+          // Se parcha sobre la evidencia previa y no se la reemplaza entera:
+          // un punto que ya tenía fotos en el bucket las tiene en `paths`, y
+          // sobrescribir el objeto las borraría del registro (y del PDF) con
+          // sólo adjuntar una foto más desde la cámara.
+          const previa = base.evidencias?.[id] ?? {}
+          return { ...base, evidencias: { ...(base.evidencias ?? {}), [id]: { ...previa, photoIds } } }
         })
       }
       // Comentario del punto: se escribe con el updater porque `value` es el del
@@ -444,6 +449,10 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
             const existeOpcion = (value.existe ?? []).includes(o.id)
             const esNoAplica = noAplican.includes(o.id)
             const idsEv = evidencias[o.id]?.photoIds ?? []
+            // Lo que ya subió al bucket. Se filtra `.local/<id>`: es el marcador
+            // con el que `transform.ts` nombra una foto que nunca llegó, y
+            // pedirle una URL firmada da 404 (ver `evidenciasDe`).
+            const pathsEv = (evidencias[o.id]?.paths ?? []).filter((p) => p && !p.startsWith('.local/'))
             const esRango = o.tipo_respuesta === 'RANGO'
             const valorRango = esRango ? (value.valores?.[o.id] ?? null) : null
             const cumpleOpcion = opcionCumplida(o, value, o.id)
@@ -508,9 +517,14 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                     />
                   </div>
                 ) : null}
-                {idsEv.length > 0 ? (
-                  <div className="px-3 pb-3">
-                    <MinaFotos photoIds={idsEv} />
+                {(idsEv.length > 0 || pathsEv.length > 0) ? (
+                  <div className="space-y-2 px-3 pb-3">
+                    {/* Las del equipo, con su marcador y su edición de marca. */}
+                    {idsEv.length > 0 ? <MinaFotos photoIds={idsEv} /> : null}
+                    {/* Las que ya subieron: sin esto, reabrir una inspección
+                        finalizada (que sale del equipo al subir) se veía sin
+                        ninguna evidencia aunque el PDF sí la imprimiera. */}
+                    {pathsEv.length > 0 ? <FotogaleriaRutas paths={pathsEv} compacta /> : null}
                   </div>
                 ) : null}
                 {!esNoAplica ? (

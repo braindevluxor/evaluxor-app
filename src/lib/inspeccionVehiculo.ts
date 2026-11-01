@@ -1,5 +1,6 @@
 import type { PreEntregaRecord } from './offline/db'
 import type { Item, Opcion, RevisionPreEntrega } from './types'
+import { CARPETA_INSPECCION } from './fotos'
 
 /**
  * Helpers puros de la herramienta de Inspección de Vehículo.
@@ -215,19 +216,114 @@ export function fusionarHistorial(local: BaseHistorial[], servidor: BaseHistoria
 /**
  * Fila del servidor → registro del equipo, para reabrir una inspección ya
  * subida y regenerar su PDF aunque el original se haya borrado del teléfono.
+ *
+ * Con `nombresEnCarpeta` (nombres reales de `pre-entrega/<id>/`) se rehidratan
+ * las `paths` de las respuestas: las filas subidas antes de que la subida las
+ * convirtiera guardaron `photoIds` locales, que en otro equipo no significan
+ * nada. Ver `rehidratarEvidencias`.
  */
-export function registroDesdeServidor(r: RevisionPreEntrega): PreEntregaRecord {
+export function registroDesdeServidor(
+  r: RevisionPreEntrega,
+  nombresEnCarpeta: string[] = []
+): PreEntregaRecord {
   return {
     ...r,
     // El servidor admite observaciones vacías como null; el registro local no.
     observaciones: r.observaciones ?? '',
     // Las fotos ya no están en el equipo: el PDF las toma del bucket, por las
     // `paths` que quedaron guardadas en las respuestas.
+    respuestas: rehidratarEvidencias(
+      r.respuestas ?? {},
+      nombresEnCarpeta,
+      `${CARPETA_INSPECCION}/${r.id}`
+    ),
     photoIds: [],
     created_at: msDe(r.created_at),
     updated_at: msDe(r.updated_at),
     sync: 'enviado'
   }
+}
+
+/**
+ * Rehidrata las `paths` de unas respuestas contra los nombres que hay en la
+ * carpeta de la revisión (`pre-entrega/<id>/`).
+ *
+ * Las inspecciones que se subieron antes de que la subida convirtiera las
+ * respuestas quedaron guardadas con `photoIds`: ids de IndexedDB que sólo
+ * existían en el equipo que sacó la foto. En cualquier otro equipo —y en el
+ * mismo, si IndexedDB se limpió— no había nada que pintar, aunque el PDF a veces
+ * seguía saliendo porque todavía encontraba los blobs.
+ *
+ * La carpeta del bucket es la fuente de verdad: el nombre de cada archivo es
+ * `<foto_id>.<ext>`, así que con la lista se reconstruye la ruta exacta sin
+ * adivinar la extensión. **Va el `carpeta` completo**: lo que pide `storage` es
+ * la ruta relativa al bucket (`pre-entrega/<id>/<foto>.jpg`) y con sólo el
+ * nombre el archivo no se encuentra. Lo que NO esté en la carpeta se queda como
+ * `photoIds`, para que una foto que todavía está en el equipo siga pudiendo
+ * verse.
+ *
+ * Es pura y no toca la red a propósito: se puede probar con una lista de
+ * nombres, y la llamada a storage vive en la pantalla que la necesita.
+ */
+export function rehidratarEvidencias(
+  respuestas: Record<string, unknown>,
+  nombresEnCarpeta: string[],
+  carpeta: string
+): Record<string, unknown> {
+  if (!nombresEnCarpeta.length || !carpeta) return respuestas
+
+  /** `foto_id` → ruta completa en el bucket (`pre-entrega/<id>/<foto_id>.jpg`). */
+  const porId = new Map<string, string>()
+  for (const nombre of nombresEnCarpeta) {
+    const sinExt = nombre.lastIndexOf('.')
+    if (sinExt <= 0) continue
+    const id = nombre.slice(0, sinExt)
+    if (!porId.has(id)) porId.set(id, `${carpeta}/${nombre}`)
+  }
+
+  const salida: Record<string, unknown> = {}
+  for (const [itemId, valor] of Object.entries(respuestas)) {
+    const v = valor as { evidencias?: unknown } | null
+    const evs = v?.evidencias
+    if (!v || !evs || typeof evs !== 'object' || Array.isArray(evs)) {
+      salida[itemId] = valor
+      continue
+    }
+    const evidencias: Record<string, unknown> = {}
+    let cambio = false
+    for (const [opcionId, e] of Object.entries(evs as Record<string, unknown>)) {
+      const fila = e as { photoIds?: unknown; paths?: unknown } | null
+      const ids = Array.isArray(fila?.photoIds)
+        ? (fila?.photoIds as unknown[]).filter((x): x is string => typeof x === 'string')
+        : []
+      const previos = Array.isArray(fila?.paths)
+        ? (fila?.paths as unknown[]).filter((x): x is string => typeof x === 'string')
+        : []
+      const encontrados: string[] = []
+      const sinResolver: string[] = []
+      for (const id of ids) {
+        const nombre = porId.get(id)
+        if (nombre) encontrados.push(nombre)
+        else sinResolver.push(id)
+      }
+      if (!encontrados.length) {
+        evidencias[opcionId] = e
+        continue
+      }
+      cambio = true
+      const siguiente: Record<string, unknown> = {
+        ...fila,
+        paths: Array.from(new Set([...previos, ...encontrados]))
+      }
+      // Las que no estaban en la carpeta siguen como ids locales: si aún viven
+      // en este equipo las pinta `MinaFotos`, y si no, simplemente no salen.
+      if (sinResolver.length) siguiente.photoIds = sinResolver
+      else delete siguiente.photoIds
+      evidencias[opcionId] = siguiente
+    }
+    salida[itemId] = cambio ? { ...v, evidencias } : valor
+  }
+  return salida
 }
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']

@@ -49,6 +49,16 @@ export function esVideoPath(path: string): boolean {
 }
 
 /**
+ * Carpeta de las fotos de inspección/pre-entrega en el bucket `evidencias`.
+ *
+ * Vive acá (y no adentro de `syncPreEntrega`) porque la necesitan también los
+ * lectores puros: al reabrir una inspección ya subida hay que reconstruir la
+ * ruta de cada foto, y ese módulo importa Supabase, que rompe al importarlo sin
+ * claves. Es la misma con la que escribe `syncPreEntrega`.
+ */
+export const CARPETA_INSPECCION = 'pre-entrega'
+
+/**
  * Duración en segundos de un video, o null si el navegador no pudo leerla
  * (algunos contenedores no exponen el metadata sin decodificar; en ese caso
  * el archivo pasa y el límite lo pondrá el servidor).
