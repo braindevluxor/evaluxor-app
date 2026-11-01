@@ -274,6 +274,19 @@ describe('Inspección de vehículo · el historial', () => {
     expect(historial).toContain('${RUTA_INSPECCION}?registro=${f.id}')
   })
 
+  it('cada fila puede pedir el PDF directo, y la pantalla lo genera al abrir', () => {
+    // El botón no reimplementa el documento: pide `&pdf=1` y la inspección —
+    // que ya sabe traer el registro de las dos orillas y las fotos— lo genera.
+    expect(historial).toContain('?registro=${f.id}&pdf=1')
+    expect(historial).toContain('<FileDown className="h-4 w-4" />')
+
+    // La petición se atiende una sola vez y el parámetro se limpia.
+    expect(pagina).toContain("params.get('pdf')")
+    expect(pagina).toContain('void exportarPDF()')
+    expect(pagina).toContain("limpio.delete('pdf')")
+    expect(pagina).toContain('pdfPedidoHecho')
+  })
+
   it('cada fila tiene papelera y pide confirmación antes de borrar', () => {
     // El borrado es de las dos orillas: el equipo (con sus fotos) y el servidor.
     expect(historial).toContain('eliminarPreEntrega(')

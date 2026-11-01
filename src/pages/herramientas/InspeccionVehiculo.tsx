@@ -135,6 +135,9 @@ export function InspeccionVehiculo() {
   // parámetro la pantalla se comporta como siempre (borrador abierto o nuevo).
   const [params, setParams] = useSearchParams()
   const registroBuscado = params.get('registro')
+  // El historial puede pedir el PDF de una vez (`&pdf=1`): en vez de abrir la
+  // inspección y esperar que alguien apriete el botón, se genera apenas carga.
+  const pdfPedido = params.get('pdf') === '1'
 
   const [reg, setReg] = useState<PreEntregaRecord | null>(null)
   const [cargando, setCargando] = useState(true)
@@ -148,6 +151,8 @@ export function InspeccionVehiculo() {
   const [aviso, setAviso] = useState<{ texto: string; ok: boolean } | null>(null)
 
   const regRef = useRef<PreEntregaRecord | null>(null)
+  /** Para que el doble effect del desarrollo no descargue dos veces. */
+  const pdfPedidoHecho = useRef(false)
 
   const itemsEvaluables = useMemo(() => items.filter((i) => i.tipo !== 'CONTENEDOR'), [items])
   // El checklist, partido en Estética / Mecánica / Gas vehicular.
@@ -185,6 +190,22 @@ export function InspeccionVehiculo() {
     // Sólo interesa el id del módulo, no el objeto módulo completo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cargado, modulo?.id, registroBuscado])
+
+  /* --- PDF pedido desde el historial (?pdf=1) ------------------------------- */
+
+  useEffect(() => {
+    // Se pide una vez: el parámetro se limpia antes de generar, así que un
+    // refresco de la página —o el segundo effect del desarrollo— no vuelve a
+    // descargar el documento.
+    if (!pdfPedido || pdfPedidoHecho.current || cargando || !reg || !modulo) return
+    pdfPedidoHecho.current = true
+    const limpio = new URLSearchParams(params)
+    limpio.delete('pdf')
+    setParams(limpio, { replace: true })
+    void exportarPDF()
+    // Se lee `params` completo porque el effect sólo depende del pedido.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdfPedido, cargando, reg, modulo])
 
   /* --- Carga inicial: retomar la inspección a medias, si quedó una ---------- */
 

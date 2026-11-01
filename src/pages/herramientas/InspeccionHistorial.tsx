@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Car, Trash2 } from 'lucide-react'
+import { ArrowLeft, Car, FileDown, Trash2 } from 'lucide-react'
 import { useCatalog, useModuloHerramienta } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
 import { avisar } from '../../lib/aviso'
@@ -207,6 +207,20 @@ export function InspeccionHistorial() {
                         </span>
                       ) : null}
                     </span>
+                  </button>
+                  {/* Descargar el PDF sin pasar por la pantalla: se pide con
+                      `&pdf=1` y la inspección lo genera apenas abre. Va el
+                      mismo flujo de siempre (traer el registro de las dos
+                      orillas, las fotos y el documento), reimplementarlo acá
+                      sería una segunda versión del mismo PDF para mantener. */}
+                  <button
+                    type="button"
+                    onClick={() => navigate(`${RUTA_INSPECCION}?registro=${f.id}&pdf=1`)}
+                    title={`Descargar el PDF de la inspección ${f.placa || 'sin placa'}`}
+                    aria-label={`Descargar el PDF de la inspección ${f.placa || 'sin placa'}`}
+                    className="my-2 shrink-0 self-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-primary-50 hover:text-primary disabled:opacity-50"
+                  >
+                    <FileDown className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
