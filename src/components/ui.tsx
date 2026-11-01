@@ -248,6 +248,31 @@ export function Spinner({ className, size = 20, light = false }: { className?: s
   )
 }
 
+/* --- Cargador de pantalla (el del arranque) -------------------------------- */
+
+/**
+ * Lo que se ve al recargar o al entrar a una ruta protegida: la MISMA animación
+ * de cajas que el login, no un esqueleto — se pidió que el F5 se sienta como
+ * entrar a la app.
+ *
+ * El fondo va pintado acá (`bg-slate-100`, que cambia con el tema): este bloque
+ * se renderiza ANTES de que exista un layout con fondo propio, y sin esto se
+ * veía el blanco del navegador con las tarjetas ya oscuras en modo oscuro.
+ */
+export function CargadorPantalla({ completa = false }: { completa?: boolean }) {
+  return (
+    <div
+      className={cn(
+        'flex flex-col items-center justify-center gap-4 bg-slate-100 px-4',
+        completa ? 'min-h-screen' : 'min-h-[60vh]'
+      )}
+    >
+      <Spinner size={44} />
+      <p className="text-sm font-medium text-slate-500">Cargando…</p>
+    </div>
+  )
+}
+
 /* --- Skeleton (esqueletos de carga por página) ----------------------------- */
 
 export function Skeleton({ className }: { className?: string }) {
@@ -287,22 +312,6 @@ export function SkeletonTarjetas({ n = 3, cols = 'md:grid-cols-2 lg:grid-cols-3'
           </div>
         </div>
       ))}
-    </div>
-  )
-}
-
-/** Esqueleto genérico de pantalla (guardas de ruta, rutas lazy). */
-export function SkeletonPantalla({ completa = false }: { completa?: boolean }) {
-  return (
-    <div className={cn('grid place-items-center px-4 py-6', completa ? 'min-h-screen' : 'min-h-[60vh]')}>
-      <div className="w-full max-w-3xl space-y-6">
-        <div className="space-y-2">
-          <Skeleton className="h-7 w-56" />
-          <Skeleton className="h-3.5 w-40" />
-        </div>
-        <SkeletonFilas n={4} card />
-        <SkeletonTarjetas n={2} cols="sm:grid-cols-2" />
-      </div>
     </div>
   )
 }

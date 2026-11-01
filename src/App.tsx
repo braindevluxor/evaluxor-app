@@ -14,9 +14,9 @@ import { RegisterPage } from './pages/login/RegisterPage'
 import { PerfilPage } from './pages/PerfilPage'
 import { EvaluarHome } from './pages/evaluar/EvaluarHome'
 import { EvaluarSucursal } from './pages/evaluar/EvaluarSucursal'
-import { EvaluacionDetalle, SkeletonEvaluacionDetalle } from './pages/EvaluacionDetalle'
+import { EvaluacionDetalle } from './pages/EvaluacionDetalle'
 import { EditarConciliacion } from './pages/EditarConciliacion'
-import { SkeletonPantalla } from './components/ui'
+import { CargadorPantalla } from './components/ui'
 import { AvisoHost } from './components/AvisoHost'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
@@ -53,7 +53,7 @@ const InspeccionHistorial = lazy(() =>
 const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH', 'EVALUADOR']
 
 function Susp() {
-  return <SkeletonPantalla />
+  return <CargadorPantalla />
 }
 
 /** Envuelve las rutas en un error boundary que se limpia al navegar: si algo
@@ -77,7 +77,7 @@ function Rutas() {
                     <Route
                       path="/evaluaciones/:evaluacionId"
                       element={
-                        <RequireAuth loadingFallback={<SkeletonEvaluacionDetalle />}>
+                        <RequireAuth loadingFallback={<CargadorPantalla completa />}>
                           <RequireRol roles={[...ROLES_DASHBOARD, 'EVALUADOR']}>
                             <EvaluacionDetalle />
                           </RequireRol>

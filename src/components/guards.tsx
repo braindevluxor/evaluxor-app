@@ -2,7 +2,7 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth, tieneRol } from '../context/AuthContext'
 import { homePorRol } from '../lib/roles'
 import type { Rol } from '../lib/types'
-import { SkeletonPantalla } from './ui'
+import { CargadorPantalla } from './ui'
 
 export function RequireAuth({
   children,
@@ -18,7 +18,7 @@ export function RequireAuth({
   // que ya se sabe el rol y si hay que pedir TOTP. Se muestran los dos: hace
   // falta el segundo para no pintar la app con la sesión a medias.
   if (loading || !perfilListo) {
-    return <>{loadingFallback ?? <SkeletonPantalla completa />}</>
+    return <>{loadingFallback ?? <CargadorPantalla completa />}</>
   }
   if (totpPendiente || !session) return <Navigate to="/login" state={{ from: location }} replace />
   if (profile?.rol === 'SIN_ROL') return <Navigate to="/pendiente" replace />
