@@ -188,6 +188,118 @@ describe('fusionarRespuestasNube', () => {
     expect(segunda.cambio).toBe(false)
     expect(segunda.respuestas).toEqual(primera.respuestas)
   })
+
+  it('suma a mi checklist los paths de la nube cuando me faltan', () => {
+    // Mi valor se reconstruyó sin fotos (fila vacía en la nube o precarga):
+    // al subirlo tal cual, la nube quedaría sin referencias y el detalle
+    // mostraría «—» con la foto todavía en el bucket.
+    const local: DraftEval['respuestas'] = {
+      'it-check::': { valor: { selected: ['a'], evidencias: {} }, por: 'yo' }
+    }
+    const { respuestas, cambio } = correr({
+      local,
+      nube: [nube({
+        item_id: 'it-check',
+        respondido_por: MI_ID,
+        valor: { selected: ['a'], evidencias: { a: { paths: ['ev/e/i/foto.jpg'] } } }
+      })]
+    })
+
+    expect(cambio).toBe(true)
+    expect(respuestas['it-check::'].por).toBe('yo')
+    expect(respuestas['it-check::'].valor).toEqual({
+      selected: ['a'],
+      evidencias: { a: { paths: ['ev/e/i/foto.jpg'] } }
+    })
+  })
+
+  it('no repite los paths que ya tengo y conserva mis photoIds locales', () => {
+    const local: DraftEval['respuestas'] = {
+      'it-check::': {
+        valor: { selected: ['a'], evidencias: { a: { paths: ['ev/e/i/vieja.jpg'], photoIds: ['local-1'] } } },
+        por: 'yo'
+      }
+    }
+    const nubeConFoto = [nube({
+      item_id: 'it-check',
+      respondido_por: MI_ID,
+      valor: { selected: ['a'], evidencias: { a: { paths: ['ev/e/i/vieja.jpg', 'ev/e/i/nueva.jpg'] } } }
+    })]
+    const primera = correr({ local, nube: nubeConFoto })
+
+    expect(primera.cambio).toBe(true)
+    expect(primera.respuestas['it-check::'].valor).toEqual({
+      selected: ['a'],
+      evidencias: { a: { paths: ['ev/e/i/vieja.jpg', 'ev/e/i/nueva.jpg'], photoIds: ['local-1'] } }
+    })
+    // Idempotente: con la nube ya fusionada no vuelve a reportar cambio.
+    expect(correr({ local: primera.respuestas, nube: nubeConFoto }).cambio).toBe(false)
+  })
+
+  it('una nube sin fotos no mueve mi valor propio ni su selección', () => {
+    const local: DraftEval['respuestas'] = {
+      'it-check::': { valor: { selected: ['a'], evidencias: {} }, por: 'yo' }
+    }
+    const { respuestas, cambio } = correr({
+      local,
+      nube: [nube({
+        item_id: 'it-check',
+        respondido_por: MI_ID,
+        valor: { selected: ['a', 'b'], evidencias: {} }
+      })]
+    })
+
+    expect(cambio).toBe(false)
+    expect(respuestas['it-check::'].valor).toEqual({ selected: ['a'], evidencias: {} })
+  })
+
+  it('en cumple sin lista propia hereda sólo las filas con fotos', () => {
+    const local: DraftEval['respuestas'] = {
+      'it-check::': { valor: { value: false }, por: 'yo' }
+    }
+    const { respuestas, cambio } = correr({
+      local,
+      nube: [nube({
+        item_id: 'it-check',
+        respondido_por: MI_ID,
+        valor: {
+          value: false,
+          evidencias: [{ paths: ['ev/e/i/f.jpg'], comentario: 'Falla' }, { paths: [], comentario: '' }]
+        }
+      })]
+    })
+
+    expect(cambio).toBe(true)
+    // Sólo la fila que aporta fotos: sin inventar filas vacías.
+    expect(respuestas['it-check::'].valor).toEqual({
+      value: false,
+      evidencias: [{ paths: ['ev/e/i/f.jpg'], comentario: 'Falla' }]
+    })
+  })
+
+  it('suma los paths de un plano por su id', () => {
+    const local: DraftEval['respuestas'] = {
+      'it-check::': {
+        valor: { planos: [{ id: 'p1', nombre: 'Planta', paths: ['ev/e/i/vieja.jpg'] }], puntos: [] },
+        por: 'yo'
+      }
+    }
+    const { respuestas, cambio } = correr({
+      local,
+      nube: [nube({
+        item_id: 'it-check',
+        respondido_por: MI_ID,
+        valor: {
+          planos: [{ id: 'p1', nombre: 'Planta', paths: ['ev/e/i/vieja.jpg', 'ev/e/i/nueva.jpg'] }],
+          puntos: []
+        }
+      })]
+    })
+
+    expect(cambio).toBe(true)
+    const planos = (respuestas['it-check::'].valor as { planos: { paths: string[] }[] }).planos
+    expect(planos[0].paths).toEqual(['ev/e/i/vieja.jpg', 'ev/e/i/nueva.jpg'])
+  })
 })
 
 describe('fusionarConciliacion', () => {
