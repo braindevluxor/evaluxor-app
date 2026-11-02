@@ -31,7 +31,10 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/dashboard/responsables': { titulo: 'Seguimiento por cargo', subtitulo: 'Nota promedio de cada responsable por sucursal' },
   '/config/usuarios': { titulo: 'Usuarios', subtitulo: 'Gestión de roles y accesos' },
   '/config/unidades': { titulo: 'Unidades', subtitulo: 'Registro de sucursales y departamentos' },
-  '/config/modulos': { titulo: 'Módulos', subtitulo: 'Configuración y explicación de cada módulo' }
+  '/config/modulos': { titulo: 'Módulos', subtitulo: 'Configuración y explicación de cada módulo' },
+  // La cuenta se configura DESDE la consola, con su barra y su menú: salirse
+  // de la barra para cambiar la contraseña se sentía como otra app.
+  '/perfil': { titulo: 'Configuración', subtitulo: 'Administra tus datos personales y la seguridad de tu cuenta' }
 }
 
 export function ConsoleLayout() {

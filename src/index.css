@@ -90,13 +90,11 @@ body {
   margin: 0;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  background-color: #f1f5f9;
-  /* El color por DEFECTO de todo lo que no pinta su propio texto. Iba escrito
-     a mano (#0f172a) y `.dark` no lo pisaba: en oscuro cualquier celda o
-     párrafo sin clase de color heredaba casi negro sobre tarjeta oscura y
-     quedaba invisible —las columnas Nº tienda / ID trabajadores / Gerente de
-     Unidades, que no llevan clase, desaparecían. Con el token, el mismo `.dark`
-     que ya aclara `text-slate-900` aclara también lo heredado. */
+  /* Sin fondo propio: el del documento (`html`, más arriba) pinta el lienzo
+     entero y ya sigue el tema. Un valor fijo acá tapaba ese fondo y dejaba en
+     gris claro toda página sin layout con fondo propio (login, /perfil) en
+     modo oscuro. El color del TEXTO sí va por token: es lo que hereda todo lo
+     que no pinta su propio color. */
   color: var(--color-slate-900);
 }
 
@@ -549,13 +547,18 @@ input[type='date'] {
      fondo, así que sube al azul vivo de la marca. */
   --serie-primaria: #28315f;
 }
-.dark {
-  /* El fondo del DOCUMENTO, no el de una pantalla: el arranque (F5) se pinta
+/* El fondo del DOCUMENTO, no el de una pantalla: el arranque (F5) se pinta
    antes de que exista un layout con fondo propio, así que con el default del
    navegador salía blanco. Va con valor FIJO por tema y no con `var`: el valor
    ya está decidido en cada regla y ningún minificador puede romperlo.
    `color-scheme` va de la mano: le dice al sistema que pinte scrollbars,
-   campos y selección en clave clara u oscura según el tema. */
+   campos y selección en clave clara u oscura según el tema.
+
+   ESTAS DOS REGLAS VAN SUELTAS, FUERA DE `.dark`: estando anidadas adentro
+   compilaban a `.dark html`, que NUNCA coincide —`.dark` se pone EN el
+   `<html>`, no encima—, así que el fondo del documento se quedaba claro en
+   modo oscuro. Se veía en las páginas sin layout con fondo propio (/perfil,
+   /login), que quedaban en gris claro con texto claro encima. */
 html {
   color-scheme: light;
   background-color: #f1f5f9;
@@ -565,7 +568,8 @@ html.dark {
   background-color: #0b1220;
 }
 
-/* Pasteles → VÍVIDOS en oscuro (la paleta de referencia del dashboard: bloques
+.dark {
+  /* Pasteles → VÍVIDOS en oscuro (la paleta de referencia del dashboard: bloques
      saturados con tinta oscura encima, no tintes apagados). El contraste se
      sostiene bajando la tinta al tono casi negro del mismo matiz. */
   --pastel-verde-fondo: #22c55e;

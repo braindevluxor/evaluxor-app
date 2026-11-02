@@ -75,7 +75,6 @@ function Rutas() {
                         conciliación sin tener cuenta. La autorización es el
                         token, y sólo da lectura — ver `supabase/compartir-evaluacion.sql`. */}
                     <Route path="/compartir/:token" element={<ConciliacionPublica />} />
-                    <Route path="/perfil" element={<RequireAuth><PerfilPage /></RequireAuth>} />
                     <Route
                       path="/evaluaciones/:evaluacionId"
                       element={
@@ -264,6 +263,10 @@ function Rutas() {
                       />
                       <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
                       <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
+                      {/* La cuenta de cualquiera que haya entrado: por eso no
+                          lleva `RequireRol`. Va adentro de la consola para que
+                          se vea con su barra y su menú, igual que el resto. */}
+                      <Route path="/perfil" element={<PerfilPage />} />
                     </Route>
 
                     <Route path="*" element={<HomeRedirect />} />

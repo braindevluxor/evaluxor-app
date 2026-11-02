@@ -1,5 +1,4 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 import { ShieldCheck } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -129,19 +128,11 @@ export function PerfilPage() {
   const inicial = (nombre || profile?.email || 'U').slice(0, 1).toUpperCase()
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6">
-      <Link to={profile?.rol === 'EVALUADOR' ? '/evaluar' : '/dashboard'} className="text-sm text-primary hover:underline">
-        ← Volver
-      </Link>
-
-      <div className="mt-2 border-b border-slate-200 pb-5">
-        <h1 className="text-2xl font-extrabold text-primary-900">Configuración</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Administra tus datos personales y la seguridad de tu cuenta
-        </p>
-      </div>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-[200px_1fr]">
+    // Sin título ni «Volver» propios: los pone la cabecera de la consola
+    // (`titulosVista` en ConsoleLayout) y el menú lateral. Tampoco trae padding
+    // ni ancho máximo: ya los trae el `<main>` del layout.
+    <div className="mx-auto max-w-5xl">
+      <div className="grid gap-6 lg:grid-cols-[200px_1fr]">
         {/* Las pestañas: a la izquierda en escritorio, en fila en el teléfono.
             La activa es una píldora oscura —no un subrayado— para que se lea
             como «sección», no como un enlace más. */}

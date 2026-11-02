@@ -141,6 +141,11 @@ describe('tema · dónde vive el efecto', () => {
     // arranque no puede depender de un `var()` que el minificador reescriba.
     expect(css).toContain('html.dark {')
     expect(css).toContain('background-color: #0b1220')
+    // Las dos reglas del documento van SUELTAS, fuera de `.dark`: estando
+    // anidadas compilaban a `.dark html`, que nunca coincide —`.dark` se pone
+    // EN el `<html>`, no encima— y el fondo del documento se quedaba claro en
+    // oscuro. Se veía en /perfil, que es una página sin fondo propio.
+    expect(css).not.toMatch(/\.dark \{\s*[^}]*\bhtml \{/)
 
     const diseno = fuente('../lib/diseno.ts')
     expect(diseno).toContain('var(--pastel-verde-fondo)')
