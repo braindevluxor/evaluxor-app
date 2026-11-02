@@ -1624,12 +1624,17 @@ export function EvaluacionDetalle() {
               />
             </div>
             {evaluacion.estado === 'ACTIVA' ? (
+              // Sin canal realtime en esta pantalla: el detalle se refresca con
+              // el barrido de 15 s, así que el rótulo dice ese plazo en vez de
+              // prometer un «en vivo» instantáneo. El punto verde sigue marcando
+              // que la evaluación está abierta. El 15 s tiene que coincidir con
+              // el `setInterval` del refresco.
               <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-[11px] font-bold text-green-700">
                 <span className="relative flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-green-600" />
                 </span>
-                EN VIVO · {respuestas.length} respuesta(s) registradas hasta ahora
+                Abierta · {respuestas.length} respuesta(s) · se actualiza cada 15 s
               </p>
             ) : null}
             {evaluacion.comentario_general ? (
