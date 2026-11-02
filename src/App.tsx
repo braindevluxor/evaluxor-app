@@ -32,6 +32,7 @@ const UnidadesPage = lazy(() => import('./pages/config/Unidades').then((m) => ({
 const ModulosPage = lazy(() => import('./pages/config/Modulos').then((m) => ({ default: m.ModulosPage })))
 const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ default: m.ItemsPage })))
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
+const BitacoraPage = lazy(() => import('./pages/config/Bitacora').then((m) => ({ default: m.BitacoraPage })))
 // Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
 // cuenta. Va con lazy porque sólo se descarga quien abre el enlace.
 const ConciliacionPublica = lazy(() =>
@@ -263,6 +264,10 @@ function Rutas() {
                       />
                       <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
                       <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
+                      {/* La bitácora es sólo lectura y sólo Líder: el RLS de
+                          la tabla ya lo decide (`bitacora_asignaciones_select`),
+                          acá se replica para que ni siquiera se pida la ruta. */}
+                      <Route path="/config/bitacora" element={<SoloLider><BitacoraPage /></SoloLider>} />
                       {/* La cuenta de cualquiera que haya entrado: por eso no
                           lleva `RequireRol`. Va adentro de la consola para que
                           se vea con su barra y su menú, igual que el resto. */}

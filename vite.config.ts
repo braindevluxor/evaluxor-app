@@ -88,7 +88,14 @@ export default defineConfig({
         // Los originales de marca son la fuente con la que se generaron los
         // webp: la app no los usa y no tienen que ocupar el caché offline.
         globIgnores: ['**/isotipo.png', '**/completo.png', '**/logo.png'],
-        navigateFallback: '/index.html'
+        navigateFallback: '/index.html',
+        // El handler de push. `generateSW` no acepta handlers propios, así que
+        // en vez de migrar a `injectManifest` (lo que obligaría a reescribir el
+        // precacheo offline) se carga un archivo aparte por `importScripts`.
+        // Va ANTES del precacheo en el template de Workbox, así que las
+        // escuchas de `push` y `notificationclick` quedan registradas desde la
+        // instalación del SW. Ver `public/push-handler.js`.
+        importScripts: ['/push-handler.js']
       }
     })
   ],

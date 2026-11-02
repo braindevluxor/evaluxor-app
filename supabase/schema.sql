@@ -4931,3 +4931,257 @@ do $$
 begin
   execute 'revoke select on public.alertas_cargo from anon';
 end $$;
+
+-- Archivo consolidado: bitacora-asignaciones.sql
+-- ###########################################################################
+-- ============================================================================
+-- BITACORA DE ASIGNACIONES
+--
+-- QUIEN HIZO QUE CAMBIO, Y CUANDO.
+--
+-- `asignaciones` y `asignaciones_modulos` guardan `created_by` y `created_at`,
+-- pero eso cubre solamente la ALTA. Desasignar no borra la fila: se hace un
+-- `update activa = false` (ver `configurarSucursalModulos` y
+-- `configurarDepartamentoModulos`), asi que nadie deja constancia de quien la
+-- apago ni cuando. Lo mismo pasa con la configuracion por unidad
+-- (`sucursal_modulos` / `departamento_modulos`).
+--
+-- Es una tabla NUEVA y no una columna mas: el historial acumula y no se pisa,
+-- y un `update` no puede reescribir el pasado. La escribe un TRIGGER y no la
+-- app, asi que no hay forma de que alguien "olvide" registrar un cambio.
+--
+-- ALCANCE: las cuatro tablas de asignacion. Agregar otra es una linea
+-- (`create trigger` con esta misma funcion), no reescribir nada.
+--
+-- El `created_by` de las tablas originales se queda tal cual: sigue diciendo
+-- quien la CREO. Esta tabla agrega el resto de la vida de la fila.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo sin duplicar triggers ni pisar el historial ya acumulado.
+-- ============================================================================
+create table if not exists public.bitacora_asignaciones (
+  id uuid primary key default gen_random_uuid(),
+  -- La tabla que cambio, sin esquema: 'asignaciones', 'asignaciones_modulos',
+  -- 'sucursal_modulos' o 'departamento_modulos'. Es texto a proposito: si
+  -- mañana se agrega una tabla al alcance no hay que tocar este check.
+  tabla text not null,
+  -- Fila afectada. Se guarda el id y no la fila entera porque la fila puede
+  -- dejar de existir (un borrado); el id sigue siendo el gancho para cruzar.
+  registro_id uuid,
+  accion text not null check (accion in ('CREADO', 'MODIFICADO', 'ELIMINADO')),
+  -- La fila antes y despues, como jsonb. NULL en las orillas que no existen:
+  -- un CREADO no tiene previo y un ELIMINADO no tiene siguiente. Guardar las
+  -- dos permite responder "que valia antes" sin tener que reconstruirla.
+  datos_previos jsonb,
+  datos_nuevos jsonb,
+  -- Quien estaba en sesion al hacer el cambio. `auth.uid()`, el mismo criterio
+  -- que usan las politicas RLS de todo el esquema.
+  actor uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+-- El listado se ordena por fecha (la pantalla) y por registro_id (el
+-- historial de UNA asignacion concreta).
+create index if not exists idx_bitacora_asignaciones_fecha
+  on public.bitacora_asignaciones (created_at desc);
+create index if not exists idx_bitacora_asignaciones_registro
+  on public.bitacora_asignaciones (registro_id, created_at desc);
+create index if not exists idx_bitacora_asignaciones_tabla
+  on public.bitacora_asignaciones (tabla, created_at desc);
+
+-- ----------------------------------------------------------------------------
+-- El trigger.
+--
+-- SECURITY DEFINER: la escribe el dueno de la funcion, que es el rol con el
+-- que se corre el SQL Editor (postgres), y por eso atraviesa el RLS de la
+-- bitacora — que abajo NO tiene politica de INSERT, para que nadie escriba
+-- desde la app. Sin esto el Lider no podria guardar una asignacion porque
+-- tampoco tendria permiso de insertar en la bitacora.
+--
+-- Dos decisiones que no son de estilo:
+--
+--  * Un UPDATE que no cambia nada NO se registra. Si se registrara, cada
+--    guardado de la pantalla de configuracion dejaria filas mudas (los
+--    `aActivar` ya vienen filtrados, pero un doble toque o dos pantallas
+--    abiertas lo igualan), y el historial terminaria diciendo que cambio lo
+--    que no cambio.
+--  * El `case tg_op` evalua solo la rama que corresponde: en un DELETE no se
+--    toca `new` (es null), y en un INSERT no se toca `old`.
+-- ----------------------------------------------------------------------------
+create or replace function public.registrar_bitacora_asignaciones()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_previo jsonb := null;
+  v_nuevo jsonb := null;
+  v_id uuid;
+begin
+  if tg_op = 'INSERT' then
+    v_nuevo := to_jsonb(new);
+    v_id := (v_nuevo ->> 'id')::uuid;
+  elsif tg_op = 'UPDATE' then
+    v_previo := to_jsonb(old);
+    v_nuevo := to_jsonb(new);
+    -- Nada cambio: no es un cambio, no entra en el historial.
+    if v_previo = v_nuevo then
+      return new;
+    end if;
+    v_id := (v_nuevo ->> 'id')::uuid;
+  else
+    v_previo := to_jsonb(old);
+    v_id := (v_previo ->> 'id')::uuid;
+  end if;
+
+  insert into public.bitacora_asignaciones
+    (tabla, registro_id, accion, datos_previos, datos_nuevos, actor)
+  values (
+    tg_table_name,
+    v_id,
+    case tg_op
+      when 'INSERT' then 'CREADO'
+      when 'UPDATE' then 'MODIFICADO'
+      else 'ELIMINADO'
+    end,
+    v_previo,
+    v_nuevo,
+    auth.uid()
+  );
+
+  return coalesce(new, old);
+end;
+$$;
+
+-- El revoke va DESPUES del `create or replace`: ese reactiva el permiso
+-- heredado de PUBLIC, asi que cerrar la puerta antes se pierde al definir.
+revoke execute on function public.registrar_bitacora_asignaciones() from public, anon;
+grant  execute on function public.registrar_bitacora_asignaciones() to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Los cuatro triggers. `drop trigger if exists` + `create trigger` es lo que
+-- hace idempotente al bloque: correrlo de nuevo no duplica nada.
+-- ----------------------------------------------------------------------------
+drop trigger if exists trg_bitacora_asignaciones on public.asignaciones;
+create trigger trg_bitacora_asignaciones
+  after insert or update or delete on public.asignaciones
+  for each row execute function public.registrar_bitacora_asignaciones();
+
+drop trigger if exists trg_bitacora_asignaciones_modulos on public.asignaciones_modulos;
+create trigger trg_bitacora_asignaciones_modulos
+  after insert or update or delete on public.asignaciones_modulos
+  for each row execute function public.registrar_bitacora_asignaciones();
+
+drop trigger if exists trg_bitacora_sucursal_modulos on public.sucursal_modulos;
+create trigger trg_bitacora_sucursal_modulos
+  after insert or update or delete on public.sucursal_modulos
+  for each row execute function public.registrar_bitacora_asignaciones();
+
+drop trigger if exists trg_bitacora_departamento_modulos on public.departamento_modulos;
+create trigger trg_bitacora_departamento_modulos
+  after insert or update or delete on public.departamento_modulos
+  for each row execute function public.registrar_bitacora_asignaciones();
+
+-- ----------------------------------------------------------------------------
+-- RLS: el LIDER lee. Nadie escribe desde la app — no hay politica de INSERT,
+-- UPDATE ni DELETE, asi que el unico camino de escritura es el trigger.
+-- ----------------------------------------------------------------------------
+alter table public.bitacora_asignaciones enable row level security;
+
+drop policy if exists bitacora_asignaciones_select on public.bitacora_asignaciones;
+create policy bitacora_asignaciones_select on public.bitacora_asignaciones
+  for select to authenticated using (public.es_lider());
+
+-- Segunda mitad de la cerradura, igual que en `parametros-sucursal.sql`: si
+-- algun dia RLS queda apagado en esta tabla, el grant por defecto de Supabase
+-- pasa a ser la unica puerta. Con el revoke sigue cerrada.
+do $$
+begin
+  execute 'revoke select on public.bitacora_asignaciones from anon';
+end $$;
+
+-- Archivo consolidado: push-suscripciones.sql
+-- ###########################################################################
+-- ============================================================================
+-- SUSCRIPCIONES A NOTIFICACIONES PUSH
+--
+-- QUE GUARDA Y POR QUE ES UNA TABLA Y NO UN CAMPO EN `profiles`
+-- ------------------------------------------------------------
+-- Un usuario puede estar suscrito desde VARIOS dispositivos (el teléfono y la
+-- tableta del gerente), y cada uno tiene su propio `endpoint` con sus propias
+-- claves `p256dh`/`auth`. Meterlo en `profiles` obligaría a un campo jsonb
+-- multi-dispositivo y a perder el endpoint viejo al suscribir el nuevo.
+--
+-- El `endpoint` es la dirección a la que se manda: es única por definición
+-- (lo decide el push service del navegador), y de ahí sale el `unique`. Si un
+-- navegador rota su suscripción —que lo hace— llega un endpoint nuevo y se
+-- inserta otro registro; el viejo queda con `activa = false` o se borra al
+-- devolver 410 Gone.
+--
+-- QUIEN LEE Y QUIEN ESCRIBE
+-- -------------------------
+-- Sólo el dueño de la fila: cada uno gestiona las suyas (`user_id =
+-- auth.uid()`). El endpoint que manda (`api/push.js`) NO lee por RLS: usa la
+-- service role key del servidor, que bypasea las políticas. Si leyera con el
+-- JWT del usuario sólo vería las suscripciones de él y no podría avisarle a
+-- nadie.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+create table if not exists public.push_suscripciones (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  -- La dirección del push service. Texto largo y único: es la clave natural
+  -- de la fila, no un id que se genere.
+  endpoint text not null unique,
+  -- Las dos claves de cifrado del canal (RFC 8291). Sin ellas el payload se
+  -- mandaría en claro al push service.
+  p256dh text not null,
+  auth text not null,
+  -- Preferencia del usuario: apagar las notificaciones desde la app sin
+  -- destruir la suscripción (se puede re-encender sin volver a pedir permiso).
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  -- La escribe el cliente al suscribirse/re-suscribirse. Es lo que permite
+  -- podar suscripciones que llevan meses sin refrescarse: un navegador que no
+  -- vuelve a suscribirse en ese tiempo ya no recibe nada.
+  updated_at timestamptz not null default now()
+);
+
+-- La consulta del endpoint es "todas las activas"; la del usuario es "las mías".
+create index if not exists idx_push_suscripciones_usuario
+  on public.push_suscripciones (user_id, activa);
+create index if not exists idx_push_suscripciones_activas
+  on public.push_suscripciones (updated_at) where activa;
+
+-- ----------------------------------------------------------------------------
+-- RLS: cada uno con las suyas. Nadie más las ve — ni siquiera otro Líder,
+-- porque un endpoint de push es una dirección de entrega y no hay motivo para
+-- que otro usuario la tenga.
+-- ----------------------------------------------------------------------------
+alter table public.push_suscripciones enable row level security;
+
+drop policy if exists push_suscripciones_select on public.push_suscripciones;
+create policy push_suscripciones_select on public.push_suscripciones
+  for select to authenticated using (user_id = auth.uid());
+
+drop policy if exists push_suscripciones_insert on public.push_suscripciones;
+create policy push_suscripciones_insert on public.push_suscripciones
+  for insert to authenticated with check (user_id = auth.uid());
+
+drop policy if exists push_suscripciones_update on public.push_suscripciones;
+create policy push_suscripciones_update on public.push_suscripciones
+  for update to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists push_suscripciones_delete on public.push_suscripciones;
+create policy push_suscripciones_delete on public.push_suscripciones
+  for delete to authenticated using (user_id = auth.uid());
+
+-- Segunda mitad de la cerradura, igual que en `parametros-sucursal.sql`: el
+-- grant por defecto de Supabase le da acceso a anon.
+do $$
+begin
+  execute 'revoke all on public.push_suscripciones from anon';
+end $$;

@@ -32,6 +32,7 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/config/usuarios': { titulo: 'Usuarios', subtitulo: 'Gestión de roles y accesos' },
   '/config/unidades': { titulo: 'Unidades', subtitulo: 'Registro de sucursales y departamentos' },
   '/config/modulos': { titulo: 'Módulos', subtitulo: 'Configuración y explicación de cada módulo' },
+  '/config/bitacora': { titulo: 'Bitácora', subtitulo: 'Quién cambió cada asignación, y cuándo' },
   // La cuenta se configura DESDE la consola, con su barra y su menú: salirse
   // de la barra para cambiar la contraseña se sentía como otra app.
   '/perfil': { titulo: 'Configuración', subtitulo: 'Administra tus datos personales y la seguridad de tu cuenta' }
@@ -75,7 +76,10 @@ function ConsoleLayoutContenido() {
       items: [
         { to: '/config/unidades', label: 'Unidades', icon: <Store className="h-5 w-5" /> },
         { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> },
-        { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> }
+        { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> },
+        // Sólo Líder, igual que las demás: la ruta va envuelta en `SoloLider`
+        // y el RLS de la tabla es la segunda cerradura.
+        { to: '/config/bitacora', label: 'Bitácora', icon: <History className="h-5 w-5" /> }
       ]
     }
   ] : profile && profile.rol === 'EVALUADOR' ? [
