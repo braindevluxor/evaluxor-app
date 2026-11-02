@@ -31,9 +31,12 @@ describe('evaluaciones de departamento · el Líder las apertura desde Historial
   it('el historial se puede filtrar por departamento y la tabla nombra la unidad', () => {
     const pagina = fuente('../dashboard/Historial.tsx')
     expect(pagina).toContain('departamento_ids: departamentoSel ? [departamentoSel] : null')
-    // Los dos filtros son excluyentes: una fila no puede ser de las dos cosas.
-    expect(pagina).toContain("if (e.target.value) setDepartamentoSel('')")
-    expect(pagina).toContain('if (e.target.value) setSucursalSel(\'\')')
+    // Los dos filtros son excluyentes: el modo que se elige en la barra
+    // superior decide cuál de los dos ofrece el panel, y cambiar de modo
+    // despeja el otro. (Antes los dos selects se limpiaban entre sí.)
+    expect(pagina).toContain("const [modoUnidad, setModoUnidad]")
+    expect(pagina).toContain("if (modo === 'sucursal') setDepartamentoSel('')")
+    expect(pagina).toContain("else setSucursalSel('')")
     expect(pagina).toContain('<th className="px-4 py-3">Unidad</th>')
     expect(pagina).toContain('{ev.departamento?.nombre ?? ev.sucursal?.nombre ?? \'Sucursal\'}')
     expect(pagina).toContain('<Badge color={0}>Departamento</Badge>')

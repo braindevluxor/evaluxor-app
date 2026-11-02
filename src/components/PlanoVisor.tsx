@@ -69,7 +69,13 @@ export function PlanoVisor({ src, alt, puntos, numeros, seleccionado, onSelect, 
   // (que dispara onLoad antes de que corran los efectos) nunca queda sin medir, y al
   // cambiar de plano la geometría anterior se descarta sola.
   const [medida, setMedida] = useState<{ src: string; w: number; h: number } | null>(null)
-  const natural = medida && medida.src === src ? { w: medida.w, h: medida.h } : null
+  // Memoizado: el objeto literal de abajo se recrearía en cada render y con eso
+  // las dependencias de los efectos que lo usan cambiarían siempre (re-registro
+  // de escuchas y recálculo de `geo` en cada pintura).
+  const natural = useMemo(
+    () => (medida && medida.src === src ? { w: medida.w, h: medida.h } : null),
+    [medida, src]
+  )
   const [caja, setCaja] = useState({ w: 0, h: 0 })
   const [vista, setVistaState] = useState<Vista>(vistaInicial)
 

@@ -4,6 +4,7 @@ import { listarSucursalesAdmin, guardarSucursal, type SucursalVista } from '../.
 import { listarUsuarios, type ProfileVista } from '../../lib/data/usuarios'
 import type { Sucursal } from '../../lib/types'
 import { Button, ButtonIcon, Field, Input, Modal, Badge, Select, SkeletonFilas } from '../../components/ui'
+import { PortalCabecera } from '../../components/PortalCabecera'
 import { SucursalConfigModal } from './SucursalConfig'
 import { ParametrosSucursalModal } from './SucursalParametros'
 import { useCatalog } from '../../context/CatalogContext'
@@ -29,9 +30,13 @@ export function SucursalesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <Button onClick={() => { setEditando(null); setModal(true) }}>+ Nueva</Button>
-      </div>
+      {/* El alta se ofrece en la barra superior, junto al selector de
+          pestañas, por el mismo portal que usa el Historial. */}
+      <PortalCabecera>
+        <Button onClick={() => { setEditando(null); setModal(true) }} title="Nueva sucursal" aria-label="Nueva sucursal">
+          + Nueva
+        </Button>
+      </PortalCabecera>
 
       {cargando ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4">

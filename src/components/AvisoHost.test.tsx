@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'vitest'
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { AvisoHost } from './AvisoHost'
+import { avisar } from '../lib/aviso'
 
 function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -28,6 +32,18 @@ describe('AvisoHost · el cartel flotante de confirmaciones', () => {
     expect(src).toContain('pointer-events-none')
   })
 
+  it('va a la esquina inferior derecha, sin pisar el contenido de la página', () => {
+    const src = fuente('./AvisoHost.tsx')
+    // A la derecha y no al centro: en el centro tapaba lo que la página
+    // estuviera mostrando en su mitad.
+    expect(src).toContain('right-4')
+    // Sin `left-1/2` ni `-translate-x-1/2`: la animación termina en
+    // `transform: none` con `fill-mode: both` y les pisa el centrado, así que
+    // además de innecesarios dejaban el cartel desalineado al entrar.
+    expect(src).not.toContain('left-1/2')
+    expect(src).not.toContain('-translate-x-1/2')
+  })
+
   it('se pinta en el body, fuera de cualquier contenedor con overflow', () => {
     const src = fuente('./AvisoHost.tsx')
     expect(src).toMatch(/createPortal\(/)
@@ -49,6 +65,37 @@ describe('AvisoHost · el cartel flotante de confirmaciones', () => {
     expect(src).not.toContain('aria-live=')
   })
 
+  it('el formato es el de una notificación: banda de color, fondo tintado e icono en su burbuja', () => {
+    const src = fuente('./AvisoHost.tsx')
+    // La banda a la izquierda es lo que identifica el tipo de un vistazo.
+    expect(src).toContain('border-l-4')
+    expect(src).toContain('rounded-full text-white')
+    // El título va en su renglón y el texto debajo, no en la misma línea.
+    expect(src).toContain('font-bold text-slate-900')
+    expect(src).toContain('text-sm text-slate-600')
+  })
+
+  it('cubre los cuatro tonos, cada uno con su pinta y su título', () => {
+    const src = fuente('./AvisoHost.tsx')
+    expect(src).toMatch(/ok: \{ titulo: 'Listo'/)
+    expect(src).toMatch(/aviso: \{ titulo: 'Atención'/)
+    expect(src).toMatch(/error: \{ titulo: 'No se pudo'/)
+    expect(src).toMatch(/info: \{ titulo: 'Aviso'/)
+    // El azul de la información es el primario de la casa, no un azul suelto.
+    expect(src).toContain('bg-primary-500')
+
+    const aviso = fuente('../lib/aviso.ts')
+    expect(aviso).toContain("'ok' | 'aviso' | 'error' | 'info'")
+  })
+
+  it('la tarjeta se puede tocar para cerrarla, pero el aire de alrededor no', () => {
+    const src = fuente('./AvisoHost.tsx')
+    // El contenedor deja pasar el toque a la pantalla; sólo la tarjeta lo
+    // absorbe, y es la que lleva el botón de cerrar.
+    expect(src).toContain('pointer-events-auto')
+    expect(src).toContain('aria-label="Cerrar aviso"')
+  })
+
   it('está montado en App y FUERA de las rutas', () => {
     const app = fuente('../App.tsx')
     const rutas = app.slice(app.indexOf('function Rutas()'), app.indexOf('export default function App()'))
@@ -59,5 +106,42 @@ describe('AvisoHost · el cartel flotante de confirmaciones', () => {
     expect(rutas).not.toContain('AvisoHost')
     expect(principal).toContain('<AvisoHost />')
     expect(principal).toContain('<Rutas />')
+  })
+})
+
+describe('AvisoHost · el cartel de verdad (jsdom)', () => {
+  let cont: HTMLElement
+  let root: Root
+
+  beforeEach(async () => {
+    cont = document.createElement('div')
+    document.body.appendChild(cont)
+    root = createRoot(cont)
+    await act(async () => root.render(<AvisoHost />))
+  })
+
+  afterEach(async () => {
+    await act(async () => root.unmount())
+    cont.remove()
+    document.body.innerHTML = ''
+  })
+
+  it('al avisar, el cartel aparece con su título y el mensaje', async () => {
+    await act(async () => {
+      avisar('Llamado de atención registrado para Cajero.', 'ok')
+    })
+
+    expect(document.body.textContent).toContain('Listo')
+    expect(document.body.textContent).toContain('Llamado de atención registrado para Cajero.')
+  })
+
+  it('el error se pinta con su pinta de error y su título', async () => {
+    await act(async () => {
+      avisar('No se pudo registrar el llamado.', 'error')
+    })
+
+    expect(document.body.textContent).toContain('No se pudo')
+    expect(document.body.textContent).toContain('No se pudo registrar el llamado.')
+    expect(document.querySelector('[class*="border-red-500"]')).not.toBeNull()
   })
 })

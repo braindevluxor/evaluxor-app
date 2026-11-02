@@ -56,6 +56,14 @@ export interface FiltrosIndicadores {
    * inflaba «Evaluaciones en el rango».
    */
   soloSucursales?: boolean
+  /**
+   * Solo evaluaciones de departamento: el corte contrario al anterior. El
+   * Historial lo usa para su selector Sucursal/Departamento de la barra
+   * superior —separar la lista en dos—, y el espejo se consigue con
+   * `soloSucursales`. Se declara aparte de `departamento_ids` porque éste
+   * acota a departamentos CONCRETOS y éste sólo pide la clase de unidad.
+   */
+  soloDepartamentos?: boolean
 }
 
 /**
@@ -320,10 +328,18 @@ export async function consultarEvaluaciones(f: FiltrosIndicadores): Promise<Conj
   if (departamentos) query = query.in('departamento_id', departamentos)
   if (f.soloCerradas) query = query.eq('estado', 'CERRADA')
   if (f.soloSucursales) query = query.is('departamento_id', null)
+  // Espejo de `soloSucursales`: una evaluación de DEPARTAMENTO es la que no
+  // tiene sucursal (`sucursal_id` en null) y lleva `departamento_id`; la de
+  // sucursal es al revés. Un `.not(...)` acá traería justo las sucursales.
+  if (f.soloDepartamentos) query = query.is('sucursal_id', null)
   if (f.desde) query = query.gte('fecha', f.desde)
   if (f.hasta) query = query.lte('fecha', f.hasta)
 
-  const { data: evals } = await query
+  const { data: evals, error } = await query
+  // Un error de PostgREST no trae filas: ignorarlo hacía que cualquier falla
+  // (permiso, columna que ya no existe, red) se leyera en pantalla como «aún
+  // no hay datos», que es un falso. Se propaga y cada pantalla decide qué decir.
+  if (error) throw new Error(`No se pudieron leer las evaluaciones: ${error.message}`)
   const evaluaciones = (evals ?? []) as VistaEvaluacion[]
   const vacio: ConjuntoDatos = { evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [], instancias: [] }
   if (!evaluaciones.length) return vacio
@@ -449,8 +465,12 @@ export function puntajeModuloDeRespuestas(
  * `unidadId` es el id de la sucursal o del departamento de la evaluación (ver
  * `unidadDe`); la lista de opciones marcadas puede traer las dos clases porque
  * las de departamento entran con su id en `sucursal_id`.
+ *
+ * Exportado para el seguimiento por evaluación (`seguimientoEvaluaciones.ts`):
+ * una nota calculada sin pasar por acá saldría distinta de la que pinta el
+ * detalle, porque el recorte de opciones cambia cuánto pesa cada punto.
  */
-function aplicarOpcionesSucursal(item: Item, unidadId: string, conf: ConfigOpciones): Item {
+export function aplicarOpcionesSucursal(item: Item, unidadId: string, conf: ConfigOpciones): Item {
   if (item.tipo !== 'CHECKLIST') return item
   const conPermisos = aplicarPermisosChecklist(item, unidadId, conf)
   if (conPermisos !== item) return conPermisos
@@ -1545,7 +1565,7 @@ export interface FilaSeguimientoCargo {
 
 export interface SeguimientoResponsables {
   /** Unidades con al menos algo medido, la nota más baja primero: lo peor queda a la izquierda. */
-  unidades: { id: string; nombre: string; puntos: number }[]
+  unidades: { id: string; nombre: string; puntos: number; tipo: 'sucursal' | 'departamento' }[]
   filas: FilaSeguimientoCargo[]
   /** Nota global, ponderada, de todos los cargos juntos: es la de la franja de KPIs. */
   nota: number | null
@@ -1581,7 +1601,10 @@ export interface SeguimientoResponsables {
 export function seguimientoResponsables(datos: ConjuntoDatos): SeguimientoResponsables {
   const evalDe = new Map(datos.evaluaciones.map((e) => [e.id, e]))
   const itemDe = new Map(datos.items.map((i) => [i.id, i]))
-  const unidades = new Map<string, { nombre: string; logrado: number; posible: number; puntos: number }>()
+  const unidades = new Map<
+    string,
+    { nombre: string; logrado: number; posible: number; puntos: number; tipo: 'sucursal' | 'departamento' }
+  >()
   const cargos = new Map<
     string,
     {
@@ -1615,7 +1638,16 @@ export function seguimientoResponsables(datos: ConjuntoDatos): SeguimientoRespon
       const existente = unidades.get(unidadId)
       if (existente) return existente
       if (!notas.length) return undefined
-      const nueva = { nombre: nombreUnidad, logrado: 0, posible: 0, puntos: 0 }
+      // El tipo de la unidad: la alerta de seguimiento se guarda contra la FK
+      // que corresponde (sucursales o departamentos), y este es el único lugar
+      // que sabe cuál es. No cambia con la evaluación: es el id el que decide.
+      const nueva = {
+        nombre: nombreUnidad,
+        logrado: 0,
+        posible: 0,
+        puntos: 0,
+        tipo: ev.departamento_id ? ('departamento' as const) : ('sucursal' as const)
+      }
       unidades.set(unidadId, nueva)
       return nueva
     }
@@ -1710,7 +1742,7 @@ export function seguimientoResponsables(datos: ConjuntoDatos): SeguimientoRespon
         b.puntos - a.puntos ||
         a.nombre.localeCompare(b.nombre, 'es')
     )
-    .map(([id, u]) => ({ id, nombre: u.nombre, puntos: u.puntos }))
+    .map(([id, u]) => ({ id, nombre: u.nombre, puntos: u.puntos, tipo: u.tipo }))
 
   const logrado = filas.reduce((a, f) => a + f.logrado, 0)
   const posible = filas.reduce((a, f) => a + f.posible, 0)

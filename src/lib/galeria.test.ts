@@ -71,7 +71,9 @@ describe('galeria · cómo se guarda', () => {
     expect(galeria).not.toContain('comprimirFoto')
     expect(galeria).not.toContain('../lib/fotos')
     expect(captura).toContain('const originales = Array.from(files)')
-    expect(captura).toContain('if (respaldar) await guardarEnGaleria(originales)')
+    // Los videos van tal cual y los rechazados por duración no se respaldan:
+    // no entraron a la app, copiarlos sólo ensuciaría.
+    expect(captura).toContain('if (respaldar && aceptados.length) await guardarEnGaleria(aceptados)')
     // Y la app sigue guardando su versión comprimida de siempre.
     expect(captura).toContain('addPhoto(blob, mime)')
   })
@@ -99,6 +101,6 @@ describe('galeria · cómo se guarda', () => {
     // Guardia dentro de guardarEnGaleria: aunque alguien olvide preguntar,
     // una PC de escritorio nunca recibe la descarga automática.
     expect(galeria).toContain('if (!respaldoAutomatico()) return')
-    expect(captura).toContain('if (respaldar) await guardarEnGaleria(originales)')
+    expect(captura).toContain('if (respaldar && aceptados.length) await guardarEnGaleria(aceptados)')
   })
 })

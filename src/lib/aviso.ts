@@ -9,7 +9,11 @@
  * carteles— y cada uno lleva su `clave` para que el host sepa cuándo se pintó
  * y cuándo apagarlo sin que un aviso viejo apague a uno nuevo.
  */
-export type TonoAviso = 'ok' | 'error'
+/**
+ * Los cuatro tonos del canal: éxito, aviso, error e información. `ok` sigue
+ * siendo el defecto para no tocar los miles de `avisar('…')` que ya hay.
+ */
+export type TonoAviso = 'ok' | 'aviso' | 'error' | 'info'
 
 export interface Aviso {
   clave: number

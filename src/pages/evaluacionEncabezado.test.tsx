@@ -103,23 +103,37 @@ describe('EvaluacionDetalle · el encabezado', () => {
   const cab = encabezadoDetalle
 
   it('todos los botones son la misma cara', () => {
-    // Volver, sincronizar, editar productos y el PDF comparten la clase, y el
+    // Volver, sincronizar y editar productos comparten la clase, y el
     // compartir la arma con la misma. Así la fila no se puede desarmar tocando
-    // un botón por separado.
+    // un botón por separado. El cuarto botón de la barra es el menú de
+    // descargas, que vive en su componente y usa la MISMA clase de ui.tsx.
     const usos = (cab().match(/BOTON_CABECERA/g) ?? []).length
-    expect(usos).toBeGreaterThanOrEqual(4)
+    expect(usos).toBeGreaterThanOrEqual(3)
+    expect(fuente('../components/MenuDescargas.tsx')).toContain('BOTON_CABECERA')
+    expect(fuente('../components/MenuDescargas.tsx')).toMatch(
+      /import \{[^}]*BOTON_CABECERA[^}]*\} from '\.\/ui'/
+    )
     // Y ninguna variante de `Button`, que arrastra `border` en `secondary` y
     // `px-4 py-2.5 min-h-[44px]` en cualquier caso.
     expect(cab()).not.toContain('<Button')
   })
 
-  it('el PDF y "Editar productos" son icono sólo, con el rótulo en el título', () => {
-    // Sin texto visible: la barra es de iconos. El nombre de cada acción vive
-    // en `title` y `aria-label`, que es donde se busca cuando no se reconoce.
-    expect(cab()).not.toMatch(/>\s*(Editar productos|Descargar PDF)\s*</)
+  it('las descargas van en UN solo botón que abre un menú, no en tres sueltos', () => {
+    // El PDF, el Excel y el reporte por cargo salen de `MenuDescargas`: la
+    // barra queda con una acción «Descargar» y el desglose vive en el menú.
+    expect(cab()).toContain('<MenuDescargas')
+    expect(cab()).not.toMatch(/aria-label="(Descargar PDF|Descargar Excel|Reporte por cargos)"/)
+    // Las tres opciones siguen existiendo y abren los mismos selectores.
+    const menu = fuente('../components/MenuDescargas.tsx')
+    expect(menu).toContain('title="Descargar"')
+    expect(menu).toContain('aria-label="Descargar"')
+    expect(menu).toContain('role="menu"')
+    expect(cab()).toContain("etiqueta: 'PDF general'")
+    expect(cab()).toContain("etiqueta: 'Excel general'")
+    expect(cab()).toContain('setSelectorCargosAbierto(true)')
+    // Sólo el botón dispara: con `title` en el icono y sin texto visible.
+    expect(cab()).not.toMatch(/>\s*(Editar productos|Descargar)\s*</)
     expect(cab()).toContain('title="Editar productos"')
-    expect(cab()).toContain('title="Elegir qué incluye el PDF"')
-    expect(cab()).toContain('aria-label="Descargar PDF"')
   })
 })
 

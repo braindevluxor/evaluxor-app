@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, Fragment, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, ChevronRight, FileDown, FileSpreadsheet, FolderOpen, Pencil, RefreshCw, Tag, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, FileDown, FileSpreadsheet, FolderOpen, Pencil, RefreshCw, Tag, Users, X } from 'lucide-react'
 import { useOffline } from '../context/OfflineContext'
 import { useAuth } from '../context/AuthContext'
 import { obtenerEvaluacion, resumirEvaluacion, puntajeModuloDeRespuestas, unidadDe, type DetalleEvaluacion } from '../lib/data/indicadores'
@@ -15,14 +15,18 @@ import { raicesDeModulo } from '../lib/pasos'
 import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
 import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionComparable, agruparPorDepartamento, esSinHablador, productosParaConciliar, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionesAplicablesUnidad, checkMarcado, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, montoSobranteConciliacion, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
-import type { Foto, Item, Opcion, SucursalOpcion } from '../lib/types'
+import type { Foto, Item, Opcion, Respuesta, SucursalOpcion } from '../lib/types'
 import { Badge, BOTON_CABECERA, Button, Card, InfoTooltip, Modal, ProgressBar, Skeleton, cn, colorFondoBadge } from '../components/ui'
 
 import { IncidenciasEvaluacion, ListaIncidencias, incidenciaEsDeCargo, useIncidenciasEvaluacion } from '../components/IncidenciasEvaluacion'
 import { SelectorPdf } from '../components/SelectorPdf'
+import { SelectorReporteCargo } from '../components/SelectorReporteCargo'
+import { MenuDescargas } from '../components/MenuDescargas'
+import { armarReporteCargos, cargarImagenesReporte, descargarReporteCargos } from '../lib/pdf/reporteCargos'
+import { descargarExcelCargos } from '../lib/excelCargos'
 import { Fotogaleria, FotogaleriaRutas } from '../components/dashboard/Fotogaleria'
 import { PlanoLectura } from '../components/PlanoEditor'
-import { pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple, pathsEvidenciaOpcion, pathsEvidenciaProducto } from '../lib/evidencias'
+import { pathsDeFotosFalla, pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple, pathsEvidenciaOpcion, pathsEvidenciaProducto } from '../lib/evidencias'
 import { IconoModulo } from '../components/IconoModulo'
 import { CompartirEvaluacion } from '../components/CompartirEvaluacion'
 import { ordenarTrabajadores } from '../lib/data/colaboradores'
@@ -785,6 +789,10 @@ export function EvaluacionDetalle() {
   const [descargando, setDescargando] = useState(false)
   /** ¿El selector de qué va al PDF está abierto? */
   const [selectorAbierto, setSelectorAbierto] = useState(false)
+  /** ¿El selector de cargos del reporte por cargo está abierto? */
+  const [selectorCargosAbierto, setSelectorCargosAbierto] = useState(false)
+  /** Formato que se está generando en el reporte por cargo, para el spinner. */
+  const [generandoReporte, setGenerandoReporte] = useState<'pdf' | 'excel' | null>(null)
   const [sincronizando, setSincronizando] = useState(false)
   const [aviso, setAviso] = useState<{ texto: string; ok: boolean } | null>(null)
   const [error, setError] = useState('')
@@ -1095,6 +1103,86 @@ export function EvaluacionDetalle() {
     }
   }
 
+  /**
+   * Qué fotos entran en CADA pendiente del reporte: las del punto que le falló
+   * a ESE cargo. En los ítems de lista cada punto tiene su responsable y su
+   * propia foto, así que imprimir las del ítem entero le daría a un cargo
+   * evidencia de puntos que no son suyos (ver `pathsDeFotosFalla`).
+   *
+   * Se arma sólo al descargar: es un recorrido por todas las respuestas y las
+   * fotos, que no vale la pena pagar en cada render.
+   */
+  const prepararFotosDeFalla = (): ((falla: FallaResponsable) => string[]) => {
+    const respuestasDe = new Map<string, Respuesta[]>()
+    for (const r of respuestas) {
+      const lista = respuestasDe.get(r.item_id)
+      if (lista) lista.push(r)
+      else respuestasDe.set(r.item_id, [r])
+    }
+    const fotosDe = new Map<string, string[]>()
+    for (const f of fotos) {
+      const lista = fotosDe.get(f.item_id)
+      if (lista) lista.push(f.path)
+      else fotosDe.set(f.item_id, [f.path])
+    }
+    return (falla) =>
+      pathsDeFotosFalla(
+        falla.tipo,
+        falla.checkIds,
+        respuestasDe.get(falla.item_id) ?? [],
+        fotosDe.get(falla.item_id) ?? []
+      )
+  }
+
+  /**
+   * El reporte POR CARGOS, en PDF o en Excel: un bloque por cargo elegido con
+   * sus ítems fallados, los checks concretos y los puntos que le costaron.
+   *
+   * Las fallas se resuelven con el MISMO cálculo que el modal «Fallas de…» y
+   * sobre los mismos ítems filtrados que se pintan en pantalla
+   * (`items.map(aplicarOpciones)`), así que el documento no puede nombrar un
+   * check que acá no aparece ni cobrarle puntos a un cargo que no está.
+   *
+   * Las fotos van sólo en el PDF, recién cuando se pide: se bajan de Storage
+   * las de los pendientes elegidos y se pegan debajo de cada ítem. El Excel
+   * sigue siendo sólo datos.
+   */
+  const descargarPorCargos = async (elegidos: string[], formato: 'pdf' | 'excel') => {
+    if (!elegidos.length) return
+    setError('')
+    setGenerandoReporte(formato)
+    try {
+      const itemsFiltrados = items.map(aplicarOpciones)
+      const datos = armarReporteCargos(
+        {
+          unidad: evaluacion.sucursal?.nombre ?? evaluacion.departamento?.nombre ?? 'Evaluación',
+          referencia: evaluacion.sucursal?.shop_id ?? null,
+          fecha: evaluacion.fecha,
+          puntajeGeneral: puntaje
+        },
+        elegidos.map((cargo) => ({
+          cargo,
+          // Buscado en TODOS los valores, no en los visibles: el cargo elegido
+          // puede ser de la central aunque la columna esté mirando la sucursal.
+          porciento: valoresOrdenados.find((v) => v.responsable === cargo)?.porciento ?? null,
+          fallas: fallasDeResponsable(cargo, itemsFiltrados, respuestas)
+        })),
+        modulos,
+        prepararFotosDeFalla()
+      )
+      if (formato === 'pdf') {
+        descargarReporteCargos(datos, await cargarImagenesReporte(datos))
+      } else {
+        descargarExcelCargos(datos)
+      }
+      setSelectorCargosAbierto(false)
+    } catch (error) {
+      setError(`No se pudo generar el reporte por cargos: ${detalleTecnico(error)}`)
+    } finally {
+      setGenerandoReporte(null)
+    }
+  }
+
   const mostrarTipModulo = (label: string, el: HTMLElement) => {
     const rect = el.getBoundingClientRect()
     setModuloTip({ label, top: rect.top - 8, left: rect.left + rect.width / 2 })
@@ -1151,33 +1239,34 @@ export function EvaluacionDetalle() {
                 <Pencil className="h-5 w-5" />
               </button>
             ) : null}
-            {/* El PDF es icono sólo como los demás. Va en `<button>` plano y no en
-                `Button`: `Button` arrastra `px-4 py-2.5 min-h-[44px]`, y eso sobre
-                `h-10 w-10` queda decidido por el orden del CSS de Tailwind, no por
-                el orden de las clases. Acá no hay nada que pisarse. */}
-            <button
-              type="button"
-              className={BOTON_CABECERA}
-              disabled={descargando}
-              onClick={() => setSelectorAbierto(true)}
-              title="Elegir qué incluye el PDF"
-              aria-label="Descargar PDF"
-            >
-              <FileDown className="h-5 w-5" />
-            </button>
-            {/* El Excel es el hermano del PDF para quien quiere filtrar o cruzar
-                los resultados en una hoja de cálculo: mismos datos, sin selector,
-                un solo clic y cuatro pestañas. Mismo botón de icono sólo. */}
-            <button
-              type="button"
-              className={BOTON_CABECERA}
-              disabled={descargando}
-              onClick={() => void descargarExcel()}
-              title="Descargar resultados en Excel"
-              aria-label="Descargar Excel"
-            >
-              <FileSpreadsheet className="h-5 w-5" />
-            </button>
+            {/* UN solo botón para las descargas: PDF general, Excel general y
+                reporte por cargo salen del mismo menú. Antes eran tres botones
+                icono casi idénticos en la barra y no se sabía cuál bajaba qué.
+                El menú vive en `MenuDescargas`, que maneja apertura y cierre;
+                acá sólo se le pasa qué hace cada opción. */}
+            <MenuDescargas
+              disabled={descargando || generandoReporte != null}
+              opciones={[
+                {
+                  id: 'pdf',
+                  etiqueta: 'PDF general',
+                  icono: <FileDown className="h-5 w-5" />,
+                  onSelect: () => setSelectorAbierto(true)
+                },
+                {
+                  id: 'excel',
+                  etiqueta: 'Excel general',
+                  icono: <FileSpreadsheet className="h-5 w-5" />,
+                  onSelect: () => void descargarExcel()
+                },
+                {
+                  id: 'cargos',
+                  etiqueta: 'Por cargo (PDF o Excel)',
+                  icono: <Users className="h-5 w-5" />,
+                  onSelect: () => setSelectorCargosAbierto(true)
+                }
+              ]}
+            />
           </div>
         </div>
       </header>
@@ -1504,6 +1593,21 @@ export function EvaluacionDetalle() {
             modulos={modulos.map((modulo) => ({ id: modulo.id, nombre: modulo.nombre }))}
             onConfirmar={(impresion) => void descargar(impresion)}
             descargando={descargando}
+          />
+
+          {/* Selector de cargos del reporte por cargo. La lista sale de
+              `valoresOrdenados`: TODOS los cargos que midió la evaluación, de la
+              sucursal y de la central, en el mismo orden que las tarjetas —lo
+              peor primero—. NO va con `valoresVisibles`, que es lo que muestra
+              la columna según el centro elegido: el reporte no es una lectura de
+              la tarjeta, es «elegir a quién se le manda», y eso atraviesa los
+              dos centros (un Coordinador de la central tiene que poder salir). */}
+          <SelectorReporteCargo
+            abierto={selectorCargosAbierto}
+            onClose={() => setSelectorCargosAbierto(false)}
+            cargos={valoresOrdenados.map((v) => ({ cargo: v.responsable, porciento: v.porciento }))}
+            onDescargar={descargarPorCargos}
+            generando={generandoReporte}
           />
         </div>
 

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, Send } from 'lucide-react'
+import { ArrowLeft, Check } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useModulosActivos } from '../../context/CatalogContext'
 import { getDraft, instanciasPlanasDe, type DraftEval } from '../../lib/offline/db'
@@ -24,6 +24,8 @@ export function EvaluarResumen() {
   const [draft, setDraft] = useState<DraftEval | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState('')
+  /** La entrega ya se disparó: evita que un render posterior la dispare otra vez. */
+  const entregadoRef = useRef(false)
 
   useEffect(() => {
     void getDraft(unidadId).then((d) => {
@@ -58,16 +60,45 @@ export function EvaluarResumen() {
 
   async function enviar() {
     if (!draft || !profile) return
-    if (detalles.incompletos > 0) {
-      setError(`Hay ${detalles.incompletos} ítems obligatorios sin responder. Completa la evaluación antes de enviar.`)
-      return
-    }
     setEnviando(true)
-    await encolarRespuestas(draft)
-    sessionStorage.removeItem(`evx:${unidadId}:mod`)
-    sessionStorage.setItem('evx:ok', '1')
-    navigate('/evaluar', { replace: true })
+    setError('')
+    try {
+      // El cierre es LOCAL: se deja el trabajo en la cola del teléfono (que
+      // sube respuestas, fotos y registra las evidencias, con reintentos si se
+      // corta la señal) y se borra el borrador, que es lo que saca la
+      // evaluación de la lista «en curso».
+      await encolarRespuestas(draft)
+      sessionStorage.removeItem(`evx:${unidadId}:mod`)
+      sessionStorage.setItem('evx:ok', '1')
+      navigate('/evaluar', { replace: true })
+    } catch {
+      // Si la base local no pudo guardar la cola, no se cierra nada: se avisa y
+      // se deja reintentar. Borrar el borrador sin encolar sería perder el turno.
+      entregadoRef.current = false
+      setEnviando(false)
+      setError('No se pudo registrar la entrega en este dispositivo. Pulsa Reintentar.')
+    }
   }
+
+  /**
+   * La entrega es AUTOMÁTICA: no hay botón que pulsar.
+   *
+   * Mientras se responde, el autoguardado ya va subiendo respuestas y fotos;
+   * acá sólo se cierra el turno. Cuando el resumen confirma que no falta nada
+   * obligatorio, se encola el trabajo y se borra el borrador. La pausa es para
+   * que alcance a verse el resumen antes de volver al inicio. Si falta algo
+   * obligatorio no se entrega nada: se vuelve a editar.
+   */
+  useEffect(() => {
+    if (!draft || !profile || entregadoRef.current) return
+    if (detalles.incompletos > 0) return
+    const t = window.setTimeout(() => {
+      entregadoRef.current = true
+      void enviar()
+    }, 1200)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, profile, detalles.incompletos])
 
   if (!draft) {
     return <MobileLayout titulo="Resumen"><div className="py-20 text-center text-slate-400">Cargando…</div></MobileLayout>
@@ -80,7 +111,11 @@ export function EvaluarResumen() {
           <p className="text-[10px] font-bold uppercase tracking-wider text-primary-100/90">Cumplimiento en tus módulos</p>
           <Puntaje value={detalles.puntaje} className="text-5xl text-white" />
           <p className="mt-1 text-xs text-primary-100/90">
-            {detalles.incompletos > 0 ? `${detalles.incompletos} ítems obligatorios pendientes` : 'Listo para enviar'}
+            {detalles.incompletos > 0
+              ? `${detalles.incompletos} ítems obligatorios pendientes`
+              : enviando
+                ? 'Entregando la evaluación…'
+                : 'Todo respondido: se entrega automáticamente'}
           </p>
         </div>
 
@@ -107,19 +142,23 @@ export function EvaluarResumen() {
 
         <p className="text-center text-xs text-slate-400">
           {departamentoId
-            ? 'Mientras respondes, tus avances se suben automáticamente y el Líder los ve en vivo dentro de la evaluación abierta de este departamento. Las fotos de evidencia se sincronizan al enviar.'
-            : 'Mientras respondes, tus avances se suben automáticamente y el Líder los ve en vivo dentro de la evaluación abierta para esta sucursal. Las fotos de evidencia se sincronizan al enviar.'}
+            ? 'Tus respuestas y fotos se suben solas mientras respondes, y el Líder las ve en vivo en la evaluación abierta de este departamento. Al terminar, la evaluación se entrega sola: no hay que pulsar nada.'
+            : 'Tus respuestas y fotos se suben solas mientras respondes, y el Líder las ve en vivo en la evaluación abierta para esta sucursal. Al terminar, la evaluación se entrega sola: no hay que pulsar nada.'}
         </p>
 
         {error ? <div className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-600">{error}</div> : null}
 
         <div className="flex gap-3">
-          <Button variant="secondary" className="flex-1" onClick={() => navigate(rutaBase)}>
-            <ArrowLeft className="h-4 w-4" /> Editar
+          <Button variant="secondary" className="flex-1" onClick={() => navigate(rutaBase)} disabled={enviando}>
+            <ArrowLeft className="h-4 w-4" /> {detalles.incompletos > 0 ? 'Volver a editar' : 'Editar'}
           </Button>
-          <Button variant="success" className="flex-1" disabled={enviando} onClick={() => void enviar()}>
-            {enviando ? 'Enviando…' : <>Enviar evaluación <Send className="h-4 w-4" /></>}
-          </Button>
+          {/* Sólo aparece si el cierre local falló: la entrega es automática,
+              pero nadie debe perder un turno por una base local caída. */}
+          {error ? (
+            <Button variant="success" className="flex-1" disabled={enviando} onClick={() => void enviar()}>
+              Reintentar
+            </Button>
+          ) : null}
         </div>
       </div>
     </MobileLayout>

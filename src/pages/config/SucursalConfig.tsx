@@ -8,6 +8,7 @@ import {
   configurarDepartamentoOpciones
 } from '../../lib/data/departamentos'
 import type { Sucursal, Departamento, Modulo, Item } from '../../lib/types'
+import { CLAVE_INSPECCION } from '../../lib/inspeccionVehiculo'
 import { Button, Modal, Skeleton, cn } from '../../components/ui'
 
 /** Lo que se guarda en la configuración de una unidad (sucursal o departamento). */
@@ -16,6 +17,15 @@ export interface ConfUnidad {
   items: string[]
   opciones: { item_id: string; opcion_id: string }[]
 }
+
+/**
+ * Herramientas que cada unidad puede llevar. Son constantes de módulo (no
+ * literales dentro del render) para que su identidad sea estable: viajan en las
+ * dependencias del `useEffect` que arma la lista, y un array nuevo por render
+ * lo pondría a re-cargar en bucle.
+ */
+const HERRAMIENTAS_SUCURSAL: string[] = []
+const HERRAMIENTAS_DEPARTAMENTO: string[] = [CLAVE_INSPECCION]
 
 interface Props {
   /** La unidad que se configura; null = modal cerrado. */
@@ -28,6 +38,15 @@ interface Props {
   cargar: (id: string) => Promise<ConfUnidad>
   /** A dónde se guardan los tres grupos. */
   guardar: (id: string, conf: ConfUnidad) => Promise<void>
+  /**
+   * Herramientas (`modulos.herramienta`) que esta unidad puede llevar en su
+   * lista. Vacío = ninguna: sólo entran los módulos de evaluación.
+   *
+   * Marcar una herramienta acá es una asociación organizativa (queda en la
+   * base que el módulo pertenece a la unidad); no cambia el flujo, que sigue
+   * colgando de la tarjeta de EvaluarHome.
+   */
+  herramientasAsignables: string[]
   onClose: () => void
   onGuardado: () => void
 }
@@ -41,7 +60,7 @@ interface Props {
  * todo lo demás —semántica de "sin selección aplica todo", despliegue de
  * ítems, puntos de los checklists— es una sola copia acá.
  */
-export function ConfigUnidadModal({ unidad, rotulo, demo, cargar, guardar, onClose, onGuardado }: Props) {
+export function ConfigUnidadModal({ unidad, rotulo, demo, cargar, guardar, herramientasAsignables, onClose, onGuardado }: Props) {
   const [modulos, setModulos] = useState<(Modulo & { _items: Item[] })[]>([])
   const [selModulos, setSelModulos] = useState<Set<string>>(new Set())
   const [selItems, setSelItems] = useState<Set<string>>(new Set())
@@ -57,9 +76,12 @@ export function ConfigUnidadModal({ unidad, rotulo, demo, cargar, guardar, onClo
     void (async () => {
       const [mods, conf] = await Promise.all([listarModulosAdmin(), cargar(unidad.id)])
       if (!activo) return
-      // Los módulos-herramienta (Revisión Pre-Entrega) no se asignan por unidad:
-      // no forman parte de la evaluación de la tienda ni del área.
-      setModulos(mods.filter((m) => !m.herramienta))
+      // De las herramientas sólo entra la lista blanca de esta unidad: la
+      // sucursal no lleva ninguna (la inspección no es de ninguna unidad) y un
+      // departamento puede llevar la Inspección de vehículo. Es una asociación
+      // organizativa: `useModulosActivos` sigue descartando las herramientas,
+      // así que marcarla no mete la inspección en la evaluación del área.
+      setModulos(mods.filter((m) => !m.herramienta || herramientasAsignables.includes(m.herramienta)))
       setSelModulos(new Set(conf.modulos))
       const itemsSeleccionados = new Set(conf.items)
       setSelItems(itemsSeleccionados)
@@ -76,7 +98,7 @@ export function ConfigUnidadModal({ unidad, rotulo, demo, cargar, guardar, onClo
       setCargando(false)
     })()
     return () => { activo = false }
-  }, [unidad, cargar])
+  }, [unidad, cargar, herramientasAsignables])
 
   /** Un módulo aplica si está marcado, o (canónicamente) si no se marcó ninguno. */
   const aplica = (m: Modulo) => selModulos.size === 0 || selModulos.has(m.id)
@@ -365,6 +387,9 @@ export function SucursalConfigModal({
       rotulo="sucursal"
       demo="esta sucursal"
       cargar={listarSucursalConfigAdmin}
+      // Sin herramientas: la Inspección de vehículo no es de ninguna unidad,
+      // así que no se asocia a una tienda.
+      herramientasAsignables={HERRAMIENTAS_SUCURSAL}
       guardar={async (id, conf) => {
         await configurarSucursalModulos(id, conf.modulos)
         await configurarSucursalItems(id, conf.items)
@@ -395,6 +420,9 @@ export function DepartamentoConfigModal({
       rotulo="departamento"
       demo="este departamento"
       cargar={listarDepartamentoConfigAdmin}
+      // El departamento sí puede llevar la Inspección de vehículo (asociación
+      // organizativa; la herramienta no puntúa ni entra en la evaluación).
+      herramientasAsignables={HERRAMIENTAS_DEPARTAMENTO}
       guardar={async (id, conf) => {
         await configurarDepartamentoModulos(id, conf.modulos)
         await configurarDepartamentoItems(id, conf.items)

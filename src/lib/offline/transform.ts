@@ -1,5 +1,24 @@
-export function photoPath(evaluacionId: string, itemId: string, photoId: string): string {
-  return `ev/${evaluacionId}/${itemId}/${photoId}.jpg`
+import { extensionDeMime } from '../fotos'
+
+/**
+ * Ruta en Storage de una evidencia. La extensión la dicta el MIME del archivo
+ * (antes era siempre `.jpg`): así un video no termina con nombre de imagen, y
+ * de la extensión se colige el tipo al mostrarla —una URL firmada no trae el
+ * contentType—.
+ */
+export function photoPath(evaluacionId: string, itemId: string, photoId: string, mime = 'image/jpeg'): string {
+  return `ev/${evaluacionId}/${itemId}/${photoId}.${extensionDeMime(mime)}`
+}
+
+/**
+ * Rutas con las que esa evidencia pudo haberse subido, en orden de
+ * probabilidad: la extensión depende del MIME y el registro local puede haberse
+ * borrado tras una vuelta incompleta de la cola, así que el camino de
+ * respaldo («no está local, ¿dónde estará?») prueba las extensiones conocidas
+ * antes de dar el id por perdido.
+ */
+export function pathsCandidatosFoto(evaluacionId: string, photoId: string): string[] {
+  return ['jpg', 'mp4', 'webm', 'mov'].map((ext) => `ev/${evaluacionId}/evidencia/${photoId}.${ext}`)
 }
 
 /**

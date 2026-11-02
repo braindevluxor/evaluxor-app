@@ -1,12 +1,13 @@
 import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { DashboardFiltersProvider, useDashboardFilters } from '../../context/DashboardFiltersContext'
 import { puedeConfigurar } from '../../lib/roles'
+import { TemaInterruptor } from '../TemaInterruptor'
 import { SyncBanner } from './MobileLayout'
 import { BarraKpis } from '../dashboard/BarraKpis'
-import { ButtonIcon, cn } from '../ui'
+import { cn } from '../ui'
 
 interface EnlaceMenu {
   to: string
@@ -29,7 +30,12 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/dashboard/comparativas': { titulo: 'Comparativas', subtitulo: 'Analiza el desempeño por evaluador, mes o sucursal' },
   '/dashboard/responsables': { titulo: 'Seguimiento por cargo', subtitulo: 'Nota promedio de cada responsable por sucursal' },
   '/config/usuarios': { titulo: 'Usuarios', subtitulo: 'Gestión de roles y accesos' },
-  '/config/unidades': { titulo: 'Unidades', subtitulo: 'Registro de sucursales y departamentos' }
+  '/config/unidades': { titulo: 'Unidades', subtitulo: 'Registro de sucursales y departamentos' },
+  '/config/modulos': { titulo: 'Módulos', subtitulo: 'Configuración y explicación de cada módulo' },
+  '/config/bitacora': { titulo: 'Bitácora', subtitulo: 'Quién cambió cada asignación, y cuándo' },
+  // La cuenta se configura DESDE la consola, con su barra y su menú: salirse
+  // de la barra para cambiar la contraseña se sentía como otra app.
+  '/perfil': { titulo: 'Configuración', subtitulo: 'Administra tus datos personales y la seguridad de tu cuenta' }
 }
 
 export function ConsoleLayout() {
@@ -43,7 +49,6 @@ export function ConsoleLayout() {
 function ConsoleLayoutContenido() {
   const { profile, signOut } = useAuth()
   const { abierto: filtrosAbiertos, alternar: alternarFiltros } = useDashboardFilters()
-  const navigate = useNavigate()
   const { pathname } = useLocation()
   const tituloVista =
     titulosVista[pathname] ??
@@ -57,10 +62,13 @@ function ConsoleLayoutContenido() {
   const anchoTotal = pathname === '/dashboard' || pathname.startsWith('/dashboard/modulo/')
   const puedeEvaluar = profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER'
   const navRef = useRef<HTMLElement | null>(null)
+  const cuentaRef = useRef<HTMLDivElement | null>(null)
   const [abierto, setAbierto] = useState(false)
-  const [colapsado, setColapsado] = useState<boolean>(() => localStorage.getItem('evaluxor:menu_lateral_cerrado') === '1')
+  const [cuentaAbierta, setCuentaAbierta] = useState(false)
+  // Por defecto la barra va cerrada (el modo de la imagen: sólo iconos, flotando);
+  // quien la abra queda con su elección guardada.
+  const [colapsado, setColapsado] = useState<boolean>(() => localStorage.getItem('evaluxor:menu_lateral_cerrado') !== '0')
   const [tip, setTip] = useState<{ label: string; top: number } | null>(null)
-  const [barra, setBarra] = useState<{ top: number; height: number } | null>(null)
 
   const config: { seccion: string; items: EnlaceMenu[] }[] = puedeConfigurar(profile?.rol ?? 'SIN_ROL') && profile ? [
     {
@@ -68,7 +76,20 @@ function ConsoleLayoutContenido() {
       items: [
         { to: '/config/unidades', label: 'Unidades', icon: <Store className="h-5 w-5" /> },
         { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> },
-        { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> }
+        { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> },
+        // Sólo Líder, igual que las demás: la ruta va envuelta en `SoloLider`
+        // y el RLS de la tabla es la segunda cerradura.
+        { to: '/config/bitacora', label: 'Bitácora', icon: <History className="h-5 w-5" /> }
+      ]
+    }
+  ] : profile && profile.rol === 'EVALUADOR' ? [
+    // El evaluador no configura nada, pero sí necesita entrar a Módulos para
+    // bajar la explicación de cada uno (la página lo muestra en modo consulta,
+    // sin editar ni borrar). Va en su propia sección: "Gestión" diría lo contrario.
+    {
+      seccion: 'Consulta',
+      items: [
+        { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> }
       ]
     }
   ] : []
@@ -78,18 +99,7 @@ function ConsoleLayoutContenido() {
   const secciones = [...enlaces, ...config]
 
   useEffect(() => {
-    function actualizar() {
-      const nav = navRef.current
-      const activo = nav?.querySelector<HTMLElement>('a[aria-current="page"]')
-      setBarra(activo && !colapsado ? { top: activo.offsetTop, height: activo.offsetHeight } : null)
-    }
-    actualizar()
-    window.addEventListener('resize', actualizar)
-    return () => window.removeEventListener('resize', actualizar)
-  }, [colapsado, pathname])
-
-  // Cerrar el panel lateral móvil con Escape.
-  useEffect(() => {
+    // Cerrar el panel lateral móvil con Escape.
     if (!abierto) return
     const manejar = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setAbierto(false)
@@ -97,6 +107,25 @@ function ConsoleLayoutContenido() {
     window.addEventListener('keydown', manejar)
     return () => window.removeEventListener('keydown', manejar)
   }, [abierto])
+
+  // El menú de la cuenta se cierra con Escape y con un toque afuera: un menú
+  // que sólo se cierra volviendo a tocar la inicial es una trampa en el
+  // teléfono.
+  useEffect(() => {
+    if (!cuentaAbierta) return
+    const manejar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCuentaAbierta(false)
+    }
+    const afuera = (e: MouseEvent) => {
+      if (!cuentaRef.current?.contains(e.target as Node)) setCuentaAbierta(false)
+    }
+    window.addEventListener('keydown', manejar)
+    window.addEventListener('mousedown', afuera)
+    return () => {
+      window.removeEventListener('keydown', manejar)
+      window.removeEventListener('mousedown', afuera)
+    }
+  }, [cuentaAbierta])
 
   function mostrarTip(label: string, el: HTMLElement) {
     const r = el.getBoundingClientRect()
@@ -107,13 +136,24 @@ function ConsoleLayoutContenido() {
     <div className="min-h-screen bg-slate-100">
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-white text-slate-800 transition-[width,transform]',
+          // La barra FLOTA sobre el fondo: redondeada, sin borde y con sombra,
+          // pegada al borde izquierdo con un margen. En el teléfono sigue siendo
+          // un cajón que cubre la pantalla entera, por eso sólo flota en
+          // escritorio.
+          //
+          // El ancho cambia con `duration-200 ease-out` para que la apertura se
+          // sienta ágil. NO lleva `overflow-hidden`: el menú de la cuenta se
+          // despliega hacia afuera de los 64px de la barra y ese recorte se lo
+          // comía en escritorio (en el teléfono no, porque el cajón es ancho y
+          // el menú cae adentro). El recorte de los rótulos durante la animación
+          // lo hace el `nav`, que ya es scroller.
+          'fixed inset-y-0 left-0 z-40 my-4 ml-3 flex w-64 flex-col rounded-2xl bg-white text-slate-800 shadow-xl transition-[width,transform] duration-200 ease-out max-lg:my-0 max-lg:ml-0 max-lg:rounded-none max-lg:shadow-none',
           colapsado && 'lg:w-16',
           abierto ? 'translate-x-0' : '-translate-x-full',
           'lg:translate-x-0'
         )}
       >
-        <div className={cn('flex items-center justify-between px-5 py-5', colapsado && 'lg:justify-center lg:px-1')}>
+        <div className={cn('flex items-center justify-between px-4 py-4', colapsado && 'lg:justify-center lg:px-1')}>
           {/* La marca se adapta al ancho del menú: desplegado entra el logo
               completo (isotipo + nombre) y cerrado queda sólo el isotipo, que es
               lo único que cabe en los 64px sin recortarse. El título sigue
@@ -124,31 +164,48 @@ function ConsoleLayoutContenido() {
             <img src="/completo.webp" alt="" className="h-auto w-40 max-w-full" />
             <p className="mt-1 text-xs text-slate-500">Indicadores de gestión</p>
           </div>
+          {/* El isotipo cerrado es el ancla visual de la barra: en su círculo,
+              arriba del todo, como en cualquier barra de atajos. */}
           <img
             src="/isotipo.webp"
             alt=""
-            className={cn('hidden h-9 w-auto', colapsado && 'lg:block')}
+            className={cn('hidden h-10 w-10 rounded-full bg-slate-50 object-contain p-1', colapsado && 'lg:block')}
           />
           <button onClick={() => setAbierto(false)} className="grid h-9 w-9 place-items-center rounded-full text-slate-400 hover:bg-slate-100 lg:hidden"><X className="h-5 w-5" /></button>
         </div>
 
-        <nav ref={navRef} className={cn('relative flex-1 space-y-6 overflow-y-auto px-3 pb-6', colapsado && 'lg:px-0')}>
-          {!colapsado && barra ? (
-            <span
-              aria-hidden
-              className="absolute left-3 right-3 z-0 rounded-xl bg-primary-100 transition-all duration-300 ease-out"
-              style={{ top: barra.top, height: barra.height }}
-            />
-          ) : null}
-          <div className="space-y-6">
+        {/* `overflow-x-hidden`: durante el cambio de ancho los rótulos se
+            recortan acá (y no saliéndose de la barra) sin que el menú de la
+            cuenta se vea afectado, que vive en el pie. */}
+        <nav ref={navRef} className={cn('relative min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-3 pb-4', colapsado && 'lg:px-2')}>
+          <div className="space-y-4">
+            {/* «Ir a evaluaciones» estaba en la cabecera, a la derecha de
+                Filtros; se muda al menú para que la barra superior quede sólo
+                para filtros y acciones de la vista. Mismo destino de siempre,
+                y sólo para quien puede evaluar (antes el botón existía para
+                todos pero no hacía nada si no era EVALUADOR/LÍDER). Es la
+                acción principal de la barra: por eso va en su cuadrito
+                azul, no como un enlace más. */}
             {puedeEvaluar ? (
               <Link
                 to="/evaluar"
                 onClick={() => setAbierto(false)}
-                className="flex items-center gap-3 rounded-xl bg-primary px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700 lg:hidden"
+                title="Ir a evaluaciones"
+                className={cn(
+                  // Amarillo con el icono azul: es la acción que no es de
+                  // navegación y tiene que leerse como un botón, no como un
+                  // enlace más de la lista.
+                  // Amarillo con icono y texto de marca FIJOS: el amarillo
+                  // `bg-yellow-400` no cambia en oscuro, así que tampoco puede
+                  // cambiar el azul que va encima. Con `text-primary-700` el
+                  // tema oscuro lo aclaraba a `#9cc1ef` y quedaba azul
+                  // clarito sobre amarillo, ilegible.
+                  'flex items-center gap-3 rounded-2xl bg-yellow-400 px-3 py-2.5 text-sm font-semibold text-[#28315F] shadow-md transition-colors hover:bg-yellow-300',
+                  colapsado && 'lg:justify-center lg:px-0'
+                )}
               >
-                <ClipboardCheck className="h-5 w-5 shrink-0" />
-                Evaluaciones
+                <ClipboardCheck className="h-5 w-5 shrink-0 text-[#28315F]" />
+                <span className={cn(colapsado && 'lg:hidden')}>Ir a evaluaciones</span>
               </Link>
             ) : null}
             {secciones.length ? secciones.map((s) => (
@@ -166,18 +223,17 @@ function ConsoleLayoutContenido() {
                       onFocus={(e) => mostrarTip(i.label, e.currentTarget)}
                       onBlur={() => setTip(null)}
                       className={({ isActive }) =>
-                        cn('relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                        cn('relative flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors',
                           colapsado && 'lg:justify-center lg:px-0',
-                          isActive ? 'text-slate-900' : 'text-slate-700 hover:bg-primary-50')
+                          // La página activa se marca con una sombra amarilla:
+                          // en una barra sólo de iconos es lo único que dice
+                          // «estás acá» sin depender del hover.
+                          isActive ? 'bg-yellow-50 text-primary-900 shadow-[0_0_0_2px_#facc15]' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800')
                       }
                     >
-                      {({ isActive }) => (
+                      {() => (
                         <>
-                          <span className={cn(
-                            'shrink-0 rounded-lg text-primary transition-transform duration-300 ease-out',
-                            isActive ? 'scale-125' : 'scale-100',
-                            isActive && colapsado ? 'bg-primary-100 p-1' : ''
-                          )}>{i.icon}</span>
+                          <span className="shrink-0">{i.icon}</span>
                           <span className={cn('truncate', colapsado && 'lg:hidden')}>{i.label}</span>
                         </>
                       )}
@@ -190,28 +246,99 @@ function ConsoleLayoutContenido() {
           </div>
         </nav>
 
-        <div className={cn('border-t border-slate-200 px-5 py-4', colapsado && 'lg:flex lg:flex-col lg:items-center lg:px-0')}>
-          <p className={cn('truncate text-sm font-semibold', colapsado && 'lg:hidden')}>{profile?.nombre || profile?.email}</p>
-          <NavLink
-            to="/perfil"
-            onMouseEnter={(e) => mostrarTip('Mi perfil / contraseña', e.currentTarget)}
-            onMouseLeave={() => setTip(null)}
-            onFocus={(e) => mostrarTip('Mi perfil / contraseña', e.currentTarget)}
-            onBlur={() => setTip(null)}
-            className={cn('mt-2 flex items-center gap-2 text-sm font-medium text-primary hover:text-primary-700', colapsado && 'lg:justify-center lg:px-0')}
-          >
-            <Settings className="h-4 w-4" />
-            <span className={cn(colapsado && 'lg:hidden')}>Mi perfil / contraseña</span>
-          </NavLink>
-          <ButtonIcon
-            variant="danger"
-            className="mt-2"
-            onClick={() => void signOut()}
-            title="Cerrar sesión"
-            aria-label="Cerrar sesión"
-          >
-            <LogOut className="h-5 w-5" />
-          </ButtonIcon>
+        {/* El pie es `shrink-0` y el nav de arriba `min-h-0`: sin eso el nav no
+            puede bajar de su contenido y empuja el pie fuera de la barra, donde
+            `overflow-hidden` se lo comía. */}
+        <div className={cn('relative shrink-0 border-t border-slate-200 px-3 py-3', colapsado && 'lg:flex lg:flex-col lg:items-center lg:px-0')}>
+          {/* Sólo UNA pieza a la vez: cerrada, la inicial en su pastilla azul;
+              abierta, el nombre del usuario. En el teléfono el cajón está
+              abierto, así que manda el nombre (las clases del modo cerrado son
+              de escritorio). */}
+          <div ref={cuentaRef} className="relative flex w-full flex-col items-center">
+            {cuentaAbierta ? (
+              <div
+                role="menu"
+                className={cn(
+                  'absolute z-50 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl',
+                  // Sale HACIA ARRIBA del nombre, sobre la barra. Sólo con la
+                  // barra cerrada se corre a su derecha: ahí no hay ancho para
+                  // desplegarlo encima sin taparlo con su propia pastilla.
+                  'bottom-[calc(100%+0.5rem)] left-1/2 -translate-x-1/2',
+                  colapsado ? 'w-60 lg:bottom-0 lg:left-full lg:translate-x-3' : 'w-full'
+                )}
+              >
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-sm font-black text-white" aria-hidden>
+                    {(profile?.nombre || profile?.email || 'U').slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-slate-900">
+                      {profile?.nombre || 'Sin nombre'}
+                    </span>
+                    <span className="block truncate text-xs text-slate-500">{profile?.email}</span>
+                  </span>
+                </div>
+                <div className="border-t border-slate-100">
+                  <Link
+                    to="/perfil"
+                    role="menuitem"
+                    onClick={() => setCuentaAbierta(false)}
+                    className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    <Settings className="h-4 w-4 text-slate-400" />
+                    Configuración
+                  </Link>
+                </div>
+                <div className="border-t border-slate-100">
+                  {/* El mismo interruptor del modo de evaluación: una pieza,
+                      dos menús. */}
+                  <TemaInterruptor className="px-4" />
+                </div>
+                <div className="border-t border-slate-100">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => void signOut()}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    <LogOut className="h-4 w-4 text-slate-400" />
+                    Cerrar sesión
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={cuentaAbierta}
+              aria-label="Mi cuenta"
+              title="Mi cuenta"
+              onClick={() => setCuentaAbierta((v) => !v)}
+              className={cn(
+                // `items-center justify-center` y no `place-items-center`: éste
+                // sólo centra en grid y el botón es flex, así que la inicial
+                // se iba pegada al borde izquierdo de la pastilla.
+                'hidden h-10 w-10 items-center justify-center rounded-2xl bg-primary text-sm font-black text-white transition-colors hover:bg-primary-700',
+                colapsado && 'lg:flex'
+              )}
+            >
+              <span aria-hidden>{(profile?.nombre || profile?.email || 'U').slice(0, 1).toUpperCase()}</span>
+            </button>
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={cuentaAbierta}
+              aria-label="Mi cuenta"
+              title="Mi cuenta"
+              onClick={() => setCuentaAbierta((v) => !v)}
+              className={cn(
+                'flex w-full items-center justify-center rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900',
+                colapsado && 'lg:hidden'
+              )}
+            >
+              <span className="truncate">{profile?.nombre || profile?.email}</span>
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -230,7 +357,10 @@ function ConsoleLayoutContenido() {
         </span>
       </span>
 
-      <div className={cn('transition-[padding]', colapsado ? 'lg:pl-16' : 'lg:pl-64')}>
+      {/* Sin transición de padding: reacomodar el alto entero de la ventana por
+          cuadro era lo que hacía pesada la apertura de la barra. En el teléfono
+          no hay margen: el cajón se superpone. */}
+      <div className={cn(colapsado ? 'lg:pl-20' : 'lg:pl-72')}>
         <div className="sticky top-0 z-20 bg-white">
           <header className="flex min-h-16 items-center gap-1 border-b border-slate-200 bg-white px-4 py-2.5">
           <button
@@ -254,27 +384,26 @@ function ConsoleLayoutContenido() {
               <p className="truncate text-xs leading-tight text-slate-500">{tituloVista.subtitulo}</p>
             </div>
           ) : <div className="text-primary font-extrabold lg:hidden">EvaLuxor</div>}
-          {esDashboard ? (
-            <button
-              type="button"
-              onClick={alternarFiltros}
-              aria-expanded={filtrosAbiertos}
-              aria-controls="dashboard-filters-panel"
-              className={cn('ml-auto inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition-colors', filtrosAbiertos ? 'border-primary bg-primary-50 text-primary-800' : 'border-slate-200 text-slate-600 hover:border-primary-300 hover:bg-primary-50 hover:text-primary')}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              Filtros
-            </button>
-          ) : null}
-          <button
-            onClick={() => {
-              const target = profile?.rol === 'EVALUADOR' || profile?.rol === 'LIDER' ? '/evaluar' : '#'
-              if (target !== '#') navigate(target)
-            }}
-            className={cn('hidden rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 lg:block', !esDashboard && 'ml-auto', esDashboard && 'ml-2')}
-          >
-            Ir a evaluaciones
-          </button>
+          {/* Acciones de la vista, a la derecha del título: «Filtros» (sólo en
+              el dashboard) y el hueco al que cada página se cuelga sus botones
+              por portal —el Historial el de aperturar, Unidades el selector de
+              pestañas y «+ Nueva». El hueco está siempre, aunque hoy sólo
+              esas dos vistas lo usen. */}
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {esDashboard ? (
+              <button
+                type="button"
+                onClick={alternarFiltros}
+                aria-expanded={filtrosAbiertos}
+                aria-controls="dashboard-filters-panel"
+                className={cn('inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold transition-colors', filtrosAbiertos ? 'border-primary bg-primary-50 text-primary-800' : 'border-slate-200 text-slate-600 hover:border-primary-300 hover:bg-primary-50 hover:text-primary')}
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                Filtros
+              </button>
+            ) : null}
+            <div id="acciones-vista" className="flex items-center gap-2" />
+          </div>
         </header>
         {esDashboard ? (
           <div className={cn('grid transition-[grid-template-rows] duration-300 ease-out', filtrosAbiertos ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]')}>

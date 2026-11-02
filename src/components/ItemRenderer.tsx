@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
-import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, MessageSquare, Pencil, Plus, RefreshCw, ScanLine, Trash2, X } from 'lucide-react'
+import { Ban, Camera, Check, ChevronDown, Image as ImageIcon, Info, MessageSquare, Pencil, Plus, RefreshCw, ScanLine, Trash2, Video, X } from 'lucide-react'
 import type { Item, Opcion } from '../lib/types'
 import { etiquetaTipo, conciliacionPorcentaje, esMatchConciliacion, totalConciliacion, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionesAplicablesUnidad, checkMarcado, unidadCumple, esSinHablador, formatearLastSync, formatearPrecioBase, formatearMontoPerdida, guardarPerdidaConciliacion, opcionCumplida, precioVenta, productosParaConciliar, valorBinario, responsablesDeOpcion, resumenPerdidaConciliacion, referenciaConciliacion, estaVacioItem, type ContraDatoConciliacion, type ValorChecklist, type ValorConciliacion, type ProductoConciliacion, type ValorCumple, type EvidenciaCumple, type ValorListaColaboradores, type ColaboradorItem, type ValorUnidadChecklist, type UnidadChecklist } from '../lib/scoring'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
@@ -15,6 +15,7 @@ import { IdCopiable } from './IdCopiable'
 import { COLOR_BADGE_TIPO_ITEM, EYEBROW, HEX_CUMPLE, HEX_NO_CUMPLE, HEX_RIESGO } from '../lib/diseno'
 import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
+import { LIMITE_SEGUNDOS_VIDEO } from '../lib/fotos'
 import { FotogaleriaRutas } from './dashboard/Fotogaleria'
 import { BarcodeScanner } from './BarcodeScanner'
 import { BotonNoAplica, SelectorResponsables } from './WidgetsEvaluacion'
@@ -62,45 +63,90 @@ function responsablesDeCheck(item: { responsables?: string[] | null }, o: Opcion
  *
  * En RANGO no hay check de correcto: el valor contra el mínimo decide la
  * vigencia, así que sólo aparece la marca de presencia.
+ *
+ * El «No aplica» del punto va en este mismo renglón (se pidió que no esté
+ * suelto en la cabecera), así las tres marcas de un punto se tocan juntas.
  */
 function DobleCheck({
   existe,
   correcto,
   esRango,
   onExiste,
-  onCorrecto
+  onCorrecto,
+  onNoAplica
 }: {
   existe: boolean
   correcto: boolean
   esRango?: boolean
   onExiste: () => void
   onCorrecto: () => void
+  onNoAplica: () => void
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-      <label className="flex cursor-pointer items-center gap-2">
+      {/* `min-h-[44px]` y `h-6 w-6`: con casilla de 16 px el dedo erraba. La
+          altura mínima es del objetivo táctil de guía; se gana clicando
+          cualquier punto de la etiqueta, no sólo la casilla. */}
+      <label className="flex min-h-[44px] cursor-pointer items-center gap-2">
         <input
           type="checkbox"
-          className="h-4 w-4 shrink-0 accent-primary"
+          className="h-6 w-6 shrink-0 accent-primary"
           checked={existe}
           onChange={onExiste}
         />
-        <span className="text-xs font-semibold text-slate-600">Existe</span>
+        <span className="text-sm font-semibold text-slate-700">Existe</span>
       </label>
       {esRango ? null : (
-        <label className={cn('flex items-center gap-2', existe ? 'cursor-pointer' : 'cursor-not-allowed opacity-50')}>
+        <label className={cn('flex min-h-[44px] items-center gap-2', existe ? 'cursor-pointer' : 'cursor-not-allowed opacity-50')}>
           <input
             type="checkbox"
-            className="h-4 w-4 shrink-0 accent-green-600"
+            className="h-6 w-6 shrink-0 accent-green-600"
             checked={correcto}
             disabled={!existe}
             onChange={onCorrecto}
             title={existe ? 'El punto está correcto (vigente / en funcionamiento)' : 'Primero marcá que existe'}
           />
-          <span className="text-xs font-semibold text-slate-600">Correcto</span>
+          <span className="text-sm font-semibold text-slate-700">Correcto</span>
         </label>
       )}
+      <ChipNoAplica activo={false} onToggle={onNoAplica} />
     </div>
+  )
+}
+
+/**
+ * El renglón de un punto excluido: el cuerpo del punto se oculta porque no
+ * puntúa, pero el botón que lo devuelve tiene que seguir a la vista —si no,
+ * «No aplica» queda escondido en la cabecera sin forma de deshacerlo—.
+ */
+function FilaNoAplica({ onToggle }: { onToggle: () => void }) {
+  return (
+    <div className="flex min-h-[44px] flex-wrap items-center gap-x-4 gap-y-1.5 bg-amber-100/60 px-3 py-2.5">
+      <ChipNoAplica activo onToggle={onToggle} />
+      <p className="text-xs font-semibold text-amber-700">No aplica · se excluye del puntaje</p>
+    </div>
+  )
+}
+
+/**
+ * El «No aplica» de un punto del checklist. Vive en la fila del doble check —
+ * misma línea que «Existe» y «Correcto» — y sólo cae en la cabecera cuando el
+ * ítem no tiene doble check y esa fila no existe.
+ */
+function ChipNoAplica({ activo, onToggle }: { activo: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title="No aplica: se excluye del puntaje"
+      className={cn(
+        'inline-flex min-h-[36px] shrink-0 items-center gap-1 rounded-full px-2.5 text-[11px] font-bold transition-colors',
+        activo ? 'bg-amber-100 text-amber-800' : 'text-slate-400 hover:bg-amber-50 hover:text-amber-600'
+      )}
+    >
+      <Info className="h-3 w-3" />
+      {activo ? 'No aplica' : 'Marcar no aplica'}
+    </button>
   )
 }
 
@@ -201,8 +247,11 @@ export function ItemRenderer({ item, valor, onChange, index, total, shopId, bran
   const preg = `${index + 1}. ${item.texto}` + (item.requerido ? ' *' : '')
   const tipoColor = COLOR_BADGE_TIPO_ITEM[item.tipo]
 
+  // `p-3` en teléfono: cada píxel de aire de la tarjeta es un píxel que el
+  // campo no usa, y en una pantalla angosta el ancho del input es lo que
+  // importa. En pantallas anchas vuelve a `p-4`, que es donde respira bien.
   return (
-    <section className="sup p-4">
+    <section className="sup p-3 sm:p-4">
       <div className="mb-3 flex items-start justify-between gap-2">
         <p className="font-semibold text-slate-800">{preg}</p>
         <Badge color={tipoColor}>{etiquetaTipo(item.tipo)}</Badge>
@@ -255,8 +304,20 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
       return (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <BotonCumple activo={value === true} onPick={() => setValue(true)} />
-            <BotonNoCumple activo={value === false} onPick={() => setValue(false)} />
+            <BotonVeredicto
+              tono="verde"
+              etiqueta="Cumple"
+              activo={value === true}
+              apagado={value === false}
+              onPick={() => setValue(true)}
+            />
+            <BotonVeredicto
+              tono="rojo"
+              etiqueta="No cumple"
+              activo={value === false}
+              apagado={value === true}
+              onPick={() => setValue(false)}
+            />
           </div>
           <BotonNoAplica activo={noAplica} onClick={() => setNoAplica(!noAplica)}>
             No aplica · se excluye del puntaje
@@ -355,7 +416,12 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
       const setEvidencia = (id: string, photoIds: string[]) => {
         guardar((prev: unknown) => {
           const base = desde(prev)
-          return { ...base, evidencias: { ...(base.evidencias ?? {}), [id]: { photoIds } } }
+          // Se parcha sobre la evidencia previa y no se la reemplaza entera:
+          // un punto que ya tenía fotos en el bucket las tiene en `paths`, y
+          // sobrescribir el objeto las borraría del registro (y del PDF) con
+          // sólo adjuntar una foto más desde la cámara.
+          const previa = base.evidencias?.[id] ?? {}
+          return { ...base, evidencias: { ...(base.evidencias ?? {}), [id]: { ...previa, photoIds } } }
         })
       }
       // Comentario del punto: se escribe con el updater porque `value` es el del
@@ -383,6 +449,10 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
             const existeOpcion = (value.existe ?? []).includes(o.id)
             const esNoAplica = noAplican.includes(o.id)
             const idsEv = evidencias[o.id]?.photoIds ?? []
+            // Lo que ya subió al bucket. Se filtra `.local/<id>`: es el marcador
+            // con el que `transform.ts` nombra una foto que nunca llegó, y
+            // pedirle una URL firmada da 404 (ver `evidenciasDe`).
+            const pathsEv = (evidencias[o.id]?.paths ?? []).filter((p) => p && !p.startsWith('.local/'))
             const esRango = o.tipo_respuesta === 'RANGO'
             const valorRango = esRango ? (value.valores?.[o.id] ?? null) : null
             const cumpleOpcion = opcionCumplida(o, value, o.id)
@@ -420,18 +490,9 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                   {o.puntos != null && o.puntos > 0 && !o.estado_permiso ? (
                     <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={() => toggleNoAplica(o.id)}
-                    title="No aplica: se excluye del puntaje"
-                    className={cn(
-                      'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors',
-                      esNoAplica ? 'bg-amber-100 text-amber-800' : 'text-slate-400 hover:bg-amber-50 hover:text-amber-600'
-                    )}
-                  >
-                    <Info className="h-3 w-3" />
-                    {esNoAplica ? 'No aplica' : 'Marcar no aplica'}
-                  </button>
+                  {/* Con doble check el «No aplica» se muda a la fila de marcas
+                      (`DobleCheck`); acá queda sólo cuando esa fila no existe. */}
+                  {!dobleCheck ? <ChipNoAplica activo={esNoAplica} onToggle={() => toggleNoAplica(o.id)} /> : null}
                   {/* La foto se puede adjuntar en cualquier estado: el punto puede estar
                       validado (cumple) o sin cumplir, y en los dos casos sirve de evidencia. */}
                   <FotoOpcion
@@ -456,9 +517,14 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                     />
                   </div>
                 ) : null}
-                {idsEv.length > 0 ? (
-                  <div className="px-3 pb-3">
-                    <MinaFotos photoIds={idsEv} />
+                {(idsEv.length > 0 || pathsEv.length > 0) ? (
+                  <div className="space-y-2 px-3 pb-3">
+                    {/* Las del equipo, con su marcador y su edición de marca. */}
+                    {idsEv.length > 0 ? <MinaFotos photoIds={idsEv} /> : null}
+                    {/* Las que ya subieron: sin esto, reabrir una inspección
+                        finalizada (que sale del equipo al subir) se veía sin
+                        ninguna evidencia aunque el PDF sí la imprimiera. */}
+                    {pathsEv.length > 0 ? <FotogaleriaRutas paths={pathsEv} compacta /> : null}
                   </div>
                 ) : null}
                 {!esNoAplica ? (
@@ -472,6 +538,7 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                         esRango={esRango}
                         onExiste={() => toggleExiste(o.id)}
                         onCorrecto={() => toggle(o.id)}
+                        onNoAplica={() => toggleNoAplica(o.id)}
                       />
                       <p
                         className={cn(
@@ -512,10 +579,10 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                           Punto validado <span className="font-normal text-slate-400">· valor {valorRango ?? '—'}{o.unidad ? ` ${o.unidad}` : ''}</span>
                         </span>
                       ) : (
-                        <label className="flex cursor-pointer items-center gap-2">
+                        <label className="flex min-h-[44px] cursor-pointer items-center gap-2">
                           <input
                             type="checkbox"
-                            className="h-4 w-4 shrink-0 accent-green-600"
+                            className="h-6 w-6 shrink-0 accent-green-600"
                             checked={activo}
                             onChange={() => toggle(o.id)}
                           />
@@ -536,10 +603,10 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                           </p>
                         </>
                       ) : (
-                        <label className="mb-2 flex cursor-pointer items-center gap-2">
+                        <label className="mb-2 flex min-h-[44px] cursor-pointer items-center gap-2">
                           <input
                             type="checkbox"
-                            className="h-4 w-4 shrink-0 accent-primary"
+                            className="h-6 w-6 shrink-0 accent-primary"
                             checked={activo}
                             onChange={() => toggle(o.id)}
                           />
@@ -566,6 +633,10 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                       ) : null}
                     </div>
                   )
+                ) : dobleCheck ? (
+                  // Excluido: el cuerpo del punto se oculta (no puntúa), pero la
+                  // fila con el «No aplica» queda a la vista para poder desmarcarlo.
+                  <FilaNoAplica onToggle={() => toggleNoAplica(o.id)} />
                 ) : null}
               </div>
             )
@@ -1072,11 +1143,16 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
             </p>
           </div>
         ) : null}
-        <Input
+        {/* La descripción del producto escaneado va en un textarea y no en un
+            `Input`: en un renglón la API corta el nombre y hay que adivinar qué
+            se escaneó. El alto lo crece `field-sizing` (ver `index.css`); donde
+            no exista, quedan dos renglones con scroll. */}
+        <Textarea
           placeholder="Nombre del producto (se autocompleta al buscar)"
           tabIndex={-1}
           value={borrador.nombre ?? ''}
           onChange={(e) => setBorrador((b) => ({ ...b, nombre: e.target.value }))}
+          className="nombre-producto"
         />
         <div className="flex flex-wrap items-end gap-2">
           <CampoConciliacion
@@ -1099,10 +1175,10 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
         {/* Solo en conciliación por precio: el hablador es la etiqueta con el precio
             de venta, así que en modo stock no existe que marcar. */}
         {contraDato === 'FINAL_BASE' ? (
-          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
+          <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
             <input
               type="checkbox"
-              className="h-4 w-4 shrink-0 accent-red-600"
+              className="h-6 w-6 shrink-0 accent-red-600"
               checked={borrador.sinHablador === true}
               onChange={(e) => {
                 const marcado = e.target.checked
@@ -1114,7 +1190,11 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
             No tiene hablador · se registra sin precio y cuenta como No Match
           </label>
         ) : null}
-        <div className="flex items-center justify-between gap-2">
+        {/* El estado arriba y el botón abajo, cada uno en su renglón: apilado,
+            el botón ocupa el ancho completo de la tarjeta en vez de compartirlo
+            con el texto, que era lo que lo dejaba chico al lado de campos más
+            grandes. */}
+        <div className="space-y-2">
           {exito ? (
             <p className="text-xs font-bold text-green-600">{exito}</p>
           ) : borradorSinHablador ? (
@@ -1129,7 +1209,7 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
           <Button
             type="button"
             variant="primary"
-            className="shrink-0 min-h-0 px-4 py-2"
+            className="w-full"
             disabled={!borradorCompleto}
             onClick={agregar}
           >
@@ -1183,17 +1263,17 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
                         <li key={i} className="space-y-2 rounded-xl border-2 border-primary bg-white px-3 py-2">
                           <p className="flex items-center gap-2 text-sm">
                             <span className="max-w-[55%] overflow-x-auto whitespace-nowrap text-[10px] font-semibold leading-none text-slate-800" title={p.sku}>{p.sku}</span>
-                            {p.nombre ? <span className="min-w-0 flex-1 truncate text-slate-500">{p.nombre}</span> : <span className="flex-1" />}
+                            {p.nombre ? <span className="min-w-0 flex-1 break-words text-slate-500">{p.nombre}</span> : <span className="flex-1" />}
                           </p>
                           <div className="flex flex-wrap items-end gap-2">
                             <CampoConciliacion etiqueta="T · Teórica" valor={edicion.teorica} onChange={(n) => setEdicion((d) => ({ ...d, teorica: n }))} />
                             <CampoConciliacion etiqueta="F · Física" valor={edicion.fisica} disabled={edicion.sinHablador} onChange={(n) => setEdicion((d) => ({ ...d, fisica: n }))} />
                           </div>
                           {contraDato === 'FINAL_BASE' ? (
-                            <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
+                            <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
                               <input
                                 type="checkbox"
-                                className="h-4 w-4 shrink-0 accent-red-600"
+                                className="h-6 w-6 shrink-0 accent-red-600"
                                 checked={edicion.sinHablador}
                                 onChange={(e) => {
                                   const marcado = e.target.checked
@@ -1267,7 +1347,10 @@ export function ConciliacionEditor({ valor, onChange, shopId, item, gerente, eva
                         >
                           <div className="bg-white px-3 py-1.5 text-sm">
                             <div className="flex items-center gap-2">
-                              <span className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-tight text-slate-800">
+                              {/* Sin `truncate`: el nombre del producto se lee entero
+                                  aunque ocupe varios renglones; el SKU sigue a la
+                                  derecha con `shrink-0`. */}
+                              <span className="min-w-0 flex-1 break-words text-[15px] font-semibold leading-tight text-slate-800">
                                 {p.nombre ?? p.sku}
                               </span>
                               <span
@@ -1455,6 +1538,11 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
   const v = (valor as ValorListaColaboradores | null) ?? { colaboradores: [] }
   const colaboradores = ordenarTrabajadores(v.colaboradores ?? [])
   const opts = useMemo(() => (item.opciones ?? []) as Opcion[], [item.opciones])
+  /**
+   * Todos los checks con pesos: el ítem puntúa por la fracción de puntos de cada
+   * trabajador (ver `proporcionListaColaboradores`), no por completo/incompleto.
+   */
+  const conPuntos = opts.length > 0 && opts.every((o) => typeof o.puntos === 'number' && o.puntos > 0)
   // Solo los ids, y en un useMemo, porque es lo único que la consulta del
   // historial necesita. Depende de `opts` y no de `item.opciones` porque cuando
   // el ítem no tiene checklist `(item.opciones ?? [])` devuelve un `[]` nuevo en
@@ -1748,7 +1836,9 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
           </>
         ) : (
           <p className="mt-1 text-xs text-slate-500">
-            El ítem se puntúa por trabajador: cada revisado completo vale su parte, y los que no confirmes con el check junto a su nombre todavía no cuentan ({etiquetaFiltro}).
+            {conPuntos
+              ? `Con pesos en todos los checks, cada trabajador aporta sus puntos obtenidos sobre los aplicables (${etiquetaFiltro}).`
+              : `El ítem se puntúa por trabajador: cada revisado completo vale su parte, y los que no confirmes con el check junto a su nombre todavía no cuentan (${etiquetaFiltro}).`}
           </p>
         )}
         <div className="mt-3 flex items-center gap-2">
@@ -1834,10 +1924,10 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                 return (
                   <div key={c.dni} className={cn('rounded-xl border transition-colors', c.aplica ? (cumple ? 'border-green-200 bg-white' : 'border-slate-200 bg-white') : 'border-slate-100 bg-slate-50')}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
-                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                      <label className="flex min-h-[44px] min-w-0 flex-1 cursor-pointer items-center gap-3">
                         <input
                           type="checkbox"
-                          className="h-5 w-5 shrink-0 accent-primary"
+                          className="h-6 w-6 shrink-0 accent-primary"
                           checked={c.aplica && revisado}
                           disabled={!revisado}
                           onChange={() => marcarAplica(c.dni)}
@@ -1891,10 +1981,10 @@ function ColaboradoresEditor({ item, valor, onChange, shopId, branchId, gerente,
                                     del texto no entra en el line breaking de `flex-wrap` y los
                                     badges/botones shrink-0 comprimían el título a una letra
                                     por línea. */}
-                                <label className="flex min-w-0 flex-auto cursor-pointer items-center gap-2">
+                                <label className="flex min-h-[44px] min-w-0 flex-auto cursor-pointer items-center gap-2">
                                   <input
                                     type="checkbox"
-                                    className={cn('h-4 w-4 shrink-0', esta ? 'accent-green-600' : 'accent-primary')}
+                                    className={cn('h-6 w-6 shrink-0', esta ? 'accent-green-600' : 'accent-primary')}
                                     checked={esta && !noAplica}
                                     disabled={noAplica}
                                     onChange={() => toggleCheck(c.dni, o.id)}
@@ -2130,18 +2220,9 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                     {o.puntos != null && o.puntos > 0 ? (
                       <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => toggleNoAplicaUnica(o.id)}
-                      title="No aplica: se excluye del puntaje"
-                      className={cn(
-                        'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors',
-                        esNoAplica ? 'bg-amber-100 text-amber-800' : 'text-slate-400 hover:bg-amber-50 hover:text-amber-600'
-                      )}
-                    >
-                      <Info className="h-3 w-3" />
-                      {esNoAplica ? 'No aplica' : 'Marcar no aplica'}
-                    </button>
+                    {/* Con doble check el «No aplica» se muda a la fila de marcas
+                        (`DobleCheck`); acá queda sólo cuando esa fila no existe. */}
+                    {!dobleCheck ? <ChipNoAplica activo={esNoAplica} onToggle={() => toggleNoAplicaUnica(o.id)} /> : null}
                   </div>
                   <ComentarioPunto
                     valor={leerComentario(unica.comentarios, o.id)}
@@ -2158,6 +2239,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                           correcto={esta}
                           onExiste={() => toggleExisteUnica(o.id)}
                           onCorrecto={() => toggleCheck(o.id)}
+                          onNoAplica={() => toggleNoAplicaUnica(o.id)}
                         />
                         <p
                           className={cn(
@@ -2191,10 +2273,10 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                     ) : esta ? (
                       // Estado neutro (validado): sin alerta roja ni responsables.
                       <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2.5">
-                        <label className="flex cursor-pointer items-center gap-2">
+                        <label className="flex min-h-[44px] cursor-pointer items-center gap-2">
                           <input
                             type="checkbox"
-                            className="h-4 w-4 shrink-0 accent-green-600"
+                            className="h-6 w-6 shrink-0 accent-green-600"
                             checked={esta}
                             onChange={() => toggleCheck(o.id)}
                           />
@@ -2204,10 +2286,10 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                     ) : (
                       // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
                       <div className="min-w-0 bg-red-50/60 px-3 py-2.5">
-                        <label className="mb-2 flex cursor-pointer items-center gap-2">
+                        <label className="mb-2 flex min-h-[44px] cursor-pointer items-center gap-2">
                           <input
                             type="checkbox"
-                            className="h-4 w-4 shrink-0 accent-primary"
+                            className="h-6 w-6 shrink-0 accent-primary"
                             checked={esta}
                             onChange={() => toggleCheck(o.id)}
                           />
@@ -2233,6 +2315,10 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                         ) : null}
                       </div>
                     )
+                  ) : dobleCheck ? (
+                    // Excluido: el cuerpo del punto se oculta (no puntúa), pero la
+                    // fila con el «No aplica» queda a la vista para poder desmarcarlo.
+                    <FilaNoAplica onToggle={() => toggleNoAplicaUnica(o.id)} />
                   ) : (
                     <p className="px-3 pb-2.5 text-xs font-semibold text-amber-700">
                       No aplica · este punto no se espera y queda fuera del puntaje
@@ -2431,18 +2517,9 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                               {o.puntos != null && o.puntos > 0 ? (
                                 <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-primary-700">{o.puntos} pts</span>
                               ) : null}
-                              <button
-                                type="button"
-                                onClick={() => toggleNoAplica(i, o.id)}
-                                title="No aplica: se excluye del puntaje"
-                                className={cn(
-                                  'inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors',
-                                  esNoAplica ? 'bg-amber-100 text-amber-800' : 'text-slate-400 hover:bg-amber-50 hover:text-amber-600'
-                                )}
-                              >
-                                <Info className="h-3 w-3" />
-                                {esNoAplica ? 'No aplica' : 'Marcar no aplica'}
-                              </button>
+                              {/* Con doble check el «No aplica» se muda a la fila de
+                                  marcas (`DobleCheck`); acá queda sólo si no existe. */}
+                              {!dobleCheck ? <ChipNoAplica activo={esNoAplica} onToggle={() => toggleNoAplica(i, o.id)} /> : null}
                             </div>
                             <ComentarioPunto
                               valor={leerComentario(u.comentarios, o.id)}
@@ -2459,6 +2536,7 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                                     correcto={esta}
                                     onExiste={() => toggleExiste(i, o.id)}
                                     onCorrecto={() => toggleCheck(i, o.id)}
+                                    onNoAplica={() => toggleNoAplica(i, o.id)}
                                   />
                                   <p
                                     className={cn(
@@ -2492,10 +2570,10 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                               ) : incumple ? (
                                 // Estado de error (sin cumplir): validar el punto + responsables de la falla, en el mismo espacio del check.
                                 <div className="min-w-0 bg-red-50/60 px-3 py-2.5">
-                                  <label className="mb-2 flex cursor-pointer items-center gap-2">
+                                  <label className="mb-2 flex min-h-[44px] cursor-pointer items-center gap-2">
                                     <input
                                       type="checkbox"
-                                      className="h-4 w-4 shrink-0 accent-primary"
+                                      className="h-6 w-6 shrink-0 accent-primary"
                                       checked={esta}
                                       onChange={() => toggleCheck(i, o.id)}
                                     />
@@ -2523,10 +2601,10 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                               ) : (
                                 // Estado neutro (validado): sin alerta roja ni responsables.
                                 <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2.5">
-                                  <label className="flex cursor-pointer items-center gap-2">
+                                  <label className="flex min-h-[44px] cursor-pointer items-center gap-2">
                                     <input
                                       type="checkbox"
-                                      className="h-4 w-4 shrink-0 accent-green-600"
+                                      className="h-6 w-6 shrink-0 accent-green-600"
                                       checked={esta}
                                       onChange={() => toggleCheck(i, o.id)}
                                     />
@@ -2534,6 +2612,10 @@ function UnidadesEditor({ item, valor, onChange, gerente }: { item: Item; valor:
                                   </label>
                                 </div>
                               )
+                            ) : dobleCheck ? (
+                              // Excluido: el cuerpo del punto se oculta (no puntúa),
+                              // pero el «No aplica» queda a la vista para desmarcarlo.
+                              <FilaNoAplica onToggle={() => toggleNoAplica(i, o.id)} />
                             ) : (
                               <p className="px-3 pb-2.5 text-xs font-semibold text-amber-700">
                                 No aplica · este punto no se espera en esta unidad y queda fuera del puntaje
@@ -2702,34 +2784,55 @@ function requisitoContrato(fecha: string): string | null {
   return 'Requiere contrato fijo en el expediente'
 }
 
-function BotonCumple({ activo, onPick }: { activo: boolean; onPick: () => void }) {
+/**
+ * Botón de veredicto de CUMPLE_NO_CUMPLE: sólo el icono, sin texto.
+ *
+ * Verde pastel para Cumple, rojo pastel para No cumple. El elegido se remarca
+ * con su fondo un paso más saturado y el borde de su color; el contrario se
+ * apaga en gris, así la decisión se lee de un vistazo sin palabras.
+ *
+ * Sin texto visible, el nombre del botón vive en `aria-label` y `title`: el
+ * lector de pantalla y el que duda con el dedo sobre el ícono siguen sabiendo
+ * cuál es cuál.
+ */
+function BotonVeredicto({
+  tono,
+  etiqueta,
+  activo,
+  apagado,
+  onPick
+}: {
+  tono: 'verde' | 'rojo'
+  /** Nombre accesible y tooltip: el botón ya no lleva texto propio. */
+  etiqueta: string
+  /** Este veredicto es el que quedó elegido. */
+  activo: boolean
+  /** El veredicto contrario es el elegido: éste se pinta en gris. */
+  apagado: boolean
+  onPick: () => void
+}) {
+  const Icono = tono === 'verde' ? Check : X
   return (
     <button
       type="button"
       onClick={onPick}
+      aria-label={etiqueta}
+      aria-pressed={activo}
+      title={etiqueta}
       className={cn(
-        'flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-full border-2 px-3 py-3 transition-colors',
-        activo ? 'border-green-600 bg-green-50 text-green-800' : 'border-slate-200 bg-white text-slate-500'
+        'grid min-h-[88px] place-items-center rounded-xl border-2 transition-colors',
+        apagado
+          ? 'border-slate-200 bg-slate-100 text-slate-400'
+          : tono === 'verde'
+            ? activo
+              ? 'border-green-600 bg-green-200 text-green-900'
+              : 'border-transparent bg-green-100 text-green-700'
+            : activo
+              ? 'border-red-600 bg-red-200 text-red-900'
+              : 'border-transparent bg-red-100 text-red-700'
       )}
     >
-      <Check className="text-2xl" strokeWidth={2.5} />
-      <span className="text-sm font-bold">Cumple</span>
-    </button>
-  )
-}
-
-function BotonNoCumple({ activo, onPick }: { activo: boolean; onPick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onPick}
-      className={cn(
-        'flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-full border-2 px-3 py-3 transition-colors',
-        activo ? 'border-red-600 bg-red-50 text-red-700' : 'border-slate-200 bg-white text-slate-500'
-      )}
-    >
-      <X className="text-2xl" strokeWidth={2.5} />
-      <span className="text-sm font-bold">No cumple</span>
+      <Icono className="h-10 w-10" strokeWidth={2.5} aria-hidden="true" />
     </button>
   )
 }
@@ -2782,6 +2885,7 @@ function CampoConciliacion({
 
 function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids: string[]) => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const videoRef = useRef<HTMLInputElement>(null)
   const galeriaRef = useRef<HTMLInputElement>(null)
   const [subiendo, setSubiendo] = useState(false)
   // En PC no se respalda fuera de la app, así que el título sólo promete el
@@ -2807,10 +2911,19 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
         className="hidden"
         onChange={(e) => void agregar(e.target, true)}
       />
+      {/* Cámara en modo video: la duración máxima se valida al adjuntar. */}
+      <input
+        ref={videoRef}
+        type="file"
+        accept="video/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => void agregar(e.target, true)}
+      />
       <input
         ref={galeriaRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         multiple
         className="hidden"
         onChange={(e) => void agregar(e.target, false)}
@@ -2827,9 +2940,19 @@ function FotoOpcion({ photoIds, onChange }: { photoIds: string[]; onChange: (ids
       </button>
       <button
         type="button"
+        onClick={() => videoRef.current?.click()}
+        disabled={subiendo}
+        aria-label="Grabar video de evidencia"
+        title={`Grabar video (máximo ${LIMITE_SEGUNDOS_VIDEO} segundos)`}
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-full border-2 border-primary bg-white text-primary transition-colors hover:bg-primary-50 disabled:opacity-50"
+      >
+        <Video className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
         onClick={() => galeriaRef.current?.click()}
         disabled={subiendo}
-        aria-label="Adjuntar foto de evidencia desde la galería"
+        aria-label="Adjuntar foto o video de evidencia desde la galería"
         className="grid h-9 w-9 shrink-0 place-items-center rounded-full border-2 border-primary bg-white text-primary transition-colors hover:bg-primary-50 disabled:opacity-50"
       >
         <ImageIcon className="h-4 w-4" />

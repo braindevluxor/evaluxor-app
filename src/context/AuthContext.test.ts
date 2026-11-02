@@ -35,6 +35,22 @@ describe('salir de la sesión llega al login sin recargar', () => {
     expect(login).toBeGreaterThan(esqueleto)
   })
 
+  it('al recargar se ve el cargador de cajas (el del login), no un esqueleto', () => {
+    // Se pidió que el F5 se sienta como entrar a la app: misma animación, y el
+    // fondo pintado por el propio cargador para que siga el tema (pintado en un
+    // div sin fondo salía el blanco del navegador con tarjetas oscuras).
+    const app = fuente('../App.tsx')
+    expect(app).toContain('<CargadorPantalla completa />')
+    expect(app).toContain('loadingFallback={<CargadorPantalla completa />}')
+    expect(guards).toContain('<CargadorPantalla completa />')
+    expect(guards).not.toContain('SkeletonPantalla')
+
+    const ui = fuente('../components/ui.tsx')
+    expect(ui).toContain('export function CargadorPantalla')
+    expect(ui).toContain('bg-slate-100 px-4')
+    expect(ui).toContain('<Spinner size={44} />')
+  })
+
   it('salir pinta el estado él mismo, sin depender del evento ni de la red', () => {
     const inicio = auth.indexOf('async signOut()')
     const fin = auth.indexOf('async refreshProfile()', inicio)

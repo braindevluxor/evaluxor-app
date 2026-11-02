@@ -110,6 +110,33 @@ describe('ItemRenderer · doble check', () => {
     expect(html).not.toContain('sin cumplir')
   })
 
+  it('las casillas son grandes y «No aplica» comparte fila con Existe y Correcto', () => {
+    const html = renderToStaticMarkup(<ItemRenderer item={conDobleCheck()} valor={undefined} index={0} total={1} onChange={() => {}} />)
+    // Con `h-4 w-4` el dedo erraba: el checkbox ahora mide 24 px y la etiqueta
+    // entera (44 px mínimos) es lo que se toca.
+    expect(html).toContain('h-6 w-6')
+    expect(html).toContain('min-h-[44px]')
+
+    // La fila del doble check es el contenedor que abre con ese flex: dentro,
+    // hasta su cierre, tienen que estar las dos marcas Y el «no aplica».
+    const fila = html.slice(html.indexOf('flex flex-wrap items-center gap-x-4 gap-y-1.5'))
+    expect(fila, 'no encontré la fila del doble check').not.toBe('')
+    const contenido = fila.slice(0, fila.indexOf('</div>'))
+    expect(contenido).toContain('Existe')
+    expect(contenido).toContain('Correcto')
+    expect(contenido).toContain('Marcar no aplica')
+  })
+
+  it('con el punto «no aplica» el botón sigue en su fila para poder desmarcarlo', () => {
+    const valor = { selected: ['o1'], existe: ['o1'], informativos: ['o2'] }
+    const html = renderToStaticMarkup(<ItemRenderer item={conDobleCheck()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    // El cuerpo del punto excluido se oculta, pero esconder también el botón
+    // dejaba «no aplica» sin forma de deshacerse.
+    expect(html).toContain('No aplica · se excluye del puntaje')
+    expect(html).toContain('Marcar no aplica')
+    expect(html).toContain('>No aplica<')
+  })
+
   it('en UNIDAD_CHECKLIST cada unidad carga su propia presencia', () => {
     const valor = { unidades: [{ codigo: 'U1', selected: [], existe: ['o1'] }] }
     const html = renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis', false)} valor={valor} index={0} total={1} onChange={() => {}} />)
@@ -310,7 +337,8 @@ describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
     const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={valor} index={0} total={1} onChange={() => {}} />)
     expect(html).toContain('Sin evidencia fotográfica')
     expect(html).toContain('aria-label="Tomar foto de evidencia"')
-    expect(html).toContain('aria-label="Adjuntar foto de evidencia desde la galería"')
+    expect(html).toContain('aria-label="Adjuntar foto o video de evidencia desde la galería"')
+    expect(html).toContain('aria-label="Grabar video de evidencia"')
   })
 
   it('cuando el producto ya tiene fotos, la fila las abre en el visor', () => {
@@ -327,13 +355,79 @@ describe('ItemRenderer · conciliación (contra dato del ítem)', () => {
     expect(html).not.toContain('Evidencia fotográfica')
   })
 
-  it('la evidencia de un producto ofrece cámara y galería, rotulada con su SKU', () => {
+  it('la evidencia de un producto ofrece cámara, video y galería, rotulada con su SKU', () => {
     const html = renderToStaticMarkup(
       <EvidenciaProducto sku="SKU-1" photoIds={[]} paths={[]} onChange={() => {}} />
     )
     expect(html).toContain('Evidencia fotográfica · SKU-1')
     expect(html).toContain('aria-label="Tomar foto"')
-    expect(html).toContain('aria-label="Adjuntar foto desde la galería"')
+    expect(html).toContain('aria-label="Grabar video"')
+    expect(html).toContain('aria-label="Adjuntar foto o video desde la galería"')
+  })
+
+  it('la descripción del producto escaneado se ve entera, en varios renglones si hace falta', () => {
+    const nombre = 'Harina De Maiz Pan 1 Kg Especial Para Tortillas Siete Semillas'
+    const valor = { productos: [{ sku: '7591002000011', nombre, teorica: 2, fisica: 2 }] }
+    const html = renderToStaticMarkup(<ItemRenderer item={itemConciliacion()} valor={valor} index={0} total={1} onChange={() => {}} />)
+    // El nombre vive en un textarea (multilinea), no en un `Input` de un renglón,
+    // y la fila de la lista no lo corta con puntos suspensivos: hay que poder
+    // leer qué producto se escaneó sin adivinar.
+    expect(html).toContain('<textarea')
+    expect(html).toContain(nombre)
+    expect(html).not.toContain('flex-1 truncate text-[15px]')
+    expect(html).not.toContain('flex-1 truncate text-slate-500')
+  })
+})
+
+/**
+ * Los checks de la vista se agrandaron a 24 px con etiqueta de 44 px. Eso vale
+ * para TODOS los ramos, no sólo para el doble check: si una rama que no se tocó
+ * sigue con `h-4 w-4`, el dedo vuelve a errar justo ahí.
+ */
+describe('ItemRenderer · ningún check queda chico', () => {
+  const fuente = (rel: string): string =>
+    readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+  it('ninguna rama de la fuente sigue pintando un check de 16 o 20 px', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).not.toMatch(/h-4 w-4 shrink-0 accent/)
+    expect(src).not.toMatch(/h-5 w-5 shrink-0 accent/)
+  })
+
+  it('cada tipo de ítem pinta sus checks a 24 px', () => {
+    const colaborador = {
+      dni: 1,
+      nationality: 'V-',
+      name: 'Ana',
+      lastname: 'Gómez',
+      role_id: 1,
+      role_name: 'Cajera',
+      branch_id: 1,
+      branch_name: '',
+      admission_date: null,
+      active: true,
+      aplica: true,
+      // Sin nada tildado el trabajador sigue "Sin revisar": si estuviera
+      // completo, la lista lo oculta (queda para buscar) y no habría fila.
+      selected: []
+    }
+    const pintar = (item: Item, valor: unknown) =>
+      renderToStaticMarkup(<ItemRenderer item={item} valor={valor} index={0} total={1} onChange={() => {}} />)
+    const casos: Array<[string, string]> = [
+      // Check simple (punto validado / responsables de la falla)…
+      ['check simple', pintar(itemChecklist(), undefined)],
+      // …doble check…
+      ['doble check', pintar({ ...itemChecklist(), doble_check: true }, { selected: ['o1'], existe: ['o1'] })],
+      // …«no tiene hablador» de la conciliación…
+      ['no tiene hablador', pintar(itemConciliacion('FINAL_BASE'), undefined)],
+      // …y la lista de colaboradores.
+      ['colaboradores', pintar(itemColaboradores(), { colaboradores: [colaborador] })]
+    ]
+    for (const [nombre, html] of casos) {
+      const checks = html.match(/<input[^>]*type="checkbox"[^>]*>/g) ?? []
+      expect(checks.length, `${nombre}: este ítem no pintó ningún check`).toBeGreaterThan(0)
+      for (const c of checks) expect(c, nombre).toContain('h-6 w-6')
+    }
   })
 })
 
@@ -468,9 +562,15 @@ describe('ItemRenderer · el título de la opción no se parte letra por letra',
 
   it('ningún título de opción usa flex-1 (basis 0) en fila con flex-wrap', () => {
     const src = fuente('./ItemRenderer.tsx')
-    // Los cuatro títulos de opción. Los `flex-1` que quedan en el archivo están
-    // en filas sin `flex-wrap` (donde sí corresponde) o con `truncate`.
-    expect(src).not.toMatch(/min-w-0 flex-1 break-words/)
+    // Los únicos `flex-1 break-words` del archivo son los nombres de producto,
+    // que viven en filas SIN `flex-wrap` (ahí `flex-1` reparte todo el espacio
+    // libre y el texto se parte normal). Cualquier otro uso — p. ej. un título
+    // de opción nuevo — volvería a partirse letra por letra.
+    const usos = src.match(/min-w-0 flex-1 break-words[^"']*/g) ?? []
+    expect(usos).toEqual([
+      'min-w-0 flex-1 break-words text-slate-500',
+      'min-w-0 flex-1 break-words text-[15px] font-semibold leading-tight text-slate-800'
+    ])
   })
 
   it('los cuatro títulos usan flex-auto', () => {
@@ -482,8 +582,8 @@ describe('ItemRenderer · el título de la opción no se parte letra por letra',
     const src = fuente('./ItemRenderer.tsx')
     // El label es el hijo directo de la fila: con basis 0 el ancho del texto no
     // llega nunca al line breaking, aunque el span interno esté bien.
-    expect(src).not.toMatch(/flex min-w-0 flex-1 cursor-pointer items-center gap-2/)
-    expect(src).toMatch(/flex min-w-0 flex-auto cursor-pointer items-center gap-2/)
+    expect(src).not.toMatch(/flex min-h-\[44px\] min-w-0 flex-1 cursor-pointer items-center gap-2/)
+    expect(src).toMatch(/flex min-h-\[44px\] min-w-0 flex-auto cursor-pointer items-center gap-2/)
   })
 })
 
@@ -897,6 +997,74 @@ describe('ItemRenderer · filas heredadas de la nube (sin campos nuevos)', () =>
     expect(() =>
       renderToStaticMarkup(<ItemRenderer item={itemDe('Dormis')} valor={valor} index={0} total={1} onChange={() => {}} />)
     ).not.toThrow()
+  })
+})
+
+describe('ItemRenderer · el CHECKLIST sí pinta las fotos que ya subieron', () => {
+  const fuente = (rel: string): string =>
+    readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+  // Una inspección finalizada sale del equipo al subir (ver `syncPreEntrega`),
+  // así que al reabrirla desde el historial su registro sólo trae `paths`. El
+  // CHECKLIST leía únicamente `photoIds`: la pantalla se veía sin ninguna
+  // evidencia aunque el PDF sí la imprimiera desde el bucket.
+  it('lee `paths` además de `photoIds` y los renderiza', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).toContain('evidencias[o.id]?.paths ?? []')
+    expect(src).toContain('<FotogaleriaRutas paths={pathsEv} compacta />')
+    // Las dos orillas conviven en la misma fila: equipo y bucket.
+    expect(src).toContain('<MinaFotos photoIds={idsEv} />')
+  })
+
+  it('las fotos que nunca subieron no se piden al bucket', () => {
+    // `.local/<id>` es el marcador de `transform.ts` para una foto que quedó
+    // sin subir: pedirle una URL firmada devuelve 404.
+    const src = fuente('./ItemRenderer.tsx')
+    expect(src).toContain("!p.startsWith('.local/')")
+  })
+
+  it('al adjuntar una foto conserva las que ya estaban en el bucket', () => {
+    const src = fuente('./ItemRenderer.tsx')
+    // Reemplazar el objeto entero por `{ photoIds }` borraba `paths` del
+    // registro: con sólo sacar una foto más, las anteriores dejaban de verse.
+    expect(src).toContain('[id]: { ...previa, photoIds }')
+  })
+})
+
+/**
+ * El veredicto de CUMPLE_NO_CUMPLE se eligió con sólo icono: verde pastel y
+ * rojo pastel, y el contrario al elegido se apaga en gris. Sin texto que lo
+ * diga, el nombre de cada botón tiene que vivir en el `aria-label` —si no, el
+ * lector de pantalla sólo escucha dos botones sin nombre— y los tres estados
+ * tienen que distinguirse por el color.
+ */
+describe('CUMPLE_NO_CUMPLE · el veredicto es un icono, no una palabra', () => {
+  const pintar = (valor: unknown) =>
+    renderToStaticMarkup(<ItemRenderer item={itemCumple()} valor={valor} index={0} total={1} onChange={() => {}} />)
+
+  it('no imprime el texto del veredicto y conserva el nombre accesible', () => {
+    const html = pintar({ value: null, evidencias: [] })
+    expect(html).toContain('aria-label="Cumple"')
+    expect(html).toContain('aria-label="No cumple"')
+    expect(html).not.toContain('>Cumple</span>')
+    expect(html).not.toContain('>No cumple</span>')
+  })
+
+  it('sin elegir, cada botón muestra su pastel', () => {
+    const html = pintar({ value: null, evidencias: [] })
+    expect(html).toContain('border-transparent bg-green-100 text-green-700')
+    expect(html).toContain('border-transparent bg-red-100 text-red-700')
+    expect(html).not.toContain('bg-slate-100 text-slate-400')
+  })
+
+  it('al elegir uno, ese se remarca y el contrario queda en gris', () => {
+    const cumple = pintar({ value: true, evidencias: [] })
+    expect(cumple).toContain('border-green-600 bg-green-200 text-green-900')
+    expect(cumple).toContain('border-slate-200 bg-slate-100 text-slate-400')
+
+    const noCumple = pintar({ value: false, evidencias: [] })
+    expect(noCumple).toContain('border-red-600 bg-red-200 text-red-900')
+    expect(noCumple).toContain('border-slate-200 bg-slate-100 text-slate-400')
   })
 })
 

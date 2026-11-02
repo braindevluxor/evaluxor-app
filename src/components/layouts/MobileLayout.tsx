@@ -6,10 +6,32 @@ import { useOffline } from '../../context/OfflineContext'
 import { useVersion } from '../../context/VersionContext'
 import { versionCorta } from '../../lib/version'
 import { BOTON_CABECERA, cn, Spinner } from '../ui'
+import { TemaInterruptor } from '../TemaInterruptor'
+
+/**
+ * Qué dice el botón según lo que la subida hizo de verdad.
+ *
+ * `ok: 0, fail: 0` NO es «correctamente»: es que no había nada que subir (la
+ * cola ya vacía, o un sync que no encontró nada por reclamar). Decir lo
+ * contrario era lo que dejaba la barra hablando a dos voces.
+ */
+function etiquetaDe(resultado: { ok: number; fail: number }): string {
+  if (resultado.fail > 0) return `Sincronizado. ${resultado.fail} con error.`
+  if (resultado.ok > 0) return 'Sincronizado correctamente.'
+  return 'Nada que subir'
+}
 
 export function SyncBanner() {
   const { online, pendientes, sincronizando, ultimoResultado, sync } = useOffline()
-  const [msg, setMsg] = useState('')
+  /**
+   * Resultado del último toque del botón, con cuántos pendientes había EN ESE
+   * MOMENTO: la etiqueta sólo describe esa cola. Si el contador crece (entró
+   * trabajo nuevo), el botón vuelve a «Sincronizar». Antes el texto de éxito se
+   * quedaba pegado para siempre al lado de «N pendientes», que es justamente lo
+   * contrario de lo que decía.
+   */
+  const [resultado, setResultado] = useState<{ texto: string; pendientesAlPulsar: number } | null>(null)
+  const etiqueta = resultado && pendientes <= resultado.pendientesAlPulsar ? resultado.texto : 'Sincronizar'
 
   if (online && pendientes === 0 && !ultimoResultado) return null
 
@@ -36,15 +58,18 @@ export function SyncBanner() {
       {online && pendientes > 0 ? (
         <button
           onClick={() => {
+            const antes = pendientes
             void (async () => {
-              const r = await sync()
-              setMsg(r.fail ? `Sincronizado. ${r.fail} con error.` : 'Sincronizado correctamente.')
+              // `true` = sync manual: reclama de una vez los trabajos varados
+              // en `processing` (ver `procesarCola`), sin esperar el timeout.
+              const r = await sync(true)
+              setResultado({ texto: etiquetaDe(r), pendientesAlPulsar: antes })
             })()
           }}
           disabled={sincronizando}
           className="ml-auto rounded-full bg-white/20 px-2 py-1 font-bold hover:bg-white/30 disabled:opacity-50"
         >
-          {msg || 'Sincronizar'}
+          {etiqueta}
         </button>
       ) : null}
       {online && ultimoResultado?.fail && ultimoResultado.error ? (
@@ -177,6 +202,9 @@ export function MobileLayout({
             <div className="p-3">
               <p className="px-3 pb-2 text-sm font-semibold text-slate-800">{profile?.nombre || 'Usuario'}</p>
               <VersionEnMenu />
+              {/* El mismo interruptor de la consola: quien evalúa desde el
+                  teléfono también cambia el tema, sin pasar por Perfil. */}
+              <TemaInterruptor className="px-3" />
               <button
                 onClick={() => void signOut()}
                 className="flex w-full items-center gap-3 rounded-full px-3 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50"

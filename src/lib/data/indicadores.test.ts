@@ -1444,10 +1444,12 @@ describe('seguimientoResponsables', () => {
       sN: { logrado: 0, posible: 100 },
       sS: { logrado: 0, posible: 100 }
     })
+    // `tipo` es lo que después le dice a la alerta de seguimiento qué FK usar
+    // (sucursales o departamentos) al registrarse.
     expect(s.unidades).toEqual([
-      { id: 'sS', nombre: 'Sucursal Sur', puntos: 2 },
-      { id: 'dC', nombre: 'Contabilidad', puntos: 1 },
-      { id: 'sN', nombre: 'Sucursal Norte', puntos: 1 }
+      { id: 'sS', nombre: 'Sucursal Sur', puntos: 2, tipo: 'sucursal' },
+      { id: 'dC', nombre: 'Contabilidad', puntos: 1, tipo: 'departamento' },
+      { id: 'sN', nombre: 'Sucursal Norte', puntos: 1, tipo: 'sucursal' }
     ])
   })
 

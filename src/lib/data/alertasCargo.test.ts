@@ -1,0 +1,740 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { fromMock, invokeMock } = vi.hoisted(() => ({ fromMock: vi.fn(), invokeMock: vi.fn() }))
+vi.mock('../supabase', () => ({ supabase: { from: fromMock, functions: { invoke: invokeMock } } }))
+
+const {
+  UMBRAL_AMONESTACION,
+  UMBRAL_LLAMADO,
+  nivelDeNota,
+  unidadDeAlerta,
+  claveAlerta,
+  mapaDeAlertas,
+  filasDeAlertas,
+  cargoEnNomina,
+  filasEnNomina,
+  celdasEnNomina,
+  cargarNomina,
+  filtrarFilas,
+  gruposPorUnidad,
+  listarAlertas,
+  listarTrabajadoresPorAlerta,
+  registrarAlerta,
+  marcarAtendida
+} = await import('./alertasCargo')
+import type { AlertaCargo, FilaAlerta, NominaUnidades } from './alertasCargo'
+import type { CeldaSeguimiento } from './seguimientoEvaluaciones'
+import type { ColaboradorAPI } from './colaboradores'
+
+/**
+ * DOS CAPAS, DOS TIPOS DE PRUEBA
+ * ------------------------------
+ * · `nivelDeNota` / `mapaDeAlertas` / `filasDeAlertas` / `gruposPorUnidad` son
+ *   cálculo puro sobre las celdas por evaluación: los umbrales, el cruce
+ *   nivel ↔ registro y el orden del panel.
+ * · `listarAlertas` / `registrarAlerta` / `marcarAtendida` son la red, con
+ *   supabase mockeado: lo que se prueba es el payload y las guarda de
+ *   transición, no Supabase.
+ */
+
+describe('nivelDeNota', () => {
+  it('los cortes son exactamente 80 y 70, y el símbolo es «por debajo de»', () => {
+    expect(UMBRAL_AMONESTACION).toBe(80)
+    expect(UMBRAL_LLAMADO).toBe(70)
+    expect(nivelDeNota(100)).toBeNull()
+    expect(nivelDeNota(80)).toBeNull() // 80% exacto aún no es amonestación
+    expect(nivelDeNota(79)).toBe('AMONESTACION')
+    expect(nivelDeNota(70)).toBe('AMONESTACION') // 70% exacto sigue en amonestación
+    expect(nivelDeNota(69)).toBe('LLAMADO')
+    expect(nivelDeNota(0)).toBe('LLAMADO')
+  })
+
+  it('sin nota no hay nivel: no haber sido medido no es estar en alerta', () => {
+    expect(nivelDeNota(null)).toBeNull()
+  })
+})
+
+/** Celda del seguimiento, con sólo lo que el cálculo mira. */
+function celda(
+  clave: string,
+  cargo: string,
+  evaluacion_id: string,
+  fecha: string,
+  nota: number | null,
+  unidad: { id: string; nombre: string; tipo: 'sucursal' | 'departamento' } = { id: 'uN', nombre: 'Norte', tipo: 'sucursal' }
+): CeldaSeguimiento {
+  return { evaluacion_id, fecha, unidad, clave, cargo, nota, puntos: 0 }
+}
+
+function alerta(extra: Partial<AlertaCargo>): AlertaCargo {
+  return {
+    id: 'a1',
+    clave_cargo: 'cajero',
+    cargo: 'Cajero',
+    sucursal_id: 'uN',
+    departamento_id: null,
+    evaluacion_id: 'ev1',
+    nivel: 'AMONESTACION',
+    nota: 75,
+    estado: 'PENDIENTE',
+    atendida_en: null,
+    atendida_por: null,
+    created_at: '2026-01-10T10:00:00Z',
+    ...extra
+  }
+}
+
+describe('unidadDeAlerta', () => {
+  it('manda el departamento cuando existe: una alerta nunca tiene las dos unidades', () => {
+    const a = alerta({ sucursal_id: null, departamento_id: 'd1', departamento: { nombre: 'Contabilidad' } })
+    expect(unidadDeAlerta(a)).toEqual({ id: 'd1', nombre: 'Contabilidad' })
+  })
+
+  it('una alerta de sucursal toma el nombre del embed, con su defecto si vino sin él', () => {
+    expect(unidadDeAlerta(alerta({ sucursal: { nombre: 'Norte' } }))).toEqual({ id: 'uN', nombre: 'Norte' })
+    expect(unidadDeAlerta(alerta({ sucursal: null }))).toEqual({ id: 'uN', nombre: 'Sucursal' })
+  })
+})
+
+describe('claveAlerta y mapaDeAlertas', () => {
+  it('la clave incluye la evaluación: dos visitas del mismo cargo no se pisan', () => {
+    expect(claveAlerta('cajero', 'uN', 'ev1')).toBe('cajero|uN|ev1')
+    expect(claveAlerta('cajero', 'uN', 'ev2')).not.toBe(claveAlerta('cajero', 'uN', 'ev1'))
+  })
+
+  it('con pendiente y atendida para la misma celda manda la pendiente, en el orden que venga', () => {
+    const pendiente = alerta({ id: 'ap', estado: 'PENDIENTE' })
+    const atendida = alerta({ id: 'aa', estado: 'ATENDIDA' })
+
+    expect(mapaDeAlertas([pendiente, atendida]).get('cajero|uN|ev1')?.id).toBe('ap')
+    expect(mapaDeAlertas([atendida, pendiente]).get('cajero|uN|ev1')?.id).toBe('ap')
+  })
+
+  it('cada evaluación guarda su propio registro: la pendiente de ev2 no tapa la de ev1', () => {
+    const deEv1 = alerta({ id: 'a-ev1', evaluacion_id: 'ev1', estado: 'ATENDIDA' })
+    const deEv2 = alerta({ id: 'a-ev2', evaluacion_id: 'ev2', estado: 'PENDIENTE' })
+    const mapa = mapaDeAlertas([deEv2, deEv1])
+
+    expect(mapa.get('cajero|uN|ev1')?.id).toBe('a-ev1')
+    expect(mapa.get('cajero|uN|ev1')?.estado).toBe('ATENDIDA')
+    expect(mapa.get('cajero|uN|ev2')?.estado).toBe('PENDIENTE')
+  })
+
+  it('una alerta sin unidad no entra al mapa: no hay clave que armar', () => {
+    expect(mapaDeAlertas([alerta({ sucursal_id: null, departamento_id: null })]).size).toBe(0)
+  })
+})
+
+describe('filasDeAlertas', () => {
+  it('sólo lista las celdas en nivel, lo peor primero', () => {
+    const filas = filasDeAlertas(
+      [
+        celda('cajero', 'Cajero', 'ev1', '2026-03-15', 75),
+        celda('depositaria', 'Depositaría', 'ev1', '2026-03-15', 60),
+        celda('encargado', 'Encargado', 'ev1', '2026-03-15', 92)
+      ],
+      []
+    )
+
+    // Depositaría 60% (llamado) y Cajero 75% (amonestación) entran; Encargado
+    // 92% no pide nada.
+    expect(filas.map((f) => f.clave)).toEqual(['depositaria', 'cajero'])
+    expect(filas[0].nivel).toBe('LLAMADO')
+    expect(filas[1].nivel).toBe('AMONESTACION')
+  })
+
+  it('cada evaluación del mismo cargo es su propia fila, con su registro', () => {
+    const filas = filasDeAlertas(
+      [
+        celda('cajero', 'Cajero', 'ev1', '2026-03-01', 65),
+        celda('cajero', 'Cajero', 'ev2', '2026-03-15', 68)
+      ],
+      [alerta({ evaluacion_id: 'ev1', estado: 'ATENDIDA', atendida_en: '2026-03-05T10:00:00Z' })]
+    )
+
+    // Lo peor primero: la visita 1 (65%) va antes que la 2 (68%), y cada una
+    // lleva SU registro — el de ev1 no tapa a ev2.
+    expect(filas.map((f) => `${f.evaluacionId}:${f.registro?.estado ?? 'sin'}`)).toEqual([
+      'ev1:ATENDIDA',
+      'ev2:sin'
+    ])
+    // La de ev2 quedó limpia después de atender la de ev1: pide acción nueva.
+    expect(filas[1].registro).toBeNull()
+  })
+
+  it('una celda cuya evaluación salió del conjunto no pierde su registro', () => {
+    const filas = filasDeAlertas(
+      [],
+      [alerta({ clave_cargo: 'chofer', cargo: 'Chofer', sucursal_id: 'uX', sucursal: { nombre: 'Cerrada' } })]
+    )
+
+    expect(filas[0].unidadNombre).toBe('Cerrada')
+    expect(filas[0].nota).toBeNull()
+    expect(filas[0].nivel).toBeNull()
+    expect(filas[0].registro?.estado).toBe('PENDIENTE')
+  })
+
+  it('ordena lo peor primero y pendiente antes que atendido entre notas iguales', () => {
+    const filas = filasDeAlertas(
+      [
+        celda('cajero', 'Cajero', 'ev1', '2026-03-15', 60),
+        celda('depositaria', 'Depositaría', 'ev1', '2026-03-15', 60),
+        celda('encargado', 'Encargado', 'ev1', '2026-03-15', 40)
+      ],
+      [alerta({ clave_cargo: 'cajero', estado: 'ATENDIDA' })]
+    )
+
+    expect(filas.map((f) => f.clave)).toEqual(['encargado', 'depositaria', 'cajero'])
+    expect(filas[1].registro).toBeNull()
+    expect(filas[2].registro?.estado).toBe('ATENDIDA')
+  })
+})
+
+describe('gruposPorUnidad', () => {
+  it('agrupa por unidad y ordena las evaluaciones de más nueva a más vieja', () => {
+    const grupos = gruposPorUnidad(
+      filasDeAlertas(
+        [
+          celda('cajero', 'Cajero', 'ev1', '2026-03-01', 60),
+          celda('cajero', 'Cajero', 'ev2', '2026-03-15', 55),
+          celda('dep', 'Depositaría', 'ev3', '2026-03-10', 50, { id: 'uS', nombre: 'Sur', tipo: 'sucursal' })
+        ],
+        []
+      )
+    )
+
+    expect(grupos.map((g) => g.nombre)).toEqual(['Norte', 'Sur'])
+    expect(grupos[0].evaluaciones.map((e) => e.evaluacionId)).toEqual(['ev2', 'ev1'])
+    expect(grupos[0].evaluaciones[0].filas[0].nota).toBe(55)
+    expect(grupos[0].pendientes).toBe(2)
+  })
+
+  it('las unidades cuyos llamados ya fueron atendidos quedan debajo de las que siguen pidiendo acción', () => {
+    const celdas = [
+      celda('a', 'Atendido', 'ev1', '2026-03-01', 60, { id: 'uA', nombre: 'A', tipo: 'sucursal' }),
+      celda('b', 'Pendiente', 'ev2', '2026-03-01', 60, { id: 'uB', nombre: 'B', tipo: 'sucursal' })
+    ]
+
+    // Sin registros las dos piden acción: empatan y manda el nombre.
+    expect(gruposPorUnidad(filasDeAlertas(celdas, [])).map((g) => g.nombre)).toEqual(['A', 'B'])
+
+    // Atendida la de A, la única que sigue esperando es B: va arriba.
+    const conRegistro = gruposPorUnidad(
+      filasDeAlertas(celdas, [alerta({ id: 'x', clave_cargo: 'a', sucursal_id: 'uA', evaluacion_id: 'ev1', estado: 'ATENDIDA' })])
+    )
+    expect(conRegistro.map((g) => g.nombre)).toEqual(['B', 'A'])
+    expect(conRegistro[0].pendientes).toBe(1)
+    expect(conRegistro[1].pendientes).toBe(0)
+  })
+})
+
+describe('filtrarFilas', () => {
+  const filaDe = (extra: Partial<FilaAlerta>): FilaAlerta => ({
+    clave: 'cajero',
+    cargo: 'Cajero',
+    unidadId: 'uN',
+    unidadNombre: 'Norte',
+    unidadTipo: 'sucursal',
+    evaluacionId: 'ev1',
+    fecha: '2026-03-01',
+    nota: 60,
+    nivel: 'LLAMADO',
+    registro: null,
+    ...extra
+  })
+  const filas: FilaAlerta[] = [
+    filaDe({}),
+    filaDe({
+      clave: 'encargado',
+      cargo: 'Encargado de turno',
+      unidadId: 'uS',
+      unidadNombre: 'Sur',
+      evaluacionId: 'ev2',
+      registro: alerta({ id: 'a2', clave_cargo: 'encargado', estado: 'PENDIENTE' })
+    }),
+    filaDe({
+      clave: 'depositaria',
+      cargo: 'Depositaría',
+      evaluacionId: 'ev3',
+      nota: 90,
+      nivel: null,
+      registro: alerta({ id: 'a3', clave_cargo: 'depositaria', estado: 'ATENDIDA' })
+    })
+  ]
+
+  it('«sin registrar» es la fila en nivel SIN registro, no la que tiene alerta pendiente', () => {
+    // Confundir las dos cambiaría el sentido del contador del encabezado.
+    expect(filtrarFilas(filas, { estado: 'sin_registrar' }).map((f) => f.clave)).toEqual(['cajero'])
+    expect(filtrarFilas(filas, { estado: 'pendientes' }).map((f) => f.clave)).toEqual(['encargado'])
+    expect(filtrarFilas(filas, { estado: 'atendidas' }).map((f) => f.clave)).toEqual(['depositaria'])
+  })
+
+  it('la búsqueda es contra el cargo, normalizada y sin importar mayúsculas ni tildes', () => {
+    expect(filtrarFilas(filas, { busqueda: 'deposita' }).map((f) => f.clave)).toEqual(['depositaria'])
+    expect(filtrarFilas(filas, { busqueda: 'de turno' }).map((f) => f.clave)).toEqual(['encargado'])
+    expect(filtrarFilas(filas, { busqueda: 'CAJERO' }).map((f) => f.clave)).toEqual(['cajero'])
+  })
+
+  it('el filtro de unidad recorta a esa unidad y sin filtro queda todo', () => {
+    expect(filtrarFilas(filas, { unidadId: 'uN' }).map((f) => f.clave)).toEqual(['cajero', 'depositaria'])
+    expect(filtrarFilas(filas)).toHaveLength(3)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// La nómina: qué cargos existen de verdad en cada unidad
+// ---------------------------------------------------------------------------
+
+/** Nómina de prueba: sólo la unidad indicada tiene gente, y con ese cargo. */
+function nomina(
+  unidad: string,
+  cargos: string[],
+  extra: Partial<NominaUnidades> = {}
+): NominaUnidades {
+  const porUnidad = new Map<string, ColaboradorAPI[]>()
+  porUnidad.set(
+    unidad,
+    cargos.map((role_name, i) => ({
+      nationality: 'V',
+      dni: i + 1,
+      name: 'Ana',
+      lastname: 'Pérez',
+      role_name,
+      active: true
+    }))
+  )
+  return { porUnidad, cargando: false, fallo: false, ...extra }
+}
+
+describe('cargoEnNomina', () => {
+  it('un cargo sin trabajadores en la unidad no está en la nómina', () => {
+    const n = nomina('uN', ['Cajero integral'])
+    expect(cargoEnNomina(n, 'uN', 'Cajero integral')).toBe(true)
+    expect(cargoEnNomina(n, 'uN', 'Depositaría')).toBe(false)
+  })
+
+  it('el cruce es el mismo del selector: tildes, mayúsculas y género', () => {
+    const n = nomina('uN', ['Cajera Integral'])
+    expect(cargoEnNomina(n, 'uN', 'cajero integral')).toBe(true)
+    expect(cargoEnNomina(n, 'uN', 'CAJERO')).toBe(true)
+  })
+
+  it('sin nómina pedida o con la consulta en vuelo no se juzga nada', () => {
+    // Un vacío acá no es «no hay», es «todavía no sé»: filtrar con eso dejaría
+    // el panel entero en cero durante los segundos que tarda la API.
+    expect(cargoEnNomina(null, 'uN', 'Depositaría')).toBe(true)
+    expect(cargoEnNomina(nomina('uN', [], { cargando: true }), 'uN', 'Depositaría')).toBe(true)
+  })
+
+  it('una unidad que no está en el mapa se queda en pie: es un departamento o no se pudo leer', () => {
+    expect(cargoEnNomina(nomina('uN', ['Cajero']), 'uDepartamento', 'Contador')).toBe(true)
+  })
+
+  it('sólo cuentan los trabajadores activos', () => {
+    const n = nomina('uN', [])
+    n.porUnidad.set('uN', [
+      { dni: 1, name: 'Ana', lastname: 'Pérez', role_name: 'Depositaría', active: false }
+    ])
+    expect(cargoEnNomina(n, 'uN', 'Depositaría')).toBe(false)
+  })
+})
+
+describe('filasEnNomina', () => {
+  const filaDe = (extra: Partial<FilaAlerta>): FilaAlerta => ({
+    clave: 'cajero',
+    cargo: 'Cajero',
+    unidadId: 'uN',
+    unidadNombre: 'Norte',
+    unidadTipo: 'sucursal',
+    evaluacionId: 'ev1',
+    fecha: '2026-03-01',
+    nota: 60,
+    nivel: 'LLAMADO',
+    registro: null,
+    ...extra
+  })
+
+  it('saca los cargos que no existen en la unidad y deja los que sí', () => {
+    const filas = [
+      filaDe({}),
+      filaDe({ clave: 'dep', cargo: 'Depositaría', evaluacionId: 'ev2' }),
+      filaDe({
+        clave: 'enc',
+        cargo: 'Encargado de turno',
+        unidadId: 'uS',
+        unidadNombre: 'Sur',
+        evaluacionId: 'ev3'
+      })
+    ]
+    // Norte tiene cajeros; Sur no está en el mapa (no se pudo leer) y no se juzga.
+    const salida = filasEnNomina(filas, nomina('uN', ['Cajero']))
+    expect(salida.map((f) => f.clave)).toEqual(['cajero', 'enc'])
+  })
+
+  it('una fila con alerta ya registrada nunca se esconde', () => {
+    // Es seguimiento en curso: aunque el cargo ya no esté en la nómina, el
+    // llamado quedó pendiente y tiene que poder atenderse desde acá.
+    const registrada = filaDe({
+      clave: 'dep',
+      cargo: 'Depositaría',
+      registro: alerta({ id: 'a9', clave_cargo: 'dep', estado: 'PENDIENTE' })
+    })
+    expect(filasEnNomina([registrada], nomina('uN', ['Cajero']))).toHaveLength(1)
+  })
+
+  it('sin nómina cargada devuelve la lista entera', () => {
+    const filas = [filaDe({}), filaDe({ clave: 'dep', cargo: 'Depositaría' })]
+    expect(filasEnNomina(filas, null)).toHaveLength(2)
+    expect(filasEnNomina(filas, nomina('uN', ['Cajero'], { cargando: true }))).toHaveLength(2)
+  })
+})
+
+describe('celdasEnNomina · el contador de la barra sigue a la lista', () => {
+  const celdaDe = (extra: Partial<CeldaSeguimiento> = {}): CeldaSeguimiento => ({
+    evaluacion_id: 'ev1',
+    fecha: '2026-03-01',
+    unidad: { id: 'uN', nombre: 'Norte', tipo: 'sucursal' },
+    clave: 'dep',
+    cargo: 'Depositaría',
+    nota: 60,
+    puntos: 0,
+    ...extra
+  })
+
+  it('saca las celdas cuyo cargo no está en la unidad, igual que la lista', () => {
+    const salida = celdasEnNomina([celdaDe()], nomina('uN', ['Cajero']), [])
+    expect(salida).toHaveLength(0)
+    expect(celdasEnNomina([celdaDe()], nomina('uN', ['Depositaría']), [])).toHaveLength(1)
+  })
+
+  it('una celda con alerta registrada cuenta, aunque el cargo ya no esté en la nómina', () => {
+    // Es lo que hace que la lista la muestre: si el contador la sacara, el KPI
+    // y la pantalla dirían cosas distintas del mismo llamado pendiente.
+    const registrada = alerta({ clave_cargo: 'dep', sucursal_id: 'uN', evaluacion_id: 'ev1' })
+    expect(celdasEnNomina([celdaDe()], nomina('uN', ['Cajero']), [registrada])).toHaveLength(1)
+  })
+
+  it('sin nómina cargada cuenta todo, como la lista', () => {
+    expect(celdasEnNomina([celdaDe()], null, [])).toHaveLength(1)
+    expect(celdasEnNomina([celdaDe()], nomina('uN', [], { cargando: true }), [])).toHaveLength(1)
+  })
+})
+
+describe('cargarNomina', () => {
+  /** `listar-colaboradores` devuelve su listado anidado en `data.data`. */
+  function apiQue(listado: unknown[], ok = true) {
+    invokeMock.mockResolvedValue({
+      data: ok ? { ok: true, data: { data: listado } } : { ok: false, status: 500 },
+      error: null
+    })
+  }
+
+  const evaluacion = (sucursal_id: string, shop_id: string | null, branch_id: string | null = null) => ({
+    sucursal_id,
+    departamento_id: null,
+    sucursal: { id: sucursal_id, nombre: 'Norte', shop_id, branch_id }
+  })
+
+  it('pide la nómina branch por branch de las unidades pedidas y la guarda por unidad', async () => {
+    apiQue([{ nationality: 'V', dni: 7, name: 'Ana', lastname: 'Pérez', role_name: 'Cajero', active: true }])
+
+    const r = await cargarNomina(
+      { evaluaciones: [evaluacion('s1', '42')] as never },
+      new Set(['s1'])
+    )
+
+    expect(invokeMock).toHaveBeenCalledWith('listar-colaboradores', { body: { branchID: '42' } })
+    expect(r.fallo).toBe(false)
+    expect(r.cargando).toBe(false)
+    expect(r.porUnidad.get('s1')?.[0].role_name).toBe('Cajero')
+  })
+
+  it('usa branch de respaldo cuando la sucursal no tiene Nº de tienda', async () => {
+    apiQue([])
+    await cargarNomina({ evaluaciones: [evaluacion('s1', null, '9')] as never }, new Set(['s1']))
+    expect(invokeMock).toHaveBeenCalledWith('listar-colaboradores', { body: { branchID: '9' } })
+  })
+
+  it('sólo pide las unidades pedidas: las demás sucursales del conjunto no importan', async () => {
+    apiQue([])
+    await cargarNomina(
+      { evaluaciones: [evaluacion('s1', '42'), evaluacion('s2', '43')] as never },
+      new Set(['s1'])
+    )
+    expect(invokeMock).toHaveBeenCalledTimes(1)
+    expect(invokeMock).toHaveBeenCalledWith('listar-colaboradores', { body: { branchID: '42' } })
+  })
+
+  it('una tienda caída queda sin entrada y levanta el aviso, sin tumbar a las demás', async () => {
+    invokeMock
+      .mockResolvedValueOnce({ data: { ok: false, status: 500 }, error: null })
+      .mockResolvedValueOnce({ data: { ok: true, data: { data: [] } }, error: null })
+
+    const r = await cargarNomina(
+      { evaluaciones: [evaluacion('s1', '42'), evaluacion('s2', '43')] as never },
+      new Set(['s1', 's2'])
+    )
+
+    // La caída no queda como «esta tienda no tiene esa gente»: queda sin juzgar.
+    expect(r.fallo).toBe(true)
+    expect(r.porUnidad.has('s1')).toBe(false)
+    expect(r.porUnidad.has('s2')).toBe(true)
+  })
+
+  it('un departamento no tiene nómina de tienda: no se pide nada', async () => {
+    const r = await cargarNomina(
+      {
+        evaluaciones: [{ sucursal_id: null, departamento_id: 'd1', sucursal: null }] as never
+      },
+      new Set(['d1'])
+    )
+    expect(invokeMock).not.toHaveBeenCalled()
+    expect(r).toEqual({ porUnidad: new Map(), cargando: false, fallo: false })
+  })
+
+  it('si ninguna unidad tiene con qué pedirla, no hace ninguna consulta', async () => {
+    const r = await cargarNomina(
+      { evaluaciones: [evaluacion('s1', null, null)] as never },
+      new Set(['s1'])
+    )
+    expect(invokeMock).not.toHaveBeenCalled()
+    expect(r.fallo).toBe(false)
+    expect(r.porUnidad.size).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// La red
+// ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  fromMock.mockReset()
+  invokeMock.mockReset()
+})
+
+describe('listarAlertas', () => {
+  it('pide los embeds de unidad y quién atendió, y ordena de más nueva a más vieja', async () => {
+    const order = vi.fn().mockResolvedValue({ data: [], error: null })
+    const select = vi.fn().mockReturnValue({ order })
+    fromMock.mockReturnValue({ select })
+
+    await listarAlertas()
+
+    expect(fromMock).toHaveBeenCalledWith('alertas_cargo')
+    expect(String(select.mock.calls[0][0])).toContain('atendida:atendida_por(nombre)')
+    expect(String(select.mock.calls[0][0])).toContain('sucursal:sucursales(nombre)')
+    expect(String(select.mock.calls[0][0])).toContain('departamento:departamentos_centralizados(nombre)')
+    // Los trabajadores NO van acá: la tabla es nueva y si no existe, el embed
+    // tumba el listado entero (pasó en producción).
+    expect(String(select.mock.calls[0][0])).not.toContain('alerta_trabajadores')
+    expect(order).toHaveBeenCalledWith('created_at', { ascending: false })
+  })
+
+  it('un error de red se vuelve excepción: la pantalla tiene que decir que no sabe', async () => {
+    const order = vi.fn().mockResolvedValue({ data: null, error: { message: 'se cayó' } })
+    fromMock.mockReturnValue({ select: () => ({ order }) })
+
+    await expect(listarAlertas()).rejects.toThrow('se cayó')
+  })
+})
+
+describe('listarTrabajadoresPorAlerta', () => {
+  it('lee la tabla hija y agrupa los nombres por alerta', async () => {
+    const order = vi.fn().mockResolvedValue({
+      data: [
+        { alerta_id: 'a1', nacionalidad: 'V', dni: 1, nombre: 'Ana Pérez' },
+        { alerta_id: 'a1', nacionalidad: 'E', dni: 2, nombre: 'Beto Gómez' },
+        { alerta_id: 'a2', nacionalidad: 'V', dni: 3, nombre: 'Caro Díaz' }
+      ],
+      error: null
+    })
+    const select = vi.fn().mockReturnValue({ order })
+    fromMock.mockReturnValue({ select })
+
+    const mapa = await listarTrabajadoresPorAlerta()
+
+    expect(fromMock).toHaveBeenCalledWith('alerta_trabajadores')
+    expect(mapa.get('a1')?.map((t) => t.nombre)).toEqual(['Ana Pérez', 'Beto Gómez'])
+    expect(mapa.get('a2')?.map((t) => t.dni)).toEqual([3])
+    expect(mapa.get('a3')).toBeUndefined()
+  })
+
+  it('si la tabla todavía no existe, la pantalla la pide perdón y sigue: el mapa sale vacío', async () => {
+    const order = vi.fn().mockResolvedValue({ data: null, error: { message: 'relation does not exist' } })
+    fromMock.mockReturnValue({ select: () => ({ order }) })
+
+    await expect(listarTrabajadoresPorAlerta()).rejects.toThrow('relation does not exist')
+  })
+})
+
+/** La cadena de la inserción: `.insert(...).select('id').single()`. */
+function mockInsercion(
+  respuesta: { data?: unknown; error?: unknown },
+  capturar?: (tabla: string, payload: Record<string, unknown> | Record<string, unknown>[]) => void
+) {
+  fromMock.mockImplementation((tabla: string) => ({
+    insert: (payload: Record<string, unknown> | Record<string, unknown>[]) => {
+      capturar?.(tabla, payload)
+      return {
+        select: () => ({ single: () => Promise.resolve(respuesta) })
+      }
+    }
+  }))
+}
+
+describe('registrarAlerta', () => {
+  it('una alerta de sucursal lleva sucursal_id y departamento_id en null (y al revés)', async () => {
+    const insertados: { tabla: string; payload: unknown }[] = []
+    mockInsercion({ data: { id: 'a9' }, error: null }, (tabla, payload) => insertados.push({ tabla, payload }))
+
+    await registrarAlerta({ clave: 'cajero', cargo: 'Cajero', unidadId: 'uN', unidadTipo: 'sucursal', evaluacionId: 'ev7', nivel: 'AMONESTACION', nota: 75 })
+    await registrarAlerta({ clave: 'cont', cargo: 'Contador', unidadId: 'd1', unidadTipo: 'departamento', evaluacionId: 'ev8', nivel: 'LLAMADO', nota: 62 })
+
+    const deSucursal = insertados[0].payload
+    expect(deSucursal).toEqual({
+      clave_cargo: 'cajero',
+      cargo: 'Cajero',
+      sucursal_id: 'uN',
+      departamento_id: null,
+      evaluacion_id: 'ev7',
+      nivel: 'AMONESTACION',
+      nota: 75
+    })
+    const deDepartamento = insertados[1].payload as Record<string, unknown>
+    expect(deDepartamento.sucursal_id).toBeNull()
+    expect(deDepartamento.departamento_id).toBe('d1')
+    expect(deDepartamento.evaluacion_id).toBe('ev8')
+  })
+
+  it('los trabajadores elegidos quedan guardados contra ESA alerta', async () => {
+    const insertados: { tabla: string; payload: unknown }[] = []
+    mockInsercion({ data: { id: 'a-nueva' }, error: null }, (tabla, payload) => insertados.push({ tabla, payload }))
+
+    const r = await registrarAlerta({
+      clave: 'cajero',
+      cargo: 'Cajero integral',
+      unidadId: 'uN',
+      unidadTipo: 'sucursal',
+      evaluacionId: 'ev7',
+      nivel: 'AMONESTACION',
+      nota: 75,
+      trabajadores: [
+        { dni: 111, nacionalidad: 'V', nombre: 'Ana Pérez' },
+        { dni: 222, nacionalidad: 'E', nombre: 'Beto Gómez' }
+      ]
+    })
+
+    expect(insertados[1].tabla).toBe('alerta_trabajadores')
+    expect(insertados[1].payload).toEqual([
+      { alerta_id: 'a-nueva', nacionalidad: 'V', dni: 111, nombre: 'Ana Pérez' },
+      { alerta_id: 'a-nueva', nacionalidad: 'E', dni: 222, nombre: 'Beto Gómez' }
+    ])
+    expect(r).toEqual({ trabajadoresGuardados: true })
+  })
+
+  it('si las personas no se guardan, la alerta NO se pierde: vuelve el motivo', async () => {
+    // El caso real: la tabla `alerta_trabajadores` todavía no está aplicada en
+    // la base. La alerta ya quedó creada en el insert anterior, y decirle a la
+    // persona «no se pudo registrar» sería mentir.
+    fromMock.mockImplementation((tabla: string) => ({
+      insert: () =>
+        tabla === 'alerta_trabajadores'
+          ? { error: { message: 'relation "public.alerta_trabajadores" does not exist' } }
+          : { select: () => ({ single: () => Promise.resolve({ data: { id: 'a-nueva' }, error: null }) }) }
+    }))
+
+    const r = await registrarAlerta({
+      clave: 'cajero',
+      cargo: 'Cajero integral',
+      unidadId: 'uN',
+      unidadTipo: 'sucursal',
+      evaluacionId: 'ev7',
+      nivel: 'AMONESTACION',
+      nota: 75,
+      trabajadores: [{ dni: 111, nacionalidad: 'V', nombre: 'Ana Pérez' }]
+    })
+
+    expect(r).toEqual({
+      trabajadoresGuardados: false,
+      motivo: 'relation "public.alerta_trabajadores" does not exist'
+    })
+  })
+
+  it('sin trabajadores no se toca la tabla hija (los departamentos no tienen nómina)', async () => {
+    const insertados: { tabla: string }[] = []
+    mockInsercion({ data: { id: 'a9' }, error: null }, (tabla) => insertados.push({ tabla }))
+
+    await registrarAlerta({ clave: 'cont', cargo: 'Contador', unidadId: 'd1', unidadTipo: 'departamento', evaluacionId: 'ev8', nivel: 'LLAMADO', nota: 62 })
+
+    expect(insertados.map((i) => i.tabla)).toEqual(['alertas_cargo'])
+  })
+
+  it('la carrera de dos pantallas (23505, clave pendiente ya creada) no es error y no duplica trabajadores', async () => {
+    const insertados: { tabla: string }[] = []
+    mockInsercion({ data: null, error: { message: 'duplicate key', code: '23505' } }, (tabla) => insertados.push({ tabla }))
+
+    await expect(
+      registrarAlerta({
+        clave: 'cajero',
+        cargo: 'Cajero',
+        unidadId: 'uN',
+        unidadTipo: 'sucursal',
+        evaluacionId: 'ev7',
+        nivel: 'AMONESTACION',
+        nota: 75,
+        trabajadores: [{ dni: 111, nacionalidad: 'V', nombre: 'Ana Pérez' }]
+      })
+    ).resolves.toEqual({ trabajadoresGuardados: true })
+    expect(insertados.map((i) => i.tabla)).toEqual(['alertas_cargo'])
+  })
+
+  it('cualquier otro error sí se propaga', async () => {
+    mockInsercion({ data: null, error: { message: 'rol insuficiente' } })
+
+    await expect(
+      registrarAlerta({ clave: 'cajero', cargo: 'Cajero', unidadId: 'uN', unidadTipo: 'sucursal', evaluacionId: 'ev7', nivel: 'AMONESTACION', nota: 75 })
+    ).rejects.toThrow('rol insuficiente')
+  })
+})
+
+describe('marcarAtendida', () => {
+  it('sólo transiciona alertas PENDIENTES y guarda fecha, quién y el estado nuevo', async () => {
+    const llamadas: { update: Record<string, unknown>; eq: unknown[][] } = { update: {}, eq: [] }
+    const segundaEq = {
+      eq: (col: string, valor: unknown) => {
+        llamadas.eq.push([col, valor])
+        return { error: null }
+      }
+    }
+    fromMock.mockImplementation(() => ({
+      update: (payload: Record<string, unknown>) => {
+        llamadas.update = payload
+        return {
+          eq: (col: string, valor: unknown) => {
+            llamadas.eq.push([col, valor])
+            return segundaEq
+          }
+        }
+      }
+    }))
+
+    await marcarAtendida('a1', 'p9')
+
+    expect(llamadas.update.estado).toBe('ATENDIDA')
+    expect(llamadas.update.atendida_por).toBe('p9')
+    expect(String(llamadas.update.atendida_en)).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    // La segunda guarda es la que impide re-atender (y pisar) una alerta ya atendida.
+    expect(llamadas.eq).toEqual([
+      ['id', 'a1'],
+      ['estado', 'PENDIENTE']
+    ])
+  })
+
+  it('un error de red se vuelve excepción', async () => {
+    fromMock.mockReturnValue({
+      update: () => ({ eq: () => ({ eq: () => ({ error: { message: 'permiso denegado' } }) }) })
+    })
+
+    await expect(marcarAtendida('a1', 'p9')).rejects.toThrow('permiso denegado')
+  })
+})

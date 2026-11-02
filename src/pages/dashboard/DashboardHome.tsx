@@ -10,6 +10,7 @@ import {
   incumplimientosEnRango,
   medidoresPorModulo,
   puntajePorSucursalModulo,
+  puntajePorUnidadModulo,
   rankingDepartamentos,
   rankingResponsables,
   rankingSucursales,
@@ -27,12 +28,17 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ReferenceLine,
   PieChart, Pie, Cell
 } from 'recharts'
-import { CLASE_CONTENEDOR_DASHBOARD, COLORES_MODULOS, HEX_PRIMARY, HEX_CUMPLE, HEX_RIESGO, colorPuntajeClase, colorSerie, coloresTarjetaPuntaje } from '../../lib/diseno'
+import { CLASE_CONTENEDOR_DASHBOARD, COLORES_MODULOS, HEX_CUMPLE, HEX_RIESGO, colorPuntajeClase, colorSerie, coloresTarjetaPuntaje } from '../../lib/diseno'
 
 function haceMeses(n: number): string {
   const d = new Date()
   d.setMonth(d.getMonth() - n)
   return d.toISOString().slice(0, 10)
+}
+
+/** Fecha ISO → 30/04/2026, para que el aviso de «qué se buscó» se lea como fecha. */
+function fechaLegible(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString('es')
 }
 
 /**
@@ -50,7 +56,9 @@ function GraficoPonderacion({
   setLineaActiva,
   onClic,
   sinDatos,
-  className
+  className,
+  modo = 'sucursal',
+  selector
 }: {
   titulo: string
   descripcion: string
@@ -64,7 +72,15 @@ function GraficoPonderacion({
   sinDatos: string
   /** Ancho de la columna en la grilla (p. ej. 'xl:col-span-2'). */
   className?: string
+  modo?: 'sucursal' | 'departamento'
+  /** Selector opcional para alternar unidades (p. ej. switch Sucursales / Departamentos). */
+  selector?: ReactNode
 }) {
+  const tituloVisible = modo === 'departamento' ? 'Ponderación por departamento y módulo' : titulo
+  const descripcionVisible =
+    modo === 'departamento'
+      ? 'Curvas por módulo con la barra translúcida del promedio por departamento; pasa el cursor por la leyenda para elevar una curva y haz clic en una barra o punto para ver las evaluaciones de ese departamento'
+      : descripcion
   const filasGrafico = filas.map((f) => {
     const valores = Object.values(f.porModulo).filter((v): v is number => v != null)
     return {
@@ -75,8 +91,11 @@ function GraficoPonderacion({
   })
   return (
     <Card className={cn('border-0!', CLASE_CONTENEDOR_DASHBOARD, className)}>
-      <h3 className="mb-1 font-bold text-primary-900">{titulo}</h3>
-      <p className="mb-3 text-xs text-slate-400">{descripcion}</p>
+      <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h3 className="font-bold text-primary-900">{tituloVisible}</h3>
+        {selector}
+      </div>
+      <p className="mb-3 text-xs text-slate-400">{descripcionVisible}</p>
       {modulos.length && filas.length ? (
         <ResponsiveContainer width="100%" height={ALTO_GRAFICO}>
           <ComposedChart data={filasGrafico} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
@@ -99,7 +118,7 @@ function GraficoPonderacion({
             <Bar
               dataKey="promedio"
               name={nombrePromedio}
-              fill={HEX_PRIMARY}
+              fill="var(--serie-primaria)"
               fillOpacity={0.14}
               radius={[4, 4, 0, 0]}
               barSize={16}
@@ -292,16 +311,22 @@ function DatoDona({ fila, color }: { fila: FilaDona; color: string }) {
  * ventana) y se lo comería igual.
  */
 function TarjetaModulo({ promedio, icono }: { promedio: number | null; icono?: string }) {
-  const { fondo, claseTexto } = coloresTarjetaPuntaje(promedio)
+  const { fondo, tinta } = coloresTarjetaPuntaje(promedio)
   return (
+    // El formato de la tarjeta de estado: el porcentaje a la izquierda —que es
+    // lo que se lee primero— y el icono del módulo a la derecha, en su círculo
+    // claro del mismo fondo pastel. Fondo y tinta van por variable CSS (ver
+    // `PASTEL_POR_UMBRAL`): en modo oscuro cambian los dos juntos.
     <div
-      className="flex items-center justify-center gap-2.5 rounded-xl px-3 py-2.5"
-      style={{ background: fondo }}
+      className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3.5 shadow-sm"
+      style={{ background: fondo, color: tinta }}
     >
-      <span className={cn('shrink-0 text-2xl font-black tabular-nums leading-none', claseTexto)}>
+      <span className="shrink-0 text-2xl font-black tabular-nums leading-none sm:text-[1.7rem]">
         {promedio == null ? '—' : pctComa(promedio, 0)}
       </span>
-      <IconoModulo nombre={icono} className={cn('h-5 w-5 shrink-0', claseTexto)} />
+      <span className="pastel-icono grid h-9 w-9 shrink-0 place-items-center rounded-full">
+        <IconoModulo nombre={icono} className="h-5 w-5" />
+      </span>
     </div>
   )
 }
@@ -321,8 +346,26 @@ export function DashboardHome() {
   const [hasta, setHasta] = useState('')
   const [sucursalSel, setSucursalSel] = useState('')
   const [moduloSel, setModuloSel] = useState('')
+  /**
+   * Contar también las evaluaciones ACTIVAS.
+   *
+   * A mitad de mes casi todo está abierto y un dashboard que sólo mira las
+   * cerradas se queda entero en ceros. La consulta ya recalcula el puntaje de
+   * CADA evaluación con sus respuestas (`conPuntajesRecalculados`), así que una
+   * abierta entra con su avance real y no como «cero disfrazado» —que era el
+   * motivo original de exuirlas. La KPI de COMPLETADAS sigue contando sólo las
+   * cerradas: una abierta todavía no está terminada.
+   */
+  const [incluirActivas, setIncluirActivas] = useState(true)
   const [lineaActiva, setLineaActiva] = useState<string | null>(null)
+  const [tipoPonderacion, setTipoPonderacion] = useState<'sucursal' | 'departamento'>('sucursal')
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
+  /**
+   * Motivo por el que la carga falló. Sin esto, el `catch` de abajo convertía
+   * cualquier falla en «sin datos», que es un falso —mismo criterio que ya usa
+   * «Seguimiento por cargo»—: la pantalla tenía que decir qué se rompió.
+   */
+  const [errorCarga, setErrorCarga] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
 
   const sucursalesVisibles = scope ? sucursales.filter((s) => scope.includes(s.id)) : sucursales
@@ -341,20 +384,31 @@ export function DashboardHome() {
           hasta: hasta || undefined,
           modulo_id: moduloSel || undefined,
           // Los KPIs y los promedios dicen «completadas»: una evaluación que
-          // sigue abierta no cuenta como tal. Las de departamento también
-          // cuentan, porque este dashboard las lista por su propio promedio.
-          soloCerradas: true
+          // sigue abierta no cuenta como tal. Las activas SÍ entran a los
+          // gráficos y promedios, con su puntaje en curso (ver
+          // `incluirActivas`); sólo el corte de estado lo decide el filtro.
+          soloCerradas: incluirActivas ? undefined : true
         })
-        if (activo) setDatos(d)
-      } catch {
-        if (activo) setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [], instancias: [] })
+        if (activo) {
+          setDatos(d)
+          setErrorCarga(null)
+        }
+      } catch (e) {
+        // El motivo va a la consola Y a la pantalla: esconderlo era lo que
+        // dejaba el dashboard diciendo «sin datos» cuando lo que falló fue la
+        // consulta (mismo criterio que «Seguimiento por cargo»).
+        console.error('No se pudieron cargar los indicadores:', e)
+        if (activo) {
+          setErrorCarga(e instanceof Error ? e.message : 'No se pudieron cargar los indicadores.')
+          setDatos({ evaluaciones: [], respuestas: [], items: [], modulos: [], fotos: [], sucursalOpciones: [], instancias: [] })
+        }
       } finally {
         if (activo) setCargando(false)
       }
     })()
     return () => { activo = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desde, hasta, sucursalSel, moduloSel, scope?.join(',')])
+  }, [desde, hasta, sucursalSel, moduloSel, incluirActivas, scope?.join(',')])
 
   const sucursalesRanking = useMemo(
     () => (datos ? rankingSucursales(datos, sucursalesVisibles) : []),
@@ -368,6 +422,10 @@ export function DashboardHome() {
   const matrizModulos = useMemo(
     () => (datos ? puntajePorSucursalModulo(datos, sucursalesVisibles) : null),
     [datos, sucursalesVisibles]
+  )
+  const matrizDepartamentos = useMemo(
+    () => (datos && departamentosVisibles.length ? puntajePorUnidadModulo(datos, departamentosVisibles) : null),
+    [datos, departamentosVisibles]
   )
   const modulosOrden = useMemo(() => {
     const base = datos?.modulos.map((m) => ({ modulo_id: m.id, nombre: m.nombre })) ?? []
@@ -409,6 +467,13 @@ export function DashboardHome() {
     if (id) abrirDrill({ titulo: nombre, subtitulo: 'Evaluaciones de esta sucursal en el rango seleccionado', alcance: { sucursal_id: id } })
   }
 
+  const abrirDrillDepartamento = (data: unknown) => {
+    const nombre = nombreClickeado(data)
+    if (!nombre) return
+    const id = idPorNombreDepartamento.get(nombre)
+    if (id) abrirDrill({ titulo: nombre, subtitulo: 'Evaluaciones de este departamento en el rango seleccionado', alcance: { departamento_id: id } })
+  }
+
   const detalleDe = (id: string) => {
     const r = drillFilas.find((x) => x.id === id)
     return (
@@ -446,7 +511,9 @@ export function DashboardHome() {
     ).size
     return {
       global,
-      completadas: datos.evaluaciones.length,
+      // «Completadas» sigue siendo sólo lo cerrado: una abierta, por mucho que
+      // su puntaje en curso ayude a ver el mes, todavía no está terminada.
+      completadas: datos.evaluaciones.filter((e) => e.estado === 'CERRADA').length,
       cobertura: Math.round((cubiertas / totalSuc) * 100),
       incumplimientos
     }
@@ -496,8 +563,21 @@ export function DashboardHome() {
           sucursales={sucursalesVisibles}
           modulos={modulos}
           soloSucursal={!!scope}
+          incluirActivas={incluirActivas}
+          setIncluirActivas={setIncluirActivas}
         />
       </DashboardFiltersPortal>
+
+      {/* Si la consulta falló, la pantalla lo dice: «sin datos» con la carga
+          rota es un falso que no deja saber por dónde empezar. */}
+      {errorCarga ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+        >
+          No se pudieron cargar los indicadores: {errorCarga} Revisa la conexión y recarga la página.
+        </div>
+      ) : null}
 
       {cargando ? (
         <div className="space-y-6">
@@ -530,6 +610,33 @@ export function DashboardHome() {
         // ventana y cada lista scrollea dentro, para que la pantalla entre
         // completa y el scroll —si hace falta— sea de la lista y no de la página.
         <div className="flex flex-col gap-4">
+          {/* Un vacío que explique QUÉ se buscó: «sin datos» a secas no dice
+              si no hay datos o si un filtro (oculto tras «Filtros») los está
+              escondiendo —que era justo lo indescifrable de este caso. Con la
+              consulta fallida manda el recuadro rojo de arriba, no éste. */}
+          {!errorCarga && !datos.evaluaciones.length ? (
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+              <p className="font-semibold text-slate-800">No se encontraron evaluaciones con estos criterios.</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {`Se buscaron evaluaciones ${incluirActivas ? '(activas y cerradas)' : 'cerradas'} desde el ${fechaLegible(desde)}`}
+                {hasta ? ` hasta el ${fechaLegible(hasta)}` : ' hasta hoy'}
+                {sucursalSel
+                  ? ` · sucursal: ${sucursalesVisibles.find((s) => s.id === sucursalSel)?.nombre ?? 'la elegida'}`
+                  : ' · sin filtrar sucursal'}
+                {moduloSel
+                  ? ` · módulo: ${modulos.find((m) => m.id === moduloSel)?.nombre ?? 'el elegido'}`
+                  : ' · todos los módulos'}
+                .
+              </p>
+              {/* El texto sigue al modo elegido: antes decía «cuenta únicamente
+                  las cerradas» a secas, que era verdad —y el problema—. */}
+              <p className="mt-1 text-xs text-slate-500">
+                {incluirActivas
+                  ? 'Las activas entran con su puntaje en curso, a medida que se van llenando; el contador de «completadas» sólo cuenta las cerradas.'
+                  : 'Sólo se contaron las cerradas: marca «Contar también las evaluaciones activas» en Filtros para ver el avance del mes.'}
+              </p>
+            </div>
+          ) : null}
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
             {/* 1. Cumplimiento por módulo: una tarjeta por módulo, sólo con el
                 porcentaje y su icono; el detalle se lee en el tooltip. */}
@@ -561,18 +668,66 @@ export function DashboardHome() {
             </Card>
 
             {/* 2. Ponderación por sucursal y módulo: ocupa las dos columnas que
-                le quedan a la fila, porque su eje X necesita ancho. */}
+                le quedan a la fila, porque su eje X necesita ancho. Permite alternar
+                a Departamentos mediante el switch superior. */}
             <GraficoPonderacion
               className="xl:col-span-2"
               titulo="Ponderación por sucursal y módulo"
               descripcion="Curvas por módulo con la barra translúcida del promedio por sucursal; pasa el cursor por la leyenda para elevar una curva y haz clic en una barra o punto para ver las evaluaciones de esa sucursal"
-              filas={matrizModulos?.sucursales ?? []}
+              filas={
+                (verDepartamentos && tipoPonderacion === 'departamento')
+                  ? (matrizDepartamentos?.unidades ?? [])
+                  : (matrizModulos?.sucursales ?? [])
+              }
               modulos={modulosOrden}
-              nombrePromedio="Promedio por sucursal"
+              nombrePromedio={
+                (verDepartamentos && tipoPonderacion === 'departamento')
+                  ? 'Promedio por departamento'
+                  : 'Promedio por sucursal'
+              }
               lineaActiva={lineaActiva}
               setLineaActiva={setLineaActiva}
-              onClic={abrirDrillSucursal}
-              sinDatos="Sin datos de módulos para mostrar en el rango."
+              onClic={
+                (verDepartamentos && tipoPonderacion === 'departamento')
+                  ? abrirDrillDepartamento
+                  : abrirDrillSucursal
+              }
+              sinDatos={
+                (verDepartamentos && tipoPonderacion === 'departamento')
+                  ? 'Sin datos de departamentos para mostrar en el rango.'
+                  : 'Sin datos de módulos para mostrar en el rango.'
+              }
+              modo={verDepartamentos && tipoPonderacion === 'departamento' ? 'departamento' : 'sucursal'}
+              selector={
+                verDepartamentos ? (
+                  <div className="inline-flex items-center rounded-lg bg-slate-100 p-0.5 text-xs font-medium text-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => setTipoPonderacion('sucursal')}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 transition-all',
+                        tipoPonderacion === 'sucursal'
+                          ? 'bg-white font-semibold text-primary-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-900'
+                      )}
+                    >
+                      Sucursales
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTipoPonderacion('departamento')}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 transition-all',
+                        tipoPonderacion === 'departamento'
+                          ? 'bg-white font-semibold text-primary-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-900'
+                      )}
+                    >
+                      Departamentos
+                    </button>
+                  </div>
+                ) : null
+              }
             />
           </div>
 
@@ -652,27 +807,53 @@ function FiltrosBar(props: {
   sucursales: { id: string; nombre: string }[]
   modulos: { id: string; nombre: string }[]
   soloSucursal: boolean
+  /** Contar también las evaluaciones abiertas, con su puntaje en curso. */
+  incluirActivas: boolean
+  setIncluirActivas: (v: boolean) => void
 }) {
   return (
-    <div className={cn('grid gap-3 rounded-2xl border border-slate-200 p-4 sm:grid-cols-2 lg:grid-cols-4', CLASE_CONTENEDOR_DASHBOARD)}>
-      <Field label="Desde">
-        <Input type="date" value={props.desde} onChange={(e) => props.setDesde(e.target.value)} />
+    // Una sola fila en escritorio: los cuatro campos y la casilla juntos, todos
+    // con la misma altura (h-10) — los inputs de fecha nativos son más altos que
+    // los selects y sin forzar la medida los renglones quedaban torcidos.
+    <div className={cn('flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 p-3', CLASE_CONTENEDOR_DASHBOARD)}>
+      <Field label="Desde" className="w-36">
+        <Input type="date" className="h-10" value={props.desde} onChange={(e) => props.setDesde(e.target.value)} />
       </Field>
-      <Field label="Hasta">
-        <Input type="date" value={props.hasta} onChange={(e) => props.setHasta(e.target.value)} />
+      <Field label="Hasta" className="w-36">
+        <Input type="date" className="h-10" value={props.hasta} onChange={(e) => props.setHasta(e.target.value)} />
       </Field>
-      <Field label="Sucursal">
-        <Select value={props.sucursal} onChange={(e) => props.setSucursal(e.target.value)} disabled={props.soloSucursal}>
+      <Field label="Sucursal" className="w-48">
+        <Select className="h-10" value={props.sucursal} onChange={(e) => props.setSucursal(e.target.value)} disabled={props.soloSucursal}>
           <option value="">Todas</option>
           {props.sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
         </Select>
       </Field>
-      <Field label="Módulo">
-        <Select value={props.modulo} onChange={(e) => props.setModulo(e.target.value)}>
+      <Field label="Módulo" className="min-w-48 flex-1">
+        <Select className="h-10" value={props.modulo} onChange={(e) => props.setModulo(e.target.value)}>
           <option value="">Todos</option>
           {props.modulos.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
         </Select>
       </Field>
+      {/* A mitad de mes casi todo está abierto: sin esta casilla el dashboard
+          se quedaba en ceros. El puntaje de una abierta es su avance real
+          (recalculado con las respuestas), no el cero que tenía guardado. La
+          explicación completa vive en el `title`: en la fila no hay lugar para
+          ella sin duplicar la altura del panel. */}
+      <label
+        title="Entran con su puntaje en curso, a medida que se van llenando. La casilla de «completadas» sólo cuenta las cerradas."
+        className="flex shrink-0 items-center gap-2 pb-2.5 text-sm font-medium text-slate-700"
+      >
+        <input
+          type="checkbox"
+          className="h-4 w-4 accent-primary"
+          checked={props.incluirActivas}
+          onChange={(e) => props.setIncluirActivas(e.target.checked)}
+        />
+        <span>
+          Contar también las evaluaciones activas
+          <span className="hidden text-xs font-normal text-slate-400 xl:inline"> · entran con su puntaje en curso</span>
+        </span>
+      </label>
     </div>
   )
 }

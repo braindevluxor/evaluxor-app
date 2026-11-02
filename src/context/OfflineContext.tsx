@@ -22,7 +22,13 @@ interface OfflineContextValue {
   ultimoResultado: ResultadoSync | null
   /** Ítems borrados del catálogo que impiden subir parte de un avance. */
   descartes: string[]
-  sync: () => Promise<ResultadoSync>
+  /**
+   * `manual` marca el toque del botón «Sincronizar»: en ese caso se reclaman
+   * los trabajos varados en `processing` (ver `procesarCola`) en vez de
+   * esperar el timeout. La sincronización automática conserva el timeout,
+   * para no pelearse con otra pestaña que esté subiendo a la vez.
+   */
+  sync: (manual?: boolean) => Promise<ResultadoSync>
 }
 
 const OfflineContext = createContext<OfflineContextValue | null>(null)
@@ -61,13 +67,17 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     }
   }, [contar])
 
-  const sync = useCallback(async () => {
+  const sync = useCallback(async (manual = false) => {
     if (!navigator.onLine) return { ok: 0, fail: 0 }
     setSincronizando(true)
     try {
       // Cola de evaluaciones, incidencias y revisiones pre-entrega en paralelo:
       // cada una reporta sus fallos y se reintenta igual que las respuestas.
-      const [eva, inc, pre] = await Promise.all([procesarCola(), sincronizarIncidentes(), sincronizarRevisionesPreEntrega()])
+      const [eva, inc, pre] = await Promise.all([
+        procesarCola({ reclamarProcesando: manual }),
+        sincronizarIncidentes(),
+        sincronizarRevisionesPreEntrega()
+      ])
       // Si la cola no tiene nada que decir y falló una revisión, el aviso es de
       // esa: no se queda en silencio.
       const mensaje = eva.mensajes[0] ?? (pre.fail ? 'Una revisión pre-entrega no pudo subirse; se reintentará sola.' : null)

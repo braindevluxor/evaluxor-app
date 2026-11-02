@@ -14,9 +14,9 @@ import { RegisterPage } from './pages/login/RegisterPage'
 import { PerfilPage } from './pages/PerfilPage'
 import { EvaluarHome } from './pages/evaluar/EvaluarHome'
 import { EvaluarSucursal } from './pages/evaluar/EvaluarSucursal'
-import { EvaluacionDetalle, SkeletonEvaluacionDetalle } from './pages/EvaluacionDetalle'
+import { EvaluacionDetalle } from './pages/EvaluacionDetalle'
 import { EditarConciliacion } from './pages/EditarConciliacion'
-import { SkeletonPantalla } from './components/ui'
+import { CargadorPantalla } from './components/ui'
 import { AvisoHost } from './components/AvisoHost'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
@@ -32,6 +32,7 @@ const UnidadesPage = lazy(() => import('./pages/config/Unidades').then((m) => ({
 const ModulosPage = lazy(() => import('./pages/config/Modulos').then((m) => ({ default: m.ModulosPage })))
 const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ default: m.ItemsPage })))
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
+const BitacoraPage = lazy(() => import('./pages/config/Bitacora').then((m) => ({ default: m.BitacoraPage })))
 // Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
 // cuenta. Va con lazy porque sólo se descarga quien abre el enlace.
 const ConciliacionPublica = lazy(() =>
@@ -53,7 +54,9 @@ const InspeccionHistorial = lazy(() =>
 const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH', 'EVALUADOR']
 
 function Susp() {
-  return <SkeletonPantalla />
+  // A pantalla completa: si el cargador cubriera sólo una parte, debajo se
+  // vería el fondo del documento y el arranque se leía como dos colores.
+  return <CargadorPantalla completa />
 }
 
 /** Envuelve las rutas en un error boundary que se limpia al navegar: si algo
@@ -73,11 +76,10 @@ function Rutas() {
                         conciliación sin tener cuenta. La autorización es el
                         token, y sólo da lectura — ver `supabase/compartir-evaluacion.sql`. */}
                     <Route path="/compartir/:token" element={<ConciliacionPublica />} />
-                    <Route path="/perfil" element={<RequireAuth><PerfilPage /></RequireAuth>} />
                     <Route
                       path="/evaluaciones/:evaluacionId"
                       element={
-                        <RequireAuth loadingFallback={<SkeletonEvaluacionDetalle />}>
+                        <RequireAuth loadingFallback={<CargadorPantalla completa />}>
                           <RequireRol roles={[...ROLES_DASHBOARD, 'EVALUADOR']}>
                             <EvaluacionDetalle />
                           </RequireRol>
@@ -247,9 +249,29 @@ function Rutas() {
                         }
                       />
                       <Route path="/config/unidades" element={<SoloLider><UnidadesPage /></SoloLider>} />
-                      <Route path="/config/modulos" element={<SoloLider><ModulosPage /></SoloLider>} />
+                      {/* Módulos se abre al EVALUADOR en modo consulta: necesita
+                          descargar la explicación de cada módulo (PDF de
+                          metodología). La escritura la decide la página con
+                          `soloLectura` y, de última, el RLS (`modulos_lider` /
+                          `items_lider`) bloquea cualquier cambio. */}
+                      <Route
+                        path="/config/modulos"
+                        element={
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <ModulosPage />
+                          </RequireRol>
+                        }
+                      />
                       <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
                       <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
+                      {/* La bitácora es sólo lectura y sólo Líder: el RLS de
+                          la tabla ya lo decide (`bitacora_asignaciones_select`),
+                          acá se replica para que ni siquiera se pida la ruta. */}
+                      <Route path="/config/bitacora" element={<SoloLider><BitacoraPage /></SoloLider>} />
+                      {/* La cuenta de cualquiera que haya entrado: por eso no
+                          lleva `RequireRol`. Va adentro de la consola para que
+                          se vea con su barra y su menú, igual que el resto. */}
+                      <Route path="/perfil" element={<PerfilPage />} />
                     </Route>
 
                     <Route path="*" element={<HomeRedirect />} />

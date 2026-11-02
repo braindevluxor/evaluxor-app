@@ -31,6 +31,64 @@ export function ordenarTrabajadores<T extends Pick<ColaboradorAPI, 'lastname' | 
   )
 }
 
+/** El nombre completo, con el orden con el que se firma: apellido, nombre. */
+export function nombreCompleto(c: Pick<ColaboradorAPI, 'name' | 'lastname'>): string {
+  return `${(c.name ?? '').trim()} ${(c.lastname ?? '').trim()}`.replace(/\s+/g, ' ').trim()
+}
+
+/** La cédula como se escribe en papel: «V-12345678». Sin puntos de miles. */
+export function cedula(c: Pick<ColaboradorAPI, 'nationality' | 'dni'>): string {
+  if (c.dni == null) return '—'
+  const pais = (c.nationality ?? 'V').trim() || 'V'
+  return `${pais}-${c.dni}`
+}
+
+/**
+ * La raíz de un cargo, para comparar cargos entre fuentes: normalizada y sin
+ * la terminación de género.
+ *
+ * El mismo puesto aparece escrito distinto según de dónde salga —«Cajero
+ * integral» en la evaluación y «Cajera Integral» en la nómina—, y comparar los
+ * textos tal cual deja a media tienda sin poder notificar. Quitarle la última
+ * «o»/«a» a cada palabra iguala las dos formas sin inventar un diccionario de
+ * sinónimos.
+ */
+function raizCargo(texto: string): string {
+  // Sin pasar por `claveNormalizada`: ésa junta todo y borra los espacios, y
+  // acá hacen falta las palabras para quitarle la terminación a cada una.
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .map((palabra) => palabra.replace(/[ao]$/, ''))
+    .join('')
+}
+
+/**
+ * Los trabajadores de UN cargo, para notificarles un llamado o una amonestación.
+ *
+ * Sólo los ACTIVOS y sólo los que ENCAJAN con el cargo: no todos los cargos
+ * aplican en todas las sucursales, y si «Cajero integral» no figura en la
+ * nómina de esa tienda, listar a los demás invita a notificar a la persona
+ * equivocada. En ese caso la lista sale VACÍA y la pantalla ofrece registrar
+ * contra el cargo, que es lo que corresponde.
+ */
+export function trabajadoresParaCargo(
+  colaboradores: readonly ColaboradorAPI[],
+  cargo: string
+): { trabajadores: ColaboradorAPI[]; porCargo: boolean } {
+  const activos = colaboradores.filter((c) => c.active)
+  const objetivo = raizCargo(cargo)
+  const delCargo = activos.filter((c) => {
+    const rol = raizCargo(c.role_name ?? '')
+    if (!rol || !objetivo) return false
+    return rol.includes(objetivo) || objetivo.includes(rol)
+  })
+  return { trabajadores: delCargo, porCargo: delCargo.length > 0 }
+}
+
 interface RespuestaFuncion {
   ok?: boolean
   status?: number

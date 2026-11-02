@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { AlertTriangle, Camera, ChevronDown, CloudOff, Filter, Pencil, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, Camera, ChevronDown, CloudOff, Filter, Pencil, Play, RefreshCw, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
@@ -9,6 +9,7 @@ import { ChipsResponsables, EditorResponsablesIncidencia } from '../../component
 import { PhotoCapture } from '../../components/PhotoCapture'
 import { useMarcadorNube } from '../../components/MarcadorNube'
 import { pathFotoIncidencia } from '../../lib/offline/sync'
+import { esVideoPath } from '../../lib/fotos'
 import { supabase } from '../../lib/supabase'
 import { Button, cn, Input, Modal, Select, Spinner, Textarea } from '../../components/ui'
 import { ModalImagen } from '../../components/ModalImagen'
@@ -459,7 +460,7 @@ async function subirFotos(incidenteId: string, photoIds: string[]): Promise<stri
   if (fotos.length !== photoIds.length) throw new Error('No se encontraron todas las fotos nuevas en este dispositivo.')
   const paths: string[] = []
   for (const foto of fotos) {
-    const path = pathFotoIncidencia(incidenteId, foto.id)
+    const path = pathFotoIncidencia(incidenteId, foto.id, foto.mime)
     const { error } = await supabase.storage.from('evidencias').upload(path, foto.blob, {
       contentType: foto.mime,
       upsert: true
@@ -506,8 +507,21 @@ function FotosNubeEditables({ paths, onQuitar }: { paths: string[]; onQuitar: (p
       {paths.map((path) => (
         <div key={path} className="relative aspect-square overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
           {urls[path] ? (
-            <button type="button" onClick={() => setImagenAbierta(path)} aria-label="Ampliar foto de la incidencia" className="h-full w-full">
-              <img src={urls[path]} alt="Foto de la incidencia" className="h-full w-full object-cover" />
+            <button type="button" onClick={() => setImagenAbierta(path)} aria-label={esVideoPath(path) ? 'Reproducir video de la incidencia' : 'Ampliar foto de la incidencia'} className="relative h-full w-full">
+              {/* El video se pinta como `<video>` para traer su primer cuadro;
+                  la cruz de «play» encima avisa de qué se trata. */}
+              {esVideoPath(path) ? (
+                <>
+                  <video src={urls[path]} preload="metadata" muted playsInline className="h-full w-full object-cover" />
+                  <span aria-hidden className="pointer-events-none absolute inset-0 grid place-items-center">
+                    <span className="grid h-8 w-8 place-items-center rounded-full bg-slate-900/60 text-white">
+                      <Play className="h-4 w-4" />
+                    </span>
+                  </span>
+                </>
+              ) : (
+                <img src={urls[path]} alt="Foto de la incidencia" className="h-full w-full object-cover" />
+              )}
             </button>
           ) : sinAcceso.has(path) ? (
             <div className="grid h-full place-items-center px-2 text-center text-[10px] font-medium text-slate-500">Foto no disponible. Revisa las políticas de Storage.</div>
@@ -527,9 +541,10 @@ function FotosNubeEditables({ paths, onQuitar }: { paths: string[]; onQuitar: (p
       ))}
       <ModalImagen
         src={imagenAbierta ? (urls[imagenAbierta] ?? null) : null}
+        esVideo={!!imagenAbierta && esVideoPath(imagenAbierta)}
         alt="Foto de la incidencia"
         onClose={() => setImagenAbierta(null)}
-        footer={imagenAbierta ? (
+        footer={imagenAbierta && !esVideoPath(imagenAbierta) ? (
           <Button
             type="button"
             variant="ghost"

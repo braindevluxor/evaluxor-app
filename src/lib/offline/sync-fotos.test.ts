@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { guardarBorradorNube } from './sync'
 
-const { fromMock, rpcMock, uploadMock, downloadMock, getPhotosMock } = vi.hoisted(() => ({
+const { fromMock, rpcMock, uploadMock, downloadMock, getPhotosMock, fotosSelectMock, fotosInsertMock } = vi.hoisted(() => ({
   fromMock: vi.fn(),
   rpcMock: vi.fn(),
   uploadMock: vi.fn(),
   downloadMock: vi.fn(),
-  getPhotosMock: vi.fn()
+  getPhotosMock: vi.fn(),
+  fotosSelectMock: vi.fn(),
+  fotosInsertMock: vi.fn()
 }))
 
 vi.mock('../supabase', () => ({
@@ -40,6 +42,9 @@ beforeEach(() => {
   getPhotosMock.mockReset().mockResolvedValue([
     { id: 'foto-local-1', mime: 'image/jpeg', blob: new Blob(['foto']), created_at: 1 }
   ])
+  // Índice `fotos`: arranca vacío (nada registrado) y el insert no falla.
+  fotosSelectMock.mockReset().mockResolvedValue({ data: [], error: null })
+  fotosInsertMock.mockReset().mockResolvedValue({ error: null })
   rpcMock.mockImplementation((nombre: string, args?: { rows?: unknown[] }) => {
     if (nombre === 'upsert_respuestas') {
       return Promise.resolve({ error: null, data: args?.rows })
@@ -48,6 +53,12 @@ beforeEach(() => {
   })
   fromMock.mockImplementation((tabla: string) => {
     if (tabla === 'instancias_grupo') return { upsert: () => Promise.resolve({ error: null }) }
+    if (tabla === 'fotos') {
+      return {
+        select: () => ({ eq: () => ({ in: fotosSelectMock }) }),
+        insert: fotosInsertMock
+      }
+    }
     throw new Error(`tabla inesperada: ${tabla}`)
   })
 })
@@ -79,6 +90,37 @@ describe('guardarBorradorNube · fotos', () => {
       },
       respondido_por: 'usuario-1'
     }])
+  })
+
+  it('registra la evidencia en `fotos`, el índice que usa el detalle', async () => {
+    // Antes ese índice lo llenaba sólo la cola del envío: mientras tanto, la
+    // foto se veía en el teléfono pero no en el detalle de la evaluación.
+    await guardarBorradorNube('evaluacion-1', 'usuario-1', [{
+      item_id: 'item-1',
+      instancia_id: 'registro-1',
+      valor: { value: false, evidencias: [{ comentario: 'Falla visible', photoIds: ['foto-local-1'] }] }
+    }])
+
+    expect(fotosInsertMock).toHaveBeenCalledWith({
+      evaluacion_id: 'evaluacion-1',
+      item_id: 'item-1',
+      instancia_id: 'registro-1',
+      path: RUTA
+    })
+  })
+
+  it('no vuelve a intentar las evidencias que ya están registradas', async () => {
+    // El autoguardado se dispara decenas de veces; reintentar las mismas filas
+    // en cada una sería una tanda de peticiones por toque.
+    fotosSelectMock.mockResolvedValue({ data: [{ path: RUTA }], error: null })
+
+    await guardarBorradorNube('evaluacion-1', 'usuario-1', [{
+      item_id: 'item-1',
+      instancia_id: null,
+      valor: { selected: [], evidencias: { limpieza: { photoIds: ['foto-local-1'] } } }
+    }])
+
+    expect(fotosInsertMock).not.toHaveBeenCalled()
   })
 
   it('acepta que una foto ya exista para los reintentos automáticos', async () => {

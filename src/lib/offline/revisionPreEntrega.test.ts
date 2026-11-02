@@ -25,8 +25,14 @@ describe('revisión pre-entrega · el chequeo sobrevive sin señal', () => {
   })
 
   it('la foto vive en su propia carpeta del bucket', () => {
+    // La carpeta se define en `fotos.ts` (puro): la necesitan también los
+    // lectores, y `syncPreEntrega` importa Supabase, que revienta sin claves.
+    const fotos = fuente('../fotos.ts')
+    expect(fotos).toContain("CARPETA_INSPECCION = 'pre-entrega'")
+    // La subida usa esa misma constante, no un string suelto.
     const sync = fuente('./syncPreEntrega.ts')
-    expect(sync).toContain("'pre-entrega'")
+    expect(sync).toContain('CARPETA_INSPECCION')
+    expect(sync).toContain('${CARPETA}/')
     expect(sync).not.toContain("'incidencias'")
     expect(sync).not.toContain("'ev/'")
   })
@@ -50,8 +56,16 @@ describe('revisión pre-entrega · las preguntas son el catálogo, no texto suel
   })
 
   it('no se asigna por usuario ni por sucursal', () => {
+    // Por usuario sigue fuera del todo: la pre-entrega no se asigna a nadie.
     expect(fuente('../../pages/config/Usuarios.tsx')).toContain('mods.filter((m) => !m.herramienta)')
-    expect(fuente('../../pages/config/SucursalConfig.tsx')).toContain('mods.filter((m) => !m.herramienta)')
+    // Por unidad sólo pasa la lista blanca, y la sucursal no tiene ninguna.
+    const config = fuente('../../pages/config/SucursalConfig.tsx')
+    expect(config).toContain(
+      'mods.filter((m) => !m.herramienta || herramientasAsignables.includes(m.herramienta))'
+    )
+    expect(config).toContain('const HERRAMIENTAS_SUCURSAL: string[] = []')
+    // La pre-entrega no está en la blanca de nadie: ni sucursal ni departamento.
+    expect(config).not.toContain("REVISION_PRE_ENTREGA")
   })
 })
 

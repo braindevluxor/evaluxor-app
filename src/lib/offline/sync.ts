@@ -2,7 +2,8 @@ import { supabase } from '../supabase'
 import { causaSubida, detalleTecnico, errorSubida, mensajeSubida, type ErrorSubida } from '../subida'
 import { bloqueosDeGuardado, explicacionBloqueos, type ReglasGuardado } from '../permisos-guardado'
 import { deleteDraft, getPhotos, deletePhoto, listQueue, putJob, deleteJob, respuestasConInstancia, incidentesPendientes, eliminarIncidente, type SyncJob, type DraftEval } from './db'
-import { photoPath, convertirValor, extraerPhotoIds, idsFotosRespuesta } from './transform'
+import { photoPath, pathsCandidatosFoto, convertirValor, extraerPhotoIds, idsFotosRespuesta } from './transform'
+import { extensionDeMime } from '../fotos'
 import { normalizarResponsables, responsablesAColumna } from '../data/responsablesIncidencia'
 
 export { respuestasConInstancia }
@@ -26,6 +27,19 @@ export function instanciasDeDraft(draft: DraftEval): { id: string; item_id: stri
   )
 }
 
+/**
+ * ¿Ya está subida? Se prueba cada extensión conocida: si el registro local se
+ * borró en una vuelta incompleta de la cola, sólo queda el nombre con la
+ * extensión que le dio su MIME (jpg para foto, mp4/webm/mov para video).
+ */
+async function buscarEnStorage(paths: string[]): Promise<string | null> {
+  for (const path of paths) {
+    const { data, error } = await supabase.storage.from('evidencias').download(path)
+    if (!error && data) return path
+  }
+  return null
+}
+
 async function subirFotosDeRespuestas(
   evaluacionId: string,
   respuestas: { item_id: string; valor: unknown }[]
@@ -34,20 +48,20 @@ async function subirFotosDeRespuestas(
   for (const respuesta of respuestas) {
     for (const id of extraerPhotoIds(respuesta.valor)) {
       if (map.has(id)) continue
-      const path = photoPath(evaluacionId, 'evidencia', id)
+      // El registro viene primero: su MIME dicta la extensión de la ruta.
+      const rec = await getPhotos([id]).then((r) => r[0])
+      const path = photoPath(evaluacionId, 'evidencia', id, rec?.mime)
       if (fotosSubidasEnEstaSesion.has(path)) {
         map.set(id, path)
         continue
       }
-      const rec = await getPhotos([id]).then((r) => r[0])
       if (!rec) {
-        const { data, error } = await supabase.storage.from('evidencias').download(path)
-        if (error || !data) {
-          const detalle = error ? ` Storage respondió: ${error.message}` : ''
-          throw new Error(`No se encontró la foto local ${id} ni una copia ya subida a Storage; no se sincronizó el borrador con sus evidencias.${detalle}`)
+        const subido = await buscarEnStorage(pathsCandidatosFoto(evaluacionId, id))
+        if (!subido) {
+          throw new Error(`No se encontró la foto local ${id} ni una copia ya subida a Storage; no se sincronizó el borrador con sus evidencias.`)
         }
-        fotosSubidasEnEstaSesion.add(path)
-        map.set(id, path)
+        fotosSubidasEnEstaSesion.add(subido)
+        map.set(id, subido)
         continue
       }
       const { error } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
@@ -389,6 +403,56 @@ export async function marcarSyncNube(): Promise<void> {
   if (error) ultimaMarca = 0 // no se pudo marcar: se reintenta en la próxima subida
 }
 
+/**
+ * Registra en la tabla `fotos` las evidencias que ya están en Storage.
+ *
+ * `fotos` es el índice que usan el detalle de la evaluación, el reporte por
+ * cargos y el conteo del Excel para mostrar las evidencias por ítem. Las
+ * respuestas guardan la ruta adentro de su `valor`, pero ese índice lo
+ * llenaba sólo la cola del envío: mientras tanto, las fotos tomadas en la
+ * visita se veían en el teléfono y NO en el detalle, que es exactamente lo
+ * que se reportó.
+ *
+ * Se piden primero las ya registradas para no reintentar las mismas en cada
+ * autoguardado (que puede dispararse decenas de veces por evaluación), y un
+ * duplicado no es error (`23505`). Ninguna falla de índice tumbaría la subida:
+ * la cola del envío vuelve a intentarlo.
+ */
+async function indexarFotos(
+  evaluacionId: string,
+  respuestas: { item_id: string; instancia_id: string | null; valor: unknown }[],
+  fotos: Map<string, string>
+): Promise<void> {
+  try {
+    const items = [...new Set(respuestas.map((r) => r.item_id))]
+    if (!items.length) return
+    const { data: yaIndexadas } = await supabase
+      .from('fotos')
+      .select('path')
+      .eq('evaluacion_id', evaluacionId)
+      .in('item_id', items)
+    const conocidas = new Set((yaIndexadas ?? []).map((f) => f.path))
+    for (const r of respuestas) {
+      for (const id of extraerPhotoIds(r.valor)) {
+        const path = fotos.get(id)
+        if (!path || conocidas.has(path)) continue
+        conocidas.add(path)
+        const { error } = await supabase.from('fotos').insert({
+          evaluacion_id: evaluacionId,
+          item_id: r.item_id,
+          instancia_id: r.instancia_id ?? null,
+          path
+        })
+        if (error && error.code !== '23505') return
+      }
+    }
+  } catch {
+    // El índice no manda: las respuestas y las fotos ya están en la nube, y la
+    // cola del envío vuelve a intentar registrarlas. Un fallo acá no debe
+    // tumbar el autoguardado.
+  }
+}
+
 export async function guardarBorradorNube(
   evaluacionId: string,
   evaluadorId: string,
@@ -416,6 +480,8 @@ export async function guardarBorradorNube(
       respondido_por: evaluadorId
     }))
     descarte = await subirLote(instRows, respRows)
+    // Índice de evidencias DESPUÉS de las respuestas: lo importante primero.
+    await indexarFotos(evaluacionId, respuestas, fotos)
   } catch (e) {
     // Se propaga tipado (causa + detalle técnico + explicación si se pudo saber
     // qué regla falló) para que la pantalla diga qué pasó de verdad en vez de
@@ -428,7 +494,21 @@ export async function guardarBorradorNube(
   return descarte
 }
 
-export async function procesarCola(): Promise<{
+export async function procesarCola(
+  /**
+   * Un sync MANUAL (el botón «Sincronizar») es la persona pidiendo que se
+   * intente AHORA: reclama al instante los trabajos que quedaron en
+   * `processing` por una subida que no terminó (app cerrada a mitad de camino,
+   * pestaña recargada). Sin esto, ese trabajo espera el timeout de 15 minutos,
+   * la cola no baja y la pantalla sigue diciendo «N pendientes» mientras la
+   * subida no hace absolutamente nada.
+   *
+   * La subida es idempotente —Storage tolera «already exists» y la tabla
+   * tolera el 23505—, así que el peor caso de dos pestañas a la vez es subir
+   * dos veces lo mismo, nunca duplicar datos.
+   */
+  opciones: { reclamarProcesando?: boolean } = {}
+): Promise<{
   ok: number
   fail: number
   descartes: Descarte[]
@@ -450,7 +530,7 @@ export async function procesarCola(): Promise<{
   for (const queuedJob of jobs) {
     let job = queuedJob
     if (job.status === 'processing') {
-      if (!trabajoProcesandoVencido(job)) continue
+      if (!opciones.reclamarProcesando && !trabajoProcesandoVencido(job)) continue
       // Versiones anteriores no guardaban cuándo empezó el trabajo; esos estados
       // son abandonados y deben volver a intentar la carga de sus fotos.
       job = { ...job, status: 'pending' }
@@ -475,7 +555,7 @@ export async function procesarCola(): Promise<{
       for (const id of photoIds) {
         const rec = await getPhotos([id]).then((r) => r[0])
         if (!rec) throw new Error(`No se encontró la foto local ${id}; la evaluación quedó pendiente y no se descartó.`)
-        const path = photoPath(evaluacionId, 'evidencia', id)
+        const path = photoPath(evaluacionId, 'evidencia', id, rec.mime)
         const { error: upErr } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
           contentType: rec.mime,
           upsert: false
@@ -537,9 +617,16 @@ export async function procesarCola(): Promise<{
   return { ok, fail, descartes, errores, mensajes }
 }
 
-/** Dónde vive la foto de una incidencia en el bucket `evidencias`. */
-export function pathFotoIncidencia(incidenteId: string, photoId: string): string {
-  return `incidencias/${incidenteId}/${photoId}`
+/**
+ * Dónde vive la evidencia de una incidencia en el bucket `evidencias`.
+ *
+ * La extensión la dicta el MIME del archivo (antes no llevaba ninguna): es lo
+ * que permite saber al mostrarla si es una foto o un video —una URL firmada no
+ * trae el contentType—. Las filas viejas siguen sin extensión y se tratan como
+ * fotos, que es lo único que había cuando se guardaron.
+ */
+export function pathFotoIncidencia(incidenteId: string, photoId: string, mime = 'image/jpeg'): string {
+  return `incidencias/${incidenteId}/${photoId}.${extensionDeMime(mime)}`
 }
 
 /**
@@ -587,7 +674,7 @@ export async function sincronizarIncidentes(): Promise<{ ok: number; fail: numbe
       for (const id of inc.photoIds) {
         const rec = await getPhotos([id]).then((r) => r[0])
         if (!rec) continue
-        const path = pathFotoIncidencia(inc.id, id)
+        const path = pathFotoIncidencia(inc.id, id, rec.mime)
         const { error: upErr } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
           contentType: rec.mime,
           upsert: true

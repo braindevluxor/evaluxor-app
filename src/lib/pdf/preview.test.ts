@@ -338,6 +338,7 @@ describe('informe imprimible de resultados', () => {
     const output = buildPdfDocument(conSobrante).output()
 
     expect(output).toContain('5 unidades sobrantes')
+    // La diferencia va escrita en su propia columna, que ahora se llama Diferencia.
     expect(output).toContain('Faltan')
     expect(output).toContain('Sobran')
     // El cierre nombra la plata con la sigla de la moneda: en el PDF lo lee gente
@@ -349,9 +350,10 @@ describe('informe imprimible de resultados', () => {
     expect(output).toContain('5 unidades sobrantes con un valor estimado de USD10,00')
     expect(output).toContain('4 unidades faltantes con un valor estimado de USD18,70')
     expect(output).toContain('Pérdida absoluta: USD28,70')
-    // La fila del sobrante lleva su valor en la columna "Pérdida estimada",
-    // rotulado por el texto para que no se lea como pérdida perdida.
-    expect(output).toContain('Sobrante $10,00')
+    // La fila del sobrante lleva solo el monto en la columna "Pérdida estimada":
+    // la palabra "sobra" ya está en la columna de Diferencia.
+    expect(output).toContain('$10,00')
+    expect(output).not.toContain('Sobrante $')
   })
 
   it('el encabezado de departamento lleva la pérdida de ese pasillo', () => {
@@ -384,7 +386,7 @@ describe('informe imprimible de resultados', () => {
     expect(output.match(/Pérdida \$/g) ?? []).toHaveLength(1)
   })
 
-  it('muestra solo el porcentaje de conciliación y oculta los IDs de sucursal y central', () => {
+  it('las filas de conciliación no llevan porcentaje y ocultan los IDs de sucursal y central', () => {
     const detalleConBranchId: DetalleEvaluacion = {
       ...detalle,
       evaluacion: {
@@ -394,7 +396,17 @@ describe('informe imprimible de resultados', () => {
     }
     const output = buildPdfDocument(detalleConBranchId).output()
 
-    expect(output).not.toContain('% concilia')
+    // La columna antes llamada Estado se llama Diferencia, y la etiqueta de cada
+    // fila va sola: el % de conciliación ya no viaja pegado a la diferencia.
+    expect(output).toContain('Diferencia')
+    expect(output).not.toMatch(/(Faltan|Sobran|Concilia) ·/)
+    // El orden de columnas es SKU, Producto, Teórica, Física, Diferencia y
+    // después la pérdida.
+    expect(output.indexOf('SKU')).toBeLessThan(output.indexOf('Producto'))
+    expect(output.indexOf('Producto')).toBeLessThan(output.indexOf('Teórica'))
+    expect(output.indexOf('Teórica')).toBeLessThan(output.indexOf('Física'))
+    expect(output.indexOf('Física')).toBeLessThan(output.indexOf('Diferencia'))
+    expect(output.indexOf('Diferencia')).toBeLessThan(output.indexOf('Pérdida estimada'))
     expect(output).not.toContain('ID 9')
     expect(output).not.toContain('ID 5')
   })
@@ -493,6 +505,36 @@ describe('informe imprimible de resultados', () => {
     expect(firstCheck).toBeLessThan(firstFail)
     expect(output).toContain('Descripción')
     expect(output).not.toContain('check-ok.jpg')
+    // El estado de cada punto va ESCRITO y el ítem cuenta sus puntos: antes era
+    // una palomita dibujada a mano y una equis suelta, y en papel no decían si
+    // el punto estaba aprobado o no. El resumen se calcula sobre el total
+    // (2 de 4), no sobre lo que muestre el filtro. Los fragmentos evitan
+    // paréntesis y acentos: el PDF los escribe escapados en su flujo.
+    expect(output).toContain('NO APROBADO')
+    expect(output).toContain('Puntos aprobados: 2 de 4')
+    expect(output).toContain('2 NO aprobado')
+  })
+
+  it('el doble check imprime su propio estado: existe, sin validar', () => {
+    const detalleConExiste: DetalleEvaluacion = {
+      ...detalle,
+      respuestas: respuestas.map((respuesta) => respuesta.item_id === 'it-cl1'
+        ? {
+            ...respuesta,
+            // Con doble check, `existe` es la presencia confirmada en la tienda
+            // y `selected` es lo validado: o3 está presente pero nadie lo
+            // validó, así que no puntúa y no es lo mismo que un incumplimiento.
+            // El o5 informativo sigue fuera, igual que en el caso anterior.
+            valor: { selected: ['o1', 'o2'], existe: ['o1', 'o2', 'o3'], informativos: ['o5'] }
+          }
+        : respuesta)
+    }
+
+    const output = buildPdfDocument(detalleConExiste).output()
+    expect(output).toContain('SIN VALIDAR')
+    expect(output).toContain('Puntos aprobados: 2 de 4')
+    expect(output).toContain('1 sin validar')
+    expect(output).toContain('1 NO aprobado')
   })
 
   it('mantiene comentarios largos en el PDF sin desbordar páginas', () => {

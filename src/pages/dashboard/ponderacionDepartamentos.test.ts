@@ -36,6 +36,14 @@ describe('dashboard · promedio por departamento', () => {
     expect(pagina).toContain('const departamentosVisibles = useMemo(() => (scope ? [] : departamentos), [scope, departamentos])')
   })
 
+  it('el gráfico de ponderación ofrece un switch para alternar entre sucursales y departamentos', () => {
+    const pagina = fuente('./DashboardHome.tsx')
+    expect(pagina).toContain("const [tipoPonderacion, setTipoPonderacion] = useState<'sucursal' | 'departamento'>('sucursal')")
+    expect(pagina).toContain("setTipoPonderacion('sucursal')")
+    expect(pagina).toContain("setTipoPonderacion('departamento')")
+    expect(pagina).toContain('matrizDepartamentos')
+  })
+
   it('la capa de datos expone el promedio por unidad y el drilldown de departamento', () => {
     const datos = fuente('../../lib/data/indicadores.ts')
     // El mismo cálculo sirve para las dos clases de unidad.

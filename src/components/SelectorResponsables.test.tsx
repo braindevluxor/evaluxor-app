@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // jsdom no trae IndexedDB y `PhotoCapture` lo abre en un efecto de montaje:
 // sin esto la prueba tira un rechazo fuera de banda y contamina el resultado.
 import 'fake-indexeddb/auto'
-import { act, useRef, useState } from 'react'
+import { act, useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { ItemRenderer } from './ItemRenderer'
 import type { Item } from '../lib/types'
@@ -45,26 +45,30 @@ function Harness({
 }: {
   item: Item
   inicial: unknown
-  alListar?: (api: { escribir: (v: unknown) => void; valorDeLaUltimaPintura: () => unknown }) => void
+  alListar?: (api: { escribir: (v: unknown) => void }) => void
 }) {
   const [valor, setValor] = useState(inicial)
   const ref = useRef(inicial)
-  const pintura = useRef(inicial)
-  pintura.current = valor
-  const onChange = (v: unknown) => {
+  const onChange = useCallback((v: unknown) => {
     const previo = ref.current
     const next = typeof v === 'function' ? (v as (p: unknown) => unknown)(previo) : v
     ref.current = next
     setValor(next)
-  }
-  alListar?.({ escribir: onChange, valorDeLaUltimaPintura: () => pintura.current })
+  }, [])
+  // La API se entrega en un efecto y no durante el render: `onChange` cierra
+  // sobre `ref.current`, y pasar un cerramiento que toca una ref en el cuerpo
+  // del render es lo que react-hooks/refs rechaza. `act()` de la prueba lo
+  // descarga antes de la primera aserción.
+  useEffect(() => {
+    alListar?.({ escribir: onChange })
+  }, [alListar, onChange])
   return <ItemRenderer item={item} valor={valor} onChange={onChange} index={0} total={1} />
 }
 
 let container: HTMLDivElement
 let root: Root
 
-type Api = { escribir: (v: unknown) => void; valorDeLaUltimaPintura: () => unknown }
+type Api = { escribir: (v: unknown) => void }
 
 async function montar(item: Item, inicial: unknown, alListar?: (api: Api) => void) {
   container = document.createElement('div')

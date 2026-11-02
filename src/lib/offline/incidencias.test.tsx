@@ -47,7 +47,10 @@ function bloqueSql(nombre: string): string {
 
 describe('incidencias · ruta de la foto', () => {
   it('agrupa las fotos del reporte en su propia carpeta del bucket', () => {
-    expect(pathFotoIncidencia('inc-1', 'foto-2')).toBe('incidencias/inc-1/foto-2')
+    // La extensión la dicta el MIME: es lo que permite saber, al mostrarla,
+    // si es una foto o un video (una URL firmada no trae el contentType).
+    expect(pathFotoIncidencia('inc-1', 'foto-2')).toBe('incidencias/inc-1/foto-2.jpg')
+    expect(pathFotoIncidencia('inc-1', 'video-3', 'video/mp4')).toBe('incidencias/inc-1/video-3.mp4')
   })
 
   it('no se mezcla con las fotos de evidencia de los ítems', () => {
@@ -339,6 +342,24 @@ describe('incidencias · SQL de Supabase', () => {
     // La función exige evaluación ACTIVA: reportar no es una puerta trasera para
     // escribir en evaluaciones cerradas.
     expect(sql).toMatch(/ev\.estado = 'ACTIVA'/)
+  })
+
+  it('el evaluador que participó ve las incidencias aunque la evaluación ya se cerró', () => {
+    /* Cerrar la evaluación (ACTIVA → CERRADA) no puede borrarle las incidencias
+       al evaluador: él mismo las reportó y el detalle de la evaluación le sigue
+       visible (`puede_ver_evaluacion` no mira el estado). Antes VER exigía
+       `ev.estado = 'ACTIVA'` y la tarjeta del detalle mostraba «Los evaluadores
+       no reportaron ninguna» en evaluaciones cerradas, mientras al Líder sí le
+       salían (él pasa el filtro sin mirar estado). Ver exige PARTICIPAR
+       (asignación activa que aplica a la evaluación); reportar sigue exigiendo
+       la evaluación ACTIVA. */
+    // El `$$;` de cierre: el `as $$` de la firma también contiene `$$` y un
+    // lazy match cortaría justo antes del cuerpo.
+    const ver = sql.match(/create or replace function public\.puede_ver_incidencia[\s\S]*?\$\$;/)?.[0] ?? ''
+    expect(ver).toContain('asignaciones_modulos')
+    expect(ver).not.toMatch(/ev\.estado/)
+    const reportar = sql.match(/create or replace function public\.puede_reportar_incidencia[\s\S]*?\$\$;/)?.[0] ?? ''
+    expect(reportar).toMatch(/ev\.estado = 'ACTIVA'/)
   })
 
   it('el evaluador dueño puede ver y borrar sus fotos; el Líder puede verlas', () => {

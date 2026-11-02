@@ -43,19 +43,52 @@ export function colorPuntajeHex(value: number | null): string {
  * porcentaje y el icono en el tono profundo del mismo matiz (se pidieron
  * pasteles en 2026-01). Blanco no se lee sobre pastel —1,3:1 sobre el verde—
  * así que el texto baja al tono oscuro, y el par queda en ≥5:1.
+ *
  * Los umbrales no se repiten acá: salen de `colorPuntajeHex`, así si cambian
  * cambian en las dos piezas.
+ *
+ * El par va como VARIABLES CSS y no como clase + hex: el fondo se pinta en
+ * línea y no sigue la escala de Tailwind, así que en modo oscuro el fondo se
+ * quedaba claro mientras el texto se aclaraba con la escala — texto claro
+ * sobre pastel claro. Definiendo los dos juntos (`--pastel-*` en `index.css`),
+ * el modo oscuro los cambia a la vez: fondo tintado oscuro + tinta clara.
  */
-const TARJETA_POR_UMBRAL: Record<string, { fondo: string; claseTexto: string }> = {
-  [HEX_CUMPLE]: { fondo: '#C0EDD0', claseTexto: 'text-green-800' },
-  [HEX_RIESGO]: { fondo: '#F7DFB6', claseTexto: 'text-amber-800' },
-  [HEX_NO_CUMPLE]: { fondo: '#F5BCBC', claseTexto: 'text-red-800' },
-  [HEX_SIN_DATO]: { fondo: '#D9DFE8', claseTexto: 'text-slate-700' }
+export interface TintaPastel {
+  /** Fondo, para `style={{ background }}`. */
+  fondo: string
+  /** Tinta (texto e icono), para `style={{ color }}`. */
+  tinta: string
 }
 
-/** Fondo pastel + clase de texto que se lee sobre él (ver `TARJETA_POR_UMBRAL`). */
-export function coloresTarjetaPuntaje(value: number | null): { fondo: string; claseTexto: string } {
-  return TARJETA_POR_UMBRAL[colorPuntajeHex(value)]
+const PASTEL_POR_UMBRAL: Record<string, TintaPastel> = {
+  [HEX_CUMPLE]: { fondo: 'var(--pastel-verde-fondo)', tinta: 'var(--pastel-verde-tinta)' },
+  [HEX_RIESGO]: { fondo: 'var(--pastel-ambar-fondo)', tinta: 'var(--pastel-ambar-tinta)' },
+  [HEX_NO_CUMPLE]: { fondo: 'var(--pastel-rojo-fondo)', tinta: 'var(--pastel-rojo-tinta)' },
+  [HEX_SIN_DATO]: { fondo: 'var(--pastel-gris-fondo)', tinta: 'var(--pastel-gris-tinta)' }
+}
+
+/** Fondo pastel + tinta que se lee sobre él (ver `PASTEL_POR_UMBRAL`). */
+export function coloresTarjetaPuntaje(value: number | null): TintaPastel {
+  return PASTEL_POR_UMBRAL[colorPuntajeHex(value)]
+}
+
+/**
+ * Los mismos pasteles, para los CHIPS de nivel y estado del seguimiento.
+ *
+ * Los chips se pedían «con la temática pastel del sistema»: por eso no se
+ * pinta un rojo sólido aparte sino el mismo pastel de las tarjetas de
+ * puntaje, con su texto oscuro del mismo matiz (en oscuro, el par entero se
+ * oscurece: ver `PASTEL_POR_UMBRAL`).
+ */
+export function chipPastel(umbral: 'cumple' | 'riesgo' | 'noCumple' | 'sinDato'): TintaPastel {
+  const hex = umbral === 'cumple'
+    ? HEX_CUMPLE
+    : umbral === 'riesgo'
+      ? HEX_RIESGO
+      : umbral === 'noCumple'
+        ? HEX_NO_CUMPLE
+        : HEX_SIN_DATO
+  return PASTEL_POR_UMBRAL[hex]
 }
 
 /* --- Colores de marca (el navy EvaLuxor se escribía a mano en ~6 archivos) -- */
@@ -72,15 +105,25 @@ export const HEX_PRIMARY_900 = '#0b2545'
  * y 65% y la luminosidad alternada 66/76, porque dos pasteles seguidos se
  * confunden si sólo cambia el matiz.
  */
-export const COLORES_MODULOS = ['#818ECF', '#A2C0E2', '#70E199', '#EACC9A', '#E17070', '#B29AEA', '#70D0E1', '#EA9ABE']
+export const COLORES_MODULOS = [
+  'var(--serie-1)',
+  'var(--serie-2)',
+  'var(--serie-3)',
+  'var(--serie-4)',
+  'var(--serie-5)',
+  'var(--serie-6)',
+  'var(--serie-7)',
+  'var(--serie-8)'
+]
 
 /* --- Color por serie en las donas del dashboard ---------------------------
  * Cada dona tiene una porción por sucursal / departamento / cargo: con la
  * paleta de módulos no alcanza y los tonos seguidos del arcoíris quedan casi
  * iguales entre vecinos, así que se avanza el ángulo dorado (137,5°). La
- * saturación y la luminosidad quedan en clave pastel, igual que las curvas. */
+ * saturación y la luminosidad quedan en clave pastel en claro y se endurecen
+ * en oscuro (mismas variables que las series de arriba). */
 export function colorSerie(i: number): string {
-  return `hsl(${Math.round(i * 137.508) % 360} 62% 74%)`
+  return `hsl(${Math.round(i * 137.508) % 360} var(--serie-s, 62%) var(--serie-l, 74%))`
 }
 
 /* --- Estados de evaluación (PROGRAMADA / ACTIVA / CERRADA) ------------------

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarPlus, Eye, FileDown, Lock, Pencil, Play, Trash2, Unlock } from 'lucide-react'
+import { Building2, CalendarPlus, Eye, FileDown, FileSpreadsheet, Lock, Pencil, Play, Store, Trash2, Unlock, Users } from 'lucide-react'
 import { DashboardFiltersPortal } from '../../context/DashboardFiltersContext'
 import { useAuth } from '../../context/AuthContext'
 import { useCatalog } from '../../context/CatalogContext'
@@ -13,15 +13,28 @@ import {
   obtenerEvaluacion,
   resumirEvaluacion,
   puntajeEnCurso,
-  type ConjuntoDatos
+  unidadDe,
+  type ConjuntoDatos,
+  type DetalleEvaluacion
 } from '../../lib/data/indicadores'
-import type { VistaEvaluacion } from '../../lib/types'
+import type { Foto, Item, Respuesta, SucursalOpcion, VistaEvaluacion } from '../../lib/types'
 import { descargarInformePdf } from '../../lib/pdf'
 import { useModulosExportables } from '../../lib/pdf/modulosExportables'
 import type { OpcionesPdf } from '../../lib/pdf/opciones'
+import { armarReporteCargos, cargarImagenesReporte, descargarReporteCargos } from '../../lib/pdf/reporteCargos'
+import { descargarExcelEvaluacion, type IncidenciaExcel } from '../../lib/excelEvaluacion'
+import { descargarExcelCargos } from '../../lib/excelCargos'
+import { fallasDeResponsable, valorPorResponsable, type FallaResponsable } from '../../lib/scoring'
+import { pathsDeFotosFalla } from '../../lib/evidencias'
+import { aplicarPermisosChecklist } from '../../lib/permisosChecklist'
+import { normalizarResponsables } from '../../lib/data/responsablesIncidencia'
+import { supabase } from '../../lib/supabase'
 import { SelectorPdf } from '../../components/SelectorPdf'
+import { PortalCabecera } from '../../components/PortalCabecera'
+import { SelectorReporteCargo, type CargoSeleccionable } from '../../components/SelectorReporteCargo'
+import { MenuDescargas } from '../../components/MenuDescargas'
 import { verTodo } from '../../lib/roles'
-import { Badge, Button, ButtonIcon, Card, claseBotonIcono, Confirmar, EmptyState, Field, Input, Modal, Puntaje, Select, Skeleton, SkeletonFilas, Textarea } from '../../components/ui'
+import { Badge, Button, ButtonIcon, Card, claseBotonIcono, cn, Confirmar, EmptyState, Field, Input, Modal, Puntaje, Select, Skeleton, SkeletonFilas, Textarea } from '../../components/ui'
 import { CompartirEvaluacion } from '../../components/CompartirEvaluacion'
 import { COLOR_BADGE_ESTADO, ETIQUETA_ESTADO, colorBadgePuntaje } from '../../lib/diseno'
 
@@ -29,6 +42,24 @@ function haceMeses(n: number): string {
   const d = new Date()
   d.setMonth(d.getMonth() - n)
   return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Qué opciones de checklist aplican en la unidad de la evaluación, por ítem.
+ *
+ * Espejo de `EvaluacionDetalle.opcionesQueAplican`: el reporte por cargos que
+ * baja el Historial tiene que nombrar los MISMOS checks que el detalle, ni uno
+ * que allá no aparece, y acá no se importa desde una pantalla para no acoplar
+ * el dashboard al detalle.
+ */
+function opcionesQueAplican(sucursalId: string, sucursalOpciones: SucursalOpcion[]): Map<string, string[]> {
+  const mapa = new Map<string, string[]>()
+  for (const o of sucursalOpciones.filter((x) => x.sucursal_id === sucursalId && x.activa)) {
+    const arr = mapa.get(o.item_id) ?? []
+    arr.push(o.opcion_id)
+    mapa.set(o.item_id, arr)
+  }
+  return mapa
 }
 
 /** Puntaje en curso de una evaluación activa: valor en vivo + estado de avance. */
@@ -67,11 +98,32 @@ export function Historial() {
   const [hasta, setHasta] = useState('')
   const [sucursalSel, setSucursalSel] = useState('')
   const [departamentoSel, setDepartamentoSel] = useState('')
+  /**
+   * Por qué unidad se filtra: sucursal O departamento, nunca las dos. El
+   * selector vive en la barra superior y hace DOS cosas: separa la lista
+   * (cada modo trae su clase de evaluación) y decide qué filtro de unidad
+   * ofrece el panel. Al cambiar de modo se limpia el otro, que era lo que
+   * hacían los dos selects entre sí.
+   */
+  const [modoUnidad, setModoUnidad] = useState<'sucursal' | 'departamento'>('sucursal')
   const [evals, setEvals] = useState<VistaEvaluacion[] | null>(null)
   const [datos, setDatos] = useState<ConjuntoDatos | null>(null)
   const [descargando, setDescargando] = useState<string | null>(null)
   /** Evaluación cuyo selector de PDF está abierto. null = cerrado. */
   const [elegirEn, setElegirEn] = useState<string | null>(null)
+  /**
+   * Selector de cargos preparado: la tabla no trae respuestas ni puntajes,
+   * así que al tocar la opción «por cargo» se pide el detalle y se guarda todo
+   * lo que el reporte necesita (ver `prepararCargos`). null = cerrado.
+   */
+  const [cargosEn, setCargosEn] = useState<{
+    detalle: DetalleEvaluacion
+    puntaje: number | null
+    itemsFiltrados: Item[]
+    cargos: CargoSeleccionable[]
+  } | null>(null)
+  /** Formato del reporte por cargos que se está generando, para el spinner. */
+  const [generandoReporte, setGenerandoReporte] = useState<'pdf' | 'excel' | null>(null)
   const { modulos: modulosDeElegir, cargando: cargandoModulosElegir } = useModulosExportables(elegirEn)
   const [aEliminar, setAEliminar] = useState<VistaEvaluacion | null>(null)
   const [aReabrir, setAReabrir] = useState<VistaEvaluacion | null>(null)
@@ -84,21 +136,43 @@ export function Historial() {
   const [unidadAbrir, setUnidadAbrir] = useState('')
   const [fechaAbrir, setFechaAbrir] = useState(new Date().toISOString().slice(0, 10))
   const [gestionando, setGestionando] = useState(false)
+  /** Modal de aperturar abierto. El gatillo vive en la cabecera (`EnCabecera`). */
+  const [aperturando, setAperturando] = useState(false)
 
   const sucursalesVisibles = scope ? sucursales.filter((s) => scope.includes(s.id)) : sucursales
   // GERENTE_S (con `scope`) solo ve su sucursal: sin departamentos y sin filtro.
   const departamentosVisibles = scope ? [] : departamentos
   const esDepartamentoAbrir = departamentosVisibles.some((d) => d.id === unidadAbrir)
 
+  /** Cambia el modo de filtro de unidad y despeja la selección que ya no aplica. */
+  const cambiarModoUnidad = (modo: 'sucursal' | 'departamento') => {
+    if (modo === modoUnidad) return
+    setModoUnidad(modo)
+    if (modo === 'sucursal') setDepartamentoSel('')
+    else setSucursalSel('')
+  }
+
+  /**
+   * Argumentos de la consulta, en UN solo lugar: la carga inicial y el
+   * refresco de los 60 s los comparten. Estaban escritos dos veces y el
+   * selector de modo se cableó sólo en uno de los dos, así que cambiar de
+   * modo no filtraba nada.
+   */
+  const argsFiltro = () => ({
+    sucursal_ids: sucursalSel ? [sucursalSel] : scope,
+    departamento_ids: departamentoSel ? [departamentoSel] : null,
+    // El selector de la barra SEPARA la lista: cada modo muestra su clase
+    // de evaluación, y el desplegable del panel acota a una unidad concreta.
+    soloSucursales: modoUnidad === 'sucursal',
+    soloDepartamentos: modoUnidad === 'departamento',
+    desde: desde || undefined,
+    hasta: hasta || undefined
+  })
+
   const cargar = async (silencioso = false) => {
     if (!silencioso) setEvals(null)
     try {
-      const d = await consultarEvaluaciones({
-        sucursal_ids: sucursalSel ? [sucursalSel] : scope,
-        departamento_ids: departamentoSel ? [departamentoSel] : null,
-        desde: desde || undefined,
-        hasta: hasta || undefined
-      })
+      const d = await consultarEvaluaciones(argsFiltro())
       setDatos(d)
       setEvals(d.evaluaciones)
     } catch {
@@ -111,12 +185,7 @@ export function Historial() {
     setEvals(null)
     void (async () => {
       try {
-        const d = await consultarEvaluaciones({
-          sucursal_ids: sucursalSel ? [sucursalSel] : scope,
-          departamento_ids: departamentoSel ? [departamentoSel] : null,
-          desde: desde || undefined,
-          hasta: hasta || undefined
-        })
+        const d = await consultarEvaluaciones(argsFiltro())
         if (activo) {
           setDatos(d)
           setEvals(d.evaluaciones)
@@ -127,14 +196,14 @@ export function Historial() {
     })()
     return () => { activo = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desde, hasta, sucursalSel, departamentoSel, scope?.join(',')])
+  }, [desde, hasta, sucursalSel, departamentoSel, modoUnidad, scope?.join(',')])
 
   // Refresco automático: muestra el puntaje en curso mientras los evaluadores responden.
   useEffect(() => {
     const t = window.setInterval(() => { void cargar(true) }, 60000)
     return () => window.clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desde, hasta, sucursalSel, departamentoSel, scope?.join(',')])
+  }, [desde, hasta, sucursalSel, departamentoSel, modoUnidad, scope?.join(',')])
 
   // Puntaje en vivo de las evaluaciones activas: con las mismas reglas que al cerrar.
   const puntajesVivos = useMemo(() => {
@@ -157,6 +226,142 @@ export function Historial() {
     }
     setDescargando(null)
     setElegirEn(null)
+  }
+
+  /**
+   * Excel general de una fila del historial: el MISMO que baja el detalle
+   * (resultados + pestaña de incidencias). La tabla no trae el detalle en
+   * memoria, así que se pide recién al tocar; la incidencia se consulta con
+   * el mismo join de módulo que usa la pantalla del detalle.
+   */
+  const descargarExcelHistorial = async (ev: VistaEvaluacion) => {
+    setError(null)
+    setDescargando(ev.id)
+    try {
+      const detalle = await obtenerEvaluacion(ev.id)
+      if (!detalle) throw new Error('sin detalle')
+      const { data } = await supabase
+        .from('incidencias')
+        .select('descripcion, responsables, created_at, fotos, modulo:modulos!incidencias_modulo_id_fkey(nombre)')
+        .eq('evaluacion_id', ev.id)
+        .order('created_at', { ascending: false })
+      const incidencias: IncidenciaExcel[] = (
+        (data ?? []) as Array<{
+          descripcion: string
+          responsables: unknown
+          created_at: string
+          fotos: string[] | null
+          modulo: { nombre: string }[] | null
+        }>
+      ).map((i) => ({
+        descripcion: i.descripcion,
+        responsables: normalizarResponsables(i.responsables),
+        fecha: i.created_at,
+        modulo: i.modulo?.[0]?.nombre ?? null,
+        fotos: (i.fotos ?? []).length
+      }))
+      await descargarExcelEvaluacion(detalle, incidencias)
+    } catch {
+      setError('No se pudo descargar el Excel. Intenta de nuevo.')
+    }
+    setDescargando(null)
+  }
+
+  /**
+   * Prepara el reporte POR CARGOS de una fila: como la tabla no tiene
+   * respuestas, se pide el detalle y se recalcula lo mismo que la pantalla del
+   * detalle —puntaje, opciones aplicables de la unidad y valor por responsable—
+   * y recién con la lista armada se abre el selector.
+   */
+  const prepararCargos = async (ev: VistaEvaluacion) => {
+    setError(null)
+    setDescargando(ev.id)
+    try {
+      const detalle = await obtenerEvaluacion(ev.id)
+      if (!detalle) throw new Error('sin detalle')
+      const { evaluacion, respuestas, items, sucursalOpciones, sucursalPermisos } = detalle
+      const { puntaje } = resumirEvaluacion(evaluacion, respuestas, items, sucursalOpciones, sucursalPermisos)
+      const unidad = unidadDe(evaluacion)
+      const aplicaOpciones = opcionesQueAplican(unidad, sucursalOpciones)
+      // Mismo filtro que `EvaluacionDetalle.aplicarOpciones`: los permisos
+      // arman la lista del checklist y las opciones de la unidad recortan el
+      // resto, para que el reporte no nombre checks que no aplican.
+      const itemsFiltrados = items.map((item) => {
+        const conPermisos = aplicarPermisosChecklist(item, unidad, { sucursalPermisos })
+        if (conPermisos !== item) return conPermisos
+        if (item.tipo !== 'CHECKLIST' || !item.opciones?.length) return item
+        const ids = aplicaOpciones.get(item.id)
+        if (!ids?.length) return item
+        return { ...item, opciones: item.opciones.filter((o) => ids.includes(o.id)) }
+      })
+      const cargos = valorPorResponsable(itemsFiltrados, respuestas).map((v) => ({
+        cargo: v.responsable,
+        porciento: v.porciento
+      }))
+      if (cargos.length) {
+        setCargosEn({ detalle, puntaje, itemsFiltrados, cargos })
+      } else {
+        setError('Esta evaluación todavía no tiene cargos con datos.')
+      }
+    } catch {
+      setError('No se pudo preparar el reporte por cargos. Intenta de nuevo.')
+    }
+    setDescargando(null)
+  }
+
+  /**
+   * Qué fotos entran en CADA pendiente del reporte: las del punto que le falló
+   * a ESE cargo. Mismo criterio y misma función (`pathsDeFotosFalla`) que el
+   * detalle: sin esto, un cargo vería fotos de puntos que no son suyos.
+   */
+  const fotosDeFalla = (respuestas: Respuesta[], fotos: Foto[]) => {
+    const respuestasDe = new Map<string, Respuesta[]>()
+    for (const r of respuestas) {
+      const lista = respuestasDe.get(r.item_id)
+      if (lista) lista.push(r)
+      else respuestasDe.set(r.item_id, [r])
+    }
+    const fotosDe = new Map<string, string[]>()
+    for (const f of fotos) {
+      const lista = fotosDe.get(f.item_id)
+      if (lista) lista.push(f.path)
+      else fotosDe.set(f.item_id, [f.path])
+    }
+    return (falla: FallaResponsable) =>
+      pathsDeFotosFalla(falla.tipo, falla.checkIds, respuestasDe.get(falla.item_id) ?? [], fotosDe.get(falla.item_id) ?? [])
+  }
+
+  /** Baja el reporte por cargos armado en `prepararCargos`, en PDF o Excel. */
+  const descargarPorCargos = async (elegidos: string[], formato: 'pdf' | 'excel') => {
+    if (!cargosEn || !elegidos.length) return
+    const { detalle, puntaje, itemsFiltrados, cargos } = cargosEn
+    setGenerandoReporte(formato)
+    try {
+      const datos = armarReporteCargos(
+        {
+          unidad: detalle.evaluacion.sucursal?.nombre ?? detalle.evaluacion.departamento?.nombre ?? 'Evaluación',
+          referencia: detalle.evaluacion.sucursal?.shop_id ?? null,
+          fecha: detalle.evaluacion.fecha,
+          puntajeGeneral: puntaje
+        },
+        elegidos.map((cargo) => ({
+          cargo,
+          porciento: cargos.find((c) => c.cargo === cargo)?.porciento ?? null,
+          fallas: fallasDeResponsable(cargo, itemsFiltrados, detalle.respuestas)
+        })),
+        detalle.modulos,
+        fotosDeFalla(detalle.respuestas, detalle.fotos)
+      )
+      if (formato === 'pdf') {
+        descargarReporteCargos(datos, await cargarImagenesReporte(datos))
+      } else {
+        descargarExcelCargos(datos)
+      }
+      setCargosEn(null)
+    } catch {
+      setError('No se pudo generar el reporte por cargos. Intenta de nuevo.')
+    }
+    setGenerandoReporte(null)
   }
 
   const eliminar = async () => {
@@ -194,6 +399,8 @@ export function Historial() {
       })
       setUnidadAbrir('')
       await cargar()
+      // Salió bien: se cierra el modal para ver la fila recién creada.
+      setAperturando(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo crear la evaluación.')
     }
@@ -263,81 +470,136 @@ export function Historial() {
 
   return (
     <div className="space-y-6">
+      {/* El modo de unidad va en la barra superior, junto a «Filtros»: SEPARA
+          la lista (cada modo trae su clase de evaluación) y decide qué filtro
+          de unidad ofrece el panel, todo sin abrir el panel. Sin `scope` no
+          hay nada que separar —el gerente de sucursal sólo ve la suya—, así
+          que ahí no se muestra. */}
+      {scope ? null : (
+        <PortalCabecera>
+          <div role="group" aria-label="Filtrar por unidad" className="flex p-1 bg-slate-100 rounded-xl">
+            <Button
+              variant="ghost"
+              aria-pressed={modoUnidad === 'sucursal'}
+              title="Filtrar por sucursal"
+              className={cn('rounded-lg px-4 py-1.5 text-xs transition-all', modoUnidad === 'sucursal' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700')}
+              onClick={() => cambiarModoUnidad('sucursal')}
+            >
+              <Store className="h-3.5 w-3.5 sm:mr-2" />
+              {/* Sólo icono en el teléfono: la barra ya lleva menú, «Filtros»
+                  y «Aperturar». */}
+              <span className="hidden sm:inline">Sucursal</span>
+            </Button>
+            <Button
+              variant="ghost"
+              aria-pressed={modoUnidad === 'departamento'}
+              title="Filtrar por departamento"
+              className={cn('rounded-lg px-4 py-1.5 text-xs transition-all', modoUnidad === 'departamento' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700')}
+              onClick={() => cambiarModoUnidad('departamento')}
+            >
+              <Building2 className="h-3.5 w-3.5 sm:mr-2" />
+              <span className="hidden sm:inline">Departamento</span>
+            </Button>
+          </div>
+        </PortalCabecera>
+      )}
+
+      {/* El gatillo vive en la cabecera, junto a «Filtros»; el formulario,
+          antes una tarjeta siempre visible que empujaba la tabla hacia abajo,
+          ahora se abre en modal. Sólo Líder, como siempre. */}
       {esLider ? (
-        <Card>
-          <div className="flex items-center gap-2">
-            <CalendarPlus className="h-5 w-5 text-primary" />
-            <h3 className="font-bold text-primary-900">Aperturar evaluación</h3>
-          </div>
-          <p className="mt-1 text-xs text-slate-500">
-            Si la fecha es de hoy la evaluación queda <b>Activa</b> para que los evaluadores llenen; si es futura queda <b>Programada</b>. Una por unidad y fecha.
-          </p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
-            <Field label="Unidad">
-              <Select value={unidadAbrir} onChange={(e) => setUnidadAbrir(e.target.value)} disabled={!!scope}>
-                <option value="">Selecciona…</option>
-                <optgroup label="Sucursales">
-                  {sucursalesVisibles.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-                </optgroup>
-                {departamentosVisibles.length ? (
-                  <optgroup label="Departamentos">
-                    {departamentosVisibles.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
-                  </optgroup>
-                ) : null}
-              </Select>
-            </Field>
-            <Field label="Fecha">
-              <Input type="date" value={fechaAbrir} onChange={(e) => setFechaAbrir(e.target.value)} />
-            </Field>
-            <div className="flex items-end">
-              <Button variant="primary" className="w-full" disabled={gestionando || !unidadAbrir} onClick={() => void aperturar()}>
-                {gestionando ? 'Guardando…' : fechaAbrir === hoy ? 'Aperturar ahora' : 'Programar'}
-              </Button>
-            </div>
-          </div>
-          {activas > 0 ? (
-            <p className="mt-2 text-xs font-medium text-green-600">
-              Hay {activas} evaluación(es) activa(s) en el rango mostrado.
+        <PortalCabecera>
+          <button
+            type="button"
+            onClick={() => setAperturando(true)}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-primary-300 hover:bg-primary-50 hover:text-primary"
+            title="Aperturar evaluación"
+            aria-label="Aperturar evaluación"
+            aria-haspopup="dialog"
+          >
+            <CalendarPlus className="h-4 w-4" />
+            {/* En el teléfono sólo queda el icono: la barra ya lleva el menú,
+                el título y «Filtros». */}
+            <span className="hidden sm:inline">Aperturar</span>
+          </button>
+        </PortalCabecera>
+      ) : null}
+
+      {esLider ? (
+        <Modal
+          open={aperturando}
+          onClose={() => setAperturando(false)}
+          title="Aperturar evaluación"
+          wide
+          footer={
+            <Button variant="primary" className="w-full" disabled={gestionando || !unidadAbrir} onClick={() => void aperturar()}>
+              {gestionando ? 'Guardando…' : fechaAbrir === hoy ? 'Aperturar ahora' : 'Programar'}
+            </Button>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500">
+              Si la fecha es de hoy la evaluación queda <b>Activa</b> para que los evaluadores llenen; si es futura queda <b>Programada</b>. Una por unidad y fecha.
             </p>
-          ) : null}
-        </Card>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Unidad">
+                <Select value={unidadAbrir} onChange={(e) => setUnidadAbrir(e.target.value)} disabled={!!scope}>
+                  <option value="">Selecciona…</option>
+                  <optgroup label="Sucursales">
+                    {sucursalesVisibles.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                  </optgroup>
+                  {departamentosVisibles.length ? (
+                    <optgroup label="Departamentos">
+                      {departamentosVisibles.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                    </optgroup>
+                  ) : null}
+                </Select>
+              </Field>
+              <Field label="Fecha">
+                <Input type="date" value={fechaAbrir} onChange={(e) => setFechaAbrir(e.target.value)} />
+              </Field>
+            </div>
+            {activas > 0 ? (
+              <p className="text-xs font-medium text-green-600">
+                Hay {activas} evaluación(es) activa(s) en el rango mostrado.
+              </p>
+            ) : null}
+            {/* El error también se pinta en la página, pero detrás del modal
+                quedaría apagado por el fondo: acá se replica mientras abierto. */}
+            {error ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+            ) : null}
+          </div>
+        </Modal>
       ) : null}
 
       <DashboardFiltersPortal>
-        <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Desde">
             <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
           </Field>
           <Field label="Hasta">
             <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
           </Field>
-          <Field label="Sucursal">
-            <Select
-              value={sucursalSel}
-              onChange={(e) => {
-                setSucursalSel(e.target.value)
-                // Los filtros son excluyentes: una evaluación es de una sucursal
-                // O de un departamento, y aplicar los dos a la vez no traería nada.
-                if (e.target.value) setDepartamentoSel('')
-              }}
-              disabled={!!scope}
-            >
-              <option value="">Todas</option>
-              {sucursalesVisibles.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-            </Select>
-          </Field>
-          <Field label="Departamento">
-            <Select
-              value={departamentoSel}
-              onChange={(e) => {
-                setDepartamentoSel(e.target.value)
-                if (e.target.value) setSucursalSel('')
-              }}
-            >
-              <option value="">Todos</option>
-              {departamentosVisibles.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
-            </Select>
-          </Field>
+          {/* Sólo el filtro del modo elegido en la barra: uno nunca trae lo
+              del otro, que era lo que aseguraba el cruce de los dos selects.
+              Con `scope` el gerente siempre está en su sucursal, así que ahí
+              el modo no se ofrece y éste es el único filtro que se ve. */}
+          {modoUnidad === 'sucursal' || scope ? (
+            <Field label="Sucursal">
+              <Select value={sucursalSel} onChange={(e) => setSucursalSel(e.target.value)} disabled={!!scope}>
+                <option value="">Todas</option>
+                {sucursalesVisibles.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+              </Select>
+            </Field>
+          ) : (
+            <Field label="Departamento">
+              <Select value={departamentoSel} onChange={(e) => setDepartamentoSel(e.target.value)}>
+                <option value="">Todos</option>
+                {departamentosVisibles.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+              </Select>
+            </Field>
+          )}
         </div>
       </DashboardFiltersPortal>
 
@@ -477,15 +739,34 @@ export function Historial() {
                             creadoPor={profile?.id ?? null}
                           />
                         ) : null}
-                        <ButtonIcon
-                          variant="secondary"
-                          disabled={descargando === ev.id}
-                          onClick={() => setElegirEn(ev.id)}
-                          title="Descargar PDF"
-                          aria-label="Descargar PDF"
-                        >
-                          <FileDown className="h-5 w-5" />
-                        </ButtonIcon>
+                        {/* UN solo botón de descargas, igual que en el detalle:
+                            PDF general (selector de módulos), Excel general y
+                            reporte por cargo. `claseBoton` cambia la cara: acá
+                            el fondo es blanco, no la barra azul. */}
+                        <MenuDescargas
+                          claseBoton={claseBotonIcono('secondary')}
+                          disabled={descargando === ev.id || generandoReporte != null}
+                          opciones={[
+                            {
+                              id: 'pdf',
+                              etiqueta: 'PDF general',
+                              icono: <FileDown className="h-5 w-5" />,
+                              onSelect: () => setElegirEn(ev.id)
+                            },
+                            {
+                              id: 'excel',
+                              etiqueta: 'Excel general',
+                              icono: <FileSpreadsheet className="h-5 w-5" />,
+                              onSelect: () => void descargarExcelHistorial(ev)
+                            },
+                            {
+                              id: 'cargos',
+                              etiqueta: 'Por cargo (PDF o Excel)',
+                              icono: <Users className="h-5 w-5" />,
+                              onSelect: () => void prepararCargos(ev)
+                            }
+                          ]}
+                        />
                         {esLider ? (
                           <ButtonIcon
                             variant="dangerGhost"
@@ -563,6 +844,17 @@ export function Historial() {
           if (objetivo) void descargar(objetivo, impresion)
         }}
         descargando={!!descargando}
+      />
+
+      {/* Selector de cargos del reporte por cargo: la lista sale de lo que
+          `prepararCargos` calculó al tocar la opción en la fila. También una
+          sola instancia para la tabla entera. */}
+      <SelectorReporteCargo
+        abierto={cargosEn != null}
+        onClose={() => setCargosEn(null)}
+        cargos={cargosEn?.cargos ?? []}
+        onDescargar={(elegidos, formato) => void descargarPorCargos(elegidos, formato)}
+        generando={generandoReporte}
       />
     </div>
   )

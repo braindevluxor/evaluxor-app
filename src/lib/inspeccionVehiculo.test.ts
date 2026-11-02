@@ -6,6 +6,7 @@ import {
   fechaLegible,
   filaHistorial,
   fusionarHistorial,
+  rehidratarEvidencias,
   registroDesdeServidor,
   seccionarItems
 } from './inspeccionVehiculo'
@@ -108,6 +109,84 @@ describe('evidenciasDeRespuestas', () => {
     })
     expect(evs).toHaveLength(1)
     expect(evs[0].pie).toBe('Carrocería · Sin abolladuras')
+  })
+})
+
+describe('rehidratarEvidencias · las fotos subidas antes de convertir las respuestas', () => {
+  // Las inspecciones subidas antes de este arreglo guardaron `photoIds`: ids de
+  // IndexedDB que sólo existían en el equipo que sacó la foto. En cualquier
+  // otro equipo no había nada que pintar. La carpeta del bucket es la fuente
+  // de verdad, porque cada archivo se guardó como `<foto_id>.<ext>`.
+  const carpeta = ['f1.jpg', 'f2.png', 'f3.mp4']
+
+  it('cambia los photoIds que existen en la carpeta por sus paths', () => {
+    const respuestas = { c1: { evidencias: { o1: { photoIds: ['f1', 'f2'] } } } }
+    expect(rehidratarEvidencias(respuestas, carpeta, 'pre-entrega/r9')).toEqual({
+      c1: { evidencias: { o1: { paths: ['pre-entrega/r9/f1.jpg', 'pre-entrega/r9/f2.png'] } } }
+    })
+  })
+
+  it('las que no están en la carpeta siguen como photoIds locales', () => {
+    // Una foto que falló al subir o que todavía vive en el equipo no se pierde:
+    // se queda como id para que `MinaFotos` la pinte si está en IndexedDB.
+    const respuestas = { c1: { evidencias: { o1: { photoIds: ['f1', 'f-perdida'] } } } }
+    const salida = rehidratarEvidencias(respuestas, carpeta, 'pre-entrega/r9') as {
+      c1: { evidencias: { o1: { paths?: string[]; photoIds?: string[] } } }
+    }
+    expect(salida.c1.evidencias.o1.paths).toEqual(['pre-entrega/r9/f1.jpg'])
+    expect(salida.c1.evidencias.o1.photoIds).toEqual(['f-perdida'])
+  })
+
+  it('conserva los paths que ya traía y no duplica', () => {
+    const respuestas = {
+      c1: { evidencias: { o1: { paths: ['pre-entrega/r9/f1.jpg'], photoIds: ['f1', 'f3'] } } }
+    }
+    const salida = rehidratarEvidencias(respuestas, carpeta, 'pre-entrega/r9') as {
+      c1: { evidencias: { o1: { paths: string[] } } }
+    }
+    expect(salida.c1.evidencias.o1.paths).toEqual(['pre-entrega/r9/f1.jpg', 'pre-entrega/r9/f3.mp4'])
+  })
+
+  it('sin nombres en la carpeta devuelve las respuestas tal cual', () => {
+    const respuestas = { c1: { evidencias: { o1: { photoIds: ['f1'] } } } }
+    expect(rehidratarEvidencias(respuestas, [], 'pre-entrega/r9')).toBe(respuestas)
+  })
+
+  it('los ítems sin evidencias no se tocan', () => {
+    const respuestas = { c1: { selected: ['o1'] }, c2: { evidencias: {} } }
+    expect(rehidratarEvidencias(respuestas, carpeta, 'pre-entrega/r9')).toEqual(respuestas)
+  })
+
+  it('un nombre sin extensión no se toma como foto', () => {
+    // `lastIndexOf('.')` en un nombre sin punto da -1 y cortaría mal el id.
+    const respuestas = { c1: { evidencias: { o1: { photoIds: ['subcarpeta'] } } } }
+    expect(rehidratarEvidencias(respuestas, ['subcarpeta'], 'pre-entrega/r9')).toEqual(respuestas)
+  })
+
+  it('una fila del servidor se rehidrata al abrirla', () => {
+    const fila: RevisionPreEntrega = {
+      id: 'r9',
+      evaluador_id: 'u1',
+      sucursal_id: null,
+      modulo_id: 'm1',
+      placa: 'ABC-123',
+      vehiculo: {},
+      chofer: {},
+      chofer_firma: null,
+      observaciones: null,
+      respuestas: { c1: { evidencias: { o1: { photoIds: ['f1'] } } } },
+      estado: 'FINALIZADA',
+      fecha: '2026-10-15',
+      created_at: '2026-10-15T09:00:00.000Z',
+      updated_at: '2026-10-15T10:00:00.000Z'
+    }
+    const reg = registroDesdeServidor(fila, carpeta)
+    // La ruta completa: storage sólo encuentra `pre-entrega/<id>/<foto>.jpg`.
+    expect(reg.respuestas).toEqual({
+      c1: { evidencias: { o1: { paths: ['pre-entrega/r9/f1.jpg'] } } }
+    })
+    // Las fotos ya no viven en el equipo: el registro no puede prometer ids locales.
+    expect(reg.photoIds).toEqual([])
   })
 })
 

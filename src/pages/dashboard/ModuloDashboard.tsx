@@ -19,6 +19,7 @@ import {
 } from '../../lib/data/indicadores'
 import { Card, EmptyState, Field, Input, Select, Skeleton, Button } from '../../components/ui'
 import { descargarReporteModulo } from '../../lib/pdf/reporteModulo'
+import { descargarExplicacionModulo } from '../../lib/pdf/explicacionModulo'
 import { GraficoItem } from '../../components/dashboard/GraficoItem'
 import { MedidorModulo } from '../../components/dashboard/MedidorModulo'
 import { subtituloMedidor } from '../../components/dashboard/subtituloMedidor'
@@ -310,6 +311,22 @@ export function ModuloDashboard() {
               >
                 <FileDown className="h-4 w-4" />
                 Descargar reporte
+              </Button>
+              <Button
+                variant="secondary"
+                className="min-h-0 gap-1.5 px-3 py-2 text-xs"
+                disabled={!modulo}
+                title="Qué mide y cómo se mide este módulo: descripción, ítems y pesos en PDF"
+                onClick={() =>
+                  void descargarExplicacionModulo({
+                    moduloNombre,
+                    moduloDescripcion: modulo?.descripcion,
+                    items: catalogoItems
+                  })
+                }
+              >
+                <Layers className="h-4 w-4" />
+                Explicación del módulo
               </Button>
               {errorPdf ? (
                 <p className="max-w-[220px] text-right text-[11px] leading-snug text-red-600">{errorPdf}</p>

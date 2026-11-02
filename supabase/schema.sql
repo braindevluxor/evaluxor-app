@@ -121,6 +121,10 @@ grant execute on function public.email_por_usuario(text) to anon;
 -- Se invoca SIN sesiÃ³n (pantalla de login). Por eso es security definer y puede
 -- ejecutarse por anon. Respuesta JSON: { ok, bloqueado, restantes }.
 -- Usuarios inactivos/inexistentes devuelven respuesta genÃ©rica (no revela existencia).
+-- El campo de login dice "Correo electrÃ³nico" y acepta tambiÃ©n el usuario de la
+-- casa: por eso se buscan las DOS identidades (usuario O correo). Sin esto, quien
+-- escriba el correo saldrÃ­a siempre "contraseÃ±a incorrecta" y ademÃ¡s el conteo
+-- de intentos no correrÃ­a para Ã©l.
 create or replace function public.intento_login(p_usuario text, p_password text)
 returns jsonb
 language plpgsql security definer set search_path = public, extensions, auth as $$
@@ -130,7 +134,8 @@ declare
   v_ok boolean;
 begin
   select * into v_prof from public.profiles p
-    where lower(p.usuario) = lower(p_usuario) and p.activo
+    where (lower(p.usuario) = lower(p_usuario) or lower(p.email) = lower(p_usuario))
+      and p.activo
     limit 1;
 
   if not found then
@@ -1141,19 +1146,29 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
--- Ver una incidencia: LIDER todas; el EVALUADOR las suyas, mientras la evaluaciÃ³n
--- siga ACTIVA y pueda reportar en ella. La regla va en una funciÃ³n (como
--- `puede_ver_evaluacion` y `puede_responder` en schema.sql) porque dentro del USING
--- de una polÃ­tica no se puede volver a nombrar a la tabla propia: la columna se le
--- pasa como argumento y es la polÃ­tica quien la resuelve.
+-- Ver una incidencia: LIDER todas; el EVALUADOR que participó en la evaluación
+-- (tiene un módulo asignado que aplica a ella), incluso cuando la evaluación ya
+-- se cerró: el detalle de la evaluación le sigue visible (`puede_ver_evaluacion`
+-- no mira el estado) y las incidencias las reportó él o sus compañeros durante
+-- la visita — cerrar no puede borrarles la memoria. Lo que SÓLO puede hacer con
+-- la evaluación ACTIVA es REPORTAR (`puede_reportar_incidencia`). La regla va en
+-- una función (como `puede_ver_evaluacion` y `puede_responder` en schema.sql)
+-- porque dentro del USING de una política no se puede volver a nombrar a la
+-- tabla propia: la columna se le pasa como argumento y es la política quien la
+-- resuelve.
 create or replace function public.puede_ver_incidencia(ev_id uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select public.es_lider() or exists (
     select 1
     from public.evaluaciones ev
     where ev.id = ev_id
-      and ev.estado = 'ACTIVA'
-      and public.puede_reportar_incidencia(ev.id, null)
+      and exists (
+        select 1
+        from public.asignaciones_modulos am
+        where am.evaluador_id = auth.uid()
+          and am.activa
+          and public.modulo_aplica_a_ev(ev, am.modulo_id)
+      )
   );
 $$;
 
@@ -4767,3 +4782,406 @@ alter table public.items
 
 comment on column public.items.permisos_sucursal is
   'CHECKLIST: origen de la lista de opciones. NULL = manual; TODOS / VENCIDOS = generada desde los permisos activos de la sucursal evaluada.';
+
+
+-- ###########################################################################
+-- Archivo consolidado: alertas-cargo.sql
+-- ###########################################################################
+-- ============================================================================
+-- ALERTAS DE SEGUIMIENTO POR CARGO (AMONESTACION Y LLAMADO DE ATENCION)
+--
+-- El dashboard de seguimiento muestra, por unidad, cada EVALUACION cerrada y
+-- la nota que saco cada cargo EN ESA VISITA. Cuando esa nota cae por debajo
+-- del umbral (80% amonestacion, 70% llamado de atencion) el LIDER registra un
+-- llamado de atencion: queda PENDIENTE hasta que alguien lo atiende, y ahi
+-- pasa a ATENDIDA con fecha y quien lo atendio.
+--
+-- No es un indicador calculado: la nota de la visita se recalcula siempre
+-- desde las evaluaciones cerradas (seguimientoPorEvaluacion). Esta tabla
+-- guarda lo que se decidio HACER en esa visita, con la nota que tenia el
+-- cargo ese dia. Por eso la fila del panel se arma cruzando las dos cosas.
+--
+-- UNA ALERTA POR (CARGO, UNIDAD, EVALUACION): el llamado pertenece a una
+-- visita concreta, no a la relacion historica entre el cargo y la tienda. Al
+-- atenderla esa celda queda LIMPIA y no vuelve a pedir accion hasta la
+-- proxima evaluacion, que trae sus propias fallas y dice cuales son
+-- reincidencias.
+--
+-- Las alertas que no tienen evaluacion (el modelo viejo, que era por cargo y
+-- unidad sobre el PROMEDIO historico) se BORRAN al aplicar este bloque: no
+-- describen ninguna visita y el panel por evaluacion no sabe que hacer con
+-- ellas.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+create table if not exists public.alertas_cargo (
+  id uuid primary key default gen_random_uuid(),
+  clave_cargo text not null,
+  cargo text not null,
+  -- La unidad de la matriz: sucursal o departamento, una sola, igual que en
+  -- `evaluaciones` e `incidencias`.
+  sucursal_id uuid references public.sucursales(id) on delete cascade,
+  departamento_id uuid references public.departamentos_centralizados(id) on delete cascade,
+  -- LA VISITA que origina el llamado. Sin ella no hay fila que armar en el
+  -- panel por evaluacion: por eso termina siendo not null.
+  evaluacion_id uuid,
+  nivel text not null check (nivel in ('AMONESTACION', 'LLAMADO')),
+  -- La nota CON la que se decidio actuar. Va de 0 a 100: es un porcentaje
+  -- redondeado que sale de `notaDe`, y un valor fuera de ese rango describe
+  -- una evaluacion que no existe.
+  nota integer not null check (nota >= 0 and nota <= 100),
+  estado text not null default 'PENDIENTE' check (estado in ('PENDIENTE', 'ATENDIDA')),
+  atendida_en timestamptz,
+  atendida_por uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint alertas_cargo_unidad_check check ((sucursal_id is null) <> (departamento_id is null))
+);
+
+-- La columna nueva nace sin `references` y sin `not null` a propósito: el
+-- bloque tiene que migrar una tabla que ya existe en producción. Se agrega,
+-- se borran las filas del modelo viejo (las que no tienen evaluacion) y recien
+-- ahi se cierra con la FK y el `not null`. Un `create table` nuevo no puede
+-- hacer ese orden, y el bloque tiene que poder correr dos veces.
+alter table public.alertas_cargo
+  add column if not exists evaluacion_id uuid;
+
+delete from public.alertas_cargo where evaluacion_id is null;
+
+alter table public.alertas_cargo
+  alter column evaluacion_id set not null;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'alertas_cargo_evaluacion_fkey'
+  ) then
+    alter table public.alertas_cargo
+      add constraint alertas_cargo_evaluacion_fkey
+      foreign key (evaluacion_id) references public.evaluaciones(id) on delete cascade;
+  end if;
+end $$;
+
+-- El indice que sostiene la regla de "una sola pendiente POR VISITA". Va sobre
+-- una EXPRESION, no sobre las dos columnas: en un indice unico dos NULL no se
+-- consideran iguales y sin el `coalesce` cabrian dos pendientes con la misma
+-- unidad. El `where estado = 'PENDIENTE'` deja las atendidas acumularse: son
+-- el historial. El indice viejo, sin la visita, se va con su regla.
+drop index if exists public.alertas_cargo_pendiente;
+
+create unique index if not exists alertas_cargo_pendiente
+  on public.alertas_cargo (clave_cargo, coalesce(sucursal_id, departamento_id), evaluacion_id)
+  where estado = 'PENDIENTE';
+
+create index if not exists idx_alertas_cargo_unidad
+  on public.alertas_cargo (coalesce(sucursal_id, departamento_id), created_at desc);
+
+create index if not exists idx_alertas_cargo_evaluacion
+  on public.alertas_cargo (evaluacion_id, clave_cargo);
+
+-- A QUIÉN SE LE NOTIFICÓ
+-- El llamado o la amonestación se aplica a PERSONAS, no a un cargo abstracto:
+-- el Líder elige del listado de trabajadores activos de esa sucursal con ese
+-- cargo a quién se lo está aplicando, y esa elección queda acá. Va en una tabla
+-- hija y no en una columna array porque el historial por persona es el dato que
+-- después sirve para contar reincidencias de cada trabajador, y un array sólo
+-- se puede leer completo.
+create table if not exists public.alerta_trabajadores (
+  id uuid primary key default gen_random_uuid(),
+  alerta_id uuid not null references public.alertas_cargo(id) on delete cascade,
+  -- La identidad es (nacionalidad, dni), la misma con la que viene de la API
+  -- de trabajadores: el DNI sólo no basta porque se repite entre países.
+  nacionalidad text not null default 'V',
+  dni bigint not null,
+  nombre text not null,
+  created_at timestamptz not null default now(),
+  constraint alerta_trabajadores_unico unique (alerta_id, nacionalidad, dni)
+);
+
+create index if not exists idx_alerta_trabajadores_persona
+  on public.alerta_trabajadores (nacionalidad, dni);
+
+-- Mismo trato que su tabla madre: lectura con sesión, gestión sólo al LÍDER.
+alter table public.alerta_trabajadores enable row level security;
+
+drop policy if exists alerta_trabajadores_select on public.alerta_trabajadores;
+create policy alerta_trabajadores_select on public.alerta_trabajadores for select to authenticated using (true);
+drop policy if exists alerta_trabajadores_lider on public.alerta_trabajadores;
+create policy alerta_trabajadores_lider on public.alerta_trabajadores for all using (public.es_lider()) with check (public.es_lider());
+
+do $$
+begin
+  execute 'revoke select on public.alerta_trabajadores from anon';
+end $$;
+
+-- ROW LEVEL SECURITY: lectura con sesion, gestion solo al LIDER, igual que el
+-- resto de la configuracion. La pantalla de seguimiento es del LIDER; el
+-- `select` abierto a authenticated es el mismo trato que `sucursal_permisos`.
+alter table public.alertas_cargo enable row level security;
+
+drop policy if exists alertas_cargo_select on public.alertas_cargo;
+create policy alertas_cargo_select on public.alertas_cargo for select to authenticated using (true);
+drop policy if exists alertas_cargo_lider on public.alertas_cargo;
+create policy alertas_cargo_lider on public.alertas_cargo for all using (public.es_lider()) with check (public.es_lider());
+
+-- Segunda mitad de la cerradura, igual que en `parametros-sucursal.sql`: si
+-- algun dia RLS queda apagado en esta tabla, el grant por defecto de Supabase
+-- pasa a ser la unica puerta. Con el revoke sigue cerrada.
+do $$
+begin
+  execute 'revoke select on public.alertas_cargo from anon';
+end $$;
+
+-- Archivo consolidado: bitacora-asignaciones.sql
+-- ###########################################################################
+-- ============================================================================
+-- BITACORA DE ASIGNACIONES
+--
+-- QUIEN HIZO QUE CAMBIO, Y CUANDO.
+--
+-- `asignaciones` y `asignaciones_modulos` guardan `created_by` y `created_at`,
+-- pero eso cubre solamente la ALTA. Desasignar no borra la fila: se hace un
+-- `update activa = false` (ver `configurarSucursalModulos` y
+-- `configurarDepartamentoModulos`), asi que nadie deja constancia de quien la
+-- apago ni cuando. Lo mismo pasa con la configuracion por unidad
+-- (`sucursal_modulos` / `departamento_modulos`).
+--
+-- Es una tabla NUEVA y no una columna mas: el historial acumula y no se pisa,
+-- y un `update` no puede reescribir el pasado. La escribe un TRIGGER y no la
+-- app, asi que no hay forma de que alguien "olvide" registrar un cambio.
+--
+-- ALCANCE: las cuatro tablas de asignacion. Agregar otra es una linea
+-- (`create trigger` con esta misma funcion), no reescribir nada.
+--
+-- El `created_by` de las tablas originales se queda tal cual: sigue diciendo
+-- quien la CREO. Esta tabla agrega el resto de la vida de la fila.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo sin duplicar triggers ni pisar el historial ya acumulado.
+-- ============================================================================
+create table if not exists public.bitacora_asignaciones (
+  id uuid primary key default gen_random_uuid(),
+  -- La tabla que cambio, sin esquema: 'asignaciones', 'asignaciones_modulos',
+  -- 'sucursal_modulos' o 'departamento_modulos'. Es texto a proposito: si
+  -- mañana se agrega una tabla al alcance no hay que tocar este check.
+  tabla text not null,
+  -- Fila afectada. Se guarda el id y no la fila entera porque la fila puede
+  -- dejar de existir (un borrado); el id sigue siendo el gancho para cruzar.
+  registro_id uuid,
+  accion text not null check (accion in ('CREADO', 'MODIFICADO', 'ELIMINADO')),
+  -- La fila antes y despues, como jsonb. NULL en las orillas que no existen:
+  -- un CREADO no tiene previo y un ELIMINADO no tiene siguiente. Guardar las
+  -- dos permite responder "que valia antes" sin tener que reconstruirla.
+  datos_previos jsonb,
+  datos_nuevos jsonb,
+  -- Quien estaba en sesion al hacer el cambio. `auth.uid()`, el mismo criterio
+  -- que usan las politicas RLS de todo el esquema.
+  actor uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+-- El listado se ordena por fecha (la pantalla) y por registro_id (el
+-- historial de UNA asignacion concreta).
+create index if not exists idx_bitacora_asignaciones_fecha
+  on public.bitacora_asignaciones (created_at desc);
+create index if not exists idx_bitacora_asignaciones_registro
+  on public.bitacora_asignaciones (registro_id, created_at desc);
+create index if not exists idx_bitacora_asignaciones_tabla
+  on public.bitacora_asignaciones (tabla, created_at desc);
+
+-- ----------------------------------------------------------------------------
+-- El trigger.
+--
+-- SECURITY DEFINER: la escribe el dueno de la funcion, que es el rol con el
+-- que se corre el SQL Editor (postgres), y por eso atraviesa el RLS de la
+-- bitacora — que abajo NO tiene politica de INSERT, para que nadie escriba
+-- desde la app. Sin esto el Lider no podria guardar una asignacion porque
+-- tampoco tendria permiso de insertar en la bitacora.
+--
+-- Dos decisiones que no son de estilo:
+--
+--  * Un UPDATE que no cambia nada NO se registra. Si se registrara, cada
+--    guardado de la pantalla de configuracion dejaria filas mudas (los
+--    `aActivar` ya vienen filtrados, pero un doble toque o dos pantallas
+--    abiertas lo igualan), y el historial terminaria diciendo que cambio lo
+--    que no cambio.
+--  * El `case tg_op` evalua solo la rama que corresponde: en un DELETE no se
+--    toca `new` (es null), y en un INSERT no se toca `old`.
+-- ----------------------------------------------------------------------------
+create or replace function public.registrar_bitacora_asignaciones()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_previo jsonb := null;
+  v_nuevo jsonb := null;
+  v_id uuid;
+begin
+  if tg_op = 'INSERT' then
+    v_nuevo := to_jsonb(new);
+    v_id := (v_nuevo ->> 'id')::uuid;
+  elsif tg_op = 'UPDATE' then
+    v_previo := to_jsonb(old);
+    v_nuevo := to_jsonb(new);
+    -- Nada cambio: no es un cambio, no entra en el historial.
+    if v_previo = v_nuevo then
+      return new;
+    end if;
+    v_id := (v_nuevo ->> 'id')::uuid;
+  else
+    v_previo := to_jsonb(old);
+    v_id := (v_previo ->> 'id')::uuid;
+  end if;
+
+  insert into public.bitacora_asignaciones
+    (tabla, registro_id, accion, datos_previos, datos_nuevos, actor)
+  values (
+    tg_table_name,
+    v_id,
+    case tg_op
+      when 'INSERT' then 'CREADO'
+      when 'UPDATE' then 'MODIFICADO'
+      else 'ELIMINADO'
+    end,
+    v_previo,
+    v_nuevo,
+    auth.uid()
+  );
+
+  return coalesce(new, old);
+end;
+$$;
+
+-- El revoke va DESPUES del `create or replace`: ese reactiva el permiso
+-- heredado de PUBLIC, asi que cerrar la puerta antes se pierde al definir.
+revoke execute on function public.registrar_bitacora_asignaciones() from public, anon;
+grant  execute on function public.registrar_bitacora_asignaciones() to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Los cuatro triggers. `drop trigger if exists` + `create trigger` es lo que
+-- hace idempotente al bloque: correrlo de nuevo no duplica nada.
+-- ----------------------------------------------------------------------------
+drop trigger if exists trg_bitacora_asignaciones on public.asignaciones;
+create trigger trg_bitacora_asignaciones
+  after insert or update or delete on public.asignaciones
+  for each row execute function public.registrar_bitacora_asignaciones();
+
+drop trigger if exists trg_bitacora_asignaciones_modulos on public.asignaciones_modulos;
+create trigger trg_bitacora_asignaciones_modulos
+  after insert or update or delete on public.asignaciones_modulos
+  for each row execute function public.registrar_bitacora_asignaciones();
+
+drop trigger if exists trg_bitacora_sucursal_modulos on public.sucursal_modulos;
+create trigger trg_bitacora_sucursal_modulos
+  after insert or update or delete on public.sucursal_modulos
+  for each row execute function public.registrar_bitacora_asignaciones();
+
+drop trigger if exists trg_bitacora_departamento_modulos on public.departamento_modulos;
+create trigger trg_bitacora_departamento_modulos
+  after insert or update or delete on public.departamento_modulos
+  for each row execute function public.registrar_bitacora_asignaciones();
+
+-- ----------------------------------------------------------------------------
+-- RLS: el LIDER lee. Nadie escribe desde la app — no hay politica de INSERT,
+-- UPDATE ni DELETE, asi que el unico camino de escritura es el trigger.
+-- ----------------------------------------------------------------------------
+alter table public.bitacora_asignaciones enable row level security;
+
+drop policy if exists bitacora_asignaciones_select on public.bitacora_asignaciones;
+create policy bitacora_asignaciones_select on public.bitacora_asignaciones
+  for select to authenticated using (public.es_lider());
+
+-- Segunda mitad de la cerradura, igual que en `parametros-sucursal.sql`: si
+-- algun dia RLS queda apagado en esta tabla, el grant por defecto de Supabase
+-- pasa a ser la unica puerta. Con el revoke sigue cerrada.
+do $$
+begin
+  execute 'revoke select on public.bitacora_asignaciones from anon';
+end $$;
+
+-- Archivo consolidado: push-suscripciones.sql
+-- ###########################################################################
+-- ============================================================================
+-- SUSCRIPCIONES A NOTIFICACIONES PUSH
+--
+-- QUE GUARDA Y POR QUE ES UNA TABLA Y NO UN CAMPO EN `profiles`
+-- ------------------------------------------------------------
+-- Un usuario puede estar suscrito desde VARIOS dispositivos (el teléfono y la
+-- tableta del gerente), y cada uno tiene su propio `endpoint` con sus propias
+-- claves `p256dh`/`auth`. Meterlo en `profiles` obligaría a un campo jsonb
+-- multi-dispositivo y a perder el endpoint viejo al suscribir el nuevo.
+--
+-- El `endpoint` es la dirección a la que se manda: es única por definición
+-- (lo decide el push service del navegador), y de ahí sale el `unique`. Si un
+-- navegador rota su suscripción —que lo hace— llega un endpoint nuevo y se
+-- inserta otro registro; el viejo queda con `activa = false` o se borra al
+-- devolver 410 Gone.
+--
+-- QUIEN LEE Y QUIEN ESCRIBE
+-- -------------------------
+-- Sólo el dueño de la fila: cada uno gestiona las suyas (`user_id =
+-- auth.uid()`). El endpoint que manda (`api/push.js`) NO lee por RLS: usa la
+-- service role key del servidor, que bypasea las políticas. Si leyera con el
+-- JWT del usuario sólo vería las suscripciones de él y no podría avisarle a
+-- nadie.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+create table if not exists public.push_suscripciones (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  -- La dirección del push service. Texto largo y único: es la clave natural
+  -- de la fila, no un id que se genere.
+  endpoint text not null unique,
+  -- Las dos claves de cifrado del canal (RFC 8291). Sin ellas el payload se
+  -- mandaría en claro al push service.
+  p256dh text not null,
+  auth text not null,
+  -- Preferencia del usuario: apagar las notificaciones desde la app sin
+  -- destruir la suscripción (se puede re-encender sin volver a pedir permiso).
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  -- La escribe el cliente al suscribirse/re-suscribirse. Es lo que permite
+  -- podar suscripciones que llevan meses sin refrescarse: un navegador que no
+  -- vuelve a suscribirse en ese tiempo ya no recibe nada.
+  updated_at timestamptz not null default now()
+);
+
+-- La consulta del endpoint es "todas las activas"; la del usuario es "las mías".
+create index if not exists idx_push_suscripciones_usuario
+  on public.push_suscripciones (user_id, activa);
+create index if not exists idx_push_suscripciones_activas
+  on public.push_suscripciones (updated_at) where activa;
+
+-- ----------------------------------------------------------------------------
+-- RLS: cada uno con las suyas. Nadie más las ve — ni siquiera otro Líder,
+-- porque un endpoint de push es una dirección de entrega y no hay motivo para
+-- que otro usuario la tenga.
+-- ----------------------------------------------------------------------------
+alter table public.push_suscripciones enable row level security;
+
+drop policy if exists push_suscripciones_select on public.push_suscripciones;
+create policy push_suscripciones_select on public.push_suscripciones
+  for select to authenticated using (user_id = auth.uid());
+
+drop policy if exists push_suscripciones_insert on public.push_suscripciones;
+create policy push_suscripciones_insert on public.push_suscripciones
+  for insert to authenticated with check (user_id = auth.uid());
+
+drop policy if exists push_suscripciones_update on public.push_suscripciones;
+create policy push_suscripciones_update on public.push_suscripciones
+  for update to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists push_suscripciones_delete on public.push_suscripciones;
+create policy push_suscripciones_delete on public.push_suscripciones
+  for delete to authenticated using (user_id = auth.uid());
+
+-- Segunda mitad de la cerradura, igual que en `parametros-sucursal.sql`: el
+-- grant por defecto de Supabase le da acceso a anon.
+do $$
+begin
+  execute 'revoke all on public.push_suscripciones from anon';
+end $$;

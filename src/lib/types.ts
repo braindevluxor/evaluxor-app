@@ -210,7 +210,13 @@ export interface Opcion {
   responsable?: string
   /** Responsables del check: admite varios. Si viene vacío se usa `responsable`. */
   responsables?: string[]
-  /** Puntos propios de la opción (solo CHECKLIST, hasta 3 decimales, mínimo 0.001). Si TODAS las opciones tienen puntos, la puntuación del ítem se reparte entre ellas. */
+  /**
+   * Puntos propios de la opción (CHECKLIST y LISTA_COLABORADORES; hasta 3
+   * decimales, mínimo 0.001). Si TODAS las opciones del ítem tienen puntos, la
+   * puntuación se reparte entre ellas: en el CHECKLIST sobre la fracción del
+   * ítem, y en el LISTA_COLABORADORES dentro de cada trabajador (promedio de
+   * puntos obtenidos sobre los aplicables por persona).
+   */
   puntos?: number
   /** Tipo de respuesta (solo CHECKLIST): 'CHECK' (casilla) o 'RANGO' (valor numérico con mínimo aceptable). */
   tipo_respuesta?: 'CHECK' | 'RANGO'
