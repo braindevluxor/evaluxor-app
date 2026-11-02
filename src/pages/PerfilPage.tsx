@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { ETIQUETAS_ROL } from '../lib/roles'
 import { Badge, Button, Card, Field, Input, Modal, cn } from '../components/ui'
+import { PortalCabecera } from '../components/PortalCabecera'
 import { TarjetaVersionApp } from '../components/VersionApp'
 import { confirmarConfigTotp, desactivarTotp, factorsTotpActivos, iniciarConfigTotp } from '../lib/mfa'
 import type { FactorTotp } from '../lib/mfa'
@@ -132,28 +133,31 @@ export function PerfilPage() {
     // (`titulosVista` en ConsoleLayout) y el menú lateral. Tampoco trae padding
     // ni ancho máximo: ya los trae el `<main>` del layout.
     <div className="mx-auto max-w-5xl">
-      <div className="grid gap-6 lg:grid-cols-[200px_1fr]">
-        {/* Las pestañas: a la izquierda en escritorio, en fila en el teléfono.
-            La activa es una píldora oscura —no un subrayado— para que se lea
-            como «sección», no como un enlace más. */}
-        <nav className="flex gap-1 lg:flex-col" aria-label="Secciones de configuración">
+      {/* Las secciones se eligen en el selector de la BARRA SUPERIOR, junto a
+          Filtros: es el mismo portal y la misma píldora que usa Unidades para
+          sus pestañas. Sacadas del cuerpo de la página porque ocupaban una
+          columna entera de 200px para dos palabras. */}
+      <PortalCabecera>
+        <div role="group" aria-label="Secciones de configuración" className="flex p-1 bg-slate-100 rounded-xl">
           {PESTANAS.map((p) => (
-            <button
+            <Button
               key={p.id}
               type="button"
+              variant="ghost"
+              aria-pressed={pestana === p.id}
               onClick={() => setPestana(p.id)}
-              aria-current={pestana === p.id ? 'page' : undefined}
               className={cn(
-                'rounded-full px-4 py-2 text-left text-sm font-semibold transition-colors',
-                pestana === p.id ? 'bg-primary-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                'rounded-lg px-4 py-1.5 text-xs transition-all',
+                pestana === p.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
               )}
             >
               {p.texto}
-            </button>
+            </Button>
           ))}
-        </nav>
+        </div>
+      </PortalCabecera>
 
-        <div className="min-w-0">
+      <div className="min-w-0">
           {pestana === 'perfil' ? (
             <div className="space-y-5">
               <div>
@@ -346,7 +350,6 @@ export function PerfilPage() {
               <TarjetaVersionApp />
             </div>
           )}
-        </div>
       </div>
 
       <Modal

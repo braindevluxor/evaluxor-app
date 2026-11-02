@@ -44,4 +44,14 @@ describe('configuración de la cuenta · vive dentro de la consola', () => {
     // Tampoco padding ni ancho propio: ya los trae el `<main>` del layout.
     expect(pagina).not.toContain('max-w-5xl px-4 py-6')
   })
+
+  it('Perfil y Seguridad se eligen en el selector de la barra superior', () => {
+    // Van por el mismo portal que las pestañas de Unidades: la barra deja el
+    // hueco `#acciones-vista` y cada vista se cuelga de ahí.
+    expect(pagina).toContain('<PortalCabecera>')
+    expect(pagina).toContain('aria-label="Secciones de configuración"')
+    // Y ya no ocupan una columna de 200px en el cuerpo de la página.
+    expect(pagina).not.toContain('lg:grid-cols-[200px_1fr]')
+    expect(pagina).not.toContain('<nav')
+  })
 })
