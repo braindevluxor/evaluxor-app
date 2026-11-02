@@ -132,6 +132,11 @@ describe('tema · dónde vive el efecto', () => {
     expect(css).toContain('--color-yellow-50:')
     // La franja de sincronización: fondo oscuro con texto blanco encima.
     expect(css).toContain('.dark .bg-slate-800')
+    // El color por defecto del documento: si va escrito a mano, en oscuro
+    // hereda casi negro todo lo que no pinta su propio texto —las columnas
+    // Nº tienda / ID trabajadores / Gerente de Unidades desaparecían.
+    expect(css).toMatch(/body \{[^}]*color: var\(--color-slate-900\)/)
+    expect(css).not.toMatch(/body \{[^}]*color: #0f172a/)
     // Y el documento entero con fondo propio por tema, con valor fijo: el
     // arranque no puede depender de un `var()` que el minificador reescriba.
     expect(css).toContain('html.dark {')

@@ -91,7 +91,13 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   background-color: #f1f5f9;
-  color: #0f172a;
+  /* El color por DEFECTO de todo lo que no pinta su propio texto. Iba escrito
+     a mano (#0f172a) y `.dark` no lo pisaba: en oscuro cualquier celda o
+     párrafo sin clase de color heredaba casi negro sobre tarjeta oscura y
+     quedaba invisible —las columnas Nº tienda / ID trabajadores / Gerente de
+     Unidades, que no llevan clase, desaparecían. Con el token, el mismo `.dark`
+     que ya aclara `text-slate-900` aclara también lo heredado. */
+  color: var(--color-slate-900);
 }
 
 input[type='date'] {
