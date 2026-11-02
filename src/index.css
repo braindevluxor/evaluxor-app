@@ -502,6 +502,19 @@ input[type='date'] {
 .dark .bg-primary-50 { background-color: #14223a; }
 .dark .hover\:bg-primary-50:hover { background-color: #14223a; }
 .dark .bg-primary-100 { background-color: #1a2c4a; }
+/* El blanco con alfa lleva OTRO nombre de clase (`bg-white/95`,
+   `bg-white/60`), así que `.dark .bg-white` no lo alcanza: en la conciliación
+   pública la cabecera se quedaba blanca sobre la página oscura y las filas
+   rayadas de la tabla quedaban claras con la tinta que la escala ya aclaró —
+   texto lavado sobre fondo claro, ilegible—. Mismo relleno que la versión
+   sólida, con el alfa conservado; la raya baja a un velo de 3 % para quedar
+   entre la tarjeta y la fila blanca, como en claro. */
+.dark .bg-white\/95 { background-color: rgb(16 26 46 / 0.95); }
+.dark .bg-white\/60 { background-color: rgb(255 255 255 / 0.03); }
+/* El logo completo lleva la palabra en navy: sobre la cabecera oscura de la
+   conciliación pública se perdía, así que en oscuro se pinta de blanco
+   (mismo truco que el isotipo de la barra móvil). */
+.dark .logo-invitado { filter: brightness(0) invert(1); }
 
 /* Superficies del modo de evaluación: `.sup` / `.sup-anidada` escriben el
    blanco A MANO (no pasan por Tailwind, por eso no los tocó la escala) mientras

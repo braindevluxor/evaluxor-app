@@ -87,6 +87,9 @@ describe('ConciliacionPublica · pantalla de invitado', () => {
     const html = pintarRuta('/compartir/abc123')
     expect(html).toContain('Modo invitado')
     expect(html).toContain('/completo.webp')
+    // La clase que en oscuro pinta el logo de blanco: la palabra del logo es
+    // navy y sobre la cabecera oscura se perdería.
+    expect(html).toContain('logo-invitado')
     // Efectos no corren en SSR, así que queda en la lectura inicial: es lo esperado.
     expect(html).toContain('Cargando')
     // Sin sidebar ni barra inferior: es una página suelta, no una pantalla de la app.

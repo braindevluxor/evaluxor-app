@@ -463,7 +463,7 @@ function Marco({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-white font-sans text-slate-900">
       <header className="sticky top-0 z-10 bg-white/95 backdrop-blur">
         <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <img src="/completo.webp" alt="EvaLuxor" className="h-8 w-auto" />
+          <img src="/completo.webp" alt="EvaLuxor" className="logo-invitado h-8 w-auto" />
           <span className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">
             <Lock className="h-3.5 w-3.5" aria-hidden="true" />
             Modo invitado
@@ -479,7 +479,7 @@ function VistaInvalida({ titulo, detalle }: { titulo: string; detalle?: string }
   return (
     <Marco>
       <main className="mx-auto flex max-w-md flex-col items-center px-6 py-20 text-center">
-        <img src="/isotipo.webp" alt="" className="h-14 w-auto" />
+        <img src="/isotipo.webp" alt="" className="logo-invitado h-14 w-auto" />
         <h1 className="mt-6 text-xl font-extrabold text-slate-900">{titulo}</h1>
         {detalle ? <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500">{detalle}</p> : null}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">

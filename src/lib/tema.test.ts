@@ -132,6 +132,13 @@ describe('tema · dónde vive el efecto', () => {
     expect(css).toContain('--color-yellow-50:')
     // La franja de sincronización: fondo oscuro con texto blanco encima.
     expect(css).toContain('.dark .bg-slate-800')
+    // Los blancos con alfa (`bg-white/95`, `bg-white/60`) llevan otro nombre
+    // de clase: sin regla propia, en la conciliación pública la cabecera se
+    // quedaba blanca y las filas rayadas claras con la tinta que la escala ya
+    // aclaró (texto lavado). Y el logo de esa cabecera, que es navy.
+    expect(css).toContain('.dark .bg-white\\/95')
+    expect(css).toContain('.dark .bg-white\\/60')
+    expect(css).toContain('.dark .logo-invitado')
     // El color por defecto del documento: si va escrito a mano, en oscuro
     // hereda casi negro todo lo que no pinta su propio texto —las columnas
     // Nº tienda / ID trabajadores / Gerente de Unidades desaparecían.
