@@ -275,6 +275,14 @@ export interface Item {
    * las dos marcas el punto no puntúa. Se configura por ítem en Config → Ítems.
    */
   doble_check?: boolean | null
+  /**
+   * Precarga desde la última visita: `true` (default) copia el dato de la
+   * visita anterior al abrir una evaluación nueva (sección → sus registros;
+   * hijo → su respuesta dentro del registro; suelto → su respuesta directa).
+   * Se configura por ítem en Config → Ítems. El LISTA_COLABORADORES queda
+   * fuera siempre (la rotación de personal hace inútil la lista vieja).
+   */
+  precarga?: boolean | null
   created_at: string
 }
 

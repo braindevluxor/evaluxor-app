@@ -425,13 +425,14 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
           if (arr.length) instanciasLocales[itemId] = [...(instanciasLocales[itemId] ?? []), ...arr]
         }
         const nRegistros = Object.values(precarga.instancias).reduce((n, arr) => n + arr.length, 0)
-        if (!nRegistros) {
+        const nRespuestas = Object.keys(precarga.respuestas).length
+        if (!nRegistros && !nRespuestas) {
           console.warn(
-            '[precarga] la última visita no aportó registros: revisá que las secciones sigan en el catálogo de esta unidad'
+            '[precarga] la última visita no aportó registros ni respuestas: revisá el catálogo de esta unidad y el interruptor «Traer datos de la evaluación pasada» de sus ítems'
           )
         } else {
           console.info(
-            `[precarga] ${nRegistros} registro(s) y ${Object.keys(precarga.respuestas).length} respuesta(s) de la visita del ${previa.fecha}`
+            `[precarga] ${nRegistros} registro(s) y ${nRespuestas} respuesta(s) de la visita del ${previa.fecha}`
           )
         }
       }
@@ -463,9 +464,13 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       // Aviso de lo precargado: el evaluador tiene que saber que lo que ve en
       // las secciones viene de la visita anterior, no de lo que cargó hoy.
       const registrosPrecargados = Object.values(precarga?.instancias ?? {}).reduce((n, arr) => n + arr.length, 0)
-      if (registrosPrecargados) {
+      const respuestasPrecargadas = Object.keys(precarga?.respuestas ?? {}).length
+      if (registrosPrecargados || respuestasPrecargadas) {
+        const partes: string[] = []
+        if (registrosPrecargados) partes.push(`${registrosPrecargados} registro${registrosPrecargados === 1 ? '' : 's'}`)
+        if (respuestasPrecargadas) partes.push(`${respuestasPrecargadas} respuesta${respuestasPrecargadas === 1 ? '' : 's'}`)
         avisar(
-          `Se precargaron ${registrosPrecargados} registro${registrosPrecargados === 1 ? '' : 's'} de la última visita. Podés editarlos o borrarlos.`,
+          `Se precargaron ${partes.join(' y ')} de la última visita. Podés editarlos o borrarlos.`,
           'info'
         )
       }

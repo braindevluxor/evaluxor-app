@@ -343,6 +343,12 @@ alter table public.items add constraint items_contra_dato_check check (contra_da
 -- ("existe" y "correcto") y sólo puntúa con las dos marcas. Se configura por
 -- ítem en Config → Ítems.
 alter table public.items add column if not exists doble_check boolean not null default false;
+-- Precarga desde la última visita: al abrir una evaluación nueva se copia el
+-- dato de la visita anterior (sección → sus registros; hijo → su respuesta
+-- dentro del registro; suelto → su respuesta directa). Se configura por ítem
+-- en Config → Ítems. El LISTA_COLABORADORES queda fuera siempre: los
+-- trabajadores rotan y la lista vieja no sirve.
+alter table public.items add column if not exists precarga boolean not null default true;
 
 -- La suma de los puntajes de un mÃ³dulo no puede exceder 100: cuentan las secciones
 -- (CONTENEDOR, ponderadas) y los Ã­tems sueltos (sin secciÃ³n). Los Ã­tems dentro de

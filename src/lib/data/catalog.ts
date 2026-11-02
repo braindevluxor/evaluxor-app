@@ -137,7 +137,8 @@ export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: 
     permitir_duplicados: i.permitir_duplicados ?? false,
     repetible: i.repetible ?? true,
     contra_dato: i.contra_dato ?? 'SOH',
-    doble_check: i.doble_check ?? false
+    doble_check: i.doble_check ?? false,
+    precarga: i.precarga ?? true
   }).select('id').single()
   if (error) throw error
   return data?.id ?? null

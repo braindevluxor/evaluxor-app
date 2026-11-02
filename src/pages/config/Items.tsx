@@ -311,6 +311,7 @@ export function ItemsPage() {
                       {it.requerido ? <Badge color={0}>Obligatorio</Badge> : null}
                       {it.tipo === 'UNIDAD_CHECKLIST' && it.repetible === false ? <Badge color={0}>Carga única</Badge> : null}
                       {it.doble_check && (it.tipo === 'CHECKLIST' || it.tipo === 'UNIDAD_CHECKLIST') ? <Badge color={3}>Doble check</Badge> : null}
+                      {it.precarga === false && it.tipo !== 'LISTA_COLABORADORES' ? <Badge color={4}>Sin precarga</Badge> : null}
                       {it.tipo === 'CHECKLIST' && it.permisos_sucursal ? (
                         <Badge color={1}>{it.permisos_sucursal === 'VENCIDOS' ? 'Permisos · solo vencidos' : 'Permisos de la sucursal'}</Badge>
                       ) : null}
@@ -514,6 +515,13 @@ function FormItem({
   const [contraDato, setContraDato] = useState<ContraDatoConciliacion>(inicial?.contra_dato ?? 'SOH')
   /** Doble check (sólo CHECKLIST / UNIDAD_CHECKLIST): cada punto se marca «Existe» + «Correcto» y sólo puntúa con las dos. */
   const [dobleCheck, setDobleCheck] = useState(inicial?.doble_check ?? false)
+  /**
+   * Traer los datos de la última visita al abrir una evaluación nueva
+   * (sección → sus registros; hijo → su respuesta en el registro; suelto → su
+   * respuesta directa). No aplica al LISTA_COLABORADORES: los trabajadores
+   * rotan y la lista vieja no sirve, así que ese tipo siempre guarda `false`.
+   */
+  const [precargaOk, setPrecargaOk] = useState(inicial?.precarga ?? true)
   const [autoPuntaje, setAutoPuntaje] = useState(false)
   /**
    * Origen de la lista de un CHECKLIST: vacío = la escrita a mano acá abajo;
@@ -636,7 +644,8 @@ function FormItem({
           repetible: tipo === 'UNIDAD_CHECKLIST' ? repetible : true,
           contra_dato: tipo === 'CONCILIACION' ? contraDato : 'SOH',
           permisos_sucursal: conPermisos ? origenPermisos : null,
-          doble_check: (tipo === 'CHECKLIST' || tipo === 'UNIDAD_CHECKLIST') ? dobleCheck : false
+          doble_check: (tipo === 'CHECKLIST' || tipo === 'UNIDAD_CHECKLIST') ? dobleCheck : false,
+          precarga: tipo === 'LISTA_COLABORADORES' ? false : precargaOk
         })
       }}
     >
@@ -800,6 +809,19 @@ function FormItem({
             <span className="block text-xs font-normal text-slate-500">
               Cada punto se marca dos veces: «Existe» (el documento o el equipo está en la tienda) y «Correcto» (está vigente / en funcionamiento).
               Sin las dos marcas el punto no puntúa. Convendría activarlo antes de abrir evaluaciones: las respuestas ya guardadas con el check simple no traen la segunda marca.
+            </span>
+          </span>
+        </label>
+      ) : null}
+      {tipo !== 'LISTA_COLABORADORES' ? (
+        <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3.5 py-3 text-sm text-slate-700">
+          <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-primary" checked={precargaOk} onChange={(e) => setPrecargaOk(e.target.checked)} />
+          <span>
+            <strong>Traer datos de la evaluación pasada</strong>
+            <span className="block text-xs font-normal text-slate-500">
+              Al abrir una evaluación nueva se copia de la última visita de la misma unidad: los registros de esta sección, la respuesta de este ítem
+              dentro de cada registro, o su respuesta directa si está suelto. Nunca se copian fotos (las evidencias son de la otra fecha). Desactivalo si
+              el dato cambia en cada visita. No aplica al listado de trabajadores.
             </span>
           </span>
         </label>

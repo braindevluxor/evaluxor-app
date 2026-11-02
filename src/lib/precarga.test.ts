@@ -75,13 +75,16 @@ describe('precargarSeccionesDe', () => {
     expect(out.respuestas['it-comp::nuevo-1'].valor).toEqual({ selected: ['y'] })
   })
 
-  it('ignora registros de secciones que ya no están en el catálogo y respuestas sueltas', () => {
+  it('ignora registros de secciones que ya no están en el catálogo y respuestas de hijos sueltos', () => {
     const previa = {
       instancias: [registro('v1', 'sec-borrada', 'X', 0), registro('v2', 'sec-tec', 'CAJA 01', 0)],
       respuestas: [
-        // Ítem directo (fuera de sección), sin instancia y de sección borrada.
+        // Ítem directo (fuera de sección): éste SÍ se copia, es la respuesta
+        // directa de un ítem suelto marcado.
         { item_id: 'it-suelto', instancia_id: null, valor: { selected: ['a'] } },
+        // Hijo respondido sin registro: no hay instancia a la que reclavarla.
         { item_id: 'it-comp', instancia_id: null, valor: { selected: ['b'] } },
+        // Registro de una sección que ya no existe: sin registro no entra su respuesta.
         { item_id: 'it-comp', instancia_id: 'v1', valor: { selected: ['c'] } }
       ] as RespuestaPrevia[]
     }
@@ -89,7 +92,8 @@ describe('precargarSeccionesDe', () => {
     const out = precargarSeccionesDe(previa, items, {}, idsFrescos())
 
     expect(Object.keys(out.instancias)).toEqual(['sec-tec'])
-    expect(out.respuestas).toEqual({})
+    expect(Object.keys(out.respuestas)).toEqual(['it-suelto::'])
+    expect(out.respuestas['it-suelto::']).toEqual({ valor: { selected: ['a'] }, por: 'yo' })
   })
 
   it('copia las respuestas sin las fotos de la visita anterior', () => {
@@ -129,5 +133,96 @@ describe('precargarSeccionesDe', () => {
       api_id: 'vehiculos',
       datos: { placa: 'ABC123' }
     })
+  })
+
+  it('la sección con «sin precarga» no se copia: ni sus registros ni las respuestas de sus hijos', () => {
+    const marcados = [
+      { id: 'sec-tec', tipo: 'CONTENEDOR', padre_id: null, precarga: false },
+      { id: 'it-comp', tipo: 'CHECKLIST', padre_id: 'sec-tec' },
+      { id: 'it-suelto', tipo: 'CHECKLIST', padre_id: null, precarga: false }
+    ]
+    const previa = {
+      instancias: [registro('v1', 'sec-tec', 'CAJA 01', 0)],
+      respuestas: [
+        { item_id: 'it-comp', instancia_id: 'v1', valor: { selected: ['x'] } },
+        { item_id: 'it-suelto', instancia_id: null, valor: { selected: ['y'] } }
+      ] as RespuestaPrevia[]
+    }
+
+    const out = precargarSeccionesDe(previa, marcados, {}, idsFrescos())
+
+    expect(out.instancias).toEqual({})
+    expect(out.respuestas).toEqual({})
+  })
+
+  it('el hijo con «sin precarga» queda fuera aunque su sección se copie', () => {
+    const marcados = [
+      { id: 'sec-tec', tipo: 'CONTENEDOR', padre_id: null },
+      { id: 'it-comp', tipo: 'CHECKLIST', padre_id: 'sec-tec', precarga: false },
+      { id: 'it-limp', tipo: 'CHECKLIST', padre_id: 'sec-tec' }
+    ]
+    const previa = {
+      instancias: [registro('v1', 'sec-tec', 'CAJA 01', 0)],
+      respuestas: [
+        { item_id: 'it-comp', instancia_id: 'v1', valor: { selected: ['x'] } },
+        { item_id: 'it-limp', instancia_id: 'v1', valor: { selected: ['y'] } }
+      ] as RespuestaPrevia[]
+    }
+
+    const out = precargarSeccionesDe(previa, marcados, {}, idsFrescos())
+
+    // El registro de la sección entra igual: la copia es por ítem marcado.
+    expect(out.instancias['sec-tec']).toHaveLength(1)
+    expect(Object.keys(out.respuestas)).toEqual(['it-limp::nuevo-1'])
+  })
+
+  it('copia la respuesta directa de un ítem suelto marcado con clave sin instancia', () => {
+    const previa = {
+      instancias: [],
+      respuestas: [{ item_id: 'it-suelto', instancia_id: null, valor: { selected: ['ok'] } }] as RespuestaPrevia[]
+    }
+
+    const out = precargarSeccionesDe(previa, items, {}, idsFrescos())
+
+    // Misma clave que usa el borrador para una respuesta directa: `item::`.
+    expect(out.respuestas['it-suelto::']).toEqual({ valor: { selected: ['ok'] }, por: 'yo' })
+    expect(out.respuestas['it-suelto']).toBeUndefined()
+  })
+
+  it('el listado de trabajadores nunca se precarga, con o sin interruptor', () => {
+    const conLista = [
+      { id: 'it-trab', tipo: 'LISTA_COLABORADORES', padre_id: null, precarga: true },
+      { id: 'sec-caja', tipo: 'CONTENEDOR', padre_id: null },
+      { id: 'it-trab-hijo', tipo: 'LISTA_COLABORADORES', padre_id: 'sec-caja', precarga: true }
+    ]
+    const previa = {
+      instancias: [registro('v1', 'sec-caja', 'CAJA 01', 0)],
+      respuestas: [
+        { item_id: 'it-trab', instancia_id: null, valor: { porDni: { '1': true } } },
+        { item_id: 'it-trab-hijo', instancia_id: 'v1', valor: { porDni: { '2': true } } }
+      ] as RespuestaPrevia[]
+    }
+
+    const out = precargarSeccionesDe(previa, conLista, {}, idsFrescos())
+
+    // El registro de la sección entra (es un CONTENEDOR); las listas no.
+    expect(out.instancias['sec-caja']).toHaveLength(1)
+    expect(out.respuestas).toEqual({})
+  })
+
+  it('los ítems guardados antes del interruptor (sin la columna) se precargan como antes', () => {
+    const viejos = [
+      { id: 'sec-tec', tipo: 'CONTENEDOR', padre_id: null },
+      { id: 'it-comp', tipo: 'CHECKLIST', padre_id: 'sec-tec' }
+    ]
+    const previa = {
+      instancias: [registro('v1', 'sec-tec', 'CAJA 01', 0)],
+      respuestas: [{ item_id: 'it-comp', instancia_id: 'v1', valor: { selected: ['x'] } }] as RespuestaPrevia[]
+    }
+
+    const out = precargarSeccionesDe(previa, viejos, {}, idsFrescos())
+
+    expect(out.instancias['sec-tec']).toHaveLength(1)
+    expect(out.respuestas['it-comp::nuevo-1']).toEqual({ valor: { selected: ['x'] }, por: 'yo' })
   })
 })
