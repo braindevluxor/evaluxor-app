@@ -3,7 +3,6 @@ import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { Rol } from './lib/types'
 import { AuthProvider } from './context/AuthContext'
 import { CatalogProvider } from './context/CatalogContext'
-import { PresenciaProvider } from './context/PresenciaContext'
 import { VersionProvider } from './context/VersionContext'
 import { OfflineProvider } from './context/OfflineContext'
 import { RequireAuth, RequireRol, RequireSesion, SoloLider } from './components/guards'
@@ -287,19 +286,14 @@ export default function App() {
       <AuthProvider>
         <OfflineProvider>
           <CatalogProvider>
-            {/* Presencia: quién tiene la app abierta y en qué pantalla está.
-                Necesita la sesión (identidad) y el catálogo (nombres de sucursal
-                y módulo), por eso va dentro de ambos. */}
-            <PresenciaProvider>
-              {/* Versión: avisa (o actualiza sola) cuando hay una build nueva en
-                  el servidor, sin cortar a quien está evaluando. */}
-              <VersionProvider>
-                <Rutas />
-                {/* El cartel flotante de confirmaciones va fuera de las rutas:
-                    cambia de pantalla no debe apagar lo que se está avisando. */}
-                <AvisoHost />
-              </VersionProvider>
-            </PresenciaProvider>
+            {/* Versión: avisa (o actualiza sola) cuando hay una build nueva en
+                el servidor, sin cortar a quien está evaluando. */}
+            <VersionProvider>
+              <Rutas />
+              {/* El cartel flotante de confirmaciones va fuera de las rutas:
+                  cambia de pantalla no debe apagar lo que se está avisando. */}
+              <AvisoHost />
+            </VersionProvider>
           </CatalogProvider>
         </OfflineProvider>
       </AuthProvider>

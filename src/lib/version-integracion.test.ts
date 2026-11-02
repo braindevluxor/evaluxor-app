@@ -101,10 +101,4 @@ describe('actualización de versión', () => {
     // Avisa antes de borrar si hay algo sin subir.
     expect(card).toContain('Hay avance guardado en este teléfono que todavía no llegó a la nube')
   })
-
-  it('la presencia anuncia la versión del build de cada dispositivo', () => {
-    const presencia = fuente('../context/PresenciaContext.tsx')
-    expect(presencia).toContain('version: APP_VERSION')
-    expect(presencia).toContain('build_id: BUILD_ID')
-  })
 })

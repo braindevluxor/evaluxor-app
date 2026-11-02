@@ -8,7 +8,6 @@ import { cargosDelCentro, centroDisponible, separacionDisponible, useCargosPorCe
 import { descargarInformePdf } from '../lib/pdf'
 import type { OpcionesPdf } from '../lib/pdf/opciones'
 import { descargarExcelEvaluacion } from '../lib/excelEvaluacion'
-import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { aplicarPermisosChecklist } from '../lib/permisosChecklist'
 import { raicesDeModulo } from '../lib/pasos'
@@ -916,22 +915,14 @@ export function EvaluacionDetalle() {
 
   const estadoEval = detalle?.evaluacion.estado
 
+  // Sin canal realtime: el barrido de 15 s alcanza para ver los avances del
+  // detalle, y un canal abierto en cada pestaña multiplicaba los mensajes de
+  // Realtime sobre `respuestas` (que ya consume la pantalla de evaluación).
   useEffect(() => {
     if (estadoEval !== 'ACTIVA') return
-    const channel = supabase
-      .channel(`ev-vivo-${evaluacionId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'respuestas', filter: `evaluacion_id=eq.${evaluacionId}` },
-        () => void recargar()
-      )
-      .subscribe()
     const iv = window.setInterval(() => void recargar(), 15000)
-    return () => {
-      void supabase.removeChannel(channel)
-      window.clearInterval(iv)
-    }
-  }, [evaluacionId, estadoEval, recargar])
+    return () => window.clearInterval(iv)
+  }, [estadoEval, recargar])
 
   if (estado === 'cargando') {
     return <SkeletonEvaluacionDetalle />
