@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, CloudOff, FolderOpen, List, Plus, RefreshCw, Tag, Trash2, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
+import { avisar } from '../../lib/aviso'
 import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
 import { hijosOrdenados } from '../../lib/hierarchy'
@@ -18,6 +19,8 @@ import {
 } from '../../lib/offline/db'
 import { guardarBorradorNube, instanciasDeDraft, respuestasConInstancia, type Descarte } from '../../lib/offline/sync'
 import { listarEvaluacionesActivas, listarRespuestasEvaluacion, listarInstanciasEvaluacion } from '../../lib/data/indicadores'
+import { ultimaVisitaDeUnidad } from '../../lib/data/precarga'
+import { precargarSeccionesDe, type PrecargaSecciones } from '../../lib/precarga'
 import { fusionarRespuestasNube } from '../../lib/offline/fusion'
 import { apiDisponible, esColorHex, etiquetaDeCampo, formatearValorConsulta, seleccionarValores } from '../../lib/data/apis'
 import { supabase } from '../../lib/supabase'
@@ -46,7 +49,7 @@ export function EvaluarSucursal() {
   const { profile } = useAuth()
   const { online, pendientes, sync: syncCola } = useOffline()
   const { modulosActivos, itemsDe } = useModulosActivos(sucursalId, departamentoId)
-  const { sucursales, departamentos } = useCatalog()
+  const { sucursales, departamentos, cargado } = useCatalog()
   const sucursal = sucursales.find((s) => s.id === sucursalId)
   const departamento = departamentos.find((d) => d.id === departamentoId)
 
@@ -61,6 +64,16 @@ export function EvaluarSucursal() {
     return ids
   }, [modulosActivos, itemsDe])
 
+  // El catálogo (módulos/ítems de la unidad) se resuelve en un efecto del
+  // provider que arranca DESPUÉS que éste: el `async` de carga captura el
+  // valor del render anterior (vacío) y nunca ve los re-renders, así que la
+  // precarga no encontraba ninguna sección (0 registros y ningún aviso).
+  // Este ref siempre refleja el último catálogo visto por el render.
+  const catalogoRef = useRef<{ cargado: boolean; items: Item[] }>({ cargado: false, items: [] })
+  useEffect(() => {
+    catalogoRef.current = { cargado, items: modulosActivos.flatMap((m) => itemsDe(m)) }
+  }, [cargado, modulosActivos, itemsDe])
+
   // Etiqueta de cada ítem, para nombrar en el aviso los que ya no existen en el
   // catálogo: un UUID no le dice nada a quien tiene que avisarle al Líder.
   const etiquetaDeItem = useMemo(() => {
@@ -68,6 +81,16 @@ export function EvaluarSucursal() {
     for (const mod of modulosActivos) for (const it of itemsDe(mod)) mapa.set(it.id, it.texto)
     return mapa
   }, [modulosActivos, itemsDe])
+
+  // Los campos grandes y los botones cuadrados de ESTA vista viven en
+  // `index.css`, bajo `.vista-evaluacion`. La clase va en `<body>` y no en un
+  // contenedor propio porque los modales (navegación rápida, confirmaciones,
+  // escáner, fotos) se pintan por portal en `<body>`: sólo desde ahí se los
+  // alcanza a todos, y al desmontar la ruta no queda nada.
+  useEffect(() => {
+    document.body.classList.add('vista-evaluacion')
+    return () => document.body.classList.remove('vista-evaluacion')
+  }, [])
 
   const [draft, setDraft] = useState<DraftEval | null>(null)
   const [sinActiva, setSinActiva] = useState(false)
@@ -337,9 +360,24 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       // la nueva evaluación de la misma unidad: se descartan sus respuestas,
       // registros y comentario para que la medición arranque de cero.
       const mismoDía = !!existente && existente.fecha === activa.fecha
-      const [enNube, instanciasNube] = await Promise.all([
+      // Se precarga sólo cuando la evaluación no tiene registros todavía:
+      // evaluación nueva (sin borrador), un borrador del día que sigue sin
+      // registros (el primer intento falló, p. ej. sin red) o si el
+      // evaluador borró todo. Las respuestas de ítems sueltos no bloquean:
+      // la precarga sólo agrega claves nuevas debajo de todo.
+      const sinTrabajo = !mismoDía || !Object.keys(existente?.instancias ?? {}).length
+      const [enNube, instanciasNube, previa] = await Promise.all([
         listarRespuestasEvaluacion(activa.id).catch(() => []),
-        listarInstanciasEvaluacion(activa.id).catch(() => [])
+        listarInstanciasEvaluacion(activa.id).catch(() => []),
+        // Última visita de la MISMA unidad para precargar sus secciones.
+        // Cualquier fallo deja `previa` en null y la evaluación abre vacía,
+        // como siempre: la precarga es un detalle, no un requisito.
+        sinTrabajo
+          ? ultimaVisitaDeUnidad(
+              { sucursal_id: sucursalId || null, departamento_id: departamentoId || null },
+              activa.fecha
+            ).catch(() => null)
+          : Promise.resolve(null)
       ])
       const nubeMias: DraftEval['respuestas'] = {}
       for (const r of enNube) {
@@ -366,6 +404,37 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
           })
         }
       }
+      // Precarga de la última visita: sólo cuando no hay trabajo de esta
+      // fecha. Los registros de sección llegan con ids NUEVOS (reusar los
+      // viejos pisaría sus filas al subir: el upsert es por id) y las
+      // respuestas precargadas van debajo de todo en el spread de más abajo,
+      // para que nunca pisen lo ya respondido en ESTA evaluación. Las fotos
+      // de la visita anterior no se copian: son evidencia de la otra fecha
+      // (ver `valorDePrecarga`).
+      let precarga: PrecargaSecciones | null = null
+      if (previa) {
+        // Esperar al catálogo: sin esto el render capturado llega vacío y no
+        // se reconocería ninguna sección (síntoma:0 registros, sin aviso).
+        let itemsTodo = catalogoRef.current.items
+        for (let i = 0; i < 20 && !catalogoRef.current.cargado && !itemsTodo.length; i++) {
+          await new Promise((r) => window.setTimeout(r, 100))
+          itemsTodo = catalogoRef.current.items
+        }
+        precarga = precargarSeccionesDe(previa, itemsTodo, instanciasLocales)
+        for (const [itemId, arr] of Object.entries(precarga.instancias)) {
+          if (arr.length) instanciasLocales[itemId] = [...(instanciasLocales[itemId] ?? []), ...arr]
+        }
+        const nRegistros = Object.values(precarga.instancias).reduce((n, arr) => n + arr.length, 0)
+        if (!nRegistros) {
+          console.warn(
+            '[precarga] la última visita no aportó registros: revisá que las secciones sigan en el catálogo de esta unidad'
+          )
+        } else {
+          console.info(
+            `[precarga] ${nRegistros} registro(s) y ${Object.keys(precarga.respuestas).length} respuesta(s) de la visita del ${previa.fecha}`
+          )
+        }
+      }
       // Colaboración en vivo al abrir: también hay que ver lo que el otro
       // evaluador ya respondió mientras este teléfono estaba cerrado o cargando.
       const respOtros: DraftEval['respuestas'] = {}
@@ -383,7 +452,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
         fecha: activa.fecha,
         comentario_general: mismoDía ? existente?.comentario_general ?? '' : '',
         puntuacion: mismoDía ? existente?.puntuacion ?? null : null,
-        respuestas: { ...nubeMias, ...respOtros, ...respLocal },
+        respuestas: { ...(precarga?.respuestas ?? {}), ...nubeMias, ...respOtros, ...respLocal },
         instancias: instanciasLocales,
         updated_at: Date.now()
       }
@@ -391,6 +460,15 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       draftRef.current = d
       setDraft(d)
       setCargando(false)
+      // Aviso de lo precargado: el evaluador tiene que saber que lo que ve en
+      // las secciones viene de la visita anterior, no de lo que cargó hoy.
+      const registrosPrecargados = Object.values(precarga?.instancias ?? {}).reduce((n, arr) => n + arr.length, 0)
+      if (registrosPrecargados) {
+        avisar(
+          `Se precargaron ${registrosPrecargados} registro${registrosPrecargados === 1 ? '' : 's'} de la última visita. Podés editarlos o borrarlos.`,
+          'info'
+        )
+      }
       // Re-subida al reabrir: si quedó avance sin conexión (o con errores
       // silenciosos), se empuja a la nube apenas se carga la pantalla.
       agendarNube()
