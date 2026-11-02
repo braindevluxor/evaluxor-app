@@ -71,4 +71,12 @@ describe('consola · Ir a evaluaciones se muda al menú lateral', () => {
     expect(consola).toContain("colapsado && 'lg:justify-center lg:px-0'")
     expect(consola).toContain("colapsado && 'lg:hidden'")
   })
+
+  it('el icono va con el azul de marca fijo, porque el amarillo de atrás tampoco cambia', () => {
+    // El fondo es `bg-yellow-400` en los dos temas, así que el azul de encima
+    // tiene que ser el mismo en los dos: con `text-primary-700` el tema oscuro
+    // lo aclaraba a `#9cc1ef` y quedaba clarito sobre amarillo.
+    expect(consola).toContain('text-[#28315F]" />')
+    expect(consola).not.toContain('text-primary-700" />')
+  })
 })

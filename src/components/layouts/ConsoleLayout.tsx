@@ -188,15 +188,16 @@ function ConsoleLayoutContenido() {
                   // Amarillo con el icono azul: es la acción que no es de
                   // navegación y tiene que leerse como un botón, no como un
                   // enlace más de la lista.
-                  // Amarillo con texto fijo de marca: el amarillo no cambia en
-                  // oscuro, así que el texto tampoco puede aclararse (con
-                  // `text-primary-900`, que en oscuro se vuelve claro, quedaría
-                  // luz sobre amarillo).
+                  // Amarillo con icono y texto de marca FIJOS: el amarillo
+                  // `bg-yellow-400` no cambia en oscuro, así que tampoco puede
+                  // cambiar el azul que va encima. Con `text-primary-700` el
+                  // tema oscuro lo aclaraba a `#9cc1ef` y quedaba azul
+                  // clarito sobre amarillo, ilegible.
                   'flex items-center gap-3 rounded-2xl bg-yellow-400 px-3 py-2.5 text-sm font-semibold text-[#28315F] shadow-md transition-colors hover:bg-yellow-300',
                   colapsado && 'lg:justify-center lg:px-0'
                 )}
               >
-                <ClipboardCheck className="h-5 w-5 shrink-0 text-primary-700" />
+                <ClipboardCheck className="h-5 w-5 shrink-0 text-[#28315F]" />
                 <span className={cn(colapsado && 'lg:hidden')}>Ir a evaluaciones</span>
               </Link>
             ) : null}
