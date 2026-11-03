@@ -194,6 +194,92 @@ describe('hojasDeEvaluacion', () => {
   })
 })
 
+describe('hojasDeEvaluacion · los SKU de la conciliación', () => {
+  /** El mismo detalle, con los dos tipos de conciliación que existen. */
+  const conConciliacion: DetalleEvaluacion = {
+    ...detalle,
+    items: [
+      ...items,
+      {
+        id: 'i7', modulo_id: 'm1', tipo: 'CONCILIACION', texto: 'Conciliación de unidades',
+        opciones: [], orden: 3, requerido: false, activo: true, puntaje: 100, created_at: ''
+      },
+      {
+        id: 'i8', modulo_id: 'm2', tipo: 'CONCILIACION', texto: 'Conciliación de precios',
+        opciones: [], orden: 2, requerido: false, activo: true, puntaje: 100,
+        contra_dato: 'FINAL_BASE', created_at: ''
+      }
+    ],
+    respuestas: [
+      ...respuestas,
+      {
+        id: 'r6', evaluacion_id: EV, item_id: 'i7', instancia_id: null, respondido_por: 'u1', created_at: '',
+        valor: {
+          productos: [
+            { sku: '789123', nombre: 'Aceite 1 L', teorica: 10, fisica: 7, finalBase: 10, finalTax: 2, departamento: 'LIMPIEZA' },
+            { sku: '555', nombre: 'Arroz 1 kg', teorica: 4, fisica: 4, finalBase: 3, finalTax: 0.4, departamento: 'ALMACEN' },
+            { sku: '777', nombre: 'Yogur bebible', teorica: 6, fisica: 9, finalBase: 2, finalTax: 0.24, departamento: 'LACTEOS' }
+          ]
+        }
+      },
+      {
+        id: 'r7', evaluacion_id: EV, item_id: 'i8', instancia_id: null, respondido_por: 'u1', created_at: '',
+        valor: {
+          productos: [
+            { sku: 'ABC-1', nombre: 'Perfume', teorica: 100, fisica: 95, apiId: 100006130, departamento: 'COSMETICOS' },
+            { sku: 'ABC-2', nombre: 'Crema', teorica: 50, fisica: 50, apiId: 100006131, departamento: 'COSMETICOS' },
+            { sku: 'NOH', nombre: 'Talco', teorica: 30, fisica: null, sinHablador: true, apiId: 100006132, departamento: 'COSMETICOS' }
+          ]
+        }
+      }
+    ]
+  }
+
+  const filas = hojasDeEvaluacion(conConciliacion, [], perfiles).find((h) => h.nombre === 'Conciliación')!.filas
+
+  it('sólo aparece cuando hay SKU escaneado', () => {
+    const hojas = hojasDeEvaluacion(conConciliacion, [], perfiles)
+    expect(hojas.map((h) => h.nombre)).toEqual(['Resumen', 'Módulos', 'Resultados', 'Conciliación', 'Incidencias'])
+    // Sin conciliación no hay pestaña: una hoja con sólo el encabezado es
+    // ruido para quien recibe el archivo.
+    expect(hojasDeEvaluacion(detalle, incidencias, perfiles).map((h) => h.nombre)).not.toContain('Conciliación')
+  })
+
+  it('un renglón por SKU, con los números en su columna y no en una frase', () => {
+    expect(filas[0]).toEqual([
+      'Módulo', 'Ítem', 'Contra dato', 'SKU', 'ID sistema', 'Producto', 'Departamento',
+      'Teórica / Sistema', 'Física / Hablador', 'Diferencia', 'Estado', 'Pérdida estimada'
+    ])
+    // Encabezado + tres unidades + tres precios.
+    expect(filas).toHaveLength(7)
+
+    const porSku = new Map(filas.slice(1).map((fila) => [fila[3], fila]))
+    // En stock la pérdida se valoriza al PVP (10 + 2) sobre 3 unidades: 36.
+    expect(porSku.get('789123')).toEqual([
+      'Estética', 'Conciliación de unidades', 'Stock', '789123', null, 'Aceite 1 L',
+      'LIMPIEZA', 10, 7, 3, 'Falta', 36
+    ])
+    // En precio la columna de pérdida no rinde: no se inventa un número.
+    expect(porSku.get('ABC-1')).toEqual([
+      'Mecánica', 'Conciliación de precios', 'Precio', 'ABC-1', 100006130, 'Perfume',
+      'COSMETICOS', 100, 95, 5, 'Falta', null
+    ])
+  })
+
+  it('el sin hablador sale como No Match y no como «Sin datos»', () => {
+    // Es un incumplimiento registrado a propósito: esconderlo en «Sin datos»
+    // escondía el hallazgo.
+    const fila = filas.find((f) => f[3] === 'NOH')!
+    expect(fila[8]).toBeNull()
+    expect(fila[10]).toBe('No Match · sin hablador')
+  })
+
+  it('ordena como el informe: primero lo que falta, después lo que sobra', () => {
+    const unidades = filas.slice(1).filter((fila) => fila[0] === 'Estética').map((fila) => fila[3])
+    expect(unidades).toEqual(['789123', '777', '555'])
+  })
+})
+
 describe('nombreArchivoEvaluacion', () => {
   it('sluggifica la sucursal y baja la acentuación', () => {
     expect(nombreArchivoEvaluacion(evaluacion)).toBe('resultados-sucursal-merida-2026-10-15.xlsx')

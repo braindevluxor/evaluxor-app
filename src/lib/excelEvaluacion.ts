@@ -1,7 +1,8 @@
 /**
  * Exportación de los resultados de una evaluación a `.xlsx`, en paralelo al
  * PDF (`src/lib/pdf`): mismos datos que muestra la pantalla, repartidos en
- * cuatro pestañas filtrables. El archivo se arma en el navegador con el
+ * cuatro pestañas filtrables —cinco cuando la evaluación tiene conciliación,
+ * que lleva un renglón por SKU—. El archivo se arma en el navegador con el
  * escritor de `src/lib/xlsx.ts` —sin dependencias— sobre el
  * `DetalleEvaluacion` que la página ya tiene en mano, así que lo que baja el
  * Excel es exactamente lo que se ve en pantalla.
@@ -16,7 +17,18 @@ import {
   type ConjuntoDatos,
   type DetalleEvaluacion
 } from './data/indicadores'
-import type { VeredictoItem } from './scoring'
+import {
+  diferenciaConciliacion,
+  estadoConciliacion,
+  esSinHablador,
+  ordenarConciliacion,
+  perdidaGuardadaConciliacion,
+  productosParaConciliar,
+  type EstadoConciliacion,
+  type ProductoConciliacion,
+  type ValorConciliacion,
+  type VeredictoItem
+} from './scoring'
 import type { VistaEvaluacion } from './types'
 import { crearXlsx, type CeldaExcel, type HojaExcel } from './xlsx'
 
@@ -36,6 +48,26 @@ const ETIQUETAS_VEREDICTO: Record<VeredictoItem, string> = {
   'no-cumple': 'No cumple',
   'no-aplica': 'No aplica',
   'sin-veredicto': 'Sin veredicto'
+}
+
+/** El estado de un SKU, con las mismas palabras que usa el informe en PDF. */
+const ETIQUETAS_ESTADO_CONCILIACION: Record<EstadoConciliacion, string> = {
+  falta: 'Falta',
+  sobra: 'Sobra',
+  concilia: 'Concilia',
+  'sin-datos': 'Sin datos'
+}
+
+/**
+ * El estado que se imprime en la planilla: la misma frase del PDF.
+ *
+ * El «No Match · sin hablador» va aparte del enum: es un incumplimiento
+ * registrado a propósito (no hay precio físico que comparar), no un faltante
+ * ni un sobrante, y decirlo como «Sin datos» escondió ese hallazgo.
+ */
+function etiquetaEstadoConciliacion(producto: ProductoConciliacion): string {
+  if (esSinHablador(producto)) return 'No Match · sin hablador'
+  return ETIQUETAS_ESTADO_CONCILIACION[estadoConciliacion(producto)]
 }
 
 /** `2026-10-15 09:30` en hora del equipo: la incidencia pasó a hora de tienda, no en UTC. */
@@ -133,6 +165,67 @@ export function hojasDeEvaluacion(
     ])
   }
 
+  /**
+   * Conciliación: UN RENGLÓN POR SKU.
+   *
+   * El Excel sólo resumía («3/5 productos conciliados · descuadre 40%»)
+   * mientras el PDF ya imprimía el desglose: en una planilla no se puede
+   * filtrar ni sumar lo que no está, y lo que se busca en una conciliación es
+   * justamente el SKU que descuadra.
+   *
+   * Van como DATOS y no como frase —números en las columnas de teórica,
+   * física, diferencia y pérdida— para que se pueda ordenar y totalizar; el
+   * orden es el de lectura del informe (primero las pérdidas, después los
+   * sobrantes), y la columna Estado dice hacia qué lado cae cada uno.
+   *
+   * No sale la hoja si no hay ni un SKU: una pestaña con sólo el encabezado
+   * es ruido para quien recibe el archivo.
+   */
+  const filasConciliacion: CeldaExcel[][] = [
+    [
+      'Módulo',
+      'Ítem',
+      'Contra dato',
+      'SKU',
+      'ID sistema',
+      'Producto',
+      'Departamento',
+      'Teórica / Sistema',
+      'Física / Hablador',
+      'Diferencia',
+      'Estado',
+      'Pérdida estimada'
+    ]
+  ]
+  const itemsPorId = new Map(detalle.items.map((i) => [i.id, i]))
+  const modulosPorId = new Map(detalle.modulos.map((m) => [m.id, m.nombre]))
+  for (const respuesta of detalle.respuestas) {
+    const item = itemsPorId.get(respuesta.item_id)
+    if (item?.tipo !== 'CONCILIACION') continue
+    const contraDato = item.contra_dato ?? 'SOH'
+    const enPrecio = contraDato === 'FINAL_BASE'
+    const valor = respuesta.valor as ValorConciliacion | null
+    const productos = ordenarConciliacion(productosParaConciliar(valor?.productos, contraDato), contraDato)
+    for (const producto of productos) {
+      filasConciliacion.push([
+        modulosPorId.get(item.modulo_id) ?? null,
+        item.texto,
+        // La columna dice en qué unidad vienen los números de al lado: en
+        // precio son plata y en stock son unidades.
+        enPrecio ? 'Precio' : 'Stock',
+        producto.sku || null,
+        producto.apiId ?? null,
+        producto.nombre || null,
+        producto.departamento || null,
+        typeof producto.teorica === 'number' ? producto.teorica : null,
+        esSinHablador(producto) ? null : typeof producto.fisica === 'number' ? producto.fisica : null,
+        diferenciaConciliacion(producto),
+        etiquetaEstadoConciliacion(producto),
+        perdidaGuardadaConciliacion(producto, contraDato)
+      ])
+    }
+  }
+
   const filasIncidencias: CeldaExcel[][] = [['Fecha', 'Módulo', 'Descripción', 'Responsables', 'Fotos']]
   for (const incidencia of incidencias) {
     filasIncidencias.push([
@@ -148,6 +241,8 @@ export function hojasDeEvaluacion(
     { nombre: 'Resumen', filas: filasResumen },
     { nombre: 'Módulos', filas: filasModulos },
     { nombre: 'Resultados', filas: filasResultados },
+    // Sólo si hay SKU: `filasConciliacion` siempre trae su encabezado.
+    ...(filasConciliacion.length > 1 ? [{ nombre: 'Conciliación', filas: filasConciliacion }] : []),
     { nombre: 'Incidencias', filas: filasIncidencias }
   ]
 }
