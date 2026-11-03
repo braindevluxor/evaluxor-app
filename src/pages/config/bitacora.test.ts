@@ -76,11 +76,63 @@ describe('bitácora · la pantalla', () => {
     expect(datos).toContain('bitacora-asignaciones.sql')
   })
 
+  it('si lo que falta es el permiso de la tabla, también dice qué SQL correr', () => {
+    // 42501 es el otro modo de fallar de la primera vez: la tabla existe pero
+    // `authenticated` no tiene SELECT (bloque corrido a medias). Sin este
+    // caso el usuario veía un «No se pudo cargar» sin ninguna pista.
+    const datos = fuente('../../lib/data/bitacora.ts')
+    expect(datos).toContain("'42501'")
+    expect(datos).toContain('bitacora-asignaciones.sql')
+  })
+
   it('si llega al techo de filas lo dice en vez de insinuar que no hay más', () => {
-    // El techo está en el módulo de datos; la pantalla es la que avisa.
+    // El techo vive en una sola constante: el módulo de datos lo aplica al
+    // consultar y la pantalla lo usa para avisar, así no divergen.
     const datos = fuente('../../lib/data/bitacora.ts')
     expect(datos).toContain('limite?: number')
-    expect(pagina).toContain('filas.length >= 200')
+    expect(datos).toContain('export const LIMITE_BITACORA = 200')
+    expect(datos).toContain('opciones.limite ?? LIMITE_BITACORA')
+    expect(pagina).toContain('filas.length >= LIMITE_BITACORA')
+    expect(pagina).toContain('LIMITE_BITACORA,')
+  })
+
+  it('se relee al volver a la pestaña, sin abrir ningún canal', () => {
+    // Sin realtime: la pantalla no se suscribe a nada, sólo vuelve a leer
+    // cuando alguien la mira de nuevo. Si algún día aparece un `.channel(`
+    // acá, éste es el test que lo hace ruido.
+    expect(pagina).toContain("document.addEventListener('visibilitychange'")
+    expect(pagina).toContain('document.visibilityState')
+    expect(pagina).not.toContain('.channel(')
+    expect(pagina).not.toContain('postgres_changes')
+    expect(fuente('../../lib/data/bitacora.ts')).not.toContain('.channel(')
+  })
+})
+
+describe('bitácora · lo que escribe las cuatro tablas no calla el error', () => {
+  /** El cuerpo de una función de nivel superior, hasta la llave que la cierra. */
+  function cuerpo(src: string, nombre: string): string {
+    return src.match(new RegExp(`export async function ${nombre}\\s*\\([^]*?\\n\\}`, 'm'))?.[0] ?? ''
+  }
+
+  it('cada escritura levanta el error en vez de darse por guardada', () => {
+    // Un builder de PostgREST resuelve con el error DENTRO: si no se lee, la
+    // pantalla pinta el cambio igual, la base no escribe nada y la bitácora
+    // queda muda. Ese era el modo de falla de las cuatro funciones.
+    const usuarios = fuente('../../lib/data/usuarios.ts')
+    for (const fn of ['asignarEvaluador', 'desasignarEvaluador', 'asignarModulo', 'desasignarModulo']) {
+      expect(cuerpo(usuarios, fn), fn).toContain('if (error) throw new Error')
+    }
+    // La lectura previa también: sin ella se escribiría a ciegas.
+    expect(cuerpo(fuente('../../lib/data/catalog.ts'), 'configurarSucursalModulos')).toContain('throw new Error')
+    expect(cuerpo(fuente('../../lib/data/departamentos.ts'), 'configurarDepartamentoModulos')).toContain('throw new Error')
+  })
+
+  it('las pantallas avisan en vez de quedarse mudas', () => {
+    // Sin catch el rechazo se iba a la consola y el usuario no veía nada:
+    // ni se movía el estado local ni decía por qué no se guardó.
+    expect(fuente('./Asignaciones.tsx')).toContain("avisar(e instanceof Error ? e.message")
+    expect(fuente('./Usuarios.tsx')).toContain("avisar(e instanceof Error ? e.message")
+    expect(fuente('./SucursalConfig.tsx')).toContain("avisar(e instanceof Error ? e.message")
   })
 })
 

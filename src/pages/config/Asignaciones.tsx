@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { listarUsuarios, listarAsignacionasAdmin, asignarEvaluador, desasignarEvaluador } from '../../lib/data/usuarios'
 import { listarSucursalesAdmin } from '../../lib/data/catalog'
 import type { Profile, Sucursal } from '../../lib/types'
+import { avisar } from '../../lib/aviso'
 import { Spinner, cn } from '../../components/ui'
 import { useTituloVista } from '../../components/layouts/tituloVista'
 
@@ -48,6 +49,8 @@ export function AsignacionesPage() {
     const key = `${evaluadorId}|${sucursalId}`
     setGuardando(true)
     try {
+      // El estado local sólo se toca DESPUÉS del await: si la base rechaza,
+      // la casilla no se pinta sola y el aviso dice por qué no se guardó.
       if (asignadas.has(key)) {
         await desasignarEvaluador(evaluadorId, sucursalId)
         setAsignadas((prev) => { const n = new Set(prev); n.delete(key); return n })
@@ -55,6 +58,8 @@ export function AsignacionesPage() {
         await asignarEvaluador(evaluadorId, sucursalId)
         setAsignadas((prev) => new Set(prev).add(key))
       }
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo guardar la asignación.', 'error')
     } finally {
       setGuardando(false)
     }

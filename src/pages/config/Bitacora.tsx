@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { History } from 'lucide-react'
 import { useCatalog } from '../../context/CatalogContext'
 import {
@@ -6,6 +6,7 @@ import {
   estadoDe,
   listarBitacora,
   rotuloTabla,
+  LIMITE_BITACORA,
   type FilaBitacora,
   type NombresBitacora
 } from '../../lib/data/bitacora'
@@ -49,8 +50,14 @@ export function BitacoraPage() {
   const [personas, setPersonas] = useState<Map<string, string>>(new Map())
   const [filtro, setFiltro] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
+  // Una vuelta en el aire bloquea a la siguiente: el montaje y el regreso a
+  // la pestaña pueden pisarse, y el resultado viejo llegando último taparía
+  // al nuevo.
+  const cargandoRef = useRef(false)
 
   const cargar = useCallback(async () => {
+    if (cargandoRef.current) return
+    cargandoRef.current = true
     setMsg(null)
     try {
       setFilas(await listarBitacora())
@@ -59,6 +66,8 @@ export function BitacoraPage() {
       // cual, porque es la única pista de qué hacer.
       setMsg(e instanceof Error ? e.message : 'No se pudo cargar la bitácora.')
       setFilas([])
+    } finally {
+      cargandoRef.current = false
     }
   }, [])
 
@@ -66,6 +75,21 @@ export function BitacoraPage() {
     if (!cargado) return
     void cargar()
   }, [cargado, cargar])
+
+  /**
+   * Refresco SIN realtime: al volver a la pestaña se vuelve a leer la tabla.
+   *
+   * Es una consulta nueva, no una suscripción — la pantalla no abre ningún
+   * canal ni queda escuchando nada. Con eso alcanza: quien cambia una
+   * asignación está en otra pantalla, y al volver acá ya ve el resultado.
+   */
+  useEffect(() => {
+    const alVolver = () => {
+      if (document.visibilityState === 'visible') void cargar()
+    }
+    document.addEventListener('visibilitychange', alVolver)
+    return () => document.removeEventListener('visibilitychange', alVolver)
+  }, [cargar])
 
   // Los nombres de las personas van aparte del catálogo: `profiles` no vive
   // en el contexto y sin esto cada fila diría «persona eliminada».
@@ -198,9 +222,9 @@ export function BitacoraPage() {
         </div>
       )}
 
-      {filas.length >= 200 ? (
+      {filas.length >= LIMITE_BITACORA ? (
         <p className="text-xs text-slate-400">
-          Se muestran los últimos 200 cambios. Si necesitás ver más viejos, decímelo.
+          Se muestran los últimos {LIMITE_BITACORA} cambios. Si necesitás ver más viejos, decímelo.
         </p>
       ) : null}
 

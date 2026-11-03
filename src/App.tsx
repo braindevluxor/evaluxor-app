@@ -31,6 +31,9 @@ const UnidadesPage = lazy(() => import('./pages/config/Unidades').then((m) => ({
 const ModulosPage = lazy(() => import('./pages/config/Modulos').then((m) => ({ default: m.ModulosPage })))
 const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ default: m.ItemsPage })))
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
+const AsignacionesPage = lazy(() =>
+  import('./pages/config/Asignaciones').then((m) => ({ default: m.AsignacionesPage }))
+)
 const BitacoraPage = lazy(() => import('./pages/config/Bitacora').then((m) => ({ default: m.BitacoraPage })))
 // Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
 // cuenta. Va con lazy porque sólo se descarga quien abre el enlace.
@@ -263,6 +266,11 @@ function Rutas() {
                       />
                       <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
                       <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
+                      {/* Asignar sucursales a evaluadores: escribe `asignaciones`,
+                          una de las cuatro tablas del alcance de la bitácora.
+                          Sin ésta esa tabla no cambia desde la app y su filtro
+                          del historial quedaba siempre vacío. */}
+                      <Route path="/config/asignaciones" element={<SoloLider><AsignacionesPage /></SoloLider>} />
                       {/* La bitácora es sólo lectura y sólo Líder: el RLS de
                           la tabla ya lo decide (`bitacora_asignaciones_select`),
                           acá se replica para que ni siquiera se pida la ruta. */}

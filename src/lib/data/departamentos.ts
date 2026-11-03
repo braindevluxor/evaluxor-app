@@ -108,20 +108,27 @@ export async function configurarDepartamentoModulos(
   departamentoId: string,
   modulosIds: string[]
 ): Promise<void> {
-  const { data: actuales } = await supabase
+  const { data: actuales, error: errorLectura } = await supabase
     .from('departamento_modulos')
     .select('id, modulo_id, activa')
     .eq('departamento_id', departamentoId)
+  // Sin la lectura previa no se sabe qué cambiar, y a ciegas los inserts
+  // chocarían contra la `unique (departamento_id, modulo_id)` en silencio.
+  if (errorLectura) throw new Error(errorLectura.message)
   const rows = (actuales ?? []) as { id: string; modulo_id: string; activa: boolean }[]
   const ids = new Set(modulosIds)
   const aInsertar = modulosIds.filter((mid) => !rows.some((r) => r.modulo_id === mid))
   const aActivar = rows.filter((r) => ids.has(r.modulo_id) && !r.activa).map((r) => r.id)
   const aDesactivar = rows.filter((r) => !ids.has(r.modulo_id)).map((r) => r.id)
-  const ops: PromiseLike<unknown>[] = []
+  // Igual que `configurarSucursalModulos`: el error del builder viaja en la
+  // respuesta, y descartarlo hacía que el guardado se diera por hecho.
+  const ops: PromiseLike<{ error: { message: string } | null }>[] = []
   if (aInsertar.length) ops.push(supabase.from('departamento_modulos').insert(aInsertar.map((modulo_id) => ({ departamento_id: departamentoId, modulo_id }))))
   if (aActivar.length) ops.push(supabase.from('departamento_modulos').update({ activa: true }).in('id', aActivar))
   if (aDesactivar.length) ops.push(supabase.from('departamento_modulos').update({ activa: false }).in('id', aDesactivar))
-  await Promise.all(ops)
+  for (const r of await Promise.all(ops)) {
+    if (r.error) throw new Error(r.error.message || 'No se pudieron guardar los módulos del departamento.')
+  }
 }
 
 export async function configurarDepartamentoItems(

@@ -9,6 +9,7 @@ import {
 } from '../../lib/data/departamentos'
 import type { Sucursal, Departamento, Modulo, Item } from '../../lib/types'
 import { CLAVE_INSPECCION } from '../../lib/inspeccionVehiculo'
+import { avisar } from '../../lib/aviso'
 import { Button, Modal, Skeleton, cn } from '../../components/ui'
 
 /** Lo que se guarda en la configuración de una unidad (sucursal o departamento). */
@@ -198,6 +199,10 @@ export function ConfigUnidadModal({ unidad, rotulo, demo, cargar, guardar, herra
       await guardar(unidad.id, { modulos: [...selModulos], items: [...selItems], opciones })
       setMsg('Configuración guardada. Los evaluadores verán los cambios al sincronizar el catálogo.')
       onGuardado()
+    } catch (e) {
+      // Sin este catch el rechazo se quedaba en la consola: el modal callado
+      // y el aviso de éxito que no aparecía, sin decir nunca por qué.
+      avisar(e instanceof Error ? e.message : 'No se pudo guardar la configuración.', 'error')
     } finally {
       setGuardando(false)
     }
