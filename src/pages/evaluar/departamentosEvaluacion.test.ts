@@ -54,7 +54,7 @@ describe('evaluaciones de departamento · el evaluador las ve en la misma lista'
   it('EvaluarHome junta sucursales y departamentos con la etiqueta', () => {
     const pagina = fuente('./EvaluarHome.tsx')
     expect(pagina).toContain('const departamentosAbiertos = departamentos.filter((departamento) => !!activas[departamento.id])')
-    expect(pagina).toContain("to={`/evaluar/departamento/${d.id}`}")
+    expect(pagina).toContain("to={`/evaluar/departamento/${d.id}?ev=${ev.id}`}")
     // La etiqueta es la única pista visual que separa una tarjeta de la otra.
     expect(pagina).toMatch(/<span[^>]*>\s*Departamento\s*<\/span>/)
     // El borrador local se busca también en los departamentos: si no, «Continuar»
@@ -79,7 +79,11 @@ describe('evaluaciones de departamento · el evaluador las ve en la misma lista'
     expect(pagina).toContain('const rutaBase = departamentoId ? `/evaluar/departamento/${departamentoId}` : `/evaluar/${sucursalId}`')
     // Los módulos/ítems/opciones salen de la configuración de la unidad elegida.
     expect(pagina).toContain('useModulosActivos(sucursalId, departamentoId)')
-    expect(pagina).toContain('.filter((e) => (departamentoId ? e.departamento_id === departamentoId : e.sucursal_id === sucursalId))')
+    // La fila que se tocó en el listado manda la evaluación exacta (?ev=);
+    // sin el parámetro se cae en la más reciente, como siempre.
+    expect(pagina).toContain('const candidatas = activas.filter((e) =>')
+    expect(pagina).toContain('departamentoId ? e.departamento_id === departamentoId : e.sucursal_id === sucursalId')
+    expect(pagina).toContain('candidatas.find((e) => e.id === evElegida) ??')
     // El borrador y la barra de progreso se cuelgan de la unidad, no de la sucursal.
     expect(pagina).toContain('unidad_id: unidadId')
     expect(pagina).toContain('departamento_id: departamentoId || null')

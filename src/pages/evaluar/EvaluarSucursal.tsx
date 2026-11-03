@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, CloudOff, FolderOpen, List, Plus, RefreshCw, Tag, Trash2, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { avisar } from '../../lib/aviso'
@@ -45,6 +45,16 @@ export function EvaluarSucursal() {
   const unidadId = sucursalId || departamentoId
   /** Ruta base de ESTA evaluación, para volver al resumen sin importar la clase. */
   const rutaBase = departamentoId ? `/evaluar/departamento/${departamentoId}` : `/evaluar/${sucursalId}`
+  const [consulta] = useSearchParams()
+  /**
+   * La evaluación que se tocó en el listado (`?ev=`).
+   *
+   * Una unidad puede tener DOS abiertas (al Líder se le quedó sin cerrar una)
+   * y `EvaluarHome` pinta una fila por cada una: sin este parámetro todas las
+   * filas abrirían la misma. Si no viene —enlace viejo, recarga— se sigue
+   * trabajando sobre la más reciente, como siempre.
+   */
+  const evElegida = consulta.get('ev')
   const navigate = useNavigate()
   const { profile } = useAuth()
   const { online, pendientes, sync: syncCola } = useOffline()
@@ -344,10 +354,14 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
     void (async () => {
       const activas = await listarEvaluacionesActivas().catch(() => [])
       // Si hay varias ACTIVAS para la unidad (p.ej. una vieja sin cerrar), se
-      // trabaja sobre la más reciente para no abrir una evaluación anterior.
-      const activa = activas
-        .filter((e) => (departamentoId ? e.departamento_id === departamentoId : e.sucursal_id === sucursalId))
-        .sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))[0]
+      // trabaja sobre la elegida en el listado (?ev=) y, si no viene, sobre la
+      // más reciente para no abrir una evaluación anterior.
+      const candidatas = activas.filter((e) =>
+        departamentoId ? e.departamento_id === departamentoId : e.sucursal_id === sucursalId
+      )
+      const activa =
+        candidatas.find((e) => e.id === evElegida) ??
+        [...candidatas].sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))[0]
       if (!activa) {
         setSinActiva(true)
         setCargando(false)
@@ -479,7 +493,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       agendarNube()
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unidadId, profile])
+  }, [unidadId, profile, evElegida])
 
   // Colaboración en vivo: cuando otro evaluador guarda respuestas o registros para
   // la misma evaluación, se fusionan aquí para que los dos vean todos los productos
