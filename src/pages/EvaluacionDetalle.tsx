@@ -14,7 +14,7 @@ import { raicesDeModulo } from '../lib/pasos'
 import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
 import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionComparable, agruparPorDepartamento, esSinHablador, productosParaConciliar, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionesAplicablesUnidad, checkMarcado, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, montoSobranteConciliacion, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
-import type { Foto, Item, Opcion, Respuesta, SucursalOpcion } from '../lib/types'
+import type { Foto, Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, BOTON_CABECERA, Button, Card, InfoTooltip, Modal, ProgressBar, Skeleton, cn, colorFondoBadge } from '../components/ui'
 
 import { IncidenciasEvaluacion, ListaIncidencias, incidenciaEsDeCargo, useIncidenciasEvaluacion } from '../components/IncidenciasEvaluacion'
@@ -25,7 +25,7 @@ import { armarReporteCargos, cargarImagenesReporte, descargarReporteCargos } fro
 import { descargarExcelCargos } from '../lib/excelCargos'
 import { Fotogaleria, FotogaleriaRutas } from '../components/dashboard/Fotogaleria'
 import { PlanoLectura } from '../components/PlanoEditor'
-import { pathsDeFotosFalla, pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple, pathsEvidenciaOpcion, pathsEvidenciaProducto } from '../lib/evidencias'
+import { pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple, pathsEvidenciaOpcion, pathsEvidenciaProducto } from '../lib/evidencias'
 import { IconoModulo } from '../components/IconoModulo'
 import { CompartirEvaluacion } from '../components/CompartirEvaluacion'
 import { ordenarTrabajadores } from '../lib/data/colaboradores'
@@ -1095,37 +1095,6 @@ export function EvaluacionDetalle() {
   }
 
   /**
-   * Qué fotos entran en CADA pendiente del reporte: las del punto que le falló
-   * a ESE cargo. En los ítems de lista cada punto tiene su responsable y su
-   * propia foto, así que imprimir las del ítem entero le daría a un cargo
-   * evidencia de puntos que no son suyos (ver `pathsDeFotosFalla`).
-   *
-   * Se arma sólo al descargar: es un recorrido por todas las respuestas y las
-   * fotos, que no vale la pena pagar en cada render.
-   */
-  const prepararFotosDeFalla = (): ((falla: FallaResponsable) => string[]) => {
-    const respuestasDe = new Map<string, Respuesta[]>()
-    for (const r of respuestas) {
-      const lista = respuestasDe.get(r.item_id)
-      if (lista) lista.push(r)
-      else respuestasDe.set(r.item_id, [r])
-    }
-    const fotosDe = new Map<string, string[]>()
-    for (const f of fotos) {
-      const lista = fotosDe.get(f.item_id)
-      if (lista) lista.push(f.path)
-      else fotosDe.set(f.item_id, [f.path])
-    }
-    return (falla) =>
-      pathsDeFotosFalla(
-        falla.tipo,
-        falla.checkIds,
-        respuestasDe.get(falla.item_id) ?? [],
-        fotosDe.get(falla.item_id) ?? []
-      )
-  }
-
-  /**
    * El reporte POR CARGOS, en PDF o en Excel: un bloque por cargo elegido con
    * sus ítems fallados, los checks concretos y los puntos que le costaron.
    *
@@ -1134,9 +1103,13 @@ export function EvaluacionDetalle() {
    * (`items.map(aplicarOpciones)`), así que el documento no puede nombrar un
    * check que acá no aparece ni cobrarle puntos a un cargo que no está.
    *
+   * Las respuestas y las fotos van CRUDAS: quién reparte qué punto a cada
+   * cargo (y qué observación y qué foto le tocan) es del documento, con el
+   * mismo criterio que el modal, para que los dos formatos digan lo mismo.
+   *
    * Las fotos van sólo en el PDF, recién cuando se pide: se bajan de Storage
-   * las de los pendientes elegidos y se pegan debajo de cada ítem. El Excel
-   * sigue siendo sólo datos.
+   * las de los pendientes elegidos y se pegan debajo de su punto. El Excel
+   * sigue siendo sólo datos (lleve su observación en la columna propia).
    */
   const descargarPorCargos = async (elegidos: string[], formato: 'pdf' | 'excel') => {
     if (!elegidos.length) return
@@ -1159,7 +1132,7 @@ export function EvaluacionDetalle() {
           fallas: fallasDeResponsable(cargo, itemsFiltrados, respuestas)
         })),
         modulos,
-        prepararFotosDeFalla()
+        { respuestas, fotos }
       )
       if (formato === 'pdf') {
         descargarReporteCargos(datos, await cargarImagenesReporte(datos))

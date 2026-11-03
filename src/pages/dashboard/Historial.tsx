@@ -17,15 +17,14 @@ import {
   type ConjuntoDatos,
   type DetalleEvaluacion
 } from '../../lib/data/indicadores'
-import type { Foto, Item, Respuesta, SucursalOpcion, VistaEvaluacion } from '../../lib/types'
+import type { Item, SucursalOpcion, VistaEvaluacion } from '../../lib/types'
 import { descargarInformePdf } from '../../lib/pdf'
 import { useModulosExportables } from '../../lib/pdf/modulosExportables'
 import type { OpcionesPdf } from '../../lib/pdf/opciones'
 import { armarReporteCargos, cargarImagenesReporte, descargarReporteCargos } from '../../lib/pdf/reporteCargos'
 import { descargarExcelEvaluacion, type IncidenciaExcel } from '../../lib/excelEvaluacion'
 import { descargarExcelCargos } from '../../lib/excelCargos'
-import { fallasDeResponsable, valorPorResponsable, type FallaResponsable } from '../../lib/scoring'
-import { pathsDeFotosFalla } from '../../lib/evidencias'
+import { fallasDeResponsable, valorPorResponsable } from '../../lib/scoring'
 import { aplicarPermisosChecklist } from '../../lib/permisosChecklist'
 import { normalizarResponsables } from '../../lib/data/responsablesIncidencia'
 import { supabase } from '../../lib/supabase'
@@ -310,28 +309,13 @@ export function Historial() {
   }
 
   /**
-   * Qué fotos entran en CADA pendiente del reporte: las del punto que le falló
-   * a ESE cargo. Mismo criterio y misma función (`pathsDeFotosFalla`) que el
-   * detalle: sin esto, un cargo vería fotos de puntos que no son suyos.
+   * El reporte POR CARGOS, en PDF o en Excel.
+   *
+   * Las respuestas y las fotos van CRUDAS, como en el detalle: el documento
+   * reparte qué punto, qué observación y qué foto le tocan a cada cargo con
+   * el mismo criterio que el modal de fallas, así los dos formatos y las dos
+   * pantallas dicen lo mismo.
    */
-  const fotosDeFalla = (respuestas: Respuesta[], fotos: Foto[]) => {
-    const respuestasDe = new Map<string, Respuesta[]>()
-    for (const r of respuestas) {
-      const lista = respuestasDe.get(r.item_id)
-      if (lista) lista.push(r)
-      else respuestasDe.set(r.item_id, [r])
-    }
-    const fotosDe = new Map<string, string[]>()
-    for (const f of fotos) {
-      const lista = fotosDe.get(f.item_id)
-      if (lista) lista.push(f.path)
-      else fotosDe.set(f.item_id, [f.path])
-    }
-    return (falla: FallaResponsable) =>
-      pathsDeFotosFalla(falla.tipo, falla.checkIds, respuestasDe.get(falla.item_id) ?? [], fotosDe.get(falla.item_id) ?? [])
-  }
-
-  /** Baja el reporte por cargos armado en `prepararCargos`, en PDF o Excel. */
   const descargarPorCargos = async (elegidos: string[], formato: 'pdf' | 'excel') => {
     if (!cargosEn || !elegidos.length) return
     const { detalle, puntaje, itemsFiltrados, cargos } = cargosEn
@@ -350,7 +334,7 @@ export function Historial() {
           fallas: fallasDeResponsable(cargo, itemsFiltrados, detalle.respuestas)
         })),
         detalle.modulos,
-        fotosDeFalla(detalle.respuestas, detalle.fotos)
+        { respuestas: detalle.respuestas, fotos: detalle.fotos }
       )
       if (formato === 'pdf') {
         descargarReporteCargos(datos, await cargarImagenesReporte(datos))

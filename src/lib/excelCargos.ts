@@ -35,10 +35,16 @@ export function hojasReporteCargos(datos: ReporteCargosDatos): HojaExcel[] {
   }
 
   const filasPendientes: CeldaExcel[][] = [
-    ['Cargo', 'Módulo', 'Ítem', 'Tipo', 'Punto del checklist', 'Puntos']
+    ['Cargo', 'Módulo', 'Ítem', 'Tipo', 'Punto del checklist', 'Puntos', 'Comentario']
   ]
   for (const cargo of datos.cargos) {
     for (const pendiente of cargo.pendientes) {
+      // La observación que quedó en el punto, en la fila del propio punto.
+      // Es el mismo texto que imprime el PDF en su columna «Comentario»: los
+      // dos formatos salen de estos mismos datos y no pueden decir distinto.
+      const porPunto = new Map(
+        pendiente.evidencias.filter((e) => e.comentario).map((e) => [e.punto, e.comentario])
+      )
       if (pendiente.checks.length) {
         // Una fila por check, sin repetir los puntos en cada una: el total del
         // ítem va al final de su grupo, marcado en la columna del punto.
@@ -49,7 +55,8 @@ export function hojasReporteCargos(datos: ReporteCargosDatos): HojaExcel[] {
             pendiente.item,
             etiquetaTipo(pendiente.tipo),
             check,
-            null
+            null,
+            porPunto.get(check) ?? null
           ])
         }
         filasPendientes.push([
@@ -58,17 +65,23 @@ export function hojasReporteCargos(datos: ReporteCargosDatos): HojaExcel[] {
           pendiente.item,
           etiquetaTipo(pendiente.tipo),
           `TOTAL del ítem`,
-          redondear2(pendiente.perdidos)
+          redondear2(pendiente.perdidos),
+          null
         ])
       } else {
-        // Ítems binarios y de plano: el ítem entero es la falla.
+        // Ítems binarios y de plano: el ítem entero es la falla, y sus
+        // observaciones (una por evidencia) van juntas en esta única fila.
+        const observaciones = Array.from(
+          new Set(pendiente.evidencias.map((e) => e.comentario.trim()).filter(Boolean))
+        )
         filasPendientes.push([
           cargo.cargo,
           pendiente.modulo,
           pendiente.item,
           etiquetaTipo(pendiente.tipo),
           'Ítem completo',
-          redondear2(pendiente.perdidos)
+          redondear2(pendiente.perdidos),
+          observaciones.join(' | ') || null
         ])
       }
     }

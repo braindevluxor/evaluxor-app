@@ -20,6 +20,7 @@ const datos: ReporteCargosDatos = {
           tipo: 'CHECKLIST',
           perdidos: 8.5,
           checks: ['Sellos de puertas sin fugas', 'Sensor de alarma conectado'],
+          evidencias: [],
           fotos: []
         },
         {
@@ -28,6 +29,7 @@ const datos: ReporteCargosDatos = {
           tipo: 'CUMPLE_NO_CUMPLE',
           perdidos: 4,
           checks: [],
+          evidencias: [],
           fotos: []
         }
       ]
@@ -100,13 +102,24 @@ describe('reporte de pendientes por cargo · Excel', () => {
     expect(cargos.filas[1]).toEqual(['Depositaría', 62, 2, 12.5])
 
     const pendientes = hojas.find((hoja) => hoja.nombre === 'Pendientes')!
-    // Un renglón por check, más el TOTAL del ítem con sus puntos.
+    // Un renglón por check, más el TOTAL del ítem con sus puntos, y la
+    // observación que quedó en el punto en su propia columna.
+    expect(pendientes.filas[0]).toEqual([
+      'Cargo',
+      'Módulo',
+      'Ítem',
+      'Tipo',
+      'Punto del checklist',
+      'Puntos',
+      'Comentario'
+    ])
     expect(pendientes.filas).toContainEqual([
       'Depositaría',
       'Higiene y salubridad',
       'Equipos de refrigeración en condiciones operativas',
       'Check list',
       'Sellos de puertas sin fugas',
+      null,
       null
     ])
     expect(pendientes.filas).toContainEqual([
@@ -115,16 +128,18 @@ describe('reporte de pendientes por cargo · Excel', () => {
       'Equipos de refrigeración en condiciones operativas',
       'Check list',
       'TOTAL del ítem',
-      8.5
+      8.5,
+      null
     ])
-    // El ítem binario entra como ítem completo.
+    // El ítem binario entra como ítem completo, con sus observaciones juntas.
     expect(pendientes.filas).toContainEqual([
       'Depositaría',
       'Higiene y salubridad',
       'La cocina cuenta con un plan de limpieza vigente',
       'Cumple / No cumple',
       'Ítem completo',
-      4
+      4,
+      null
     ])
   })
 })
@@ -172,6 +187,9 @@ describe('armarReporteCargos · la frontera entre la pantalla y el documento', (
       tipo: 'CHECKLIST',
       perdidos: 9,
       checks: ['Sellos sin fugas'],
+      // Sin contexto no hay respuestas que mirar: sale sin observaciones ni
+      // fotos, pero el pendiente existe igual.
+      evidencias: [],
       fotos: []
     })
     expect(cargo.pendientes[1].modulo).toBe('Higiene y salubridad')
@@ -235,7 +253,9 @@ describe('reporte de pendientes por cargo · fotos de evidencia', () => {
         }
       ],
       [],
-      () => fotos
+      // Así está guardado de verdad: la foto de un punto vive en
+      // `valor.evidencias[idDelPunto]`, no contra el ítem.
+      { respuestas: [{ item_id: 'i-1', valor: { evidencias: { 'c-sellos': { paths: fotos } } } }] }
     )
 
   it('las fotos se resuelven pendiente por pendiente, con los checks de ESE cargo', () => {
@@ -263,11 +283,27 @@ describe('reporte de pendientes por cargo · fotos de evidencia', () => {
         }
       ],
       [],
-      (f) => (f.checkIds[0] === 'c-sellos' ? ['ev/sellos.png'] : ['ev/sensor.png'])
+      {
+        respuestas: [
+          {
+            item_id: 'i-1',
+            valor: {
+              evidencias: {
+                'c-sellos': { paths: ['ev/sellos.png'] },
+                'c-sensor': { paths: ['ev/sensor.png'] }
+              }
+            }
+          }
+        ]
+      }
     )
 
     expect(datos.cargos[0].pendientes[0].fotos).toEqual(['ev/sellos.png'])
     expect(datos.cargos[1].pendientes[0].fotos).toEqual(['ev/sensor.png'])
+    // Y cada foto queda ROTULADA con su punto: es lo que hace que el PDF la
+    // imprima debajo del nombre que le corresponde.
+    expect(datos.cargos[0].pendientes[0].evidencias[0].punto).toBe('Sellos')
+    expect(datos.cargos[1].pendientes[0].evidencias[0].punto).toBe('Sensor')
   })
 
   it('sin resolver fotos, el pendiente sale igual pero sin ninguna', () => {
@@ -296,5 +332,245 @@ describe('reporte de pendientes por cargo · fotos de evidencia', () => {
     })
     expect(pdf.output()).toContain('Sellos de puertas sin fugas')
     expect(pdf.output('blob').size).toBeGreaterThan(0)
+  })
+})
+
+describe('reporte de pendientes por cargo · observaciones de los puntos', () => {
+  /** Un pendiente armado a mano, para mirar cómo lo compone el documento. */
+  const pendiente = (
+    evidencias: ReporteCargosDatos['cargos'][number]['pendientes'][number]['evidencias'],
+    extra: Partial<ReporteCargosDatos['cargos'][number]['pendientes'][number]> = {}
+  ): ReporteCargosDatos => ({
+    unidad: 'Sucursal Centro',
+    referencia: null,
+    fecha: '2026-11-03',
+    puntajeGeneral: 70,
+    cargos: [
+      {
+        cargo: 'Depositaría',
+        porciento: 62,
+        perdidos: 5,
+        pendientes: [
+          {
+            item: 'Equipos de refrigeración en condiciones operativas',
+            modulo: 'Higiene y salubridad',
+            tipo: 'CHECKLIST',
+            perdidos: 5,
+            checks: ['Sellos de puertas sin fugas'],
+            evidencias,
+            fotos: [],
+            ...extra
+          }
+        ]
+      }
+    ]
+  })
+
+  it('la observación sale en la columna del propio punto, con la palabra Comentario', () => {
+    const output = buildReporteCargos(
+      pendiente([
+        { checkId: 'c-sellos', punto: 'Sellos de puertas sin fugas', comentario: 'falta la mercadería', fotos: [] }
+      ])
+    ).output()
+
+    expect(output).toContain('Comentario')
+    // Va en el MISMO renglón que el punto que la tiene, no en un pie de página
+    // ni en un anexo: el lector tiene que verla sin cruzar nada.
+    expect(output).toContain('falta la mercadería')
+  })
+
+  it('sin observaciones no imprime la columna: una columna de guiones es ruido', () => {
+    const output = buildReporteCargos(
+      pendiente([{ checkId: 'c-sellos', punto: 'Sellos de puertas sin fugas', comentario: '', fotos: [] }])
+    ).output()
+
+    expect(output).not.toContain('Comentario')
+    expect(output).toContain('Sellos de puertas sin fugas')
+  })
+
+  it('en un ítem completo cada evidencia imprime SU observación, con su foto', () => {
+    // El ítem no tiene puntos: la falla es el ítem entero y las evidencias
+    // (foto + comentario, como las arma la pantalla) son las que se distinguen
+    // entre sí, una debajo de la otra.
+    const output = buildReporteCargos(
+      pendiente(
+        [
+          { checkId: null, punto: '', comentario: 'Se reparó el estante', fotos: [] },
+          { checkId: null, punto: '', comentario: 'Falta el precio base', fotos: [] }
+        ],
+        { checks: [], tipo: 'CUMPLE_NO_CUMPLE', item: 'La góndola tiene el precio puesto' }
+      )
+    ).output()
+
+    expect(output).toContain('Observación: Se reparó el estante')
+    expect(output).toContain('Observación: Falta el precio base')
+    // La columna de puntos no aplica acá: no hay puntos.
+    expect(output).not.toContain('Comentario')
+  })
+
+  it('el dato sale de las respuestas: comentarios y fotos por punto, juntos', () => {
+    // Es el cableado completo, de la respuesta guardada a la celda impresa:
+    // el comentario vive en `valor.comentarios[idDelPunto]` y la foto en
+    // `valor.evidencias[idDelPunto]`, las dos bajo la MISMA clave.
+    const datos = armarReporteCargos(
+      { unidad: 'Sucursal Norte', referencia: null, fecha: '2026-11-03', puntajeGeneral: 80 },
+      [
+        {
+          cargo: 'Depositaría',
+          porciento: 62,
+          fallas: [
+            {
+              item_id: 'i-1',
+              tipo: 'CHECKLIST',
+              texto: 'Refrigeración',
+              modulo_id: null,
+              perdidos: 5,
+              checks: ['Sellos de puertas sin fugas'],
+              checkIds: ['c-sellos']
+            }
+          ]
+        }
+      ],
+      [],
+      {
+        respuestas: [
+          {
+            item_id: 'i-1',
+            valor: {
+              selected: [],
+              comentarios: { 'c-sellos': 'falta la mercadería' },
+              evidencias: { 'c-sellos': { paths: ['ev/sellos.jpg'] } }
+            }
+          }
+        ]
+      }
+    )
+
+    const [punto] = datos.cargos[0].pendientes[0].evidencias
+    expect(punto.punto).toBe('Sellos de puertas sin fugas')
+    expect(punto.comentario).toBe('falta la mercadería')
+    expect(punto.fotos).toEqual(['ev/sellos.jpg'])
+    // La vista plana sigue existiendo para bajarlas de una sola pasada.
+    expect(datos.cargos[0].pendientes[0].fotos).toEqual(['ev/sellos.jpg'])
+  })
+
+  it('el Excel lleva la MISMA observación, en la fila del mismo punto', () => {
+    const datos = pendiente([
+      { checkId: 'c-sellos', punto: 'Sellos de puertas sin fugas', comentario: 'falta la mercadería', fotos: [] }
+    ])
+    const filas = hojasReporteCargos(datos).find((hoja) => hoja.nombre === 'Pendientes')!.filas
+
+    expect(filas).toContainEqual([
+      'Depositaría',
+      'Higiene y salubridad',
+      'Equipos de refrigeración en condiciones operativas',
+      'Check list',
+      'Sellos de puertas sin fugas',
+      null,
+      'falta la mercadería'
+    ])
+  })
+})
+
+describe('reporte de pendientes por cargo · el orden en que se pinta', () => {
+  /** PNG válido de 1x1: no importa qué se ve, importa DÓNDE para. */
+  const PNG_1x1 =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+
+  it('cada foto sale debajo del rótulo de SU punto, y cada observación debajo de la suya', () => {
+    // Es el pedido entero: que una foto se lea como del punto que tiene
+    // arriba. Se lee el flujo de contenido del PDF (jsPDF lo deja sin
+    // comprimir) porque el orden de los operadores ES el orden de pintada, y
+    // ningún otro test mira ese orden —los demás sólo chequean que el texto
+    // esté en algún lugar del documento—.
+    const datos: ReporteCargosDatos = {
+      unidad: 'Sucursal Centro',
+      referencia: null,
+      fecha: '2026-11-03',
+      puntajeGeneral: 76,
+      cargos: [
+        {
+          cargo: 'Depositaría',
+          porciento: 62,
+          perdidos: 12.5,
+          pendientes: [
+            {
+              item: 'Equipos de refrigeración en condiciones operativas',
+              modulo: 'Higiene y salubridad',
+              tipo: 'CHECKLIST',
+              perdidos: 8.5,
+              checks: ['Sellos de puertas sin fugas', 'Sensor de alarma conectado'],
+              evidencias: [
+                {
+                  checkId: 'c-sellos',
+                  punto: 'Sellos de puertas sin fugas',
+                  comentario: 'falta la mercadería',
+                  fotos: ['ev/1.png', 'ev/2.png']
+                },
+                {
+                  checkId: 'c-sensor',
+                  punto: 'Sensor de alarma conectado',
+                  comentario: '',
+                  fotos: ['ev/3.png']
+                }
+              ],
+              fotos: ['ev/1.png', 'ev/2.png', 'ev/3.png']
+            },
+            {
+              item: 'La góndola de perfumería tiene el precio puesto',
+              modulo: 'Estética del punto de venta',
+              tipo: 'CUMPLE_NO_CUMPLE',
+              perdidos: 4,
+              checks: [],
+              evidencias: [
+                { checkId: null, punto: '', comentario: 'Se reparó el estante', fotos: ['ev/4.png'] },
+                { checkId: null, punto: '', comentario: 'Falta el precio base', fotos: [] }
+              ],
+              fotos: ['ev/4.png']
+            }
+          ]
+        }
+      ]
+    }
+    const imagenes: Record<string, string> = {}
+    for (const ruta of ['ev/1.png', 'ev/2.png', 'ev/3.png', 'ev/4.png']) imagenes[ruta] = PNG_1x1
+
+    const pdf = buildReporteCargos(datos, imagenes)
+    const paginas = (pdf.internal.pages as unknown as Array<Array<string>>).filter((p) => Array.isArray(p))
+    const flujo = paginas.map((p) => p.join('')).join('\n')
+
+    // Todas las fotos son la MISMA imagen de prueba, así que jsPDF las guarda
+    // en UN solo XObject (`/I0`) y las pinta cuatro veces; el logo del pie es
+    // otro (`/I1`) y queda fuera.
+    const fotos: number[] = []
+    for (let i = flujo.indexOf('/I0 Do'); i > -1; i = flujo.indexOf('/I0 Do', i + 1)) fotos.push(i)
+    const [foto1, foto2, foto3, foto4] = fotos
+    const antes = (aguja: string, limite: number) => flujo.lastIndexOf(aguja, limite)
+    const en = (aguja: string) => flujo.indexOf(aguja)
+
+    // La columna de la observación está, y el texto está en la celda de su
+    // punto (no en un pie ni en un anexo).
+    expect(en('Comentario')).toBeGreaterThan(-1)
+    expect(en('falta la mercader')).toBeGreaterThan(-1)
+    // Las cuatro fotos se pintaron.
+    expect(fotos).toHaveLength(4)
+
+    // El rótulo del PRIMER punto va pegado a sus fotos…
+    const rotulo1 = antes('Sellos de puertas sin fugas', foto1)
+    expect(rotulo1).toBeGreaterThan(-1)
+    expect(rotulo1).toBeLessThan(foto1)
+    // …y el del segundo DESPUÉS del grupo anterior y ANTES de la suya: si
+    // saliera al revés, la foto se leería como del punto equivocado.
+    const rotulo2 = antes('Sensor de alarma conectado', foto3)
+    expect(rotulo2).toBeGreaterThan(foto2)
+    expect(rotulo2).toBeLessThan(foto3)
+
+    // En el ítem completo manda la observación: cada una pega su foto y van
+    // en el orden en que se escribieron.
+    const obs1 = en('Se repar')
+    const obs2 = en('Falta el precio base')
+    expect(obs1).toBeGreaterThan(-1)
+    expect(obs1).toBeLessThan(foto4)
+    expect(obs1).toBeLessThan(obs2)
   })
 })

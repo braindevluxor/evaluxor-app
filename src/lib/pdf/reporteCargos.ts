@@ -17,12 +17,17 @@
  * títulos en marino con regla suave y tablas con cabecera coloreada y filas
  * alternadas, no negro sobre blanco con rejilla. Sin `·` ni otros caracteres
  * que jsPDF no escribe bien con las fuentes WinAnsi.
- * Las fotos de evidencia van debajo del ítem al que pertenecen
- * (ver `cargarImagenesReporte`).
+ *
+ * Cada pendiente sale con SU observación y SU evidencia pegadas al punto que
+ * le falló: la observación va en la tabla, en la columna «Comentario» (sólo
+ * si hay alguna, la misma regla que el informe general), y las fotos van en
+ * bloques debajo de la tabla, rotuladas con el nombre del punto cuando hay
+ * más de un punto con fotos (ver `evidenciasDeFalla`).
  */
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { etiquetaTipo, type FallaResponsable } from '../scoring'
+import { evidenciasDeFalla, type EvidenciaPunto } from '../evidencias'
 import { esVideoPath } from '../fotos'
 import { supabase } from '../supabase'
 import {
@@ -50,9 +55,18 @@ export interface PendienteCargo {
   /** Checks concretos que fallaron y se le atribuyen. Vacío si el ítem no es de checks. */
   checks: string[]
   /**
-   * Rutas de las fotos en Storage, en el mismo orden en que las pinta la
-   * pantalla: en ítems de lista, sólo las de los puntos que le fallaron a ESTE
-   * cargo. Vacío cuando no hay: el documento sale igual, sin fotos.
+   * Lo de CADA punto del pendiente: su observación y sus fotos, en el mismo
+   * orden en que se imprimen. Es lo que hace que una foto salga debajo del
+   * punto al que pertenece y no en una grilla mezclada al final del ítem.
+   *
+   * Vacío cuando el reporte se arma sin respuestas (`armarReporteCargos`
+   * sin contexto): el documento sale igual, sin observaciones ni fotos.
+   */
+  evidencias: EvidenciaPunto[]
+  /**
+   * Rutas de las fotos en Storage, la vista PLANA de `evidencias` (todas
+   * juntas, sin repetir). Es la que usa `cargarImagenesReporte` para bajarlas
+   * de una sola pasada; la que se imprime es la agrupada.
    */
   fotos: string[]
 }
@@ -256,6 +270,41 @@ export function buildReporteCargos(
     if (pintadas) y = yFila + altoFila + 4
   }
 
+  /**
+   * La evidencia de UN pendiente, punto por punto: el rótulo del punto, su
+   * observación y SUS fotos, una debajo de la otra.
+   *
+   * Ése es el cambio respecto de la grilla mezclada de antes: una foto sale
+   * debajo del nombre del punto al que pertenece, no en un bloque al final
+   * del ítem donde no se sabe de qué punto es.
+   *
+   * El rótulo sólo aparece cuando hay MÁS de un punto con algo que imprimir:
+   * con uno solo la tabla de arriba ya lo nombró, y en los ítems de falla
+   * única (todas las evidencias son del mismo ítem) no hay con qué rotular —
+   * ahí manda la observación, que es la que distingue una de la otra.
+   *
+   * `observacionesEnTabla` dice si la observación ya salió impresa en la
+   * columna «Comentario»: si salió acá sería la segunda vez que el lector
+   * ve el mismo texto.
+   */
+  const pintarEvidencias = (pendiente: PendienteCargo, observacionesEnTabla: boolean) => {
+    const bloques = pendiente.evidencias.filter(
+      (e) => e.fotos.length || (e.comentario && !observacionesEnTabla)
+    )
+    if (!bloques.length) return
+    const conRotulo = new Set(bloques.map((b) => b.punto).filter(Boolean)).size > 1
+    bloques.forEach((bloque, i) => {
+      if (i) y += 3
+      if (conRotulo && bloque.punto) {
+        textoLinea(bloque.punto, { bold: true, size: 9, gap: 3, color: MARINO })
+      }
+      if (bloque.comentario && !observacionesEnTabla) {
+        textoLinea(`Observación: ${bloque.comentario}`, { size: 8.5, gap: 3, color: GRIS })
+      }
+      pintarFotos(bloque.fotos)
+    })
+  }
+
   // --- Encabezado -----------------------------------------------------------
   // Banda de marca: el documento arranca con el color de la casa y no con una
   // línea negra sobre fondo blanco. Baja la unidad y la fecha, que es lo que
@@ -334,24 +383,43 @@ export function buildReporteCargos(
       // checks concretos sí, y son la razón de ser de este reporte.
       subtitulo(pendiente.item, `${pendiente.modulo ?? 'Sin módulo'} | ${etiquetaTipo(pendiente.tipo)}`)
 
+      // La observación que el evaluador dejó en el punto, en la columna del
+      // propio punto. Misma regla que el informe general: la columna aparece
+      // sólo si hay alguna —una columna de guiones en todas las filas es ruido
+      // en el papel—.
+      const observaciones = new Map(
+        pendiente.evidencias.filter((e) => e.comentario).map((e) => [e.punto, e.comentario])
+      )
+      const conObservaciones = pendiente.checks.length > 0 && observaciones.size > 0
+
       if (pendiente.checks.length) {
         // El estado va con la MISMA palabra que el informe general: el lector
         // no puede tener que adivinar que acá «sin fila roja» significa lo
         // mismo que «NO APROBADO» allá.
+        const anchos: Record<number, { cellWidth?: number; halign?: 'left' | 'center' | 'right' }> = {
+          1: { cellWidth: 36, halign: 'center' },
+          2: { cellWidth: 22, halign: 'right' }
+        }
+        // La observación se lleva el ancho que sobra: el nombre del punto
+        // sigue siendo la columna más ancha, que es la que hay que poder leer.
+        if (conObservaciones) anchos[3] = { cellWidth: 64 }
         tabla(
-          ['Punto sin cumplir', 'Estado', 'Puntos'],
+          conObservaciones
+            ? ['Punto sin cumplir', 'Estado', 'Puntos', 'Comentario']
+            : ['Punto sin cumplir', 'Estado', 'Puntos'],
           [
             ...pendiente.checks.map((check) => [
               check,
               { content: ESTADO_NO_APROBADO, styles: { fontStyle: 'bold', textColor: ROJO } },
-              ''
+              '',
+              ...(conObservaciones ? [observaciones.get(check) || '—'] : [])
             ]),
             [
               // La fila de cierre destaca por su fondo, no por una línea negra
               // más gruesa: mismo criterio que el resto del documento.
               {
                 content: 'TOTAL del ítem',
-                colSpan: 2,
+                colSpan: conObservaciones ? 3 : 2,
                 styles: { fontStyle: 'bold', fillColor: MARINO_CLARO, textColor: MARINO }
               },
               {
@@ -360,12 +428,15 @@ export function buildReporteCargos(
               }
             ]
           ],
-          { columnStyles: { 1: { cellWidth: 36, halign: 'center' }, 2: { cellWidth: 22, halign: 'right' } } }
+          {
+            columnStyles: anchos
+          }
         )
       } else {
         // Ítems binarios y de plano: el ítem entero es la falla. Se imprime una
         // sola fila con los puntos, sin repetir «el ítem falló», que sería
-        // tautológico.
+        // tautológico. Sus observaciones salen en los bloques de abajo, cada
+        // una pegada a sus fotos.
         tabla(
           ['Falla', 'Estado', 'Puntos'],
           [
@@ -387,9 +458,9 @@ export function buildReporteCargos(
           { columnStyles: { 1: { cellWidth: 36, halign: 'center' }, 2: { cellWidth: 22, halign: 'right' } } }
         )
       }
-      // Las fotos del ítem, después de lo que falló: es la evidencia de esa
-      // misma tabla, así que van pegadas a ella y no en un anexo aparte.
-      pintarFotos(pendiente.fotos)
+      // La evidencia de cada punto, después de lo que falló: es la evidencia
+      // de esa misma tabla, así que va pegada a ella y no en un anexo aparte.
+      pintarEvidencias(pendiente, conObservaciones)
     }
   }
 
@@ -415,6 +486,24 @@ export function buildReporteCargos(
 }
 
 /**
+ * De dónde salen las observaciones y las fotos de cada punto del reporte.
+ *
+ * Son datos crudos de la evaluación, no cálculos: la pantalla junta lo que ya
+ * tiene (las respuestas y las fotos de la tabla `fotos`) y el documento
+ * resuelve qué le toca a cada cargo con `evidenciasDeFalla`, el mismo
+ * criterio con el que hoy reparte las fotos entre cargos.
+ *
+ * Sin contexto el reporte sale igual, pero sin observaciones ni fotos: es lo
+ * que hace que un armado a mano en una prueba no dependa de tener respuestas.
+ */
+export interface ContextoReporteCargos {
+  /** Respuestas de la evaluación: de acá salen las observaciones de cada punto. */
+  respuestas: { item_id: string; valor: unknown }[]
+  /** Fotos de la tabla `fotos`, que se guardan contra el ítem y no contra un punto. */
+  fotos?: { item_id: string; path: string }[]
+}
+
+/**
  * Arma los datos del reporte a partir de las fallas YA resueltas por el
  * detalle: acá no se recalcula nada (ni puntos ni checks), sólo se convierte la
  * salida de `fallasDeResponsable` en la forma que imprimen el PDF y el Excel.
@@ -431,14 +520,11 @@ export function armarReporteCargos(
   encabezado: Omit<ReporteCargosDatos, 'cargos'>,
   elegidos: { cargo: string; porciento: number | null; fallas: FallaResponsable[] }[],
   modulos: { id: string; nombre: string }[],
-  /**
-   * Qué fotos entran en cada pendiente, resueltas por la pantalla con
-   * `pathsDeFotosFalla`: las del punto que le falló A ESE CARGO. Sin función,
-   * los pendientes salen sin fotos.
-   */
-  fotosDeFalla: (falla: FallaResponsable) => string[] = () => []
+  contexto?: ContextoReporteCargos
 ): ReporteCargosDatos {
   const nombreModulo = new Map(modulos.map((m) => [m.id, m.nombre]))
+  const respuestasDe = porItem(contexto?.respuestas ?? [], (r) => r.item_id)
+  const fotosDe = porItem(contexto?.fotos ?? [], (f) => f.item_id)
   return {
     ...encabezado,
     cargos: elegidos.map((e) => ({
@@ -447,16 +533,44 @@ export function armarReporteCargos(
       perdidos: e.fallas.reduce((suma, f) => suma + f.perdidos, 0),
       pendientes: [...e.fallas]
         .sort((a, b) => b.perdidos - a.perdidos)
-        .map((f) => ({
-          item: f.texto,
-          modulo: f.modulo_id ? (nombreModulo.get(f.modulo_id) ?? null) : null,
-          tipo: f.tipo,
-          perdidos: f.perdidos,
-          checks: f.checks,
-          fotos: fotosDeFalla(f) ?? []
-        }))
+        .map((f) => {
+          // Las fotos y las observaciones se resuelven UNA vez por pendiente,
+          // contra las respuestas del ítem: en los ítems de lista cada punto
+          // tiene las suyas, y darle las del ítem entero sería imprimirle a un
+          // cargo evidencia de un punto que no es suyo.
+          const evidencias = contexto
+            ? evidenciasDeFalla({
+                tipo: f.tipo,
+                checkIds: f.checkIds,
+                checks: f.checks,
+                respuestas: respuestasDe.get(f.item_id) ?? [],
+                pathsDeTabla: (fotosDe.get(f.item_id) ?? []).map((foto) => foto.path)
+              })
+            : []
+          return {
+            item: f.texto,
+            modulo: f.modulo_id ? (nombreModulo.get(f.modulo_id) ?? null) : null,
+            tipo: f.tipo,
+            perdidos: f.perdidos,
+            checks: f.checks,
+            evidencias,
+            fotos: evidencias.flatMap((ev) => ev.fotos)
+          }
+        })
     }))
   }
+}
+
+/** Agrupa las filas de un lado por `item_id` de una sola pasada. */
+function porItem<T>(filas: T[], itemDe: (fila: T) => string): Map<string, T[]> {
+  const mapa = new Map<string, T[]>()
+  for (const fila of filas) {
+    const id = itemDe(fila)
+    const lista = mapa.get(id)
+    if (lista) lista.push(fila)
+    else mapa.set(id, [fila])
+  }
+  return mapa
 }
 
 function slug(texto: string): string {

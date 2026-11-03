@@ -47,15 +47,20 @@ describe('EvaluacionDetalle · reporte por cargos', () => {
     expect(codigo).toContain('fallasDeResponsable(cargo, itemsFiltrados, respuestas)')
   })
 
-  it('las fotos van SÓLO en el PDF y sólo las que le tocan a ese cargo', () => {
-    // Cada pendiente resuelve sus fotos con SUS puntos: en un ítem de lista el
-    // punto tiene responsable propio, y darle las fotos del ítem entero sería
-    // imprimirle evidencia de un punto que no es suyo.
-    expect(codigo).toContain('pathsDeFotosFalla(')
-    expect(codigo).toContain('falla.checkIds')
-    expect(codigo).toContain('prepararFotosDeFalla()')
+  it('las respuestas y las fotos viajan CRUDAS: el documento reparte qué le toca a cada cargo', () => {
+    // Antes la pantalla resolvía las fotos de cada falla (`prepararFotosDeFalla`
+    // con `pathsDeFotosFalla`) y el documento sólo las pegaba. Ahora manda los
+    // datos crudos y la repartición vive en UN solo lugar (`evidenciasDeFalla`,
+    // en `lib/evidencias`), que es también la que resuelve la observación de
+    // cada punto: si viviera en dos, el PDF y el Excel podrían decir distinto.
+    expect(codigo).toContain('{ respuestas, fotos }')
+    expect(codigo).not.toContain('prepararFotosDeFalla')
+    expect(codigo).not.toContain('pathsDeFotosFalla')
+    // Qué puntos y qué puntos le tocan a cada cargo sigue saliendo del mismo
+    // cálculo que pinta la pantalla.
+    expect(codigo).toContain('fallasDeResponsable(cargo, itemsFiltrados, respuestas)')
     // Las fotos se bajan de Storage sólo cuando el formato es PDF; el Excel
-    // queda siendo sólo datos.
+    // queda siendo sólo datos (con su observación en la columna propia).
     expect(codigo).toMatch(
       /if \(formato === 'pdf'\) \{\s*\n\s*descargarReporteCargos\(datos, await cargarImagenesReporte\(datos\)\)/
     )
