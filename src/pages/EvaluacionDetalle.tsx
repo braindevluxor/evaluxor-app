@@ -1132,7 +1132,7 @@ export function EvaluacionDetalle() {
           fallas: fallasDeResponsable(cargo, itemsFiltrados, respuestas)
         })),
         modulos,
-        { respuestas, fotos }
+        { respuestas, fotos, items: itemsFiltrados }
       )
       if (formato === 'pdf') {
         descargarReporteCargos(datos, await cargarImagenesReporte(datos))

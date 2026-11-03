@@ -26,7 +26,7 @@
  */
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { etiquetaTipo, type FallaResponsable } from '../scoring'
+import { etiquetaTipo, redondear3, type FallaResponsable } from '../scoring'
 import { evidenciasDeFalla, type EvidenciaPunto } from '../evidencias'
 import { esVideoPath } from '../fotos'
 import { supabase } from '../supabase'
@@ -54,6 +54,21 @@ export interface PendienteCargo {
   perdidos: number
   /** Checks concretos que fallaron y se le atribuyen. Vacío si el ítem no es de checks. */
   checks: string[]
+  /**
+   * Lo que LE COSTÓ a este cargo cada punto de `checks`, en el mismo orden.
+   *
+   * El reporte sólo sabía cuánto costaba el ÍTEM entero (`perdidos`); la
+   * columna «Puntos» de cada fila salía vacía. Éste es ese número repartido:
+   * si el ítem configura peso por punto se respeta, si no se reparte en partes
+   * iguales, y en los dos casos la fila da exactamente `perdidos` — la columna
+   * suma el TOTAL de abajo, que es lo que hace que el número se pueda leer en
+   * una reunión.
+   *
+   * Vacío cuando no hay con qué repartir (reporte armado sin contexto, o las
+   * listas de nombres e ids de puntos sin alinear): la fila imprime «—» y el
+   * TOTAL sigue diciendo cuánto costó el ítem.
+   */
+  puntos: number[]
   /**
    * Lo de CADA punto del pendiente: su observación y sus fotos, en el mismo
    * orden en que se imprimen. Es lo que hace que una foto salga debajo del
@@ -351,7 +366,8 @@ export function buildReporteCargos(
   )
   textoLinea(
     'La nota del cargo es logrado sobre lo posible, con los mismos pesos que el resto de la app. ' +
-      'Los puntos no cumplidos son los que se le descontaron por los ítems de cada bloque.',
+      'Los puntos no cumplidos son los que se le descontaron por los ítems de cada bloque; en cada ' +
+      'tabla, la columna Puntos reparte ese total entre los puntos que fallaron y por eso suma el TOTAL.',
     { size: 8, gap: 7, color: GRIS }
   )
 
@@ -408,10 +424,13 @@ export function buildReporteCargos(
             ? ['Punto sin cumplir', 'Estado', 'Puntos', 'Comentario']
             : ['Punto sin cumplir', 'Estado', 'Puntos'],
           [
-            ...pendiente.checks.map((check) => [
+            ...pendiente.checks.map((check, i) => [
               check,
               { content: ESTADO_NO_APROBADO, styles: { fontStyle: 'bold', textColor: ROJO } },
-              '',
+              // Lo que le costó ESTE punto a ESTE cargo. Si no hay con qué
+              // repartir sale un guion y no una celda en blanco: un hueco
+              // parece un dato faltante, un guion dice «no aplica».
+              pendiente.puntos[i] == null ? '—' : fmt(pendiente.puntos[i]),
               ...(conObservaciones ? [observaciones.get(check) || '—'] : [])
             ]),
             [
@@ -501,6 +520,12 @@ export interface ContextoReporteCargos {
   respuestas: { item_id: string; valor: unknown }[]
   /** Fotos de la tabla `fotos`, que se guardan contra el ítem y no contra un punto. */
   fotos?: { item_id: string; path: string }[]
+  /**
+   * Los ítems con sus opciones: de ahí sale el PESO de cada punto, para poder
+   * repartir los puntos perdidos del ítem entre los puntos que le fallaron.
+   * Sin ellos la fila imprime «—» y el TOTAL sigue diciendo cuánto costó.
+   */
+  items?: { id: string; opciones?: { id: string; puntos?: number }[] | null }[]
 }
 
 /**
@@ -525,6 +550,7 @@ export function armarReporteCargos(
   const nombreModulo = new Map(modulos.map((m) => [m.id, m.nombre]))
   const respuestasDe = porItem(contexto?.respuestas ?? [], (r) => r.item_id)
   const fotosDe = porItem(contexto?.fotos ?? [], (f) => f.item_id)
+  const opcionesDe = new Map((contexto?.items ?? []).map((i) => [i.id, i.opciones ?? []]))
   return {
     ...encabezado,
     cargos: elegidos.map((e) => ({
@@ -553,12 +579,63 @@ export function armarReporteCargos(
             tipo: f.tipo,
             perdidos: f.perdidos,
             checks: f.checks,
+            puntos: contexto ? repartirPuntos(f, opcionesDe.get(f.item_id) ?? []) : [],
             evidencias,
             fotos: evidencias.flatMap((ev) => ev.fotos)
           }
         })
     }))
   }
+}
+
+/**
+ * Reparte `perdidos` —lo que costó el ÍTEM a ESTE cargo— entre LOS PUNTOS QUE
+ * LE CAYERON, para que la columna «Puntos» tenga número y cierre contra el
+ * TOTAL de su bloque.
+ *
+ * Dos pesos, según cómo puntúa el ítem (el mismo criterio con el que se
+ * calculó `perdidos`):
+ *
+ *  * **Proporcional**: cuando TODAS las opciones del ítem traen `puntos > 0`,
+ *    el ítem puntúa por peso y cada punto cuesta lo que vale —el mismo número
+ *    que muestra el módulo en su badge «N pts», escalado por lo que perdió.
+ *  * **En partes iguales**: si una sola opción no tiene peso no hay con qué
+ *    compararlas, el ítem es completo o no, y el corte es por cantidad.
+ *
+ * En los dos casos la columna suma EXACTO el TOTAL: la última fila se lleva
+ * el resto del redondeo, que es la única promesa que hace este número (si no,
+ * un lector que sume la columna y no dé con el total deja de creerle al
+ * documento entero).
+ *
+ * Devuelve `[]` cuando no hay con qué repartir: si los nombres (`checks`) y
+ * los ids (`checkIds`) de los puntos no vienen alineados, no se puede saber
+ * qué número va en qué fila, y un número en la fila equivocado es peor que
+ * un guion.
+ */
+function repartirPuntos(
+  falla: { perdidos: number; checks: string[]; checkIds: string[] },
+  opciones: { id: string; puntos?: number }[]
+): number[] {
+  const cantidad = falla.checks.length
+  if (!cantidad || falla.checkIds.length !== cantidad) return []
+  const proporcional = opciones.length > 0 && opciones.every((o) => typeof o.puntos === 'number' && o.puntos > 0)
+  const pesos = falla.checkIds.map((id) =>
+    proporcional ? (opciones.find((o) => o.id === id)?.puntos ?? 1) : 1
+  )
+  const suma = pesos.reduce((a, b) => a + b, 0)
+  if (!(suma > 0)) return []
+
+  const filas: number[] = []
+  let acumulado = 0
+  for (let i = 0; i < cantidad; i++) {
+    const bruto = i === cantidad - 1 ? falla.perdidos - acumulado : (falla.perdidos * pesos[i]) / suma
+    // Nunca un número negativo en el papel: en el borde del redondeo el resto
+    // podría quedar chico, y un guion sigue siendo mejor que −0,001.
+    const valor = Math.max(0, redondear3(bruto))
+    filas.push(valor)
+    acumulado = redondear3(acumulado + valor)
+  }
+  return filas
 }
 
 /** Agrupa las filas de un lado por `item_id` de una sola pasada. */

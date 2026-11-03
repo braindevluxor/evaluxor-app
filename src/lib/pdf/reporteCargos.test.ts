@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { armarReporteCargos, buildReporteCargos, type ReporteCargosDatos } from './reporteCargos'
 import { hojasReporteCargos } from '../excelCargos'
 import type { FallaResponsable } from '../scoring'
@@ -20,6 +22,7 @@ const datos: ReporteCargosDatos = {
           tipo: 'CHECKLIST',
           perdidos: 8.5,
           checks: ['Sellos de puertas sin fugas', 'Sensor de alarma conectado'],
+          puntos: [],
           evidencias: [],
           fotos: []
         },
@@ -29,6 +32,7 @@ const datos: ReporteCargosDatos = {
           tipo: 'CUMPLE_NO_CUMPLE',
           perdidos: 4,
           checks: [],
+          puntos: [],
           evidencias: [],
           fotos: []
         }
@@ -189,6 +193,7 @@ describe('armarReporteCargos · la frontera entre la pantalla y el documento', (
       checks: ['Sellos sin fugas'],
       // Sin contexto no hay respuestas que mirar: sale sin observaciones ni
       // fotos, pero el pendiente existe igual.
+      puntos: [],
       evidencias: [],
       fotos: []
     })
@@ -357,6 +362,7 @@ describe('reporte de pendientes por cargo · observaciones de los puntos', () =>
             tipo: 'CHECKLIST',
             perdidos: 5,
             checks: ['Sellos de puertas sin fugas'],
+            puntos: [],
             evidencias,
             fotos: [],
             ...extra
@@ -472,6 +478,126 @@ describe('reporte de pendientes por cargo · observaciones de los puntos', () =>
   })
 })
 
+describe('reporte de pendientes por cargo · los puntos de cada fila', () => {
+  /** Un ítem de tres puntos, con el peso que le dio el Líder. */
+  const conPuntos = [{ id: 'c-1', puntos: 5 }, { id: 'c-2', puntos: 1 }, { id: 'c-3', puntos: 4 }]
+  /** El mismo ítem sin peso por punto: el corte es por cantidad. */
+  const sinPuntos = [{ id: 'c-1' }, { id: 'c-2' }, { id: 'c-3' }]
+
+  const armar = (opciones: { id: string; puntos?: number }[] | null, perdidos: number, checks = 2) =>
+    armarReporteCargos(
+      { unidad: 'Sucursal Centro', referencia: null, fecha: '2026-11-03', puntajeGeneral: 70 },
+      [
+        {
+          cargo: 'Depositaría',
+          porciento: 62,
+          fallas: [
+            {
+              item_id: 'i-1',
+              tipo: 'CHECKLIST',
+              texto: 'Refrigeración',
+              modulo_id: null,
+              perdidos,
+              checks: Array.from({ length: checks }, (_, i) => `Punto ${i + 1}`),
+              checkIds: Array.from({ length: checks }, (_, i) => `c-${i + 1}`)
+            }
+          ]
+        }
+      ],
+      [],
+      { respuestas: [], items: [{ id: 'i-1', opciones }] }
+    )
+
+  it('reparte el total del ítem respetando el peso de cada punto', () => {
+    // Ítem de 10 puntos donde cayeron los de 5 y los de 1: al de 5 le cuesta
+    // cinco y al de 1 le cuesta uno —el mismo orden de grandeza que el badge
+    // «N pts» del módulo—, y los dos suman el total del ítem.
+    const [p] = armar(conPuntos, 6).cargos[0].pendientes
+    expect(p.puntos).toEqual([5, 1])
+    expect(p.puntos.reduce((a, b) => a + b, 0)).toBe(p.perdidos)
+  })
+
+  it('sin peso por punto reparte en partes iguales', () => {
+    const [p] = armar(sinPuntos, 6).cargos[0].pendientes
+    expect(p.puntos).toEqual([3, 3])
+  })
+
+  it('la columna cierra EXACTO contra el TOTAL, aunque el reparto no sea redondo', () => {
+    const [p] = armar(conPuntos, 10, 3).cargos[0].pendientes
+    expect(p.puntos).toHaveLength(3)
+    const suma = p.puntos.reduce((a, b) => a + b, 0)
+    expect(suma).toBeCloseTo(p.perdidos, 6)
+    // La última fila es la que se lleva el resto del redondeo.
+    expect(p.puntos[2]).toBe(10 - p.puntos[0] - p.puntos[1])
+  })
+
+  it('si los nombres y los ids de los puntos no están alineados, no reparte nada', () => {
+    // Un número en la fila equivocado es peor que un guion.
+    const datos = armarReporteCargos(
+      { unidad: 'U', referencia: null, fecha: '2026-11-03', puntajeGeneral: 70 },
+      [
+        {
+          cargo: 'Depositaría',
+          porciento: 62,
+          fallas: [
+            {
+              item_id: 'i-1',
+              tipo: 'CHECKLIST',
+              texto: 'Refrigeración',
+              modulo_id: null,
+              perdidos: 6,
+              // Dos nombres contra un solo id: no hay con qué casarlos.
+              checks: ['Punto 1', 'Punto repetido'],
+              checkIds: ['c-1']
+            }
+          ]
+        }
+      ],
+      [],
+      { respuestas: [], items: [{ id: 'i-1', opciones: conPuntos }] }
+    )
+    expect(datos.cargos[0].pendientes[0].puntos).toEqual([])
+  })
+
+  it('el número sale en el PDF y en el Excel, y sin contexto sale un guion', () => {
+    const datos = armar(conPuntos, 6)
+    expect(buildReporteCargos(datos).output()).toContain('5')
+
+    const filas = hojasReporteCargos(datos).find((h) => h.nombre === 'Pendientes')!.filas
+    expect(filas).toContainEqual(['Depositaría', null, 'Refrigeración', 'Check list', 'Punto 1', 5, null])
+
+    // Sin contexto no hay con qué repartir: guion, nunca una celda en blanco.
+    const vacio = armarReporteCargos(
+      { unidad: 'U', referencia: null, fecha: '2026-11-03', puntajeGeneral: null },
+      [
+        {
+          cargo: 'Depositaría',
+          porciento: null,
+          fallas: [
+            {
+              item_id: 'i-1',
+              tipo: 'CHECKLIST',
+              texto: 'Refrigeración',
+              modulo_id: null,
+              perdidos: 6,
+              checks: ['Punto 1'],
+              checkIds: ['c-1']
+            }
+          ]
+        }
+      ],
+      []
+    )
+    const salida = buildReporteCargos(vacio).output()
+    expect(salida).toContain('Punto 1')
+    expect(salida).toContain('TOTAL del ítem')
+    // El guion no se puede buscar en el PDF: jsPDF lo escribe como secuencia
+    // octal (no está en Latin-1), así que se busca en el código que lo pinta.
+    const codigo = readFileSync(fileURLToPath(new URL('./reporteCargos.ts', import.meta.url)), 'utf8')
+    expect(codigo).toContain("pendiente.puntos[i] == null ? '—' : fmt(pendiente.puntos[i])")
+  })
+})
+
 describe('reporte de pendientes por cargo · el orden en que se pinta', () => {
   /** PNG válido de 1x1: no importa qué se ve, importa DÓNDE para. */
   const PNG_1x1 =
@@ -500,6 +626,7 @@ describe('reporte de pendientes por cargo · el orden en que se pinta', () => {
               tipo: 'CHECKLIST',
               perdidos: 8.5,
               checks: ['Sellos de puertas sin fugas', 'Sensor de alarma conectado'],
+              puntos: [4.5, 4],
               evidencias: [
                 {
                   checkId: 'c-sellos',
@@ -522,6 +649,7 @@ describe('reporte de pendientes por cargo · el orden en que se pinta', () => {
               tipo: 'CUMPLE_NO_CUMPLE',
               perdidos: 4,
               checks: [],
+              puntos: [],
               evidencias: [
                 { checkId: null, punto: '', comentario: 'Se reparó el estante', fotos: ['ev/4.png'] },
                 { checkId: null, punto: '', comentario: 'Falta el precio base', fotos: [] }

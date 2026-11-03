@@ -334,7 +334,7 @@ export function Historial() {
           fallas: fallasDeResponsable(cargo, itemsFiltrados, detalle.respuestas)
         })),
         detalle.modulos,
-        { respuestas: detalle.respuestas, fotos: detalle.fotos }
+        { respuestas: detalle.respuestas, fotos: detalle.fotos, items: itemsFiltrados }
       )
       if (formato === 'pdf') {
         descargarReporteCargos(datos, await cargarImagenesReporte(datos))

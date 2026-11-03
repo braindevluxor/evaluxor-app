@@ -48,14 +48,16 @@ export function hojasReporteCargos(datos: ReporteCargosDatos): HojaExcel[] {
       if (pendiente.checks.length) {
         // Una fila por check, sin repetir los puntos en cada una: el total del
         // ítem va al final de su grupo, marcado en la columna del punto.
-        for (const check of pendiente.checks) {
+        for (const [i, check] of pendiente.checks.entries()) {
           filasPendientes.push([
             cargo.cargo,
             pendiente.modulo,
             pendiente.item,
             etiquetaTipo(pendiente.tipo),
             check,
-            null,
+            // Lo que le costó ese punto al cargo: el mismo número que imprime
+            // el PDF en su columna «Puntos» (y por eso también suma el TOTAL).
+            pendiente.puntos[i] ?? null,
             porPunto.get(check) ?? null
           ])
         }
