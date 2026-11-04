@@ -22,6 +22,9 @@ import { descargarInformePdf } from '../../lib/pdf'
 import { useModulosExportables } from '../../lib/pdf/modulosExportables'
 import type { OpcionesPdf } from '../../lib/pdf/opciones'
 import { armarReporteCargos, cargarImagenesReporte, descargarReporteCargos } from '../../lib/pdf/reporteCargos'
+import { compartirCargos, urlCompartidaCargos } from '../../lib/data/compartirCargos'
+import { copiarAlPortapapeles } from '../../lib/copiar'
+import { avisar } from '../../lib/aviso'
 import { descargarExcelEvaluacion, type IncidenciaExcel } from '../../lib/excelEvaluacion'
 import { descargarExcelCargos } from '../../lib/excelCargos'
 import { fallasDeResponsable, valorPorResponsable } from '../../lib/scoring'
@@ -123,6 +126,8 @@ export function Historial() {
   } | null>(null)
   /** Formato del reporte por cargos que se está generando, para el spinner. */
   const [generandoReporte, setGenerandoReporte] = useState<'pdf' | 'excel' | null>(null)
+  /** ¿Se está generando el enlace público de los cargos elegidos? */
+  const [compartiendo, setCompartiendo] = useState(false)
   const { modulos: modulosDeElegir, cargando: cargandoModulosElegir } = useModulosExportables(elegirEn)
   const [aEliminar, setAEliminar] = useState<VistaEvaluacion | null>(null)
   const [aReabrir, setAReabrir] = useState<VistaEvaluacion | null>(null)
@@ -309,33 +314,65 @@ export function Historial() {
   }
 
   /**
-   * El reporte POR CARGOS, en PDF o en Excel.
+   * El histórico de la unidad —todas sus evaluaciones, abiertas y cerradas—
+   * para poder decir de cada punto si es reincidencia. Es el mismo pedido que
+   * hace el Seguimiento por cargo, y por eso sólo lo pide quien comparte: el
+   * PDF y el Excel no lo usan.
+   */
+  const historialDeUnidad = async (detalle: DetalleEvaluacion) => ({
+    datos: await consultarEvaluaciones({
+      sucursal_ids: detalle.evaluacion.sucursal_id ? [detalle.evaluacion.sucursal_id] : null,
+      departamento_ids: detalle.evaluacion.departamento_id ? [detalle.evaluacion.departamento_id] : null
+      // Sin pedirle el corte a sólo cerradas: el filtro por defecto trae
+      // TODO, abierta y cerrada, que es lo que hace falta para medir la
+      // reincidencia contra la inmediata anterior —aunque todavía no se haya
+      // cerrado la anterior.
+    }),
+    unidadId: unidadDe(detalle.evaluacion),
+    evaluacionId: detalle.evaluacion.id
+  })
+
+  /**
+   * El reporte armado para los cargos elegidos.
    *
    * Las respuestas y las fotos van CRUDAS, como en el detalle: el documento
    * reparte qué punto, qué observación y qué foto le tocan a cada cargo con
    * el mismo criterio que el modal de fallas, así los dos formatos y las dos
    * pantallas dicen lo mismo.
+   *
+   * `conHistorial` agrega el histórico de la unidad, que es lo que hace falta
+   * para el chip de reincidencia de cada punto.
    */
+  const armarDatosPorCargos = async (
+    seleccion: NonNullable<typeof cargosEn>,
+    elegidos: string[],
+    conHistorial: boolean
+  ) => {
+    const { detalle, puntaje, itemsFiltrados, cargos } = seleccion
+    const historial = conHistorial ? await historialDeUnidad(detalle) : undefined
+    return armarReporteCargos(
+      {
+        unidad: detalle.evaluacion.sucursal?.nombre ?? detalle.evaluacion.departamento?.nombre ?? 'Evaluación',
+        referencia: detalle.evaluacion.sucursal?.shop_id ?? null,
+        fecha: detalle.evaluacion.fecha,
+        puntajeGeneral: puntaje
+      },
+      elegidos.map((cargo) => ({
+        cargo,
+        porciento: cargos.find((c) => c.cargo === cargo)?.porciento ?? null,
+        fallas: fallasDeResponsable(cargo, itemsFiltrados, detalle.respuestas)
+      })),
+      detalle.modulos,
+      { respuestas: detalle.respuestas, fotos: detalle.fotos, items: itemsFiltrados, historial }
+    )
+  }
+
+  /** El reporte POR CARGOS, en PDF o en Excel. */
   const descargarPorCargos = async (elegidos: string[], formato: 'pdf' | 'excel') => {
     if (!cargosEn || !elegidos.length) return
-    const { detalle, puntaje, itemsFiltrados, cargos } = cargosEn
     setGenerandoReporte(formato)
     try {
-      const datos = armarReporteCargos(
-        {
-          unidad: detalle.evaluacion.sucursal?.nombre ?? detalle.evaluacion.departamento?.nombre ?? 'Evaluación',
-          referencia: detalle.evaluacion.sucursal?.shop_id ?? null,
-          fecha: detalle.evaluacion.fecha,
-          puntajeGeneral: puntaje
-        },
-        elegidos.map((cargo) => ({
-          cargo,
-          porciento: cargos.find((c) => c.cargo === cargo)?.porciento ?? null,
-          fallas: fallasDeResponsable(cargo, itemsFiltrados, detalle.respuestas)
-        })),
-        detalle.modulos,
-        { respuestas: detalle.respuestas, fotos: detalle.fotos, items: itemsFiltrados }
-      )
+      const datos = await armarDatosPorCargos(cargosEn, elegidos, false)
       if (formato === 'pdf') {
         descargarReporteCargos(datos, await cargarImagenesReporte(datos))
       } else {
@@ -346,6 +383,34 @@ export function Historial() {
       setError('No se pudo generar el reporte por cargos. Intenta de nuevo.')
     }
     setGenerandoReporte(null)
+  }
+
+  /**
+   * El enlace PÚBLICO de los cargos elegidos: la bitácora de atención que el
+   * trabajador mira sin cuenta. Guarda el reporte congelado —con el histórico
+   * de la unidad para las reincidencias— y copia el link.
+   */
+  const compartirPorCargos = async (elegidos: string[]) => {
+    if (!cargosEn || !elegidos.length) return
+    setCompartiendo(true)
+    try {
+      const datos = await armarDatosPorCargos(cargosEn, elegidos, true)
+      const enlace = await compartirCargos(cargosEn.detalle.evaluacion.id, datos, profile?.id ?? null)
+      const copiado = await copiarAlPortapapeles(urlCompartidaCargos(enlace.token))
+      avisar(
+        copiado
+          ? 'Enlace copiado. Es de sólo lectura: desde ahí no se puede editar nada.'
+          : 'No se pudo copiar el enlace. Tocá Compartir de nuevo.',
+        copiado ? 'ok' : 'error'
+      )
+      // Sólo se cierra si se copió: si no, el link quedó generado y a mano no
+      // hay dónde verlo, así que el modal se queda abierto para reintentar.
+      if (copiado) setCargosEn(null)
+    } catch {
+      setError('No se pudo generar el enlace por cargos. Intenta de nuevo.')
+    } finally {
+      setCompartiendo(false)
+    }
   }
 
   const eliminar = async () => {
@@ -838,6 +903,8 @@ export function Historial() {
         onClose={() => setCargosEn(null)}
         cargos={cargosEn?.cargos ?? []}
         onDescargar={(elegidos, formato) => void descargarPorCargos(elegidos, formato)}
+        onCompartir={(elegidos) => void compartirPorCargos(elegidos)}
+        compartiendo={compartiendo}
         generando={generandoReporte}
       />
     </div>

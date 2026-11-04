@@ -53,7 +53,7 @@ describe('EvaluacionDetalle · reporte por cargos', () => {
     // datos crudos y la repartición vive en UN solo lugar (`evidenciasDeFalla`,
     // en `lib/evidencias`), que es también la que resuelve la observación de
     // cada punto: si viviera en dos, el PDF y el Excel podrían decir distinto.
-    expect(codigo).toContain('{ respuestas, fotos, items: itemsFiltrados }')
+    expect(codigo).toContain('{ respuestas, fotos, items: itemsFiltrados, historial }')
     expect(codigo).not.toContain('prepararFotosDeFalla')
     expect(codigo).not.toContain('pathsDeFotosFalla')
     // Qué puntos y qué puntos le tocan a cada cargo sigue saliendo del mismo

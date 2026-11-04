@@ -2628,6 +2628,226 @@ where n.nspname = 'public' and c.relname = 'evaluaciones_compartidas';
 
 
 -- ###########################################################################
+-- Archivo consolidado: compartir-cargos.sql
+-- ###########################################################################
+-- ============================================================================
+-- ENLACE PÚBLICO DE FALLAS POR CARGO (la bitácora de atención del trabajador)
+--
+-- Corre esto en el SQL Editor. Es idempotente: se puede repetir.
+--
+-- QUÉ RESUELVE
+-- ------------
+-- El Líder quiere mandarle al trabajador el listado de SUS pendientes para
+-- que lo tenga como bitácora de atención, sin cuenta en la app. Es el mismo
+-- dato que baja en PDF desde «Por cargo»: un bloque por cargo con los ítems
+-- que fallaron, los puntos concretos, los puntos que le costaron y, por
+-- punto, cuántas faltas y reincidencias acumula en esa unidad.
+--
+-- POR QUÉ ES UNA FOTO Y NO UNA LECTURA VIVA
+-- -----------------------------------------
+-- El enlace guarda el reporte CONGELADO en el momento de generarlo (`datos`,
+-- jsonb), a diferencia del enlace de conciliación, que recalcula al abrirse.
+-- Acá hay dos razones:
+--
+--  * Las reincidencias se deciden contra el histórico de la unidad: para
+--    recalcularlas al abrir habría que devolver TODAS las respuestas de todas
+--    las evaluaciones de la sucursal, que es justo lo que un enlace público
+--    no debe exponer.
+--  * Es una bitácora: lo que se le manda al trabajador es lo que se le mandó.
+--    Si la evaluación cambia después, se genera un enlace nuevo (un toque) y
+--    el anterior deja de servir.
+--
+-- Las FOTOS van por ruta y no por URL firmada: las firma la pantalla pública
+-- cada vez que alguien abre el enlace, así el enlace no se vence con el
+-- tiempo ni hay que guardar URLs con caducidad en la base.
+--
+-- CÓMO SE CIERRA
+-- --------------
+-- · La tabla nace cerrada para `anon` (el `alter default privileges ...
+--   revoke all on tables from anon` de `cerrar-permisos-anon.sql` lo
+--   garantiza para toda tabla futura) y RLS no le da políticas a `anon`.
+-- · La única entrada es `ver_cargos_compartidos(p_token)`, SECURITY DEFINER,
+--   con `search_path` fijo. Si el token no existe o el enlace está apagado,
+--   devuelve `{"evaluacion": null}`: no se distingue entre "token equivocado"
+--   y "no hay nada", que es lo que impide adivinar tokens enumerando.
+-- · El token se GENERA en el cliente (32 bytes aleatorios en hex): 2^256 de
+--   espacio, no se deriva de la evaluación ni se adivina por fuerza bruta.
+--
+-- RIESGO QUE QUEDA Y POR QUÉ ES ACEPTABLE
+-- ---------------------------------------
+-- El enlace es un secreto compartido: cualquiera que lo reciba ve los
+-- pendientes de los cargos elegidos mientras esté activo. Por eso existe
+-- `activo` y la fila se apaga desde la app sin tocar la base. Lo que el
+-- enlace NO expone: respuestas, quién contestó qué, fotos de otros ítems,
+-- incidencias, colaboradores ni el resto de las evaluaciones.
+--
+-- ROLLBACK
+-- --------
+--     revoke execute on function public.ver_cargos_compartidos(text) from public, anon;
+--     drop function public.ver_cargos_compartidos(text);
+--     drop table if exists public.cargos_compartidos;
+--
+-- Apagar todos los enlaces sin borrar nada (una sola fila):
+--     update public.cargos_compartidos set activo = false;
+-- ============================================================================
+
+begin;
+
+-- ----------------------------------------------------------------------------
+-- 1) La tabla: una fila por evaluación, con su token y su reporte congelado
+-- ----------------------------------------------------------------------------
+-- La PK es la evaluación y no el token: así "compartir" de nuevo REEMPLAZA el
+-- enlace anterior en vez de acumular links viejos que nadie puede revocar
+-- (mismo criterio que `evaluaciones_compartidas`).
+create table if not exists public.cargos_compartidos (
+  evaluacion_id uuid primary key
+    references public.evaluaciones (id) on delete cascade,
+  token         text   not null unique,
+  -- El reporte armado por la app (jsonb), con las RUTAS de las fotos: ver el
+  -- encabezado de este bloque. Es el único dato que viaja al que recibe el
+  -- enlace, así que lo que no está acá, el enlace no lo muestra.
+  datos         jsonb  not null,
+  activo        boolean not null default true,
+  creado_por    uuid   references public.profiles (id) on delete set null,
+  creado_at     timestamptz not null default now()
+);
+
+alter table public.cargos_compartidos enable row level security;
+
+-- ----------------------------------------------------------------------------
+-- 2) Políticas: para sesión, nunca para anon
+-- ----------------------------------------------------------------------------
+-- Quien ya puede ver la evaluación puede ver que está compartida (sino, el
+-- botón no tendría memoria entre sesiones).
+drop policy if exists cargos_compartidos_select on public.cargos_compartidos;
+create policy cargos_compartidos_select on public.cargos_compartidos
+  for select to authenticated
+  using (exists (
+    select 1 from public.evaluaciones e
+    where e.id = cargos_compartidos.evaluacion_id
+      and public.puede_ver_evaluacion(e)
+  ));
+
+-- Generar y apagar enlaces es configuración: mismo criterio que el catálogo.
+drop policy if exists cargos_compartidos_lider on public.cargos_compartidos;
+create policy cargos_compartidos_lider on public.cargos_compartidos
+  for all to authenticated
+  using (public.es_lider()) with check (public.es_lider());
+
+-- ----------------------------------------------------------------------------
+-- 3) La única puerta: leer el reporte de un enlace
+-- ----------------------------------------------------------------------------
+-- SECURITY DEFINER porque corre SIN sesión y `anon` no tiene permiso de tabla
+-- sobre nada. El token es la autorización.
+--
+-- Devuelve SÓLO lo que la pantalla pública pinta: la evaluación (con su
+-- sucursal o departamento) y el reporte congelado. Nada más: no hay respuestas
+-- ni ítems sueltos que filtrar porque no se devuelven.
+--
+-- `stable` a propósito: no escribe nada y PostgREST puede cachearla por
+-- petición.
+create or replace function public.ver_cargos_compartidos(p_token text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  with enlace as (
+    select c.evaluacion_id, c.datos, c.creado_at
+    from public.cargos_compartidos c
+    where c.activo and c.token = p_token
+  ),
+  ev as (
+    -- Mismas columnas que `ver_conciliacion_compartida`: sólo las que la
+    -- pantalla pública usa. `aperturada_por` queda fuera porque expondría al
+    -- evaluador, que el enlace no debe mostrar.
+    select e.id, e.sucursal_id, e.departamento_id, e.fecha,
+           e.estado, e.puntuacion, e.comentario_general, e.cerrada_en
+    from public.evaluaciones e
+    where e.id in (select evaluacion_id from enlace)
+  ),
+  suc as (
+    select s.id, s.nombre from public.sucursales s
+    where s.id in (select sucursal_id from ev)
+  ),
+  dep as (
+    select d.id, d.nombre from public.departamentos_centralizados d
+    where d.id in (select departamento_id from ev)
+  )
+  select case
+    when exists (select 1 from enlace) then jsonb_build_object(
+      'evaluacion', (
+        -- El alias hace falta en los tres: `from ev` no crea el alias `e`, y
+        -- sin él Postgres resuelve `to_jsonb(e)` como una COLUMNA llamada "e".
+        select to_jsonb(e) || jsonb_build_object(
+          'sucursal', (select to_jsonb(s) from suc s),
+          'departamento', (select to_jsonb(d) from dep d)
+        )
+        from ev e
+      ),
+      'datos', (select datos from enlace),
+      -- Cuándo se generó: en una bitácora hace falta saber de cuándo es lo
+      -- que se está leyendo, no sólo de qué evaluación.
+      'generado', (select creado_at from enlace)
+    )
+    -- Token equivocado, enlace apagado o evaluación borrada: lo mismo, para
+    -- que no se pueda adivinar un token comparando respuestas.
+    else jsonb_build_object('evaluacion', null)
+  end;
+$$;
+
+-- ----------------------------------------------------------------------------
+-- 4) Permisos de la función
+-- ----------------------------------------------------------------------------
+-- `anon`, porque la pantalla corre sin sesión; y `authenticated`, porque el
+-- enlace lo puede abrir alguien que YA tiene sesión (el propio Líder mirando
+-- su link con la app abierta). Sin el segundo grant, abrir el enlace con la
+-- sesión puesta daba "permission denied" y parecía que estaba roto.
+--
+-- El revoke va con PUBLIC porque los permisos en Postgres son aditivos: sin
+-- quitar el grant heredado, cualquier rol seguiría pudiendo llamarla. Y el
+-- revoke va DESPUÉS del `create or replace`, que reactiva ese permiso.
+revoke execute on function public.ver_cargos_compartidos(text) from public, anon;
+grant  execute on function public.ver_cargos_compartidos(text) to anon, authenticated;
+
+commit;
+
+-- ============================================================================
+-- Verificación (sólo lectura)
+-- ============================================================================
+
+-- 1) La tabla tiene que dar anon_select = false.
+select
+  c.relname as tabla,
+  has_table_privilege('anon', c.oid, 'select')          as anon_select,
+  has_table_privilege('authenticated', c.oid, 'select')  as sesion_select
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'cargos_compartidos';
+
+-- 2) La función, abierta a las dos sesiones y cerrada a PUBLIC.
+select
+  p.proname,
+  has_function_privilege('anon', p.oid, 'execute')          as anon_puede,
+  has_function_privilege('authenticated', p.oid, 'execute') as sesion_puede,
+  has_function_privilege('public', p.oid, 'execute')         as public_puede
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.proname = 'ver_cargos_compartidos';
+
+-- 3) RLS encendido y las dos políticas.
+select
+  c.relname,
+  c.relrowsecurity as rls,
+  (select count(*)::int from pg_policies pp
+    where pp.schemaname = 'public' and pp.tablename = c.relname) as politicas
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'cargos_compartidos';
+
+
+-- ###########################################################################
 -- Archivo consolidado: conciliacion-borrar-productos.sql
 -- ###########################################################################
 -- ============================================================================
@@ -3672,10 +3892,11 @@ grant  execute on function public.upsert_respuestas(jsonb) to authenticated;
 -- ----------------------------------------------------------------------------
 -- 6) Enlace publico de conciliacion: `anon` SI, a proposito
 -- ----------------------------------------------------------------------------
--- Es la UNICA apertura a `anon` despues del login, y es deliberada. Existe una
--- pantalla publica (`/compartir/:token`) que muestra la conciliacion de UNA
--- evaluacion a quien no tiene cuenta: el coordinador de inventario que quiere
--- ver el proceso sin que le den acceso a la app.
+-- Es una de las DOS aperturas a `anon` despues del login (la otra es el
+-- enlace de fallas por cargo, de mas abajo), y ambas son deliberadas. Existe
+-- una pantalla publica (`/compartir/:token`) que muestra la conciliacion de
+-- UNA evaluacion a quien no tiene cuenta: el coordinador de inventario que
+-- quiere ver el proceso sin que le den acceso a la app.
 --
 -- Lo que la hace segura no es el permiso de tabla (no tiene ninguno: el revoke
 -- general de `cerrar-permisos-anon.sql` se la deja quitada) sino que es
@@ -3693,7 +3914,30 @@ revoke execute on function public.ver_conciliacion_compartida(text) from public,
 grant  execute on function public.ver_conciliacion_compartida(text) to anon, authenticated;
 
 -- ----------------------------------------------------------------------------
--- 7) Utilerias que se corren a mano desde el SQL Editor
+-- 7) Enlace publico de fallas por cargo: `anon` SI, a proposito
+-- ----------------------------------------------------------------------------
+-- La otra apertura deliberada. Una pantalla publica
+-- (`/compartir/cargos/:token`) muestra los pendientes de los cargos que el
+-- lider eligio: la bitacora de atencion del trabajador, que la mira sin
+-- cuenta en la app.
+--
+-- Lo que devuelve es distinto al de conciliacion y por eso es un bloque
+-- aparte: el reporte CONGELADO (`datos`, jsonb) que se genero al compartir,
+-- con las rutas de las fotos —que la pantalla firma al abrirse, asi el
+-- enlace no se vence con el tiempo—. No hay respuestas ni items sueltos que
+-- filtrar porque no se devuelven: el enlace expone exactamente los pendientes
+-- de los cargos elegidos y nada mas.
+--
+-- SECURITY DEFINER con `search_path` fijo, y sin token valido devuelve
+-- `evaluacion: null`, indistinguible de "no existe": no se pueden enumerar
+-- enlaces probando tokens.
+--
+-- La app la llama por RPC desde src/lib/data/compartirCargos.ts, SIN sesion.
+revoke execute on function public.ver_cargos_compartidos(text) from public, anon;
+grant  execute on function public.ver_cargos_compartidos(text) to anon, authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 8) Utilerias que se corren a mano desde el SQL Editor
 -- ----------------------------------------------------------------------------
 -- Estas cuatro no las llama la app, asi que quedan cerradas para todos:
 --
@@ -4617,16 +4861,19 @@ order by p.proname;
 -- ----------------------------------------------------------------------------
 -- 'intento_login' y 'email_por_usuario' si van abiertas: son la pantalla de
 -- login, que corre antes de autenticar, y por ahi no se puede evitar.
--- 'ver_conciliacion_compartida' tambien, y es la tercera y ultima: es el
+-- 'ver_conciliacion_compartida' tambien, y es la cuarta y ultima: es el
 -- enlace publico de conciliacion (`/compartir/:token`). Es SECURITY DEFINER,
 -- con search_path fijo y con el token como unica autorizacion; ver
--- `compartir-evaluacion.sql`.
+-- `compartir-evaluacion.sql`. La tercera es `ver_cargos_compartidos`, el
+-- enlace de fallas por cargo (`/compartir/cargos/:token`), con las mismas
+-- condiciones; ver `compartir-cargos.sql`.
 -- Las demas deberian dar 'ok' (cerradas para anon).
 select
   p.proname as funcion,
   has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede,
   case
-    when p.proname in ('intento_login', 'email_por_usuario', 'ver_conciliacion_compartida')
+    when p.proname in ('intento_login', 'email_por_usuario', 'ver_conciliacion_compartida',
+                       'ver_cargos_compartidos')
       then 'permitido sin sesion'
     when has_function_privilege('anon', p.oid, 'EXECUTE')
       then 'ABIERTA A ANON: correr reactivar-politicas.sql'
@@ -4640,6 +4887,7 @@ where n.nspname = 'public'
     'validar_modulo_compartido', 'validar_unico_evaluador_modulo',
     'desbloquear_usuario', 'registrar_sync',
     'intento_login', 'email_por_usuario', 'ver_conciliacion_compartida',
+    'ver_cargos_compartidos',
     'mergear_conciliacion', 'puede_usar_revision_pre_entrega',
     'previsualizar_departamentos', 'aplicar_departamentos'
   )

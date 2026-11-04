@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileDown, FileSpreadsheet } from 'lucide-react'
+import { FileDown, FileSpreadsheet, Link2 } from 'lucide-react'
 import { Button, Input, Modal, Spinner } from './ui'
 
 /**
@@ -27,6 +27,8 @@ export function SelectorReporteCargo({
   onClose,
   cargos,
   onDescargar,
+  onCompartir,
+  compartiendo,
   generando
 }: {
   abierto: boolean
@@ -34,6 +36,14 @@ export function SelectorReporteCargo({
   /** Cargos evaluados, en el orden en que se quieren ofrecer. */
   cargos: CargoSeleccionable[]
   onDescargar: (cargosElegidos: string[], formato: 'pdf' | 'excel') => void
+  /**
+   * Genera el enlace PÚBLICO con los cargos elegidos: la bitácora de atención
+   * del trabajador. Opcional para no obligar a las pantallas que sólo bajan
+   * archivos a implementarlo.
+   */
+  onCompartir?: (cargosElegidos: string[]) => void
+  /** ¿Se está generando el enlace ahora? Para el spinner de ese botón. */
+  compartiendo?: boolean
   /** Formato que se está generando ahora, para el spinner del botón. */
   generando: 'pdf' | 'excel' | null
 }) {
@@ -94,6 +104,19 @@ export function SelectorReporteCargo({
             <Button variant="ghost" onClick={onClose}>
               Cancelar
             </Button>
+            {onCompartir ? (
+              <Button
+                variant="secondary"
+                onClick={() => onCompartir(elegidos)}
+                disabled={cantidad === 0 || compartiendo || generando != null}
+                aria-busy={compartiendo}
+                className="gap-1.5"
+                title="Genera un enlace de sólo lectura con estos pendientes, para mandárselo a quien no tiene cuenta"
+              >
+                {compartiendo ? <Spinner size={16} /> : <Link2 className="h-4 w-4" />}
+                {compartiendo ? 'Generando…' : 'Compartir'}
+              </Button>
+            ) : null}
             <Button
               variant="secondary"
               onClick={() => onDescargar(elegidos, 'excel')}
@@ -119,6 +142,9 @@ export function SelectorReporteCargo({
         <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
           Sale un bloque por cargo con los ítems en los que quedó mal, los checks concretos que fallaron y
           los puntos que le costaron. Es el mismo detalle del modal «Fallas de…», para los cargos que elijas.
+          {onCompartir
+            ? ' Con «Compartir» se genera un enlace de sólo lectura con ese mismo contenido —con las reincidencias de cada punto— para mandárselo a quien no tiene cuenta.'
+            : ''}
         </p>
 
         {cargos.length === 0 ? (

@@ -29,6 +29,8 @@ import autoTable from 'jspdf-autotable'
 import { etiquetaTipo, redondear3, type FallaResponsable } from '../scoring'
 import { evidenciasDeFalla, type EvidenciaPunto } from '../evidencias'
 import { esVideoPath } from '../fotos'
+import { puntosFalladosDeCargo } from '../data/seguimientoEvaluaciones'
+import type { ConjuntoDatos } from '../data/indicadores'
 import { supabase } from '../supabase'
 import {
   ESTILO_TABLA,
@@ -41,6 +43,23 @@ import {
 import { barra, FONDO, formatoFecha, GRIS, GRIS_CLARO, MARINO, MARINO_CLARO, ROJO } from './graficos'
 import { ESTADO_NO_APROBADO } from './estados'
 import { ponerLogoAlPie, xTextoDelPie } from './marcaPie'
+
+/**
+ * Qué le pasó a UN punto en el histórico del cargo, en esa unidad.
+ *
+ * Van juntas la falta y la reincidencia porque el número sólo se entiende
+ * acompañado: «reincidente» sin decir «5 faltas en el histórico» es un juicio
+ * sin contexto, y «5 faltas» sin decir cuántas se repitieron esconde que tres
+ * de ellas cayeron seguidas.
+ */
+export interface HistorialPunto {
+  /** Cuántas veces le falló ese punto en el histórico del cargo en esa unidad. */
+  faltas: number
+  /** Cuántas de esas faltas se repitieron en la evaluación inmediata anterior. */
+  reincidencias: number
+  /** ¿Esta falla se repitió en la evaluación anterior? Es el chip de «reincidente». */
+  esReincidente: boolean
+}
 
 /** Un ítem que le salió mal a un cargo, tal como lo muestra el modal del detalle. */
 export interface PendienteCargo {
@@ -69,6 +88,16 @@ export interface PendienteCargo {
    * TOTAL sigue diciendo cuánto costó el ítem.
    */
   puntos: number[]
+  /**
+   * Cuántas veces le falló CADA punto en el histórico de esa unidad, y cuántas
+   * de esas faltas se repitieron (la clave es el nombre del punto; `''` en los
+   * ítems sin checks, donde la falla es del ítem entero).
+   *
+   * Es lo que hace que la pantalla pública pueda decir «reincidente»: sin el
+   * histórico de la unidad no se puede decidir, así que viene vacío cuando el
+   * reporte se arma sin él y el documento sale igual, sólo que sin ese chip.
+   */
+  historial: Record<string, HistorialPunto>
   /**
    * Lo de CADA punto del pendiente: su observación y sus fotos, en el mismo
    * orden en que se imprimen. Es lo que hace que una foto salga debajo del
@@ -526,6 +555,16 @@ export interface ContextoReporteCargos {
    * Sin ellos la fila imprime «—» y el TOTAL sigue diciendo cuánto costó.
    */
   items?: { id: string; opciones?: { id: string; puntos?: number }[] | null }[]
+  /**
+   * El histórico de la unidad, para el **historial de reincidencias** de cada
+   * punto: es lo que permite decir «esto ya falló la vez pasada».
+   *
+   * Sin él los pendientes salen con `historial` vacío y el documento se imprime
+   * igual, sólo que sin ese dato. No es opcional por gusto: calcularlo exige
+   * las evaluaciones anteriores de la sucursal, que no están en el detalle de
+   * una sola evaluación.
+   */
+  historial?: { datos: ConjuntoDatos; unidadId: string; evaluacionId: string }
 }
 
 /**
@@ -553,38 +592,68 @@ export function armarReporteCargos(
   const opcionesDe = new Map((contexto?.items ?? []).map((i) => [i.id, i.opciones ?? []]))
   return {
     ...encabezado,
-    cargos: elegidos.map((e) => ({
-      cargo: e.cargo,
-      porciento: e.porciento,
-      perdidos: e.fallas.reduce((suma, f) => suma + f.perdidos, 0),
-      pendientes: [...e.fallas]
-        .sort((a, b) => b.perdidos - a.perdidos)
-        .map((f) => {
-          // Las fotos y las observaciones se resuelven UNA vez por pendiente,
-          // contra las respuestas del ítem: en los ítems de lista cada punto
-          // tiene las suyas, y darle las del ítem entero sería imprimirle a un
-          // cargo evidencia de un punto que no es suyo.
-          const evidencias = contexto
-            ? evidenciasDeFalla({
-                tipo: f.tipo,
-                checkIds: f.checkIds,
-                checks: f.checks,
-                respuestas: respuestasDe.get(f.item_id) ?? [],
-                pathsDeTabla: (fotosDe.get(f.item_id) ?? []).map((foto) => foto.path)
-              })
-            : []
-          return {
-            item: f.texto,
-            modulo: f.modulo_id ? (nombreModulo.get(f.modulo_id) ?? null) : null,
-            tipo: f.tipo,
-            perdidos: f.perdidos,
-            checks: f.checks,
-            puntos: contexto ? repartirPuntos(f, opcionesDe.get(f.item_id) ?? []) : [],
-            evidencias,
-            fotos: evidencias.flatMap((ev) => ev.fotos)
-          }
-        })
-    }))
+    cargos: elegidos.map((e) => {
+      // El historial de reincidencias es POR CARGO: `puntosFalladosDeCargo`
+      // mide a ese cargo contra el histórico de esa unidad y devuelve sólo los
+      // puntos que cayeron en ESTA evaluación.
+      const porPunto = new Map<string, HistorialPunto>()
+      if (contexto?.historial) {
+        const puntos = puntosFalladosDeCargo(
+          contexto.historial.datos,
+          e.cargo,
+          contexto.historial.unidadId,
+          contexto.historial.evaluacionId
+        )
+        // La clave es el nombre del punto (dentro de un ítem son únicos); en
+        // los ítems sin checks el punto es el ítem entero y `check` viene
+        // null, que viaja como cadena vacía.
+        for (const p of puntos) {
+          porPunto.set(p.check ?? '', {
+            faltas: p.faltas,
+            reincidencias: p.reincidencias,
+            esReincidente: p.esReincidente
+          })
+        }
+      }
+      return {
+        cargo: e.cargo,
+        porciento: e.porciento,
+        perdidos: e.fallas.reduce((suma, f) => suma + f.perdidos, 0),
+        pendientes: [...e.fallas]
+          .sort((a, b) => b.perdidos - a.perdidos)
+          .map((f) => {
+            // Las fotos y las observaciones se resuelven UNA vez por pendiente,
+            // contra las respuestas del ítem: en los ítems de lista cada punto
+            // tiene las suyas, y darle las del ítem entero sería imprimirle a un
+            // cargo evidencia de un punto que no es suyo.
+            const evidencias = contexto
+              ? evidenciasDeFalla({
+                  tipo: f.tipo,
+                  checkIds: f.checkIds,
+                  checks: f.checks,
+                  respuestas: respuestasDe.get(f.item_id) ?? [],
+                  pathsDeTabla: (fotosDe.get(f.item_id) ?? []).map((foto) => foto.path)
+                })
+              : []
+            const historial: Record<string, HistorialPunto> = {}
+            for (const check of f.checks.length ? f.checks : ['']) {
+              const h = porPunto.get(check)
+              if (h) historial[check] = h
+            }
+            return {
+              item: f.texto,
+              modulo: f.modulo_id ? (nombreModulo.get(f.modulo_id) ?? null) : null,
+              tipo: f.tipo,
+              perdidos: f.perdidos,
+              checks: f.checks,
+              puntos: contexto ? repartirPuntos(f, opcionesDe.get(f.item_id) ?? []) : [],
+              evidencias,
+              historial,
+              fotos: evidencias.flatMap((ev) => ev.fotos)
+            }
+          })
+      }
+    })
   }
 }
 

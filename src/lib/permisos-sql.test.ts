@@ -240,10 +240,16 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
     //
     // Ojo con el rol: no es el mismo para todas. `intento_login` y
     // `email_por_usuario` se llaman en la pantalla de login, que corre SIN
-    // sesión, así que su grant tiene que llegar a `anon`. Todas las demás se
-    // llaman con la sesión ya puesta, y para esas el que sirve es `authenticated`.
-    // Exigir `authenticated` para todas rompería las dos del login.
-    const sinSesion = new Set(['intento_login', 'email_por_usuario', 'ver_conciliacion_compartida'])
+    // sesión, así que su grant tiene que llegar a `anon`. Las dos de los
+    // enlaces públicos también: la pantalla corre sin cuenta. Todas las demás
+    // se llaman con la sesión ya puesta, y para esas el que sirve es
+    // `authenticated`. Exigir `authenticated` para todas rompería el login.
+    const sinSesion = new Set([
+      'intento_login',
+      'email_por_usuario',
+      'ver_conciliacion_compartida',
+      'ver_cargos_compartidos'
+    ])
     const rpcs = new Set([...codigoApp.matchAll(/supabase\.rpc\(\s*'(\w+)'/g)].map((m) => m[1]))
     expect(rpcs.size).toBeGreaterThan(0)
     for (const fn of rpcs) {
@@ -256,20 +262,26 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
   })
 })
 
-describe('schema.sql · el enlace público de conciliación', () => {
+describe('schema.sql · los enlaces públicos', () => {
   /**
-   * Es la única apertura a `anon` que existe después del login, y es
-   * deliberada: hay una pantalla pública (`/compartir/:token`) para quien
-   * quiere ver la conciliación de una evaluación sin tener cuenta. Estos tests
-   * existen para que la próxima apertura tenga que venir con su motivo.
+   * Son las únicas aperturas a `anon` que existen después del login, y son
+   * deliberadas: hay pantallas públicas (`/compartir/:token` y
+   * `/compartir/cargos/:token`) para quien quiere ver una evaluación sin
+   * tener cuenta. Estos tests existen para que la próxima apertura tenga que
+   * venir con su motivo.
    */
-  it('la única función abierta a anon, además de las del login, es el enlace', () => {
+  it('las únicas funciones abiertas a anon, además de las del login, son los enlaces', () => {
     const abiertas = [...remediation.matchAll(
       /grant\s+execute\s+on\s+function\s+public\.(\w+)\([^)]*\)\s+to\s+([^;]*\banon\b[^;]*);/gi
     )]
       .map((m) => m[1])
       .sort()
-    expect(abiertas).toEqual(['email_por_usuario', 'intento_login', 'ver_conciliacion_compartida'])
+    expect(abiertas).toEqual([
+      'email_por_usuario',
+      'intento_login',
+      'ver_cargos_compartidos',
+      'ver_conciliacion_compartida'
+    ])
   })
 
   it('la puerta es el token, y un token malo no devuelve nada', () => {

@@ -40,6 +40,11 @@ const BitacoraPage = lazy(() => import('./pages/config/Bitacora').then((m) => ({
 const ConciliacionPublica = lazy(() =>
   import('./pages/publico/ConciliacionPublica').then((m) => ({ default: m.ConciliacionPublica }))
 )
+// La otra de invitado: las fallas por cargo (la bitácora de atención del
+// trabajador), también con lazy.
+const CargosPublicos = lazy(() =>
+  import('./pages/publico/CargosPublicos').then((m) => ({ default: m.CargosPublicos }))
+)
 // Inspección de vehículo (estética + mecánica + gas vehicular): herramienta
 // fuera de la evaluación, con fotos, registro local y PDF.
 const InspeccionVehiculo = lazy(() =>
@@ -77,6 +82,9 @@ function Rutas() {
                         le pasa al coordinador de inventario para que vea la
                         conciliación sin tener cuenta. La autorización es el
                         token, y sólo da lectura — ver `supabase/compartir-evaluacion.sql`. */}
+                    {/* Enlace de INVITADO: la otra pantalla pública, con su
+                        propia ruta para no pisar el de conciliación. */}
+                    <Route path="/compartir/cargos/:token" element={<CargosPublicos />} />
                     <Route path="/compartir/:token" element={<ConciliacionPublica />} />
                     <Route
                       path="/evaluaciones/:evaluacionId"

@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { armarReporteCargos, buildReporteCargos, type ReporteCargosDatos } from './reporteCargos'
 import { hojasReporteCargos } from '../excelCargos'
-import type { FallaResponsable } from '../scoring'
+import { fallasDeResponsable, type FallaResponsable } from '../scoring'
+import type { ConjuntoDatos } from '../data/indicadores'
+import type { Item, Modulo, Respuesta, VistaEvaluacion } from '../types'
 
 const datos: ReporteCargosDatos = {
   unidad: 'Sucursal Centro',
@@ -24,6 +26,7 @@ const datos: ReporteCargosDatos = {
           checks: ['Sellos de puertas sin fugas', 'Sensor de alarma conectado'],
           puntos: [],
           evidencias: [],
+          historial: {},
           fotos: []
         },
         {
@@ -34,6 +37,7 @@ const datos: ReporteCargosDatos = {
           checks: [],
           puntos: [],
           evidencias: [],
+          historial: {},
           fotos: []
         }
       ]
@@ -195,6 +199,7 @@ describe('armarReporteCargos · la frontera entre la pantalla y el documento', (
       // fotos, pero el pendiente existe igual.
       puntos: [],
       evidencias: [],
+      historial: {},
       fotos: []
     })
     expect(cargo.pendientes[1].modulo).toBe('Higiene y salubridad')
@@ -364,6 +369,7 @@ describe('reporte de pendientes por cargo · observaciones de los puntos', () =>
             checks: ['Sellos de puertas sin fugas'],
             puntos: [],
             evidencias,
+            historial: {},
             fotos: [],
             ...extra
           }
@@ -641,6 +647,7 @@ describe('reporte de pendientes por cargo · el orden en que se pinta', () => {
                   fotos: ['ev/3.png']
                 }
               ],
+              historial: {},
               fotos: ['ev/1.png', 'ev/2.png', 'ev/3.png']
             },
             {
@@ -654,6 +661,7 @@ describe('reporte de pendientes por cargo · el orden en que se pinta', () => {
                 { checkId: null, punto: '', comentario: 'Se reparó el estante', fotos: ['ev/4.png'] },
                 { checkId: null, punto: '', comentario: 'Falta el precio base', fotos: [] }
               ],
+              historial: {},
               fotos: ['ev/4.png']
             }
           ]
@@ -700,5 +708,93 @@ describe('reporte de pendientes por cargo · el orden en que se pinta', () => {
     expect(obs1).toBeGreaterThan(-1)
     expect(obs1).toBeLessThan(foto4)
     expect(obs1).toBeLessThan(obs2)
+  })
+})
+
+describe('reporte de pendientes por cargo · el historial de reincidencias', () => {
+  const MODULO: Modulo = { id: 'm-1', nombre: 'Higiene', descripcion: '', orden: 0, activo: true, created_at: '' }
+  const ITEM: Item = {
+    id: 'i-chk',
+    modulo_id: 'm-1',
+    tipo: 'CHECKLIST',
+    texto: 'Puntos de limpieza',
+    opciones: [
+      { id: 'op-1', etiqueta: 'Piso lavado', responsable: 'Depositaría' },
+      { id: 'op-2', etiqueta: 'Góndolas sin polvo', responsable: 'Depositaría' }
+    ],
+    orden: 0,
+    requerido: false,
+    activo: true,
+    puntaje: 100,
+    created_at: ''
+  }
+  const ev = (id: string, fecha: string): VistaEvaluacion => ({
+    id,
+    offline_uuid: `off-${id}`,
+    sucursal_id: 'sN',
+    departamento_id: null,
+    aperturada_por: 'u1',
+    fecha,
+    estado: 'CERRADA',
+    puntuacion: 50,
+    comentario_general: null,
+    abierta_en: null,
+    cerrada_en: null,
+    created_at: '',
+    sucursal: { id: 'sN', nombre: 'Sucursal Norte', shop_id: null, branch_id: null, direccion: null },
+    aperturador: null
+  })
+  // Sólo el op-2 tildado: «Piso lavado» cae en las DOS evaluaciones.
+  const respuesta = (evId: string): Respuesta => ({
+    id: `${evId}-i-chk`,
+    evaluacion_id: evId,
+    item_id: 'i-chk',
+    instancia_id: null,
+    valor: { selected: ['op-2'] },
+    respondido_por: null,
+    created_at: ''
+  })
+
+  const conjunto = (): ConjuntoDatos => ({
+    evaluaciones: [ev('ev1', '2026-01-01'), ev('ev2', '2026-02-01')],
+    respuestas: [respuesta('ev1'), respuesta('ev2')],
+    items: [ITEM],
+    modulos: [MODULO],
+    fotos: [],
+    sucursalOpciones: [],
+    instancias: []
+  })
+
+  const armar = (conHistorial: boolean) =>
+    armarReporteCargos(
+      { unidad: 'Sucursal Norte', referencia: null, fecha: '2026-02-01', puntajeGeneral: 50 },
+      [
+        {
+          cargo: 'Depositaría',
+          porciento: 50,
+          fallas: fallasDeResponsable('Depositaría', [ITEM], [respuesta('ev2')])
+        }
+      ],
+      [MODULO],
+      {
+        respuestas: [respuesta('ev2')],
+        items: [ITEM],
+        ...(conHistorial ? { historial: { datos: conjunto(), unidadId: 'sN', evaluacionId: 'ev2' } } : {})
+      }
+    )
+
+  it('cuelga de cada punto su historia en la unidad', () => {
+    // Es la misma cuenta que usa el Seguimiento por cargo: el punto cayó en
+    // ev1 y en ev2, así que en ev2 es la segunda vez seguida.
+    const [p] = armar(true).cargos[0].pendientes
+    expect(p.checks).toEqual(['Piso lavado'])
+    expect(p.historial['Piso lavado']).toEqual({ faltas: 2, reincidencias: 1, esReincidente: true })
+  })
+
+  it('sin el histórico el documento sale igual, sólo que sin ese dato', () => {
+    // El PDF y el Excel no lo usan: sólo lo pide quien comparte el enlace.
+    const [p] = armar(false).cargos[0].pendientes
+    expect(p.checks).toEqual(['Piso lavado'])
+    expect(p.historial).toEqual({})
   })
 })
