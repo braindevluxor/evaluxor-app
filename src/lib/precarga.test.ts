@@ -226,3 +226,68 @@ describe('precargarSeccionesDe', () => {
     expect(out.respuestas['it-comp::nuevo-1']).toEqual({ valor: { selected: ['x'] }, por: 'yo' })
   })
 })
+
+describe('precargarSeccionesDe · la conciliación se muestrea, no se copia', () => {
+  const conConciliacion = [
+    { id: 'sec-inv', tipo: 'CONTENEDOR', padre_id: null },
+    { id: 'it-conc', tipo: 'CONCILIACION', padre_id: 'sec-inv' }
+  ]
+
+  /** `n` SKU: los primeros descuadrados, el resto conciliados. */
+  const productosDe = (descuadrados: number, conciliados: number) => [
+    ...Array.from({ length: descuadrados }, (_, i) => ({ sku: `d${i}`, teorica: 10, fisica: 8 })),
+    ...Array.from({ length: conciliados }, (_, i) => ({ sku: `c${i}`, teorica: 5, fisica: 5 }))
+  ]
+
+  const previaCon = (productos: Record<string, unknown>[]) => ({
+    instancias: [registro('v1', 'sec-inv', 'GÓNDOLA 1', 0)],
+    respuestas: [
+      { item_id: 'it-conc', instancia_id: 'v1', valor: { productos } }
+    ] as RespuestaPrevia[]
+  })
+
+  const skusTraidos = (out: ReturnType<typeof precargarSeccionesDe>): string[] =>
+    ((out.respuestas['it-conc::nuevo-1'].valor as { productos: { sku: string }[] }).productos ?? []).map(
+      (p) => p.sku
+    )
+
+  it('sólo trae los SKU que no conciliaron, y de ellos un 20% (mínimo uno)', () => {
+    const out = precargarSeccionesDe(previaCon(productosDe(3, 7)), conConciliacion, {}, idsFrescos(), () => 0)
+
+    const skus = skusTraidos(out)
+    // ceil(3 * 0.2) = 1: una muestra, no la lista entera.
+    expect(skus).toHaveLength(1)
+    expect(skus[0]).toMatch(/^d/)
+    // Los que conciliaron no entran: si el inventario sigue igual, concilian
+    // solos y no hace falta verificarlos.
+    expect(skus.join(',')).not.toMatch(/c/)
+  })
+
+  it('con diez descuadrados trae dos, y cambia con la semilla: es un muestreo', () => {
+    const siemprePrimero = skusTraidos(
+      precargarSeccionesDe(previaCon(productosDe(10, 0)), conConciliacion, {}, idsFrescos(), () => 0)
+    )
+    const siempreUltimos = skusTraidos(
+      precargarSeccionesDe(previaCon(productosDe(10, 0)), conConciliacion, {}, idsFrescos(), () => 0.99)
+    )
+    expect(siemprePrimero).toHaveLength(2)
+    expect(siempreUltimos).toHaveLength(2)
+    expect(siemprePrimero).not.toEqual(siempreUltimos)
+  })
+
+  it('va SIN cantidades ni nombre: sólo el SKU', () => {
+    // El inventario cambió entre visitas: un número viejo no sólo no sirve,
+    // deja en la pantalla algo que ya no es cierto (y que puntúa si nadie lo
+    // toca). El nombre lo trae el escaneo, igual que el número.
+    const out = precargarSeccionesDe(previaCon(productosDe(2, 0)), conConciliacion, {}, idsFrescos(), () => 0)
+    const productos = (out.respuestas['it-conc::nuevo-1'].valor as { productos: Record<string, unknown>[] })
+      .productos
+    expect(productos.length).toBeGreaterThan(0)
+    for (const producto of productos) expect(Object.keys(producto)).toEqual(['sku'])
+  })
+
+  it('si todo conciliaron, la lista queda vacía', () => {
+    const out = precargarSeccionesDe(previaCon(productosDe(0, 4)), conConciliacion, {}, idsFrescos(), () => 0)
+    expect(skusTraidos(out)).toEqual([])
+  })
+})

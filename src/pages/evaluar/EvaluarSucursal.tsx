@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, CloudOff, FolderOpen, List, Plus, RefreshCw, Tag, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, CloudOff, FolderOpen, List, Plus, RefreshCw, Tag, Trash2, Undo2, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { avisar } from '../../lib/aviso'
 import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
@@ -129,6 +129,22 @@ export function EvaluarSucursal() {
   const [scanAbierto, setScanAbierto] = useState(false)
   const [confirmarBorrar, setConfirmarBorrar] = useState<string | null>(null)
   const [evaluacionId, setEvaluacionId] = useState<string | null>(null)
+  /**
+   * Qué trajo la precarga de la visita anterior, para poder DESHACERLA desde
+   * la pantalla.
+   *
+   * Se guarda al abrir con las MISMAS claves con que se armó: una vez
+   * aplicada no hay forma de distinguir lo traído de lo cargado hoy, así que
+   * sin este registro «deshacer» tendría que adivinar qué borrar.
+   */
+  const [precargado, setPrecargado] = useState<{
+    registros: number
+    respuestas: number
+    fecha: string
+    datos: PrecargaSecciones
+  } | null>(null)
+  /** Pide confirmación: la limpieza no se puede deshacer. */
+  const [confirmarPrecarga, setConfirmarPrecarga] = useState(false)
   // Botón de sincronización: subida de lo pendiente + bajada de los datos frescos.
   const [sincronizando, setSincronizando] = useState(false)
   const [avisoSync, setAvisoSync] = useState<{ texto: string; ok: boolean } | null>(null)
@@ -479,7 +495,13 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       // las secciones viene de la visita anterior, no de lo que cargó hoy.
       const registrosPrecargados = Object.values(precarga?.instancias ?? {}).reduce((n, arr) => n + arr.length, 0)
       const respuestasPrecargadas = Object.keys(precarga?.respuestas ?? {}).length
-      if (registrosPrecargados || respuestasPrecargadas) {
+      if (precarga && (registrosPrecargados || respuestasPrecargadas)) {
+        setPrecargado({
+          registros: registrosPrecargados,
+          respuestas: respuestasPrecargadas,
+          fecha: previa?.fecha ?? '',
+          datos: precarga
+        })
         const partes: string[] = []
         if (registrosPrecargados) partes.push(`${registrosPrecargados} registro${registrosPrecargados === 1 ? '' : 's'}`)
         if (respuestasPrecargadas) partes.push(`${respuestasPrecargadas} respuesta${respuestasPrecargadas === 1 ? '' : 's'}`)
@@ -971,6 +993,99 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
     }
   }
 
+  /**
+   * Deshace la precarga: borra de la evaluación TODO lo que se trajo de la
+   * visita anterior —los registros con sus respuestas y las respuestas
+   * directas—.
+   *
+   * Va contra la NUBE y no sólo contra el borrador: esos datos se subieron
+   * apenas se abrió la evaluación (ver `agendarNube`), y si sólo se
+   * borraran localmente volverían a bajar en la próxima sincronización. Los
+   * registros se borran de `instancias_grupo` —el `on delete cascade` se
+   * lleva sus respuestas— y las directas de `respuestas` (política
+   * `respuestas_delete`: sólo lo propio y sólo en evaluación abierta).
+   */
+  async function deshacerPrecarga() {
+    const actual = draftRef.current
+    if (!actual || !precargado) return
+    const evId = evaluacionIdRef.current
+    setConfirmarPrecarga(false)
+    if (!online || !evId) {
+      // Sin conexión no se puede: borrar sólo acá dejaría la nube intacta y a
+      // la próxima sincronización volvería todo.
+      avisar('Sin conexión no se puede deshacer: la limpieza tiene que llegar a la nube también.', 'aviso')
+      return
+    }
+
+    const porSeccion = new Map<string, Set<string>>()
+    for (const [itemId, arr] of Object.entries(precargado.datos.instancias)) {
+      porSeccion.set(itemId, new Set(arr.map((r) => r.id)))
+    }
+    const claves = Object.keys(precargado.datos.respuestas)
+
+    // 1) El borrador local PRIMERO: una subida pendiente se dispara leyendo
+    //    `draftRef.current`, así que con el borrador ya limpio no vuelve a
+    //    subir lo que acabamos de borrar.
+    const respuestas: DraftEval['respuestas'] = {}
+    for (const [k, v] of Object.entries(actual.respuestas)) {
+      if (claves.includes(k)) continue
+      const [itemId, instId] = k.split('::')
+      if (instId && porSeccion.get(itemId)?.has(instId)) continue
+      respuestas[k] = v
+    }
+    const instancias: Record<string, DraftInstancia[]> = {}
+    for (const [itemId, arr] of Object.entries(actual.instancias)) {
+      const borrar = porSeccion.get(itemId)
+      instancias[itemId] = borrar ? arr.filter((r) => !borrar.has(r.id)) : arr
+    }
+    const limpio: DraftEval = { ...actual, respuestas, instancias, updated_at: Date.now() }
+    draftRef.current = limpio
+    setDraft(limpio)
+    void putDraft(limpio).catch(() => undefined)
+
+    // 2) La nube.
+    try {
+      for (const id of [...porSeccion.values()].flatMap((set) => [...set])) {
+        const { error } = await supabase.from('instancias_grupo').delete().eq('id', id)
+        if (error) throw new Error(error.message)
+      }
+      // Las respuestas directas (sin instancia) no tienen cascada: se borran
+      // por ítem, con la fila que quedó vacía al final.
+      const directas = Array.from(
+        new Set(claves.filter((k) => !k.split('::')[1]).map((k) => k.split('::')[0]))
+      )
+      for (const itemId of directas) {
+        const { error } = await supabase
+          .from('respuestas')
+          .delete()
+          .eq('evaluacion_id', evId)
+          .eq('item_id', itemId)
+          .is('instancia_id', null)
+        if (error) throw new Error(error.message)
+      }
+    } catch (e) {
+      // El borrador local ya quedó limpio; el banner sigue de pie para
+      // reintentar, que la operación es idempotente.
+      avisar(`No se pudo limpiar la nube: ${e instanceof Error ? e.message : 'volvé a intentarlo'}`, 'error')
+      return
+    }
+
+    setPrecargado(null)
+    avisar('Se limpió lo traído de la visita anterior.')
+  }
+
+  /** «3 registros y 5 respuestas»: lo que trajo la precarga, para avisar y para el diálogo. */
+  const resumenPrecarga = precargado
+    ? [
+        precargado.registros ? `${precargado.registros} registro${precargado.registros === 1 ? '' : 's'}` : '',
+        precargado.respuestas
+          ? `${precargado.respuestas} respuesta${precargado.respuestas === 1 ? '' : 's'}`
+          : ''
+      ]
+        .filter(Boolean)
+        .join(' y ')
+    : ''
+
   const burbuja = (
     <button
       type="button"
@@ -1032,6 +1147,35 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
           >
             {avisoSync.ok ? <Check className="mt-px h-4 w-4 shrink-0" /> : <X className="mt-px h-4 w-4 shrink-0" />}
             <span className="min-w-0 flex-1">{avisoSync.texto}</span>
+          </div>
+        ) : null}
+        {/* La precarga de la visita anterior: el toast que avisa al abrir se
+            va en segundos y la decisión puede ser después, así que el aviso
+            —con su botón— queda mientras haya algo traído que limpiar. */}
+        {precargado ? (
+          <div className="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900">
+            <Undo2 className="mt-px h-4 w-4 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="font-black">
+                {resumenPrecarga} traídos de la visita del{' '}
+                {new Date(`${precargado.fecha}T12:00:00`).toLocaleDateString('es', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric'
+                })}
+              </p>
+              <p className="mt-0.5 font-medium leading-snug">
+                Si el inventario cambió, limpiá todo y empezá esta evaluación de cero.
+              </p>
+              <button
+                type="button"
+                onClick={() => setConfirmarPrecarga(true)}
+                className="mt-1.5 inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-sky-800"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+                Deshacer precarga
+              </button>
+            </div>
           </div>
         ) : null}
         {descarte.item_ids.length ? (
@@ -1647,6 +1791,28 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       >
         <p className="text-sm text-slate-600">
           Se eliminará este registro y todas sus respuestas. Esta acción no se puede deshacer.
+        </p>
+      </Modal>
+
+      <Modal
+        open={confirmarPrecarga}
+        onClose={() => setConfirmarPrecarga(false)}
+        title="Deshacer precarga"
+        footer={
+          <div className="flex gap-2">
+            <Button variant="secondary" className="flex-1" onClick={() => setConfirmarPrecarga(false)}>
+              Cancelar
+            </Button>
+            <Button variant="danger" className="flex-1" onClick={() => void deshacerPrecarga()}>
+              Limpiar
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          Se borrarán {resumenPrecarga}, que se trajeron de la visita anterior. Si cargaste o editaste
+          encima de esos registros, eso también se pierde. Esta acción no se puede deshacer y se borra
+          también en la nube.
         </p>
       </Modal>
     </MobileLayout>

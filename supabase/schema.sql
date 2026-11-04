@@ -888,6 +888,25 @@ create policy respuestas_update on public.respuestas for update
   with check (public.puede_responder(evaluacion_id, item_id)
     and (respondido_por = auth.uid() or public.es_lider()));
 
+-- BORRAR ---------------------------------------------------------------------
+-- El camino de «deshacer la precarga»: limpiar de la evaluación las
+-- respuestas que se trajeron de la visita anterior, que a los segundos ya
+-- subieron a la nube (se suben apenas se abre). Sin este delete la limpieza
+-- sólo duraba hasta el próximo reload, porque lo propio vuelve a bajar.
+--
+-- Sólo lo PROPIO y sólo mientras la evaluación está ABierta: borrar de una
+-- cerrada sería reescribir el historial. No le da poder de más a nadie — ya
+-- puede reescribir sus propias respuestas con respuestas_update — sólo le
+-- quita filas, y las suyas.
+drop policy if exists respuestas_delete on public.respuestas;
+create policy respuestas_delete on public.respuestas for delete using (
+  respondido_por = auth.uid()
+  and exists (
+    select 1 from public.evaluaciones e
+    where e.id = evaluacion_id and e.estado = 'ACTIVA'
+  )
+);
+
 -- INSTANCIAS_GRUPO --------------------------------------------------------------
 -- Select: quien puede ver la evaluaciÃ³n. Insert/Update/Delete: quien puede
 -- manejar el mÃ³dulo de la secciÃ³n (el delete en cascada limpia sus respuestas).
@@ -4710,7 +4729,7 @@ order by (p.proname in ('es_lider','puede_ver_evaluacion','puede_responder',
 -- decir 'ok'. Cualquier otra cosa es un problema y esta escrito por que.
 --
 --   1) RLS encendido en cada tabla y con al menos una politica.
---   2) Las 60 politicas del repo, una por fila, marcando las que falten.
+--   2) Las 61 politicas del repo, una por fila, marcando las que falten.
 --   3) Que los helpers de RLS conserven EXECUTE para authenticated.
 --   4) Que las funciones con datos no hayan quedado abiertas a anon.
 -- ============================================================================
@@ -4749,7 +4768,7 @@ order by c.relrowsecurity, n.nspname || '.' || c.relname;
 -- ----------------------------------------------------------------------------
 -- 2) Las politicas del repo, una por fila
 -- ----------------------------------------------------------------------------
--- Si esta consulta NO devuelve filas, estan las 60. Cada fila que aparezca es
+-- Si esta consulta NO devuelve filas, estan las 61. Cada fila que aparezca es
 -- una politica que falta: se creo la tabla pero no su regla, y queda abierta o
 -- inaccesible segun el caso.
 with esperadas (politica, tabla) as (
@@ -4780,6 +4799,7 @@ with esperadas (politica, tabla) as (
     ('modulos_select', 'public.modulos'),
     ('profiles_lider', 'public.profiles'),
     ('profiles_select', 'public.profiles'),
+    ('respuestas_delete', 'public.respuestas'),
     ('respuestas_insert', 'public.respuestas'),
     ('respuestas_select', 'public.respuestas'),
     ('respuestas_update', 'public.respuestas'),

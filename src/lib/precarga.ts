@@ -1,6 +1,7 @@
 import { claveRespuesta } from './pasos'
 import { valorSinFotos } from './offline/transform'
 import { yaExisteRegistroConEtiqueta } from './registro'
+import { estadoConciliacion } from './scoring'
 import type { DraftInstancia, DraftResp } from './offline/db'
 import type { RegistroPrevio, RespuestaPrevia } from './data/precarga'
 
@@ -13,6 +14,57 @@ export interface PrecargaSecciones {
 }
 
 /**
+ * De los SKU que NO conciliaron en la visita anterior, qué parte entra como
+ * muestra en la precarga de conciliación.
+ *
+ * No se copia la conciliación entera porque el inventario cambió por completo
+ * entre visitas: traer teórica y física viejas obliga a recontar igual y
+ * encima deja en la pantalla números que ya no son ciertos (y que puntúan si
+ * nadie los toca). Lo que sí sirve es la LISTA de qué revisar —que siga
+ * descuadrando lo que ya descuadraba— y de eso sólo un 20 %, al azar: es una
+ * muestra de verificación, no el inventario completo.
+ */
+export const MUESTRA_CONCILIACION = 0.2
+
+/** Un producto de la visita anterior, con lo mínimo para muestrearlo. */
+interface ProductoPrevio {
+  sku?: string
+  teorica?: number | null
+  fisica?: number | null
+}
+
+/**
+ * La conciliación de la visita anterior, muestreada y SIN cantidades.
+ *
+ * Se queda sólo con los SKU que no conciliaron (los que sí, ya no hacen
+ * falta: si el inventario sigue igual, van a conciliar solos) y sólo con una
+ * parte de esos. Va SIN teórica ni física: el evaluador reconta y el número
+ * del sistema lo trae el escaneo, como en cualquier producto nuevo. El
+ * nombre tampoco se copia —puede haber cambiado— y lo trae el mismo escaneo.
+ */
+function conciliacionMuestreada(valor: unknown, aleatorio: () => number): unknown {
+  const v = valor as { productos?: unknown } | null
+  const productos = Array.isArray(v?.productos) ? (v.productos as ProductoPrevio[]) : []
+  const desconciliados = productos.filter(
+    (p) => typeof p.sku === 'string' && p.sku && estadoConciliacion(p) !== 'concilia'
+  )
+  const cantidad = Math.ceil(desconciliados.length * MUESTRA_CONCILIACION)
+  const muestra = muestrear(desconciliados, cantidad, aleatorio)
+  const base = (valorSinFotos(valor) ?? {}) as Record<string, unknown>
+  return { ...base, productos: muestra.map((p) => ({ sku: p.sku })) }
+}
+
+/** `cantidad` elementos elegidos al azar, sin repetir (Fisher-Yates). */
+function muestrear<T>(lista: T[], cantidad: number, aleatorio: () => number): T[] {
+  const copia = [...lista]
+  for (let i = copia.length - 1; i > 0; i--) {
+    const j = Math.floor(aleatorio() * (i + 1))
+    ;[copia[i], copia[j]] = [copia[j], copia[i]]
+  }
+  return copia.slice(0, cantidad)
+}
+
+/**
  * Valor de la visita anterior listo para el borrador nuevo: SIN evidencias.
  *
  * Las fotos de la visita vieja viven en el bucket de la evaluación ANTERIOR
@@ -21,7 +73,10 @@ export interface PrecargaSecciones {
  * local), pero los valores que vienen de la nube traen `paths` y ese tope se
  * limpia acá.
  */
-function valorDePrecarga(valor: unknown): unknown {
+function valorDePrecarga(valor: unknown, tipo: string | undefined, aleatorio: () => number): unknown {
+  // La conciliación no se copia: se muestrea, por las razones de
+  // `conciliacionMuestreada`.
+  if (tipo === 'CONCILIACION') return conciliacionMuestreada(valor, aleatorio)
   const limpio = valorSinFotos(valor)
   if (limpio && typeof limpio === 'object' && !Array.isArray(limpio) && 'paths' in limpio) {
     const copia: Record<string, unknown> = { ...(limpio as Record<string, unknown>) }
@@ -66,7 +121,9 @@ export function precargarSeccionesDe(
   previa: { instancias: RegistroPrevio[]; respuestas: RespuestaPrevia[] },
   items: { id: string; tipo: string; padre_id?: string | null; precarga?: boolean | null }[],
   existentes: Record<string, DraftInstancia[]>,
-  nuevoId: () => string = () => crypto.randomUUID()
+  nuevoId: () => string = () => crypto.randomUUID(),
+  /** Inyectable como `nuevoId` para poder probar el muestreo de conciliación. */
+  aleatorio: () => number = Math.random
 ): PrecargaSecciones {
   // Elegible para la precarga: el listado de trabajadores queda fuera sea
   // cual sea su interruptor y el resto sólo si está marcado (`!== false`:
@@ -79,6 +136,8 @@ export function precargarSeccionesDe(
   const hijos = new Set(
     items.filter((i) => i.padre_id && secciones.has(i.padre_id) && elegible(i)).map((i) => i.id)
   )
+  /** Tipo de cada ítem: es lo que decide CÓMO se copia su respuesta. */
+  const tipoDe = new Map(items.map((i) => [i.id, i.tipo]))
 
   const instancias: Record<string, DraftInstancia[]> = {}
   /** id del registro viejo → id con el que vive en la evaluación nueva. */
@@ -105,7 +164,10 @@ export function precargarSeccionesDe(
     const idNuevo = mapaIds.get(r.instancia_id)
     if (!idNuevo) continue // la sección no se copió → su respuesta tampoco
     if (!hijos.has(r.item_id)) continue
-    respuestas[claveRespuesta(r.item_id, idNuevo)] = { valor: valorDePrecarga(r.valor), por: 'yo' }
+    respuestas[claveRespuesta(r.item_id, idNuevo)] = {
+      valor: valorDePrecarga(r.valor, tipoDe.get(r.item_id), aleatorio),
+      por: 'yo'
+    }
   }
 
   // Ítems sueltos marcados: su respuesta directa de la visita anterior
@@ -117,7 +179,10 @@ export function precargarSeccionesDe(
   for (const r of previa.respuestas) {
     if (r.instancia_id) continue
     if (!sueltos.has(r.item_id)) continue
-    respuestas[claveRespuesta(r.item_id)] = { valor: valorDePrecarga(r.valor), por: 'yo' }
+    respuestas[claveRespuesta(r.item_id)] = {
+      valor: valorDePrecarga(r.valor, tipoDe.get(r.item_id), aleatorio),
+      por: 'yo'
+    }
   }
 
   return { instancias, respuestas }

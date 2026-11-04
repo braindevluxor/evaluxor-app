@@ -427,3 +427,25 @@ describe('schema.sql · marcar fotos que ya estan en el bucket', () => {
     }
   })
 })
+
+describe('schema.sql · borrar respuestas propias, sólo en evaluación abierta', () => {
+  /**
+   * Es la política que hace posible «deshacer precarga» desde la pantalla de
+   * evaluación: lo precargado se sube apenas se abre, así que limpiarlo
+   * exige poder borrar filas de `respuestas` —que antes sólo tenía select,
+   * insert y update.
+   */
+  it('la política de delete existe y exige ser el autor y que esté ACTIVA', () => {
+    expect(schema).toMatch(
+      /create policy respuestas_delete on public\.respuestas for delete using \(\s*respondido_por = auth\.uid\(\)/
+    )
+    // Sólo lo propio…
+    expect(schema).toMatch(/create policy respuestas_delete[\s\S]{0,200}respondido_por = auth\.uid\(\)/)
+    // …y sólo mientras la evaluación se está haciendo: borrar de una cerrada
+    // sería reescribir el historial.
+    expect(schema).toMatch(/create policy respuestas_delete[\s\S]{0,300}e\.estado = 'ACTIVA'/)
+    // Y entra en la lista del diagnóstico —en el archivo entero—, que cuenta
+    // las políticas del repo y la usa para decir cuáles faltan.
+    expect(schemaCompleto).toContain("('respuestas_delete', 'public.respuestas')")
+  })
+})
