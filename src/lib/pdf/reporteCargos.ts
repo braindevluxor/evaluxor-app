@@ -138,6 +138,19 @@ export interface ReporteCargosDatos {
   puntajeGeneral: number | null
   /** Los cargos elegidos para el reporte, en el orden en que se van a imprimir. */
   cargos: CargoReporte[]
+  /**
+   * Las fotos del reporte con su URL ya firmada (ruta → URL), puesta al
+   * generar el enlace público.
+   *
+   * Sólo la llena quien comparte: la firma se hace con la sesión del Líder,
+   * que es la que ya sabe bajar esas fotos (es la misma que usa el detalle),
+   * y así la pantalla pública no tiene que firmar con sesión anónima. El PDF
+   * y el Excel la ignoran: ellos bajan las fotos con `cargarImagenesReporte`.
+   *
+   * Si la firma falla, el enlace se genera igual y la pantalla pública cae en
+   * la firma anónima de respaldo.
+   */
+  fotosFirmadas?: Record<string, string>
 }
 
 const redondear2 = (n: number): number => Math.round(n * 100) / 100

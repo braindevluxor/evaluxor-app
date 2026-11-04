@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { Play } from 'lucide-react'
 import { Marco, VistaInvalida } from './Invitado'
+import { ModalImagen } from '../../components/ModalImagen'
 import { leerCargosPublicos, type CargosPublicos } from '../../lib/data/compartirCargos'
 import { esVideoPath } from '../../lib/fotos'
 import { etiquetaTipo } from '../../lib/scoring'
 import { formatearFechaHora } from '../../lib/tiempo'
 import { supabase } from '../../lib/supabase'
+import type { EvidenciaPunto } from '../../lib/evidencias'
 import type { HistorialPunto, PendienteCargo } from '../../lib/pdf/reporteCargos'
 
 /**
@@ -30,10 +33,15 @@ import type { HistorialPunto, PendienteCargo } from '../../lib/pdf/reporteCargos
  * deciden contra el histórico de la unidad). No hay refresco: si apagan el
  * enlace, la próxima apertura —o un reload— deja de servir.
  *
- * Las FOTOS se firman ACÁ, una sola vez al abrir: el bucket es privado y el
- * enlace sólo puede firmar las rutas que trae su propio reporte —no el
- * bucket entero—. Son URLs con vencimiento corto, igual que en el resto de la
- * app; si no se pudieron firmar, el documento se lee igual sin ellas.
+ * Las FOTOS se firman al GENERAR el enlace, con la sesión del Líder (la misma
+ * con la que el detalle de la evaluación las muestra) y quedan guardadas en el
+ * reporte con un vencimiento largo: así la pantalla pública, que corre sin
+ * sesión, sólo tiene que usar la URL. Sólo si el enlace no las trae —los
+ * generados antes de este cambio— se firman acá con sesión anónima, que es el
+ * respaldo.
+ *
+ * Firma una por ruta y no el bucket entero: sólo las que trae ESTE reporte.
+ * Si una foto no se puede cargar, desaparece y el punto sigue leyéndose.
  */
 export function CargosPublicos() {
   const { token } = useParams<{ token: string }>()
@@ -65,14 +73,15 @@ export function CargosPublicos() {
     }
   }, [token])
 
-  // Las fotos del reporte, firmadas para ESTE enlace. Sin ellas el documento
-  // se lee igual: una foto que no se pudo firmar no es motivo para no mostrar
-  // los pendientes.
+  // Respaldo: si el enlace NO trae las fotos firmadas (los enlaces generados
+  // antes de firmar al compartir), se firman acá con sesión anónima. Con el
+  // enlace actual esto no corre: las URLs vienen en el propio reporte.
   useEffect(() => {
     if (!paquete) return
+    if (Object.keys(paquete.datos.fotosFirmadas ?? {}).length) return
     const rutas = Array.from(
       new Set(paquete.datos.cargos.flatMap((cargo) => cargo.pendientes.flatMap((p) => p.fotos)))
-    ).filter((ruta) => !esVideoPath(ruta))
+    )
     if (!rutas.length) return
     let vivo = true
     void supabase.storage
@@ -82,7 +91,9 @@ export function CargosPublicos() {
         if (!vivo) return
         const porRuta: Record<string, string> = {}
         for (const firmada of data ?? []) {
-          if (firmada.signedURL && firmada.path) porRuta[firmada.path] = firmada.signedURL
+          // `signedUrl` (absoluta) y no `signedURL` (relativa): ver el mismo
+          // detalle en `compartirCargos.ts`.
+          if (firmada.signedUrl && firmada.path) porRuta[firmada.path] = firmada.signedUrl
         }
         setFotos(porRuta)
       })
@@ -126,6 +137,16 @@ function VistaCargos({ paquete, fotos }: { paquete: CargosPublicos; fotos: Recor
   const datos = paquete.datos
   const unidad = datos.unidad || ev.sucursal?.nombre || ev.departamento?.nombre || 'Unidad'
   const conPendientes = datos.cargos.filter((c) => c.pendientes.length).length
+  // Las URLs guardadas por versiones anteriores venían RELATIVAS
+  // (`/object/sign/…`): contra el origen de la APP el navegador pedía el
+  // archivo al servidor de la app (que devuelve el HTML de la SPA) y la foto
+  // salía vacía. Si la URL no trae host, se le antepone el de Storage.
+  const aAbsoluta = (url: string) =>
+    url.startsWith('/') ? `${import.meta.env.VITE_SUPABASE_URL}/storage/v1${url}` : url
+  const urls: Record<string, string> = {}
+  for (const [ruta, url] of Object.entries({ ...(datos.fotosFirmadas ?? {}), ...fotos })) {
+    urls[ruta] = aAbsoluta(url)
+  }
 
   return (
     <Marco>
@@ -155,7 +176,7 @@ function VistaCargos({ paquete, fotos }: { paquete: CargosPublicos; fotos: Recor
         </section>
 
         {datos.cargos.map((cargo, i) => (
-          <BloqueCargo key={`${cargo.cargo}-${i}`} cargo={cargo} fotos={fotos} />
+          <BloqueCargo key={`${cargo.cargo}-${i}`} cargo={cargo} fotos={urls} />
         ))}
 
         <p className="mt-6 text-center text-xs text-slate-400">
@@ -200,13 +221,74 @@ function BloqueCargo({
   )
 }
 
-/** Un ítem que falló: sus puntos con el historial, sus observaciones y sus fotos. */
+/**
+ * Un ítem que falló: cada punto con SU observación y SUS fotos debajo.
+ *
+ * Van DENTRO de la fila del punto y no en una sección aparte al final: con
+ * tres puntos anotados, la lista separada repetía el nombre del punto tres
+ * veces y había que cruzar dos bloques para saber qué foto era de qué.
+ */
 function Pendiente({ pendiente, fotos }: { pendiente: PendienteCargo; fotos: Record<string, string> }) {
-  const observaciones = pendiente.evidencias.filter((e) => e.comentario)
-  const bloques = pendiente.evidencias.filter((e) => e.fotos.some((ruta) => fotos[ruta]))
-  // El rótulo del punto sólo cuando hay más de uno: con uno solo la tabla de
-  // arriba ya lo nombró (mismo criterio que el PDF).
-  const conRotulo = new Set(bloques.map((b) => b.punto).filter(Boolean)).size > 1
+  /** La evidencia de un punto: se busca por nombre, que es como se imprime la fila. */
+  const evidenciaDe = (check: string) => pendiente.evidencias.find((e) => e.punto === check)
+  /** Las fotos de una evidencia que se pudieron firmar al abrir el enlace. */
+  const firmadasDe = (evidencia: EvidenciaPunto | undefined): string[] =>
+    (evidencia?.fotos ?? []).filter((ruta) => fotos[ruta])
+  /** La foto abierta a pantalla completa: la misma clave que usa el detalle. */
+  const [abierta, setAbierta] = useState<string | null>(null)
+  /**
+   * Miniaturas como en el detalle: cuadritos chicos que abren al tocar.
+   *
+   * No se pega la foto grande en la fila: con treinta fotos eso convertiría la
+   * bitácora en un carrete, y lo que hace falta es poder RECORRER los
+   * pendientes y abrir sólo la que interesa.
+   */
+  const grilla = (rutas: string[]) => (
+    <div className="mt-1.5 grid grid-cols-4 gap-1.5 sm:grid-cols-6">
+      {rutas.map((ruta) => (
+        <button
+          key={ruta}
+          type="button"
+          onClick={() => setAbierta(ruta)}
+          aria-label={esVideoPath(ruta) ? 'Reproducir video' : 'Ampliar evidencia'}
+          className="relative block min-w-0"
+        >
+          {/* El video se pinta como `<video>` (no como `<img>`): así trae su
+              primer cuadro de póster. El tipo se colige de la extensión del
+              path: una URL firmada no trae el contentType. */}
+          {esVideoPath(ruta) ? (
+            <>
+              <video
+                src={fotos[ruta]}
+                preload="metadata"
+                muted
+                playsInline
+                className="aspect-square w-full rounded-md border border-slate-200 object-cover transition-transform hover:scale-110"
+              />
+              <span aria-hidden className="pointer-events-none absolute inset-0 grid place-items-center">
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-slate-900/60 text-white">
+                  <Play className="h-3.5 w-3.5" />
+                </span>
+              </span>
+            </>
+          ) : (
+            <img
+              src={fotos[ruta]}
+              alt="Evidencia"
+              loading="lazy"
+              // Una foto que no carga (URL vencida, archivo borrado) no debe
+              // dejar un cuadro vacío en medio de la bitácora: desaparece y el
+              // punto sigue leyéndose con su observación.
+              onError={(e) => {
+                e.currentTarget.style.display = 'none'
+              }}
+              className="aspect-square w-full rounded-md border border-slate-200 object-cover transition-transform hover:scale-110"
+            />
+          )}
+        </button>
+      ))}
+    </div>
+  )
 
   return (
     <article className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
@@ -227,18 +309,38 @@ function Pendiente({ pendiente, fotos }: { pendiente: PendienteCargo; fotos: Rec
               </tr>
             </thead>
             <tbody>
-              {pendiente.checks.map((check, i) => (
-                <tr key={`${check}-${i}`} className="border-t border-slate-100 align-top">
-                  <td className="py-1.5 pr-2 font-medium text-slate-700">{check}</td>
-                  <td className="py-1.5 pr-2 font-bold text-red-600">NO APROBADO</td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums text-slate-700">
-                    {pendiente.puntos[i] == null ? '—' : formatearNumero(pendiente.puntos[i])}
-                  </td>
-                  <td className="py-1.5">
-                    <ChipHistorial h={pendiente.historial[check]} />
-                  </td>
-                </tr>
-              ))}
+              {pendiente.checks.map((check, i) => {
+                const evidencia = evidenciaDe(check)
+                const observacion = evidencia?.comentario.trim() ?? ''
+                const delPunto = firmadasDe(evidencia)
+                return (
+                  <Fragment key={`${check}-${i}`}>
+                    <tr className="border-t border-slate-100 align-top">
+                      <td className="py-1.5 pr-2 font-medium text-slate-700">{check}</td>
+                      <td className="py-1.5 pr-2 font-bold text-red-600">NO APROBADO</td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums text-slate-700">
+                        {pendiente.puntos[i] == null ? '—' : formatearNumero(pendiente.puntos[i])}
+                      </td>
+                      <td className="py-1.5">
+                        <ChipHistorial h={pendiente.historial[check]} />
+                      </td>
+                    </tr>
+                    {/* La observación y las fotos del punto, pegadas a su
+                        fila: sin esto había que cruzar la tabla con una lista
+                        de abajo que repetía el nombre del punto. */}
+                    {observacion || delPunto.length ? (
+                      <tr>
+                        <td colSpan={4} className="pb-2.5 pl-3 align-top">
+                          {observacion ? (
+                            <p className="text-xs leading-relaxed text-slate-600">{observacion}</p>
+                          ) : null}
+                          {delPunto.length ? grilla(delPunto) : null}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                )
+              })}
               <tr className="border-t border-slate-200 font-bold text-slate-700">
                 <td className="py-1.5 pr-2" colSpan={2}>
                   TOTAL del ítem
@@ -250,47 +352,37 @@ function Pendiente({ pendiente, fotos }: { pendiente: PendienteCargo; fotos: Rec
           </table>
         </div>
       ) : (
-        <p className="mt-2 text-xs font-medium text-slate-600">
-          Ítem completo ({etiquetaTipo(pendiente.tipo)}) · {formatearNumero(pendiente.perdidos)} puntos no
-          cumplidos
-        </p>
-      )}
-
-      {observaciones.length ? (
-        <ul className="mt-2 space-y-1">
-          {observaciones.map((evidencia, i) => (
-            <li key={`${evidencia.punto}-${i}`} className="rounded-lg bg-white px-2.5 py-1.5 text-xs text-slate-600">
-              <span className="font-semibold text-slate-700">{evidencia.punto || 'Ítem'}: </span>
-              {evidencia.comentario}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {bloques.length ? (
-        <div className="mt-3 space-y-3">
-          {bloques.map((bloque, i) => (
-            <div key={`${bloque.punto}-${i}`}>
-              {conRotulo ? (
-                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">{bloque.punto}</p>
-              ) : null}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {bloque.fotos
-                  .filter((ruta) => fotos[ruta])
-                  .map((ruta) => (
-                    <img
-                      key={ruta}
-                      src={fotos[ruta]}
-                      alt=""
-                      loading="lazy"
-                      className="w-full rounded-lg border border-slate-200 object-cover"
-                    />
-                  ))}
+        <>
+          <p className="mt-2 text-xs font-medium text-slate-600">
+            Ítem completo ({etiquetaTipo(pendiente.tipo)}) · {formatearNumero(pendiente.perdidos)} puntos no
+            cumplidos
+          </p>
+          {/* Cada evidencia del ítem con SU observación y SUS fotos juntas:
+              acá el punto es el ítem entero, así que no hay nombre que
+              repetir. */}
+          {pendiente.evidencias.map((evidencia, i) => {
+            const observacion = evidencia.comentario.trim()
+            const delPunto = firmadasDe(evidencia)
+            if (!observacion && !delPunto.length) return null
+            return (
+              <div key={`${evidencia.checkId ?? 'item'}-${i}`} className="mt-2 rounded-lg bg-white px-2.5 py-2">
+                {observacion ? <p className="text-xs leading-relaxed text-slate-600">{observacion}</p> : null}
+                {delPunto.length ? grilla(delPunto) : null}
               </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
+            )
+          })}
+        </>
+      )}
+      {/* El mismo visor del detalle: rueda para zoom, arrastre y65vh. Es un
+          componente puro —sin sesión ni Supabase— por eso puede vivir en una
+          pantalla de invitado; lo único que se dejó afuera es el botón de
+          «dibujar sobre la foto», que es una edición y acá no se edita nada. */}
+      <ModalImagen
+        src={abierta ? (fotos[abierta] ?? null) : null}
+        esVideo={!!abierta && esVideoPath(abierta)}
+        alt="Evidencia"
+        onClose={() => setAbierta(null)}
+      />
     </article>
   )
 }

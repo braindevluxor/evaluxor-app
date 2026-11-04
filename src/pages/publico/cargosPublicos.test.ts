@@ -30,9 +30,16 @@ describe('enlace público de fallas por cargo · la pantalla', () => {
     expect(fuente('./ConciliacionPublica.tsx')).toContain("from './Invitado'")
   })
 
-  it('lee por la función única y firma SÓLO las fotos de su propio reporte', () => {
+  it('lee por la función única y usa las fotos firmadas al compartir', () => {
     expect(pagina).toContain('leerCargosPublicos(token)')
+    // Las URLs vienen en el propio enlace (firmadas con la sesión del Líder):
+    // la firma con sesión anónima queda sólo como respaldo de los enlaces
+    // viejos.
+    expect(pagina).toContain('datos.fotosFirmadas')
     expect(pagina).toContain('createSignedUrls')
+    // Y las URLs relativas que quedaron guardadas en enlaces viejos se
+    // reparan al abrir: contra el origen de la app darían el HTML de la SPA.
+    expect(pagina).toContain('/storage/v1${url}')
     // A diferencia de la conciliación, acá las fotos sí salen: el enlace sólo
     // puede firmar las rutas que trae su reporte, no el bucket entero.
     expect(fuente('./ConciliacionPublica.tsx')).not.toMatch(/createSignedUrl/)
@@ -47,6 +54,22 @@ describe('enlace público de fallas por cargo · la pantalla', () => {
     // El número viaja en el `title`: «reincidente» sin decir cuántas veces
     // cayó es un juicio sin contexto.
     expect(cuerpoDelChip(pagina)).toContain('faltas')
+  })
+
+  it('las fotos son miniaturas que abren a pantalla completa', () => {
+    // Mismo criterio que el detalle: cuadritos chicos para poder RECORRER los
+    // pendientes, y el visor recién al tocar. El visor (`ModalImagen`) es un
+    // componente puro —sin sesión ni Supabase— por eso puede estar acá; lo
+    // único que se dejó afuera fue el botón de «dibujar sobre la foto», que
+    // es edición.
+    expect(pagina).toContain('aspect-square w-full rounded-md')
+    expect(pagina).toContain('onClick={() => setAbierta(ruta)}')
+    expect(pagina).toContain('<ModalImagen')
+    expect(pagina).not.toContain('Dibujar sobre la foto')
+    // Los videos entran igual que en el detalle: póster con su cruz de play
+    // y el visor los reproduce.
+    expect(pagina).toContain('esVideoPath(ruta)')
+    expect(pagina).toContain('esVideo={!!abierta && esVideoPath(abierta)}')
   })
 
   it('no tiene ningún control de edición', () => {
@@ -70,8 +93,17 @@ describe('enlace público de fallas por cargo · quién lo genera', () => {
     expect(lib).toContain('generarToken()')
     expect(lib).toContain('/compartir/cargos/${token}')
     // El reporte viaja congelado en el upsert: es la decisión de diseño del
-    // enlace (no se recalcula al abrirse).
-    expect(lib).toContain('datos, activo: true')
+    // enlace (no se recalcula al abrirse), y sale de ahí CON las fotos ya
+    // firmadas con la sesión del que comparte.
+    expect(lib).toContain('datos: conFotos, activo: true')
+    expect(lib).toContain('createSignedUrls(rutas, SEGUNDOS_DE_FIRMA)')
+    // La trampa de la librería: devuelve DOS campos y sólo uno sirve.
+    // `signedURL` es la ruta relativa, que en el <img> se resuelve contra el
+    // origen de la APP y da 404; `signedUrl` es la absoluta.
+    expect(lib).toContain('firma.signedUrl')
+    expect(lib).not.toContain('firma.signedURL')
+    expect(fuente('./CargosPublicos.tsx')).toContain('firmada.signedUrl')
+    expect(fuente('./CargosPublicos.tsx')).not.toContain('firmada.signedURL')
   })
 
   it('el selector de cargos ofrece compartir, junto a los formatos', () => {

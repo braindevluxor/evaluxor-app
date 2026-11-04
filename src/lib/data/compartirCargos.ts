@@ -1,4 +1,5 @@
 import { supabase } from '../supabase'
+import { avisar } from '../aviso'
 import type { ReporteCargosDatos } from '../pdf/reporteCargos'
 import { generarToken, type EnlaceCompartido, type EvaluacionPublica } from './compartir'
 
@@ -68,16 +69,62 @@ export async function compartirCargos(
   datos: ReporteCargosDatos,
   creadoPor: string | null
 ): Promise<EnlaceCompartido> {
+  const conFotos = await firmarFotosDeReporte(datos)
   const { data, error } = await supabase
     .from('cargos_compartidos')
     .upsert(
-      { evaluacion_id: evaluacionId, token: generarToken(), datos, activo: true, creado_por: creadoPor },
+      { evaluacion_id: evaluacionId, token: generarToken(), datos: conFotos, activo: true, creado_por: creadoPor },
       { onConflict: 'evaluacion_id' }
     )
     .select('evaluacion_id, token, activo, creado_at')
     .single()
   if (error || !data) throw new Error(error?.message ?? 'No se pudo generar el enlace')
   return data as EnlaceCompartido
+}
+
+/** Cuánto duran las URLs firmadas que quedan guardadas dentro del enlace. */
+const SEGUNDOS_DE_FIRMA = 60 * 60 * 24 * 365
+
+/**
+ * Pone las URLs ya firmadas de las fotos del reporte.
+ *
+ * Se firma ACÁ y con la sesión del que comparte, no con sesión anónima en la
+ * pantalla pública: es la misma sesión con la que el detalle de la evaluación
+ * muestra esas fotos, así que es la que sabemos que puede bajarlas.
+ *
+ * Si la firma falla —vencimiento que Storage no acepta, red caída— el enlace
+ * se genera igual SIN fotos, y la pantalla pública cae en su firma de
+ * respaldo. Nunca se rompe el link por esto.
+ */
+async function firmarFotosDeReporte(datos: ReporteCargosDatos): Promise<ReporteCargosDatos> {
+  // Videos incluidos: el detalle los muestra con su póster y el visor sabe
+  // reproducirlos, y el enlace pretende ser el mismo contenido que el detalle.
+  const rutas = Array.from(new Set(datos.cargos.flatMap((c) => c.pendientes.flatMap((p) => p.fotos))))
+  if (!rutas.length) return datos
+  try {
+    const { data, error } = await supabase.storage.from('evidencias').createSignedUrls(rutas, SEGUNDOS_DE_FIRMA)
+    if (error) throw new Error(error.message)
+    const firmadas: Record<string, string> = {}
+    for (const firma of data ?? []) {
+      // OJO: la librería devuelve DOS campos y sólo uno sirve. `signedURL` es
+      // la ruta relativa que devuelve Storage (`/object/sign/…?token=…`),
+      // que en el <img> se resolvería contra el origen de la APP (otro
+      // dominio en producción, localhost en dev) y daría 404. `signedUrl`
+      // (con la «l» minúscula) es la absoluta, con el host de Storage:
+      // es la que usa `Fotogaleria` y es la única que carga.
+      if (firma.signedUrl && firma.path) firmadas[firma.path] = firma.signedUrl
+    }
+    if (!Object.keys(firmadas).length) throw new Error('Storage no devolvió ninguna URL')
+    return { ...datos, fotosFirmadas: firmadas }
+  } catch (e) {
+    // Nunca en silencio: un enlace sin fotos es un enlace a medio hacer, y el
+    // que lo comparte es el único que puede verlo.
+    avisar(
+      `El enlace se generó SIN fotos: ${e instanceof Error ? e.message : 'no se pudieron firmar sus URLs'}`,
+      'aviso'
+    )
+    return datos
+  }
 }
 
 /** Apaga el enlace. No borra nada: el token deja de servir desde el próximo intento. */
