@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Item } from '../types'
-import { calcularComposicionModulo, resumenPesosModulo, textoPeso } from './explicacionModulo'
+import { buildExplicacionModulo, calcularComposicionModulo, resumenPesosModulo, textoPeso } from './explicacionModulo'
 
 const baseItem = (parcial: Partial<Item>): Item => ({
   id: 'i1',
@@ -132,5 +132,57 @@ describe('explicacionModulo - pesos y jerarquías', () => {
       expect(f.pesoEfectivoModulo).toBe(25)
     }
     expect(sumaTotalPct).toBe(100)
+  })
+})
+
+describe('explicacionModulo · la descripción del ítem en el papel', () => {
+  const salidaDe = (descripcion: string): string =>
+    buildExplicacionModulo({
+      moduloNombre: 'Higiene y salubridad',
+      items: [baseItem({ id: 'i1', texto: 'Los pasillos están libres', descripcion })]
+    }).output()
+
+  it('la descripción sale en el detalle del ítem, con su texto', () => {
+    const salida = salidaDe('Se revisa al cerrar el local: sin personas en la zona.')
+    expect(salida).toContain('Se revisa al cerrar el local: sin personas en la zona.')
+    // El enunciado y la ficha del ítem siguen donde estaban.
+    expect(salida).toContain('Los pasillos están libres')
+    expect(salida).toContain('Tipo:')
+  })
+
+  it('el formato no deja asteriscos en el papel', () => {
+    const salida = salidaDe('Todo **obligatorio** para enviar el cierre.')
+    // La negrita se pinta con su estilo: lo que sobra es el marcador.
+    expect(salida).toContain('obligatorio')
+    expect(salida).not.toContain('**obligatorio**')
+  })
+
+  it('las viñetas salen con su punto y la tabla como tabla (sin pipes)', () => {
+    const salida = salidaDe(['- puertas', '- luces', '', '| Zona | Pts |', '| --- | --- |', '| Almacén | 5 |'].join('\n'))
+    // jsPDF escribe `•` con su byte WinAnsi (0x95): se vuelve a Unicode para leerlo.
+    const papel = salida.replace(/\u0095/g, '•')
+    expect(papel).toContain('• puertas')
+    expect(papel).toContain('• luces')
+    expect(salida).toContain('Almacén')
+    expect(salida).not.toContain('| --- |')
+  })
+
+  it('sin descripción el documento sale como antes', () => {
+    const salida = salidaDe('')
+    expect(salida).toContain('Los pasillos están libres')
+    expect(salida).not.toContain('undefined')
+  })
+
+  it('una descripción larga corta por renglón y sigue en la siguiente hoja', () => {
+    const pdf = buildExplicacionModulo({
+      moduloNombre: 'Higiene y salubridad',
+      items: [baseItem({ id: 'i1', texto: 'Único ítem', descripcion: 'Renglón de prueba para forzar el corte de hoja. '.repeat(150) })]
+    })
+        expect(pdf.getNumberOfPages()).toBeGreaterThan(1)
+    const hojas = (pdf.internal.pages as unknown as Array<string[]>).map((h) => (Array.isArray(h) ? h.join('\n') : ''))
+    // El corte es por renglón: el texto sigue en la hoja 2, no se pierde ni
+    // se cae entero a la página siguiente.
+    expect(hojas[1]).toContain('Renglón de prueba')
+    expect(hojas[2]).toContain('Renglón de prueba')
   })
 })

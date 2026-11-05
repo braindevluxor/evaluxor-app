@@ -168,11 +168,20 @@ export function estadoDe(f: FilaBitacora): 'Alta' | 'Baja' | null {
 }
 
 /**
+ * Techo del listado: cuántas filas trae `listarBitacora` como máximo.
+ *
+ * Es un techo y no paginación: una sesión de configuración deja pocas filas y
+ * el techo evita traer años de historial a un teléfono. Vive en una constante
+ * porque la pantalla tiene que saberlo para avisar cuando se llega al tope —
+ * dos `200` sueltos terminan divergiendo.
+ */
+export const LIMITE_BITACORA = 200
+
+/**
  * La bitácora, de la más nueva a la más vieja.
  *
- * El límite es un techo y no paginación: una sesión de configuración deja
- * pocas filas y el techo evita traer años de historial a un teléfono. Si se
- * llega al tope, la pantalla lo dice en vez de insinuar que no hay más.
+ * Si se llega al tope, la pantalla lo dice en vez de insinuar que no hay más
+ * (usa el mismo `LIMITE_BITACORA` que ésta).
  */
 export async function listarBitacora(
   opciones: { tabla?: string; limite?: number } = {}
@@ -181,7 +190,7 @@ export async function listarBitacora(
     .from('bitacora_asignaciones')
     .select('*')
     .order('created_at', { ascending: false })
-    .limit(opciones.limite ?? 200)
+    .limit(opciones.limite ?? LIMITE_BITACORA)
   if (opciones.tabla) consulta = consulta.eq('tabla', opciones.tabla)
 
   const { data, error } = await consulta
@@ -191,6 +200,15 @@ export async function listarBitacora(
     if (error.code === '42P01') {
       throw new Error(
         'La bitácora todavía no está creada. Ejecuta el bloque bitacora-asignaciones.sql en el SQL Editor de Supabase.'
+      )
+    }
+    // 42501 = falta el privilegio de tabla: o el bloque se corrió a medias
+    // (sin la política ni el grant) o a `authenticated` no se le dio SELECT.
+    // Sin este caso el usuario veía un «No se pudo cargar» sin pista de qué
+    // hacer, que es justo lo que el 42P01 ya venía resolviendo.
+    if (error.code === '42501') {
+      throw new Error(
+        'La base no le deja leer la bitácora a este usuario. Ejecuta el bloque bitacora-asignaciones.sql en el SQL Editor de Supabase.'
       )
     }
     throw new Error('No se pudo cargar la bitácora de asignaciones.')

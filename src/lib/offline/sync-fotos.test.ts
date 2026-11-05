@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { guardarBorradorNube } from './sync'
+import { guardarBorradorNube, procesarCola } from './sync'
 
-const { fromMock, rpcMock, uploadMock, downloadMock, getPhotosMock, fotosSelectMock, fotosInsertMock } = vi.hoisted(() => ({
+const { fromMock, rpcMock, uploadMock, downloadMock, getPhotosMock, fotosSelectMock, fotosInsertMock, listQueueMock, deleteJobMock } = vi.hoisted(() => ({
   fromMock: vi.fn(),
   rpcMock: vi.fn(),
   uploadMock: vi.fn(),
   downloadMock: vi.fn(),
   getPhotosMock: vi.fn(),
   fotosSelectMock: vi.fn(),
-  fotosInsertMock: vi.fn()
+  fotosInsertMock: vi.fn(),
+  listQueueMock: vi.fn(),
+  deleteJobMock: vi.fn()
 }))
 
 vi.mock('../supabase', () => ({
@@ -23,9 +25,9 @@ vi.mock('./db', () => ({
   deleteDraft: vi.fn(),
   getPhotos: getPhotosMock,
   deletePhoto: vi.fn(),
-  listQueue: vi.fn(),
+  listQueue: listQueueMock,
   putJob: vi.fn(),
-  deleteJob: vi.fn(),
+  deleteJob: deleteJobMock,
   respuestasConInstancia: vi.fn(),
   incidentesPendientes: vi.fn(),
   eliminarIncidente: vi.fn()
@@ -45,6 +47,9 @@ beforeEach(() => {
   // Índice `fotos`: arranca vacío (nada registrado) y el insert no falla.
   fotosSelectMock.mockReset().mockResolvedValue({ data: [], error: null })
   fotosInsertMock.mockReset().mockResolvedValue({ error: null })
+  // La cola arranca vacía: sólo la llena el test que la necesita.
+  listQueueMock.mockReset().mockResolvedValue([])
+  deleteJobMock.mockReset()
   rpcMock.mockImplementation((nombre: string, args?: { rows?: unknown[] }) => {
     if (nombre === 'upsert_respuestas') {
       return Promise.resolve({ error: null, data: args?.rows })
@@ -57,6 +62,18 @@ beforeEach(() => {
       return {
         select: () => ({ eq: () => ({ in: fotosSelectMock }) }),
         insert: fotosInsertMock
+      }
+    }
+    // La evaluación activa que resuelve la cola (unidad + fecha + estado).
+    if (tabla === 'evaluaciones') {
+      return {
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              eq: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'evaluacion-1' }, error: null }) })
+            })
+          })
+        })
       }
     }
     throw new Error(`tabla inesperada: ${tabla}`)
@@ -169,5 +186,45 @@ describe('guardarBorradorNube · fotos', () => {
     expect(filas[0].valor.evidencias.limpieza.paths).toEqual([
       'ev/evaluacion-foto-remota/evidencia/foto-remota.jpg'
     ])
+  })
+})
+
+describe('procesarCola · fotos', () => {
+  it('recupera desde Storage una foto sin registro local en vez de trabarse para siempre', async () => {
+    // Un trabajo con una foto ya subida por un envío anterior (el registro
+    // local se borró al subir) fallaba con «No se encontró la foto local» —
+    // causa sin clasificar, reintento infinito y la cola nunca bajaba.
+    getPhotosMock.mockResolvedValue([])
+    downloadMock.mockResolvedValue({ data: new Blob(['foto subida']), error: null })
+    listQueueMock.mockResolvedValue([
+      {
+        id: 'job-1',
+        unidad_id: 'sucursal-1',
+        departamento_id: null,
+        evaluador_id: 'usuario-1',
+        fecha: '2026-11-02',
+        instancias: [],
+        respuestas: [
+          {
+            item_id: 'item-1',
+            instancia_id: null,
+            valor: { selected: ['a'], evidencias: { a: { photoIds: ['foto-remota'] } } }
+          }
+        ],
+        photoIds: ['foto-remota'],
+        status: 'pending',
+        created_at: 1
+      }
+    ])
+
+    const r = await procesarCola()
+
+    expect(r).toMatchObject({ ok: 1, fail: 0 })
+    // La copia viene del bucket: ni se intenta subirla de nuevo.
+    expect(downloadMock).toHaveBeenCalledWith('ev/evaluacion-1/evidencia/foto-remota.jpg')
+    expect(uploadMock).not.toHaveBeenCalled()
+    const filas = rpcMock.mock.calls.find(([nombre]) => nombre === 'upsert_respuestas')?.[1].rows
+    expect(filas[0].valor.evidencias.a.paths).toEqual(['ev/evaluacion-1/evidencia/foto-remota.jpg'])
+    expect(deleteJobMock).toHaveBeenCalledWith('job-1')
   })
 })

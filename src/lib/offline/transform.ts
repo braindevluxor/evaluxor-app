@@ -239,14 +239,19 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
   }
   const plano = isPlanoValor(valor)
   if (plano) {
-    const v = valor as { planos: { id: string; nombre: string; photoIds?: string[] }[]; puntos?: unknown; informativo?: boolean; responsables?: string[]; responsablesGerente?: string | null }
+    const v = valor as { planos: { id: string; nombre: string; photoIds?: string[]; paths?: unknown }[]; puntos?: unknown; informativo?: boolean; responsables?: string[]; responsablesGerente?: string | null }
     const out: Record<string, unknown> = {
       planos: v.planos.map((p) => ({
         id: p.id,
         nombre: p.nombre,
         // La imagen del plano se sube al bucket como evidencia: al pintarle los pines
         // el evaluador carga el layout real de la sucursal, así que es su foto.
-        paths: (p.photoIds ?? []).map((id) => map.get(id) ?? `.local/${id}`)
+        // Sólo se agregan: los `paths` ya subidos se conservan y se suman los
+        // photoIds locales (misma regla que la conciliación).
+        paths: Array.from(new Set([
+          ...idsStrings(p.paths),
+          ...(p.photoIds ?? []).map((id) => map.get(id) ?? `.local/${id}`)
+        ]))
       })),
       puntos: v.puntos ?? []
     }
@@ -256,15 +261,24 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
     return out
   }
   const ids = isFotoValor(valor)
-  if (ids) return { paths: ids.map((id) => map.get(id) ?? `.local/${id}`) }
+  if (ids) {
+    const previos = idsStrings((valor as { paths?: unknown }).paths)
+    return { paths: Array.from(new Set([...previos, ...ids.map((id) => map.get(id) ?? `.local/${id}`)])) }
+  }
   const cumpleIds = isCumpleValor(valor)
   if (cumpleIds) {
-    const v = valor as { value?: boolean | null; evidencias?: { photoIds?: string[]; comentario?: string }[]; informativo?: boolean; responsables?: string[]; responsablesGerente?: string | null }
+    const v = valor as { value?: boolean | null; evidencias?: { photoIds?: string[]; paths?: unknown; comentario?: string }[]; informativo?: boolean; responsables?: string[]; responsablesGerente?: string | null }
     const out: Record<string, unknown> = {
       value: v.value ?? null,
       evidencias: (v.evidencias ?? []).map((e, i) => ({
         comentario: e.comentario ?? '',
-        paths: (cumpleIds[i] ?? []).map((id) => map.get(id) ?? `.local/${id}`)
+        // Sumar, no reemplazar: un valor reabierto desde la nube trae `paths`
+        // sin `photoIds` y reemplazarlos borraba la referencia de la foto que
+        // ya estaba en el bucket.
+        paths: Array.from(new Set([
+          ...idsStrings(e.paths),
+          ...(cumpleIds[i] ?? []).map((id) => map.get(id) ?? `.local/${id}`)
+        ]))
       }))
     }
     if (v.informativo) out.informativo = true
@@ -275,10 +289,16 @@ export function convertirValor(valor: unknown, map: Map<string, string>): unknow
   }
   const checklistIds = isChecklistValor(valor)
   if (checklistIds) {
-    const v = valor as { selected?: string[]; existe?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: Record<string, { photoIds?: string[] } | null>; comentarios?: Record<string, string>; responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
+    const v = valor as { selected?: string[]; existe?: string[]; informativos?: string[]; valores?: Record<string, number>; evidencias?: Record<string, { photoIds?: unknown; paths?: unknown } | null>; comentarios?: Record<string, string>; responsables?: string[]; responsablesPorOpcion?: Record<string, string[]>; responsablesGerente?: string | null }
     const evidencias: Record<string, unknown> = {}
-    for (const [optId, ids] of Object.entries(checklistIds)) {
-      evidencias[optId] = { paths: ids.map((id) => map.get(id) ?? `.local/${id}`) }
+    for (const [optId, e] of Object.entries(v.evidencias ?? {})) {
+      // Fotos sólo se agregan, nunca se borran: los `paths` ya subidos se
+      // conservan y se suman los photoIds locales mapeados. Reconstruir sólo
+      // desde photoIds dejaba la foto en el bucket y «—» en el detalle.
+      const previos = idsStrings(e?.paths)
+      const locales = (checklistIds[optId] ?? []).map((id) => map.get(id) ?? `.local/${id}`)
+      const paths = Array.from(new Set([...previos, ...locales]))
+      if (paths.length) evidencias[optId] = { paths }
     }
     const out: Record<string, unknown> = {
       selected: v.selected ?? [],

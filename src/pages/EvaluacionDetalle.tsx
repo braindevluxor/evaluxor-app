@@ -3,20 +3,23 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, ChevronRight, FileDown, FileSpreadsheet, FolderOpen, Pencil, RefreshCw, Tag, Users, X } from 'lucide-react'
 import { useOffline } from '../context/OfflineContext'
 import { useAuth } from '../context/AuthContext'
-import { obtenerEvaluacion, resumirEvaluacion, puntajeModuloDeRespuestas, unidadDe, type DetalleEvaluacion } from '../lib/data/indicadores'
+import { obtenerEvaluacion, resumirEvaluacion, puntajeModuloDeRespuestas, unidadDe, consultarEvaluaciones, type DetalleEvaluacion } from '../lib/data/indicadores'
+import { compartirCargos, urlCompartidaCargos } from '../lib/data/compartirCargos'
+import { copiarAlPortapapeles } from '../lib/copiar'
+import { avisar } from '../lib/aviso'
 import { cargosDelCentro, centroDisponible, separacionDisponible, useCargosPorCentro, type CatalogosCentro, type CentroOperaciones } from '../lib/data/cargosCentro'
 import { descargarInformePdf } from '../lib/pdf'
 import type { OpcionesPdf } from '../lib/pdf/opciones'
 import { descargarExcelEvaluacion } from '../lib/excelEvaluacion'
-import { supabase } from '../lib/supabase'
 import { itemsEnOrdenJerarquico, hijosOrdenados } from '../lib/hierarchy'
 import { aplicarPermisosChecklist } from '../lib/permisosChecklist'
 import { raicesDeModulo } from '../lib/pasos'
 import { causaSubida, detalleTecnico, mensajeSubida } from '../lib/subida'
 import { fallasDeResponsable, etiquetaTipo, itemsProporcion, conciliacionTotal, conciliacionComparable, agruparPorDepartamento, esSinHablador, productosParaConciliar, totalesConciliacion, formatearMontoPerdida, colaboradorCumple, colaboradoresQueCuentan, esColaboradorRevisado, opcionesAplicablesColaborador, opcionesAplicablesUnidad, checkMarcado, opcionCumplida, responsablesDeOpcion, unidadCumple, valorPorResponsable, veredictoItem, formatearLastSync, formatearPrecioBase, montoSobranteConciliacion, perdidaGuardadaConciliacion, resumenPerdidaConciliacion, type ValorConciliacion, type ValorCumple, type ValorChecklist, type ValorListaColaboradores, type ValorUnidadChecklist, type VeredictoItem, type FallaResponsable } from '../lib/scoring'
 import { esColorHex, etiquetaDeCampo, formatearValorConsulta } from '../lib/data/apis'
-import type { Foto, Item, Opcion, Respuesta, SucursalOpcion } from '../lib/types'
+import type { Foto, Item, Opcion, SucursalOpcion } from '../lib/types'
 import { Badge, BOTON_CABECERA, Button, Card, InfoTooltip, Modal, ProgressBar, Skeleton, cn, colorFondoBadge } from '../components/ui'
+import { Descripcion } from '../components/Descripcion'
 
 import { IncidenciasEvaluacion, ListaIncidencias, incidenciaEsDeCargo, useIncidenciasEvaluacion } from '../components/IncidenciasEvaluacion'
 import { SelectorPdf } from '../components/SelectorPdf'
@@ -26,7 +29,7 @@ import { armarReporteCargos, cargarImagenesReporte, descargarReporteCargos } fro
 import { descargarExcelCargos } from '../lib/excelCargos'
 import { Fotogaleria, FotogaleriaRutas } from '../components/dashboard/Fotogaleria'
 import { PlanoLectura } from '../components/PlanoEditor'
-import { pathsDeFotosFalla, pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple, pathsEvidenciaOpcion, pathsEvidenciaProducto } from '../lib/evidencias'
+import { pathsEvidenciaChecklist, pathsEvidenciaConciliacion, pathsEvidenciaCumple, pathsEvidenciaOpcion, pathsEvidenciaProducto } from '../lib/evidencias'
 import { IconoModulo } from '../components/IconoModulo'
 import { CompartirEvaluacion } from '../components/CompartirEvaluacion'
 import { ordenarTrabajadores } from '../lib/data/colaboradores'
@@ -793,6 +796,8 @@ export function EvaluacionDetalle() {
   const [selectorCargosAbierto, setSelectorCargosAbierto] = useState(false)
   /** Formato que se está generando en el reporte por cargo, para el spinner. */
   const [generandoReporte, setGenerandoReporte] = useState<'pdf' | 'excel' | null>(null)
+  /** ¿Se está generando el enlace público de los cargos elegidos? */
+  const [compartiendo, setCompartiendo] = useState(false)
   const [sincronizando, setSincronizando] = useState(false)
   const [aviso, setAviso] = useState<{ texto: string; ok: boolean } | null>(null)
   const [error, setError] = useState('')
@@ -916,22 +921,14 @@ export function EvaluacionDetalle() {
 
   const estadoEval = detalle?.evaluacion.estado
 
+  // Sin canal realtime: el barrido de 15 s alcanza para ver los avances del
+  // detalle, y un canal abierto en cada pestaña multiplicaba los mensajes de
+  // Realtime sobre `respuestas` (que ya consume la pantalla de evaluación).
   useEffect(() => {
     if (estadoEval !== 'ACTIVA') return
-    const channel = supabase
-      .channel(`ev-vivo-${evaluacionId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'respuestas', filter: `evaluacion_id=eq.${evaluacionId}` },
-        () => void recargar()
-      )
-      .subscribe()
     const iv = window.setInterval(() => void recargar(), 15000)
-    return () => {
-      void supabase.removeChannel(channel)
-      window.clearInterval(iv)
-    }
-  }, [evaluacionId, estadoEval, recargar])
+    return () => window.clearInterval(iv)
+  }, [estadoEval, recargar])
 
   if (estado === 'cargando') {
     return <SkeletonEvaluacionDetalle />
@@ -1104,72 +1101,74 @@ export function EvaluacionDetalle() {
   }
 
   /**
-   * Qué fotos entran en CADA pendiente del reporte: las del punto que le falló
-   * a ESE cargo. En los ítems de lista cada punto tiene su responsable y su
-   * propia foto, así que imprimir las del ítem entero le daría a un cargo
-   * evidencia de puntos que no son suyos (ver `pathsDeFotosFalla`).
-   *
-   * Se arma sólo al descargar: es un recorrido por todas las respuestas y las
-   * fotos, que no vale la pena pagar en cada render.
+   * El histórico de la unidad —todas sus evaluaciones, abiertas y cerradas—
+   * para poder decir de cada punto si es reincidencia. Es un pedido pesado
+   * (es el mismo que hace el Seguimiento por cargo), por eso sólo lo pide
+   * quien comparte: el PDF y el Excel no lo usan.
    */
-  const prepararFotosDeFalla = (): ((falla: FallaResponsable) => string[]) => {
-    const respuestasDe = new Map<string, Respuesta[]>()
-    for (const r of respuestas) {
-      const lista = respuestasDe.get(r.item_id)
-      if (lista) lista.push(r)
-      else respuestasDe.set(r.item_id, [r])
-    }
-    const fotosDe = new Map<string, string[]>()
-    for (const f of fotos) {
-      const lista = fotosDe.get(f.item_id)
-      if (lista) lista.push(f.path)
-      else fotosDe.set(f.item_id, [f.path])
-    }
-    return (falla) =>
-      pathsDeFotosFalla(
-        falla.tipo,
-        falla.checkIds,
-        respuestasDe.get(falla.item_id) ?? [],
-        fotosDe.get(falla.item_id) ?? []
-      )
-  }
+  const historialDeUnidad = async () => ({
+    datos: await consultarEvaluaciones({
+      sucursal_ids: evaluacion.sucursal_id ? [evaluacion.sucursal_id] : null,
+      departamento_ids: evaluacion.departamento_id ? [evaluacion.departamento_id] : null
+      // Sin pedirle el corte a sólo cerradas: el filtro por defecto trae
+      // TODO, abierta y cerrada, que es lo que hace falta para medir la
+      // reincidencia contra la inmediata anterior.
+    }),
+    unidadId: unidadDe(evaluacion),
+    evaluacionId: evaluacion.id
+  })
 
   /**
-   * El reporte POR CARGOS, en PDF o en Excel: un bloque por cargo elegido con
-   * sus ítems fallados, los checks concretos y los puntos que le costaron.
+   * El reporte armado para los cargos elegidos.
    *
    * Las fallas se resuelven con el MISMO cálculo que el modal «Fallas de…» y
    * sobre los mismos ítems filtrados que se pintan en pantalla
    * (`items.map(aplicarOpciones)`), así que el documento no puede nombrar un
    * check que acá no aparece ni cobrarle puntos a un cargo que no está.
    *
+   * Las respuestas y las fotos van CRUDAS: quién reparte qué punto a cada
+   * cargo (y qué observación y qué foto le tocan) es del documento, con el
+   * mismo criterio que el modal, para que los dos formatos digan lo mismo.
+   *
+   * `conHistorial` agrega el histórico de la unidad, que es lo que hace falta
+   * para el chip de reincidencia de cada punto.
+   */
+  const armarDatosPorCargos = async (elegidos: string[], conHistorial: boolean) => {
+    const itemsFiltrados = items.map(aplicarOpciones)
+    const historial = conHistorial ? await historialDeUnidad() : undefined
+    return armarReporteCargos(
+      {
+        unidad: evaluacion.sucursal?.nombre ?? evaluacion.departamento?.nombre ?? 'Evaluación',
+        referencia: evaluacion.sucursal?.shop_id ?? null,
+        fecha: evaluacion.fecha,
+        puntajeGeneral: puntaje
+      },
+      elegidos.map((cargo) => ({
+        cargo,
+        // Buscado en TODOS los valores, no en los visibles: el cargo elegido
+        // puede ser de la central aunque la columna esté mirando la sucursal.
+        porciento: valoresOrdenados.find((v) => v.responsable === cargo)?.porciento ?? null,
+        fallas: fallasDeResponsable(cargo, itemsFiltrados, respuestas)
+      })),
+      modulos,
+      { respuestas, fotos, items: itemsFiltrados, historial }
+    )
+  }
+
+  /**
+   * El reporte POR CARGOS, en PDF o en Excel: un bloque por cargo elegido con
+   * sus ítems fallados, los checks concretos y los puntos que le costaron.
+   *
    * Las fotos van sólo en el PDF, recién cuando se pide: se bajan de Storage
-   * las de los pendientes elegidos y se pegan debajo de cada ítem. El Excel
-   * sigue siendo sólo datos.
+   * las de los pendientes elegidos y se pegan debajo de su punto. El Excel
+   * sigue siendo sólo datos (lleve su observación en la columna propia).
    */
   const descargarPorCargos = async (elegidos: string[], formato: 'pdf' | 'excel') => {
     if (!elegidos.length) return
     setError('')
     setGenerandoReporte(formato)
     try {
-      const itemsFiltrados = items.map(aplicarOpciones)
-      const datos = armarReporteCargos(
-        {
-          unidad: evaluacion.sucursal?.nombre ?? evaluacion.departamento?.nombre ?? 'Evaluación',
-          referencia: evaluacion.sucursal?.shop_id ?? null,
-          fecha: evaluacion.fecha,
-          puntajeGeneral: puntaje
-        },
-        elegidos.map((cargo) => ({
-          cargo,
-          // Buscado en TODOS los valores, no en los visibles: el cargo elegido
-          // puede ser de la central aunque la columna esté mirando la sucursal.
-          porciento: valoresOrdenados.find((v) => v.responsable === cargo)?.porciento ?? null,
-          fallas: fallasDeResponsable(cargo, itemsFiltrados, respuestas)
-        })),
-        modulos,
-        prepararFotosDeFalla()
-      )
+      const datos = await armarDatosPorCargos(elegidos, false)
       if (formato === 'pdf') {
         descargarReporteCargos(datos, await cargarImagenesReporte(datos))
       } else {
@@ -1180,6 +1179,38 @@ export function EvaluacionDetalle() {
       setError(`No se pudo generar el reporte por cargos: ${detalleTecnico(error)}`)
     } finally {
       setGenerandoReporte(null)
+    }
+  }
+
+  /**
+   * El enlace PÚBLICO de los cargos elegidos: la bitácora de atención que el
+   * trabajador mira sin cuenta en la app.
+   *
+   * Guarda el reporte congelado —con el histórico de la unidad para las
+   * reincidencias— y copia el link. Es el mismo contenido que el PDF, así que
+   * no hace falta generarlo dos veces.
+   */
+  const compartirPorCargos = async (elegidos: string[]) => {
+    if (!elegidos.length) return
+    setError('')
+    setCompartiendo(true)
+    try {
+      const datos = await armarDatosPorCargos(elegidos, true)
+      const enlace = await compartirCargos(evaluacion.id, datos, profile?.id ?? null)
+      const copiado = await copiarAlPortapapeles(urlCompartidaCargos(enlace.token))
+      avisar(
+        copiado
+          ? 'Enlace copiado. Es de sólo lectura: desde ahí no se puede editar nada.'
+          : 'No se pudo copiar el enlace. Tocá Compartir de nuevo.',
+        copiado ? 'ok' : 'error'
+      )
+      // Sólo se cierra si se copió: si no, el link quedó generado y a mano no
+      // hay dónde verlo, así que el modal se queda abierto para reintentar.
+      if (copiado) setSelectorCargosAbierto(false)
+    } catch (error) {
+      setError(`No se pudo generar el enlace por cargos: ${detalleTecnico(error)}`)
+    } finally {
+      setCompartiendo(false)
     }
   }
 
@@ -1607,6 +1638,8 @@ export function EvaluacionDetalle() {
             onClose={() => setSelectorCargosAbierto(false)}
             cargos={valoresOrdenados.map((v) => ({ cargo: v.responsable, porciento: v.porciento }))}
             onDescargar={descargarPorCargos}
+            onCompartir={compartirPorCargos}
+            compartiendo={compartiendo}
             generando={generandoReporte}
           />
         </div>
@@ -1633,12 +1666,17 @@ export function EvaluacionDetalle() {
               />
             </div>
             {evaluacion.estado === 'ACTIVA' ? (
+              // Sin canal realtime en esta pantalla: el detalle se refresca con
+              // el barrido de 15 s, así que el rótulo dice ese plazo en vez de
+              // prometer un «en vivo» instantáneo. El punto verde sigue marcando
+              // que la evaluación está abierta. El 15 s tiene que coincidir con
+              // el `setInterval` del refresco.
               <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-[11px] font-bold text-green-700">
                 <span className="relative flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-green-600" />
                 </span>
-                EN VIVO · {respuestas.length} respuesta(s) registradas hasta ahora
+                Abierta · {respuestas.length} respuesta(s) · se actualiza cada 15 s
               </p>
             ) : null}
             {evaluacion.comentario_general ? (
@@ -1745,7 +1783,10 @@ export function EvaluacionDetalle() {
               return (
                 <div key={`${res.item_id}-${res.instancia_id ?? ''}-${res.id}`} className="space-y-3 px-5 py-4">
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <p className="min-w-0 text-sm font-semibold leading-snug text-slate-700">{item.texto}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold leading-snug text-slate-700">{item.texto}</p>
+                      <Descripcion texto={item.descripcion} className="mt-1" />
+                    </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {veredicto === 'cumple' ? (
                         <Badge color={2}>Completo</Badge>
@@ -1809,7 +1850,10 @@ export function EvaluacionDetalle() {
                         <Fragment key={item.id}>
                           <div className="flex items-center gap-2 bg-primary-50 px-5 py-3">
                             <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
-                            <p className="text-sm font-bold text-primary-900">{item.texto}</p>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-bold text-primary-900">{item.texto}</p>
+                              <Descripcion texto={item.descripcion} className="mt-0.5" />
+                            </div>
                             <span className="ml-auto text-[11px] font-semibold text-slate-500">
                               {insts.length} registro(s) · {hijos.length} ítem(s) c/u
                             </span>

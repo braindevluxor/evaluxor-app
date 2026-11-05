@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, CloudOff, FolderOpen, List, Plus, RefreshCw, Tag, Trash2, X } from 'lucide-react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { ArrowLeft, ArrowRight, Camera, Check, CircleHelp, CloudOff, FolderOpen, List, Plus, RefreshCw, Tag, Trash2, Undo2, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
+import { avisar } from '../../lib/aviso'
 import { useModulosActivos, useCatalog } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
 import { hijosOrdenados } from '../../lib/hierarchy'
@@ -18,10 +19,13 @@ import {
 } from '../../lib/offline/db'
 import { guardarBorradorNube, instanciasDeDraft, respuestasConInstancia, type Descarte } from '../../lib/offline/sync'
 import { listarEvaluacionesActivas, listarRespuestasEvaluacion, listarInstanciasEvaluacion } from '../../lib/data/indicadores'
+import { ultimaVisitaDeUnidad } from '../../lib/data/precarga'
+import { precargarSeccionesDe, type PrecargaSecciones } from '../../lib/precarga'
 import { fusionarRespuestasNube } from '../../lib/offline/fusion'
 import { apiDisponible, esColorHex, etiquetaDeCampo, formatearValorConsulta, seleccionarValores } from '../../lib/data/apis'
 import { supabase } from '../../lib/supabase'
 import { ItemRenderer } from '../../components/ItemRenderer'
+import { Descripcion } from '../../components/Descripcion'
 import { ReportarIncidencia } from '../../components/ReportarIncidencia'
 import { BOTON_CABECERA, Button, ButtonIcon, EmptyState, Modal, cn } from '../../components/ui'
 import { BarcodeScanner } from '../../components/BarcodeScanner'
@@ -42,11 +46,21 @@ export function EvaluarSucursal() {
   const unidadId = sucursalId || departamentoId
   /** Ruta base de ESTA evaluación, para volver al resumen sin importar la clase. */
   const rutaBase = departamentoId ? `/evaluar/departamento/${departamentoId}` : `/evaluar/${sucursalId}`
+  const [consulta] = useSearchParams()
+  /**
+   * La evaluación que se tocó en el listado (`?ev=`).
+   *
+   * Una unidad puede tener DOS abiertas (al Líder se le quedó sin cerrar una)
+   * y `EvaluarHome` pinta una fila por cada una: sin este parámetro todas las
+   * filas abrirían la misma. Si no viene —enlace viejo, recarga— se sigue
+   * trabajando sobre la más reciente, como siempre.
+   */
+  const evElegida = consulta.get('ev')
   const navigate = useNavigate()
   const { profile } = useAuth()
   const { online, pendientes, sync: syncCola } = useOffline()
   const { modulosActivos, itemsDe } = useModulosActivos(sucursalId, departamentoId)
-  const { sucursales, departamentos } = useCatalog()
+  const { sucursales, departamentos, cargado } = useCatalog()
   const sucursal = sucursales.find((s) => s.id === sucursalId)
   const departamento = departamentos.find((d) => d.id === departamentoId)
 
@@ -60,6 +74,16 @@ export function EvaluarSucursal() {
     }
     return ids
   }, [modulosActivos, itemsDe])
+
+  // El catálogo (módulos/ítems de la unidad) se resuelve en un efecto del
+  // provider que arranca DESPUÉS que éste: el `async` de carga captura el
+  // valor del render anterior (vacío) y nunca ve los re-renders, así que la
+  // precarga no encontraba ninguna sección (0 registros y ningún aviso).
+  // Este ref siempre refleja el último catálogo visto por el render.
+  const catalogoRef = useRef<{ cargado: boolean; items: Item[] }>({ cargado: false, items: [] })
+  useEffect(() => {
+    catalogoRef.current = { cargado, items: modulosActivos.flatMap((m) => itemsDe(m)) }
+  }, [cargado, modulosActivos, itemsDe])
 
   // Etiqueta de cada ítem, para nombrar en el aviso los que ya no existen en el
   // catálogo: un UUID no le dice nada a quien tiene que avisarle al Líder.
@@ -106,6 +130,22 @@ export function EvaluarSucursal() {
   const [scanAbierto, setScanAbierto] = useState(false)
   const [confirmarBorrar, setConfirmarBorrar] = useState<string | null>(null)
   const [evaluacionId, setEvaluacionId] = useState<string | null>(null)
+  /**
+   * Qué trajo la precarga de la visita anterior, para poder DESHACERLA desde
+   * la pantalla.
+   *
+   * Se guarda al abrir con las MISMAS claves con que se armó: una vez
+   * aplicada no hay forma de distinguir lo traído de lo cargado hoy, así que
+   * sin este registro «deshacer» tendría que adivinar qué borrar.
+   */
+  const [precargado, setPrecargado] = useState<{
+    registros: number
+    respuestas: number
+    fecha: string
+    datos: PrecargaSecciones
+  } | null>(null)
+  /** Pide confirmación: la limpieza no se puede deshacer. */
+  const [confirmarPrecarga, setConfirmarPrecarga] = useState(false)
   // Botón de sincronización: subida de lo pendiente + bajada de los datos frescos.
   const [sincronizando, setSincronizando] = useState(false)
   const [avisoSync, setAvisoSync] = useState<{ texto: string; ok: boolean } | null>(null)
@@ -331,10 +371,14 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
     void (async () => {
       const activas = await listarEvaluacionesActivas().catch(() => [])
       // Si hay varias ACTIVAS para la unidad (p.ej. una vieja sin cerrar), se
-      // trabaja sobre la más reciente para no abrir una evaluación anterior.
-      const activa = activas
-        .filter((e) => (departamentoId ? e.departamento_id === departamentoId : e.sucursal_id === sucursalId))
-        .sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))[0]
+      // trabaja sobre la elegida en el listado (?ev=) y, si no viene, sobre la
+      // más reciente para no abrir una evaluación anterior.
+      const candidatas = activas.filter((e) =>
+        departamentoId ? e.departamento_id === departamentoId : e.sucursal_id === sucursalId
+      )
+      const activa =
+        candidatas.find((e) => e.id === evElegida) ??
+        [...candidatas].sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))[0]
       if (!activa) {
         setSinActiva(true)
         setCargando(false)
@@ -347,9 +391,24 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       // la nueva evaluación de la misma unidad: se descartan sus respuestas,
       // registros y comentario para que la medición arranque de cero.
       const mismoDía = !!existente && existente.fecha === activa.fecha
-      const [enNube, instanciasNube] = await Promise.all([
+      // Se precarga sólo cuando la evaluación no tiene registros todavía:
+      // evaluación nueva (sin borrador), un borrador del día que sigue sin
+      // registros (el primer intento falló, p. ej. sin red) o si el
+      // evaluador borró todo. Las respuestas de ítems sueltos no bloquean:
+      // la precarga sólo agrega claves nuevas debajo de todo.
+      const sinTrabajo = !mismoDía || !Object.keys(existente?.instancias ?? {}).length
+      const [enNube, instanciasNube, previa] = await Promise.all([
         listarRespuestasEvaluacion(activa.id).catch(() => []),
-        listarInstanciasEvaluacion(activa.id).catch(() => [])
+        listarInstanciasEvaluacion(activa.id).catch(() => []),
+        // Última visita de la MISMA unidad para precargar sus secciones.
+        // Cualquier fallo deja `previa` en null y la evaluación abre vacía,
+        // como siempre: la precarga es un detalle, no un requisito.
+        sinTrabajo
+          ? ultimaVisitaDeUnidad(
+              { sucursal_id: sucursalId || null, departamento_id: departamentoId || null },
+              activa.fecha
+            ).catch(() => null)
+          : Promise.resolve(null)
       ])
       const nubeMias: DraftEval['respuestas'] = {}
       for (const r of enNube) {
@@ -376,6 +435,38 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
           })
         }
       }
+      // Precarga de la última visita: sólo cuando no hay trabajo de esta
+      // fecha. Los registros de sección llegan con ids NUEVOS (reusar los
+      // viejos pisaría sus filas al subir: el upsert es por id) y las
+      // respuestas precargadas van debajo de todo en el spread de más abajo,
+      // para que nunca pisen lo ya respondido en ESTA evaluación. Las fotos
+      // de la visita anterior no se copian: son evidencia de la otra fecha
+      // (ver `valorDePrecarga`).
+      let precarga: PrecargaSecciones | null = null
+      if (previa) {
+        // Esperar al catálogo: sin esto el render capturado llega vacío y no
+        // se reconocería ninguna sección (síntoma:0 registros, sin aviso).
+        let itemsTodo = catalogoRef.current.items
+        for (let i = 0; i < 20 && !catalogoRef.current.cargado && !itemsTodo.length; i++) {
+          await new Promise((r) => window.setTimeout(r, 100))
+          itemsTodo = catalogoRef.current.items
+        }
+        precarga = precargarSeccionesDe(previa, itemsTodo, instanciasLocales)
+        for (const [itemId, arr] of Object.entries(precarga.instancias)) {
+          if (arr.length) instanciasLocales[itemId] = [...(instanciasLocales[itemId] ?? []), ...arr]
+        }
+        const nRegistros = Object.values(precarga.instancias).reduce((n, arr) => n + arr.length, 0)
+        const nRespuestas = Object.keys(precarga.respuestas).length
+        if (!nRegistros && !nRespuestas) {
+          console.warn(
+            '[precarga] la última visita no aportó registros ni respuestas: revisá el catálogo de esta unidad y el interruptor «Traer datos de la evaluación pasada» de sus ítems'
+          )
+        } else {
+          console.info(
+            `[precarga] ${nRegistros} registro(s) y ${nRespuestas} respuesta(s) de la visita del ${previa.fecha}`
+          )
+        }
+      }
       // Colaboración en vivo al abrir: también hay que ver lo que el otro
       // evaluador ya respondió mientras este teléfono estaba cerrado o cargando.
       const respOtros: DraftEval['respuestas'] = {}
@@ -393,7 +484,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
         fecha: activa.fecha,
         comentario_general: mismoDía ? existente?.comentario_general ?? '' : '',
         puntuacion: mismoDía ? existente?.puntuacion ?? null : null,
-        respuestas: { ...nubeMias, ...respOtros, ...respLocal },
+        respuestas: { ...(precarga?.respuestas ?? {}), ...nubeMias, ...respOtros, ...respLocal },
         instancias: instanciasLocales,
         updated_at: Date.now()
       }
@@ -401,12 +492,31 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       draftRef.current = d
       setDraft(d)
       setCargando(false)
+      // Aviso de lo precargado: el evaluador tiene que saber que lo que ve en
+      // las secciones viene de la visita anterior, no de lo que cargó hoy.
+      const registrosPrecargados = Object.values(precarga?.instancias ?? {}).reduce((n, arr) => n + arr.length, 0)
+      const respuestasPrecargadas = Object.keys(precarga?.respuestas ?? {}).length
+      if (precarga && (registrosPrecargados || respuestasPrecargadas)) {
+        setPrecargado({
+          registros: registrosPrecargados,
+          respuestas: respuestasPrecargadas,
+          fecha: previa?.fecha ?? '',
+          datos: precarga
+        })
+        const partes: string[] = []
+        if (registrosPrecargados) partes.push(`${registrosPrecargados} registro${registrosPrecargados === 1 ? '' : 's'}`)
+        if (respuestasPrecargadas) partes.push(`${respuestasPrecargadas} respuesta${respuestasPrecargadas === 1 ? '' : 's'}`)
+        avisar(
+          `Se precargaron ${partes.join(' y ')} de la última visita. Podés editarlos o borrarlos.`,
+          'info'
+        )
+      }
       // Re-subida al reabrir: si quedó avance sin conexión (o con errores
       // silenciosos), se empuja a la nube apenas se carga la pantalla.
       agendarNube()
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unidadId, profile])
+  }, [unidadId, profile, evElegida])
 
   // Colaboración en vivo: cuando otro evaluador guarda respuestas o registros para
   // la misma evaluación, se fusionan aquí para que los dos vean todos los productos
@@ -884,6 +994,99 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
     }
   }
 
+  /**
+   * Deshace la precarga: borra de la evaluación TODO lo que se trajo de la
+   * visita anterior —los registros con sus respuestas y las respuestas
+   * directas—.
+   *
+   * Va contra la NUBE y no sólo contra el borrador: esos datos se subieron
+   * apenas se abrió la evaluación (ver `agendarNube`), y si sólo se
+   * borraran localmente volverían a bajar en la próxima sincronización. Los
+   * registros se borran de `instancias_grupo` —el `on delete cascade` se
+   * lleva sus respuestas— y las directas de `respuestas` (política
+   * `respuestas_delete`: sólo lo propio y sólo en evaluación abierta).
+   */
+  async function deshacerPrecarga() {
+    const actual = draftRef.current
+    if (!actual || !precargado) return
+    const evId = evaluacionIdRef.current
+    setConfirmarPrecarga(false)
+    if (!online || !evId) {
+      // Sin conexión no se puede: borrar sólo acá dejaría la nube intacta y a
+      // la próxima sincronización volvería todo.
+      avisar('Sin conexión no se puede deshacer: la limpieza tiene que llegar a la nube también.', 'aviso')
+      return
+    }
+
+    const porSeccion = new Map<string, Set<string>>()
+    for (const [itemId, arr] of Object.entries(precargado.datos.instancias)) {
+      porSeccion.set(itemId, new Set(arr.map((r) => r.id)))
+    }
+    const claves = Object.keys(precargado.datos.respuestas)
+
+    // 1) El borrador local PRIMERO: una subida pendiente se dispara leyendo
+    //    `draftRef.current`, así que con el borrador ya limpio no vuelve a
+    //    subir lo que acabamos de borrar.
+    const respuestas: DraftEval['respuestas'] = {}
+    for (const [k, v] of Object.entries(actual.respuestas)) {
+      if (claves.includes(k)) continue
+      const [itemId, instId] = k.split('::')
+      if (instId && porSeccion.get(itemId)?.has(instId)) continue
+      respuestas[k] = v
+    }
+    const instancias: Record<string, DraftInstancia[]> = {}
+    for (const [itemId, arr] of Object.entries(actual.instancias)) {
+      const borrar = porSeccion.get(itemId)
+      instancias[itemId] = borrar ? arr.filter((r) => !borrar.has(r.id)) : arr
+    }
+    const limpio: DraftEval = { ...actual, respuestas, instancias, updated_at: Date.now() }
+    draftRef.current = limpio
+    setDraft(limpio)
+    void putDraft(limpio).catch(() => undefined)
+
+    // 2) La nube.
+    try {
+      for (const id of [...porSeccion.values()].flatMap((set) => [...set])) {
+        const { error } = await supabase.from('instancias_grupo').delete().eq('id', id)
+        if (error) throw new Error(error.message)
+      }
+      // Las respuestas directas (sin instancia) no tienen cascada: se borran
+      // por ítem, con la fila que quedó vacía al final.
+      const directas = Array.from(
+        new Set(claves.filter((k) => !k.split('::')[1]).map((k) => k.split('::')[0]))
+      )
+      for (const itemId of directas) {
+        const { error } = await supabase
+          .from('respuestas')
+          .delete()
+          .eq('evaluacion_id', evId)
+          .eq('item_id', itemId)
+          .is('instancia_id', null)
+        if (error) throw new Error(error.message)
+      }
+    } catch (e) {
+      // El borrador local ya quedó limpio; el banner sigue de pie para
+      // reintentar, que la operación es idempotente.
+      avisar(`No se pudo limpiar la nube: ${e instanceof Error ? e.message : 'volvé a intentarlo'}`, 'error')
+      return
+    }
+
+    setPrecargado(null)
+    avisar('Se limpió lo traído de la visita anterior.')
+  }
+
+  /** «3 registros y 5 respuestas»: lo que trajo la precarga, para avisar y para el diálogo. */
+  const resumenPrecarga = precargado
+    ? [
+        precargado.registros ? `${precargado.registros} registro${precargado.registros === 1 ? '' : 's'}` : '',
+        precargado.respuestas
+          ? `${precargado.respuestas} respuesta${precargado.respuestas === 1 ? '' : 's'}`
+          : ''
+      ]
+        .filter(Boolean)
+        .join(' y ')
+    : ''
+
   const burbuja = (
     <button
       type="button"
@@ -945,6 +1148,35 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
           >
             {avisoSync.ok ? <Check className="mt-px h-4 w-4 shrink-0" /> : <X className="mt-px h-4 w-4 shrink-0" />}
             <span className="min-w-0 flex-1">{avisoSync.texto}</span>
+          </div>
+        ) : null}
+        {/* La precarga de la visita anterior: el toast que avisa al abrir se
+            va en segundos y la decisión puede ser después, así que el aviso
+            —con su botón— queda mientras haya algo traído que limpiar. */}
+        {precargado ? (
+          <div className="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900">
+            <Undo2 className="mt-px h-4 w-4 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="font-black">
+                {resumenPrecarga} traídos de la visita del{' '}
+                {new Date(`${precargado.fecha}T12:00:00`).toLocaleDateString('es', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric'
+                })}
+              </p>
+              <p className="mt-0.5 font-medium leading-snug">
+                Si el inventario cambió, limpiá todo y empezá esta evaluación de cero.
+              </p>
+              <button
+                type="button"
+                onClick={() => setConfirmarPrecarga(true)}
+                className="mt-1.5 inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-sky-800"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+                Deshacer precarga
+              </button>
+            </div>
           </div>
         ) : null}
         {descarte.item_ids.length ? (
@@ -1075,6 +1307,9 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
                   </span>
                 </span>
               </div>
+              {/* Descripción de la sección (Config → Ítems): contexto aparte
+                  del nombre, en tono apagado bajo el encabezado. */}
+              <Descripcion texto={paso.descripcion} className="mt-2" />
             </div>
 
             <div className="flex flex-col rounded-2xl bg-slate-50 p-4">
@@ -1560,6 +1795,28 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       >
         <p className="text-sm text-slate-600">
           Se eliminará este registro y todas sus respuestas. Esta acción no se puede deshacer.
+        </p>
+      </Modal>
+
+      <Modal
+        open={confirmarPrecarga}
+        onClose={() => setConfirmarPrecarga(false)}
+        title="Deshacer precarga"
+        footer={
+          <div className="flex gap-2">
+            <Button variant="secondary" className="flex-1" onClick={() => setConfirmarPrecarga(false)}>
+              Cancelar
+            </Button>
+            <Button variant="danger" className="flex-1" onClick={() => void deshacerPrecarga()}>
+              Limpiar
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          Se borrarán {resumenPrecarga}, que se trajeron de la visita anterior. Si cargaste o editaste
+          encima de esos registros, eso también se pierde. Esta acción no se puede deshacer y se borra
+          también en la nube.
         </p>
       </Modal>
     </MobileLayout>

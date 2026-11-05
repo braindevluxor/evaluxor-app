@@ -3,6 +3,7 @@ import { crearInvitacion, actualizarUsuario, desbloquearUsuario, listarAsignacio
 import { listarModulosAdmin } from '../../lib/data/catalog'
 import { supabase } from '../../lib/supabase'
 import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
+import { avisar } from '../../lib/aviso'
 import type { Invitacion, Modulo, Rol, Sucursal } from '../../lib/types'
 import { Badge, Button, ButtonIcon, Field, Input, Modal, Select, Skeleton, SkeletonFilas, cn } from '../../components/ui'
 import { UltimaSync } from '../../components/UltimaSync'
@@ -95,6 +96,9 @@ export function UsuariosPage() {
     const activo = asignados.has(key)
     setGuardandoMod(key)
     try {
+      // El chequeo va ANTES de mover el estado local: si el módulo no está
+      // compartido y ya tiene evaluador, la base lo rechaza y el aviso tiene
+      // que decirlo en vez de pintar la casilla igual.
       if (activo) await desasignarModulo(asignando.id, moduloId)
       else await asignarModulo(asignando.id, moduloId)
       setAsignados((prev) => {
@@ -103,6 +107,8 @@ export function UsuariosPage() {
         else n.add(key)
         return n
       })
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo guardar el módulo del evaluador.', 'error')
     } finally {
       setGuardandoMod(null)
     }

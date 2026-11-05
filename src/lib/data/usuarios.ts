@@ -72,17 +72,22 @@ export async function listarAsignacionasAdmin(): Promise<Asignacion[]> {
 }
 
 export async function asignarEvaluador(evaluadorId: string, sucursalId: string): Promise<void> {
-  await supabase
+  // El `await` de un builder no rechaza: el error viene DENTRO de la
+  // respuesta. Descartarlo era el modo en que la pantalla pintaba «Asignada»
+  // una fila que la base rechazó — y que por eso nunca llegó a la bitácora.
+  const { error } = await supabase
     .from('asignaciones')
     .upsert({ evaluador_id: evaluadorId, sucursal_id: sucursalId, activa: true }, { onConflict: 'evaluador_id,sucursal_id' })
+  if (error) throw new Error(error.message || 'No se pudo asignar la sucursal al evaluador.')
 }
 
 export async function desasignarEvaluador(evaluadorId: string, sucursalId: string): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from('asignaciones')
     .update({ activa: false })
     .eq('evaluador_id', evaluadorId)
     .eq('sucursal_id', sucursalId)
+  if (error) throw new Error(error.message || 'No se pudo quitar la sucursal del evaluador.')
 }
 
 export async function listarAsignacionesModulosAdmin(): Promise<AsignacionModulo[]> {
@@ -91,15 +96,21 @@ export async function listarAsignacionesModulosAdmin(): Promise<AsignacionModulo
 }
 
 export async function asignarModulo(evaluadorId: string, moduloId: string): Promise<void> {
-  await supabase
+  // El error se propaga con su mensaje original a propósito: el trigger
+  // `validar_unico_evaluador_modulo` explica ahí por qué no se pudo («el
+  // módulo no está compartido…») y taparlo con un «no se pudo guardar»
+  // perdería la única pista de qué hacer.
+  const { error } = await supabase
     .from('asignaciones_modulos')
     .upsert({ evaluador_id: evaluadorId, modulo_id: moduloId, activa: true }, { onConflict: 'evaluador_id,modulo_id' })
+  if (error) throw new Error(error.message || 'No se pudo asignar el módulo al evaluador.')
 }
 
 export async function desasignarModulo(evaluadorId: string, moduloId: string): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from('asignaciones_modulos')
     .update({ activa: false })
     .eq('evaluador_id', evaluadorId)
     .eq('modulo_id', moduloId)
+  if (error) throw new Error(error.message || 'No se pudo quitar el módulo del evaluador.')
 }

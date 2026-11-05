@@ -32,11 +32,19 @@ const UnidadesPage = lazy(() => import('./pages/config/Unidades').then((m) => ({
 const ModulosPage = lazy(() => import('./pages/config/Modulos').then((m) => ({ default: m.ModulosPage })))
 const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ default: m.ItemsPage })))
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
+const AsignacionesPage = lazy(() =>
+  import('./pages/config/Asignaciones').then((m) => ({ default: m.AsignacionesPage }))
+)
 const BitacoraPage = lazy(() => import('./pages/config/Bitacora').then((m) => ({ default: m.BitacoraPage })))
 // Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
 // cuenta. Va con lazy porque sólo se descarga quien abre el enlace.
 const ConciliacionPublica = lazy(() =>
   import('./pages/publico/ConciliacionPublica').then((m) => ({ default: m.ConciliacionPublica }))
+)
+// La otra de invitado: las fallas por cargo (la bitácora de atención del
+// trabajador), también con lazy.
+const CargosPublicos = lazy(() =>
+  import('./pages/publico/CargosPublicos').then((m) => ({ default: m.CargosPublicos }))
 )
 // Inspección de vehículo (estética + mecánica + gas vehicular): herramienta
 // fuera de la evaluación, con fotos, registro local y PDF.
@@ -75,6 +83,9 @@ function Rutas() {
                         le pasa al coordinador de inventario para que vea la
                         conciliación sin tener cuenta. La autorización es el
                         token, y sólo da lectura — ver `supabase/compartir-evaluacion.sql`. */}
+                    {/* Enlace de INVITADO: la otra pantalla pública, con su
+                        propia ruta para no pisar el de conciliación. */}
+                    <Route path="/compartir/cargos/:token" element={<CargosPublicos />} />
                     <Route path="/compartir/:token" element={<ConciliacionPublica />} />
                     <Route
                       path="/evaluaciones/:evaluacionId"
@@ -264,6 +275,11 @@ function Rutas() {
                       />
                       <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
                       <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
+                      {/* Asignar sucursales a evaluadores: escribe `asignaciones`,
+                          una de las cuatro tablas del alcance de la bitácora.
+                          Sin ésta esa tabla no cambia desde la app y su filtro
+                          del historial quedaba siempre vacío. */}
+                      <Route path="/config/asignaciones" element={<SoloLider><AsignacionesPage /></SoloLider>} />
                       {/* La bitácora es sólo lectura y sólo Líder: el RLS de
                           la tabla ya lo decide (`bitacora_asignaciones_select`),
                           acá se replica para que ni siquiera se pida la ruta. */}

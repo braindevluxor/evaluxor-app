@@ -369,6 +369,55 @@ describe('convertirValor', () => {
       responsablesGerente: 'Elena'
     })
   })
+  it('al re-subir no borra los paths ya subidos de un punto del checklist', () => {
+    // La respuesta reabierta desde la nube (o ya subida antes) trae `paths`
+    // sin `photoIds`: reconstruir sólo desde photoIds dejaba la foto en el
+    // bucket y «—» en la columna Foto del detalle.
+    const map = new Map([['x', 'ev/c/d/x.jpg']])
+    expect(
+      convertirValor(
+        { selected: ['a', 'b'], evidencias: { a: { paths: ['ev/c/d/vieja.jpg'] }, b: { photoIds: ['x'] } } },
+        map
+      )
+    ).toEqual({
+      selected: ['a', 'b'],
+      evidencias: {
+        a: { paths: ['ev/c/d/vieja.jpg'] },
+        b: { paths: ['ev/c/d/x.jpg'] }
+      }
+    })
+  })
+  it('suma los paths existentes a los photoIds nuevos del mismo punto', () => {
+    const map = new Map([['x', 'ev/c/d/x.jpg']])
+    expect(
+      convertirValor(
+        { selected: ['a'], evidencias: { a: { paths: ['ev/c/d/vieja.jpg'], photoIds: ['x'] } } },
+        map
+      )
+    ).toEqual({
+      selected: ['a'],
+      evidencias: { a: { paths: ['ev/c/d/vieja.jpg', 'ev/c/d/x.jpg'] } }
+    })
+  })
+  it('conserva los paths de una evidencia de cumple ya subida', () => {
+    expect(
+      convertirValor(
+        { value: false, evidencias: [{ paths: ['ev/c/d/vieja.jpg'], photoIds: [], comentario: 'ok' }] },
+        new Map()
+      )
+    ).toEqual({
+      value: false,
+      evidencias: [{ comentario: 'ok', paths: ['ev/c/d/vieja.jpg'] }]
+    })
+  })
+  it('conserva los paths de un plano ya subido', () => {
+    expect(
+      convertirValor({ planos: [{ id: 'p1', nombre: 'Planta', paths: ['ev/c/d/vieja.jpg'] }], puntos: [] }, new Map())
+    ).toEqual({
+      planos: [{ id: 'p1', nombre: 'Planta', paths: ['ev/c/d/vieja.jpg'] }],
+      puntos: []
+    })
+  })
 })
 
 describe('conciliación con evidencia fotográfica casada al producto', () => {

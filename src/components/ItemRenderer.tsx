@@ -12,6 +12,7 @@ import { destinoRespaldo } from '../lib/galeria'
 import { escribirComentario, leerComentario } from '../lib/comentariosPunto'
 import { Badge, cn, Input, Textarea, Button, Spinner, Confirmar, Modal, ProgressBar } from './ui'
 import { IdCopiable } from './IdCopiable'
+import { Descripcion } from './Descripcion'
 import { COLOR_BADGE_TIPO_ITEM, EYEBROW, HEX_CUMPLE, HEX_NO_CUMPLE, HEX_RIESGO } from '../lib/diseno'
 import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
@@ -256,6 +257,10 @@ export function ItemRenderer({ item, valor, onChange, index, total, shopId, bran
         <p className="font-semibold text-slate-800">{preg}</p>
         <Badge color={tipoColor}>{etiquetaTipo(item.tipo)}</Badge>
       </div>
+      {/* Descripción opcional del ítem (Config → Ítems): va debajo del
+          enunciado, en tono apagado, para que se lea como ayuda y no como la
+          pregunta. Sin descripción no se pinta nada (ni un espacio de más). */}
+      <Descripcion texto={item.descripcion} className="mb-3 -mt-1" />
       <Contenido item={item} valor={valor} onChange={onChange} shopId={shopId} branchId={branchId} gerente={gerente} sucursalId={sucursalId} fechaEvaluacion={fechaEvaluacion} evaluador={evaluador} />
       {item.requerido && estaVacioItem(item, valor) ? (
         <p className="mt-2 text-xs font-medium text-red-600">Obligatorio para enviar la evaluación.</p>

@@ -124,6 +124,7 @@ export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: 
     modulo_id: i.modulo_id,
     tipo: i.tipo,
     texto: i.texto,
+    descripcion: i.descripcion ?? '',
     opciones: i.opciones ?? [],
     colaboradores_filtro: i.colaboradores_filtro ?? null,
     responsables: i.responsables ?? [],
@@ -137,7 +138,8 @@ export async function guardarItem(i: Partial<Item> & { modulo_id: string; tipo: 
     permitir_duplicados: i.permitir_duplicados ?? false,
     repetible: i.repetible ?? true,
     contra_dato: i.contra_dato ?? 'SOH',
-    doble_check: i.doble_check ?? false
+    doble_check: i.doble_check ?? false,
+    precarga: i.precarga ?? true
   }).select('id').single()
   if (error) throw error
   return data?.id ?? null
@@ -162,17 +164,29 @@ export async function listarSucursalConfigAdmin(sucursalId: string): Promise<{ m
 }
 
 export async function configurarSucursalModulos(sucursalId: string, modulosIds: string[]): Promise<void> {
-  const { data: actuales } = await supabase.from('sucursal_modulos').select('id, modulo_id, activa').eq('sucursal_id', sucursalId)
+  const { data: actuales, error: errorLectura } = await supabase
+    .from('sucursal_modulos')
+    .select('id, modulo_id, activa')
+    .eq('sucursal_id', sucursalId)
+  // Sin la lectura previa no se sabe qué cambiar, y a ciegas los inserts
+  // chocarían contra la `unique (sucursal_id, modulo_id)` en silencio.
+  if (errorLectura) throw new Error(errorLectura.message)
   const rows = (actuales ?? []) as { id: string; modulo_id: string; activa: boolean }[]
   const ids = new Set(modulosIds)
   const aInsertar = modulosIds.filter((mid) => !rows.some((r) => r.modulo_id === mid))
   const aActivar = rows.filter((r) => ids.has(r.modulo_id) && !r.activa).map((r) => r.id)
   const aDesactivar = rows.filter((r) => !ids.has(r.modulo_id)).map((r) => r.id)
-  const ops: Promise<void>[] = []
-  if (aInsertar.length) ops.push(Promise.resolve(supabase.from('sucursal_modulos').insert(aInsertar.map((modulo_id) => ({ sucursal_id: sucursalId, modulo_id })))).then(() => undefined))
-  if (aActivar.length) ops.push(Promise.resolve(supabase.from('sucursal_modulos').update({ activa: true }).in('id', aActivar)).then(() => undefined))
-  if (aDesactivar.length) ops.push(Promise.resolve(supabase.from('sucursal_modulos').update({ activa: false }).in('id', aDesactivar)).then(() => undefined))
-  await Promise.all(ops)
+  // Los builders resuelven con el error adentro: hay que leer cada
+  // respuesta, no sólo esperar. Sin esto el guardado se daba por hecho y la
+  // bitácora quedaba muda, sin que nadie supiera que la base había rechazado
+  // el cambio.
+  const ops: PromiseLike<{ error: { message: string } | null }>[] = []
+  if (aInsertar.length) ops.push(supabase.from('sucursal_modulos').insert(aInsertar.map((modulo_id) => ({ sucursal_id: sucursalId, modulo_id }))))
+  if (aActivar.length) ops.push(supabase.from('sucursal_modulos').update({ activa: true }).in('id', aActivar))
+  if (aDesactivar.length) ops.push(supabase.from('sucursal_modulos').update({ activa: false }).in('id', aDesactivar))
+  for (const r of await Promise.all(ops)) {
+    if (r.error) throw new Error(r.error.message || 'No se pudieron guardar los módulos de la sucursal.')
+  }
 }
 
 export async function configurarSucursalItems(sucursalId: string, itemsIds: string[]): Promise<void> {

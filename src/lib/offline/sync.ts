@@ -40,40 +40,52 @@ async function buscarEnStorage(paths: string[]): Promise<string | null> {
   return null
 }
 
+/**
+ * Sube un lote de fotos al bucket y devuelve id → path.
+ *
+ * Camino único del autoguardado Y de la cola: si el registro local de una foto
+ * ya no está (una subida anterior pudo borrarlo), se busca la copia en Storage
+ * en vez de tumbar la subida. Sin esa recuperación, un trabajo de la cola con
+ * una foto ya subida quedaba reintentando para siempre con «No se encontró la
+ * foto local» — el motivo genérico que nunca se desbloqueaba.
+ */
+async function subirFotos(evaluacionId: string, ids: string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  for (const id of ids) {
+    if (map.has(id)) continue
+    // El registro viene primero: su MIME dicta la extensión de la ruta.
+    const rec = await getPhotos([id]).then((r) => r[0])
+    const path = photoPath(evaluacionId, 'evidencia', id, rec?.mime)
+    if (fotosSubidasEnEstaSesion.has(path)) {
+      map.set(id, path)
+      continue
+    }
+    if (!rec) {
+      const subido = await buscarEnStorage(pathsCandidatosFoto(evaluacionId, id))
+      if (!subido) {
+        throw new Error(`No se encontró la foto local ${id} ni una copia ya subida a Storage; no se sincronizaron las evidencias.`)
+      }
+      fotosSubidasEnEstaSesion.add(subido)
+      map.set(id, subido)
+      continue
+    }
+    const { error } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
+      contentType: rec.mime,
+      upsert: false
+    })
+    if (error && !/already exists|already-exists|duplicate/i.test(error.message)) throw error
+    fotosSubidasEnEstaSesion.add(path)
+    map.set(id, path)
+  }
+  return map
+}
+
 async function subirFotosDeRespuestas(
   evaluacionId: string,
   respuestas: { item_id: string; valor: unknown }[]
 ): Promise<Map<string, string>> {
-  const map = new Map<string, string>()
-  for (const respuesta of respuestas) {
-    for (const id of extraerPhotoIds(respuesta.valor)) {
-      if (map.has(id)) continue
-      // El registro viene primero: su MIME dicta la extensión de la ruta.
-      const rec = await getPhotos([id]).then((r) => r[0])
-      const path = photoPath(evaluacionId, 'evidencia', id, rec?.mime)
-      if (fotosSubidasEnEstaSesion.has(path)) {
-        map.set(id, path)
-        continue
-      }
-      if (!rec) {
-        const subido = await buscarEnStorage(pathsCandidatosFoto(evaluacionId, id))
-        if (!subido) {
-          throw new Error(`No se encontró la foto local ${id} ni una copia ya subida a Storage; no se sincronizó el borrador con sus evidencias.`)
-        }
-        fotosSubidasEnEstaSesion.add(subido)
-        map.set(id, subido)
-        continue
-      }
-      const { error } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
-        contentType: rec.mime,
-        upsert: false
-      })
-      if (error && !/already exists|already-exists|duplicate/i.test(error.message)) throw error
-      fotosSubidasEnEstaSesion.add(path)
-      map.set(id, path)
-    }
-  }
-  return map
+  const ids = Array.from(new Set(respuestas.flatMap((respuesta) => extraerPhotoIds(respuesta.valor))))
+  return subirFotos(evaluacionId, ids)
 }
 
 export async function encolarRespuestas(draft: DraftEval): Promise<void> {
@@ -551,18 +563,10 @@ export async function procesarCola(
       if (!ev) throw new Error('La evaluación no está activa. El Líder debe abrirla antes de sincronizar respuestas.')
       evaluacionId = ev.id as string
 
-      const map = new Map<string, string>()
-      for (const id of photoIds) {
-        const rec = await getPhotos([id]).then((r) => r[0])
-        if (!rec) throw new Error(`No se encontró la foto local ${id}; la evaluación quedó pendiente y no se descartó.`)
-        const path = photoPath(evaluacionId, 'evidencia', id, rec.mime)
-        const { error: upErr } = await supabase.storage.from('evidencias').upload(path, rec.blob, {
-          contentType: rec.mime,
-          upsert: false
-        })
-        if (upErr && !/already exists|already-exists|duplicate/i.test(upErr.message)) throw upErr
-        map.set(id, path)
-      }
+      // Mismo camino que el autoguardado (ver `subirFotos`): con el error
+      // directo, un trabajo cuya foto ya había subido una subida anterior
+      // reintentaba para siempre y la cola nunca bajaba.
+      const map = await subirFotos(evaluacionId, photoIds)
 
       const instRows: FilaInstancia[] = (job.instancias ?? []).map((ins) => ({
         id: ins.id,

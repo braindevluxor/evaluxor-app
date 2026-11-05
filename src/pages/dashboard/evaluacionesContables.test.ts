@@ -8,9 +8,11 @@ function fuente(rel: string): string {
 
 /**
  * «Evaluaciones en el rango» contaba 7 cuando sólo había 5 evaluadas: entraban
- * una que todavía no se cerró y una de departamento, que en el dashboard de un
- * módulo no tiene fila (todo ahí es «por sucursal»). Los flags existen para que
- * cada pantalla diga qué cuenta, en vez de que todas cuenten lo mismo.
+ * una que todavía no se cerró. Los flags existen para que cada pantalla diga qué
+ * cuenta, en vez de que todas cuenten lo mismo: el de módulo descarta las
+ * abiertas, pero sí cuenta las de departamento (un módulo como Flota Vehicular
+ * lo miden departamentos y ahí tienen fila), y el de indicadores lo decide un
+ * filtro.
  */
 describe('los dashboards sólo cuentan evaluaciones que son resultados', () => {
   const datos = fuente('../../lib/data/indicadores.ts')
@@ -24,12 +26,15 @@ describe('los dashboards sólo cuentan evaluaciones que son resultados', () => {
     expect(datos).toMatch(/if \(f\.soloCerradas\) query = query\.eq\('estado', 'CERRADA'\)\n/)
   })
 
-  it('el dashboard del módulo pide las dos cosas', () => {
+  it('el dashboard del módulo descarta las abiertas pero cuenta cualquier unidad', () => {
     const pagina = fuente('./ModuloDashboard.tsx')
     expect(pagina).toContain('soloCerradas: true')
-    expect(pagina).toContain('soloSucursales: true')
-    // Sin sucursal elegida el filtro anterior no alcanzaba: el `in('sucursal_id')`
-    // no se dispara cuando no hay lista y las de departamento pasaban solas.
+    // `soloSucursales` se cayó a propósito (dff70c8): con él, los módulos
+    // medidos por departamento (Flota Vehicular) quedaban en cero aunque la
+    // tarjeta del panel principal mostrara promedio.
+    expect(pagina).not.toContain('soloSucursales: true')
+    // Sin sucursal elegida el alcance anterior no alcanzaba: el `in('sucursal_id')`
+    // no se dispara cuando no hay lista.
     expect(pagina).toContain('sucursal_ids: sucursalSel ? [sucursalSel] : scope')
   })
 

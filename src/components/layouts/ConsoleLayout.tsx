@@ -1,4 +1,4 @@
-import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
+import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, UserPlus, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -30,6 +30,7 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/dashboard/comparativas': { titulo: 'Comparativas', subtitulo: 'Analiza el desempeño por evaluador, mes o sucursal' },
   '/dashboard/responsables': { titulo: 'Seguimiento por cargo', subtitulo: 'Nota promedio de cada responsable por sucursal' },
   '/config/usuarios': { titulo: 'Usuarios', subtitulo: 'Gestión de roles y accesos' },
+  '/config/asignaciones': { titulo: 'Asignaciones', subtitulo: 'Asigna sucursales a evaluadores' },
   '/config/unidades': { titulo: 'Unidades', subtitulo: 'Registro de sucursales y departamentos' },
   '/config/modulos': { titulo: 'Módulos', subtitulo: 'Configuración y explicación de cada módulo' },
   '/config/bitacora': { titulo: 'Bitácora', subtitulo: 'Quién cambió cada asignación, y cuándo' },
@@ -77,6 +78,7 @@ function ConsoleLayoutContenido() {
         { to: '/config/unidades', label: 'Unidades', icon: <Store className="h-5 w-5" /> },
         { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> },
         { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> },
+        { to: '/config/asignaciones', label: 'Asignaciones', icon: <UserPlus className="h-5 w-5" /> },
         // Sólo Líder, igual que las demás: la ruta va envuelta en `SoloLider`
         // y el RLS de la tabla es la segunda cerradura.
         { to: '/config/bitacora', label: 'Bitácora', icon: <History className="h-5 w-5" /> }

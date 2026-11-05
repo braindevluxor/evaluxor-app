@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { Lock, RefreshCw, TriangleAlert } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { useParams } from 'react-router-dom'
+import { TriangleAlert } from 'lucide-react'
 import { cn } from '../../components/ui'
+import { Descripcion } from '../../components/Descripcion'
+import { Marco, VistaInvalida } from './Invitado'
 import {
   obtenerConciliacionPublica,
   type ConciliacionPublica
@@ -406,6 +408,8 @@ function Cabecera({ item, seccion, modulo }: { item: Item; seccion: Item | undef
         </p>
       ) : null}
       <h2 className="mt-1 text-base font-extrabold leading-snug text-slate-900">{item.texto}</h2>
+      {/* Descripción opcional (Config → Ítems): ayuda aparte del enunciado. */}
+      <Descripcion texto={item.descripcion} className="mt-1" />
     </div>
   )
 }
@@ -455,47 +459,4 @@ function fechaLarga(fecha: string): string {
   const d = new Date(`${fecha}T00:00:00`)
   if (Number.isNaN(d.getTime())) return fecha
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' })
-}
-
-/** Marco propio: sin sidebar, sin barra inferior, sin sesión. */
-function Marco({ children }: { children: ReactNode }) {
-  return (
-    <div className="min-h-screen bg-white font-sans text-slate-900">
-      <header className="sticky top-0 z-10 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <img src="/completo.webp" alt="EvaLuxor" className="h-8 w-auto" />
-          <span className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">
-            <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-            Modo invitado
-          </span>
-        </div>
-      </header>
-      {children}
-    </div>
-  )
-}
-
-function VistaInvalida({ titulo, detalle }: { titulo: string; detalle?: string }) {
-  return (
-    <Marco>
-      <main className="mx-auto flex max-w-md flex-col items-center px-6 py-20 text-center">
-        <img src="/isotipo.webp" alt="" className="h-14 w-auto" />
-        <h1 className="mt-6 text-xl font-extrabold text-slate-900">{titulo}</h1>
-        {detalle ? <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500">{detalle}</p> : null}
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-primary-700"
-          >
-            <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            Reintentar
-          </button>
-          <Link to="/" className="rounded-full bg-slate-100 px-5 py-2.5 text-sm font-bold text-slate-600">
-            Ir a EvaLuxor
-          </Link>
-        </div>
-      </main>
-    </Marco>
-  )
 }

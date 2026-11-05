@@ -145,7 +145,7 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   )
 }
 
-export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & { ref?: Ref<HTMLTextAreaElement> }) {
   const conAncho = /(?:^|\s)w-/.test(className ?? '')
   return (
     <textarea

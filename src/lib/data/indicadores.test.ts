@@ -734,11 +734,13 @@ describe('barrasModulo', () => {
 
     const r = barrasModulo(datosBarra(items, respuestas), MOD_BARRA, barrasSucursales, false)
 
-    expect(r.grupo).toBe('sucursal')
+    // El grupo se llama «unidad» desde dff70c8: puede traer sucursales y
+    // departamentos (en ese orden); este caso sólo tiene sucursales.
+    expect(r.grupo).toBe('unidad')
     expect(r.barras).toHaveLength(3)
-    expect(r.barras[0]).toEqual({ clave: 's1', etiqueta: 'Sucursal Norte', puntaje: 100, muestras: 1 })
-    expect(r.barras[1]).toEqual({ clave: 's2', etiqueta: 'Sucursal Sur', puntaje: 30, muestras: 1 })
-    expect(r.barras[2]).toEqual({ clave: 's3', etiqueta: 'Sucursal Este', puntaje: null, muestras: 0 })
+    expect(r.barras[0]).toEqual({ clave: 's1', etiqueta: 'Sucursal Norte', puntaje: 100, muestras: 1, unidad: 'sucursal' })
+    expect(r.barras[1]).toEqual({ clave: 's2', etiqueta: 'Sucursal Sur', puntaje: 30, muestras: 1, unidad: 'sucursal' })
+    expect(r.barras[2]).toEqual({ clave: 's3', etiqueta: 'Sucursal Este', puntaje: null, muestras: 0, unidad: 'sucursal' })
   })
 
   it('en módulos de vehículos agrupa el promedio por placa (instancia) en lugar de por sucursal', () => {
@@ -777,7 +779,7 @@ describe('barrasModulo', () => {
     expect(bbb?.muestras).toBe(1)
 
     // CCC333: instancia registrada sin respuestas → sin datos.
-    expect(r.barras.find((b) => b.clave === 'CCC333')).toEqual({ clave: 'CCC333', etiqueta: 'CCC333', puntaje: null, muestras: 0 })
+    expect(r.barras.find((b) => b.clave === 'CCC333')).toEqual({ clave: 'CCC333', etiqueta: 'CCC333', puntaje: null, muestras: 0, unidad: 'placa' })
   })
 })
 

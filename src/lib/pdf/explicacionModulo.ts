@@ -14,8 +14,9 @@
  *   2. CÓMO SE CALCULA EL PUNTAJE: la regla general (peso x cumplimiento), las
  *      secciones, el «no aplica» y los veredictos.
  *   3. EL DETALLE DE CADA ÍTEM, en el orden en que se responde (sección y
- *      después sus hijos): qué mide, cómo se mide y —cuando el ítem tiene
- *      lista— la tabla de sus puntos.
+ *      después sus hijos): qué mide, cómo se mide, la descripción que cargó
+ *      el Líder en Config → Ítems y —cuando el ítem tiene lista— la tabla de
+ *      sus puntos.
  *   4. LA COMPOSICIÓN DEL 100% DEL MÓDULO: cuadro resumen que detalla cuánto
  *      aporta cada ítem individual para formar la nota total.
  *
@@ -37,6 +38,7 @@ import {
   responsablesDeOpcion
 } from '../scoring'
 import { itemsEnOrdenJerarquico } from '../hierarchy'
+import { pintarDescripcionItem } from './descripcionItem'
 import {
   ESTILO_TABLA,
   MARGEN,
@@ -507,6 +509,11 @@ export function buildExplicacionModulo(datos: ExplicacionModuloDatos): jsPDF {
       item.responsables?.length ? `Responsables: ${item.responsables.join(', ')}` : 'Sin responsables configurados'
     ]
     textoLinea(datosItem.join(' | '), { size: 8.5, gap: 2 })
+    // La descripción que el Líder cargó en Config → Ítems: el contexto o el
+    // criterio del punto, tal como lo ve el evaluador en pantalla.
+    if (item.descripcion?.trim()) {
+      y = pintarDescripcionItem(pdf, item.descripcion, geo(), { size: 9, gap: 2 })
+    }
     for (const parrafo of comoSeMide(item)) textoLinea(parrafo, { size: 9, gap: 2 })
     if ((item.opciones ?? []).length) {
       tabla(
