@@ -1,4 +1,4 @@
-import { Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, UserPlus, X, ClipboardCheck } from 'lucide-react'
+import { Award, Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, UserPlus, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -34,6 +34,7 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/config/unidades': { titulo: 'Unidades', subtitulo: 'Registro de sucursales y departamentos' },
   '/config/modulos': { titulo: 'Módulos', subtitulo: 'Configuración y explicación de cada módulo' },
   '/config/bitacora': { titulo: 'Bitácora', subtitulo: 'Quién cambió cada asignación, y cuándo' },
+  '/config/bonos': { titulo: 'Bonos por desempeño', subtitulo: 'Cargos que gozan de bono y pago de los mismos' },
   // La cuenta se configura DESDE la consola, con su barra y su menú: salirse
   // de la barra para cambiar la contraseña se sentía como otra app.
   '/perfil': { titulo: 'Configuración', subtitulo: 'Administra tus datos personales y la seguridad de tu cuenta' }
@@ -81,7 +82,20 @@ function ConsoleLayoutContenido() {
         { to: '/config/asignaciones', label: 'Asignaciones', icon: <UserPlus className="h-5 w-5" /> },
         // Sólo Líder, igual que las demás: la ruta va envuelta en `SoloLider`
         // y el RLS de la tabla es la segunda cerradura.
-        { to: '/config/bitacora', label: 'Bitácora', icon: <History className="h-5 w-5" /> }
+        { to: '/config/bitacora', label: 'Bitácora', icon: <History className="h-5 w-5" /> },
+        // Bonos por desempeño: acá entra también el Gerente de Talento Humano
+        // (la ruta lo permite y `puede_bonos` es la misma cerradura en RLS).
+        { to: '/config/bonos', label: 'Bonos', icon: <Award className="h-5 w-5" /> }
+      ]
+    }
+  ] : profile && profile.rol === 'GERENTE_TH' ? [
+    // El Gerente de Talento Humano no configura evaluaciones —por eso no ve
+    // «Gestión» completa— pero su área es la dueña de los bonos: su menú es
+    // ese módulo y nada más.
+    {
+      seccion: 'Gestión',
+      items: [
+        { to: '/config/bonos', label: 'Bonos', icon: <Award className="h-5 w-5" /> }
       ]
     }
   ] : profile && profile.rol === 'EVALUADOR' ? [

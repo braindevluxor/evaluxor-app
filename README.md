@@ -13,11 +13,11 @@ Vite + React 19 + TypeScript, Tailwind CSS (color primario azul oscuro `#0B2545`
 
 | Rol | Describe |
 |---|---|
-| `LIDER` | Gestiona usuarios/invitaciones, sucursales, módulos/ítems, asignaciones y ve el dashboard global. |
+| `LIDER` | Gestiona usuarios/invitaciones, sucursales, módulos/ítems, asignaciones, los bonos por desempeño y ve el dashboard global. |
 | `EVALUADOR` | Evalúa solo las sucursales asignadas, con la vista móvil. |
 | `GERENTE_S` | Gerente de sucursal: ve solo los resultados de su sucursal. |
 | `GERENTE_C` | Gerente corporativo: ve todas las sucursales. |
-| `GERENTE_TH` | Talento Humano: ve todas las tiendas. |
+| `GERENTE_TH` | Talento Humano: ve todas las tiendas y gestiona los bonos por desempeño. |
 
 ### Flujo de creación de usuarios
 1. El **Líder** genera una *invitación* (correo + **usuario de acceso** + rol + sucursal) desde `/config/usuarios`.
@@ -25,6 +25,15 @@ Vite + React 19 + TypeScript, Tailwind CSS (color primario azul oscuro `#0B2545`
 3. El **login usa el usuario de acceso** (el correo queda como respaldo interno; Supabase resuelve usuario→correo en segundo plano).
 
 > El registro SIN invitación está bloqueado en base de datos (trigger `validar_registro`): solo el Líder crea usuarios.
+
+## Bonos por desempeño
+
+Módulo en el menú de la consola (`/config/bonos`), para `LIDER` y `GERENTE_TH`:
+
+- **Cargos**: qué cargos gozan de bono, con su monto, su nota mínima (umbral, 70 por defecto) y su periodicidad (mensual o trimestral, elegida por cargo). Cada cargo acota su **alcance**: sin sucursales marcadas aplica a **todas** con el monto base; marcadas, sólo a **ese conjunto** y cada sucursal puede traer su propio monto (montos distintos por tipo de tienda, sin tocar umbral ni periodicidad). También puede acotarse por **departamento** (la nómina trae `department_name` por persona): «Comprador/a» de Compras no se junta con «Comprador/a» de Servicios Generales. El mismo cargo puede repetirse en otra fila **si sus sucursales no se cruzan** y sus áreas son distintas: si comparten una (o si una es «todas»), el guardado rechaza el alta con el listado de las que chocan. La tabla muestra por cada cargo la cantidad de **ocupantes** (nómina activa de su alcance y departamento) y su **gasto total proyectado** = monto × ocupantes, con su fila de total; el modal repite esa estimación en vivo mientras se arma.
+- **Pagos**: por período, se generan las filas con la nómina **actual** de las sucursales (API de trabajadores) y después se carga la nota de cada persona **a mano**. La regla: por debajo del umbral no se paga nada (69 o menos con umbral 70); desde el umbral en adelante se paga el porcentaje obtenido, es decir `monto × nota / 100`.
+
+Los datos viven en `supabase/schema.sql`, bloque `bonos.sql` (tablas `bonos_cargo`, `bonos_cargo_sucursal` y `bonos_pago`, con RLS sobre la función `puede_bonos`): hay que pegarlo en el SQL Editor de Supabase una vez. Es idempotente, se puede volver a correr.
 
 ## Puesta en marcha
 

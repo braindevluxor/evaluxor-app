@@ -5464,3 +5464,192 @@ do $$
 begin
   execute 'revoke all on public.push_suscripciones from anon';
 end $$;
+
+-- Archivo consolidado: bonos.sql
+-- ###########################################################################
+-- ============================================================================
+-- BONOS POR DESEMPEÑO: QUÉ CARGOS GOZAN DE BONO Y QUIÉN LO COBRA
+--
+-- Dos tablas y una sola regla de negocio:
+--
+--  * `bonos_cargo` dice QUÉ cargo goza de bono: su monto base, su nota
+--    mínima (el umbral, 70 por defecto) y cada cuánto se paga —MENSUAL o
+--    TRIMESTRAL— elegido por cargo. El mismo cargo puede repetirse en otra
+--    fila SI sus sucursales no se cruzan con las de la primera: es la forma
+--    de darle monto, umbral o período distinto a otro conjunto de tiendas.
+--  * `bonos_cargo_sucursal` es el ALCANCE de ese cargo: sin filas aplica a
+--    TODAS las sucursales con el monto base; con filas aplica sólo a ese
+--    conjunto y cada sucursal puede traer su propio monto (montos distintos
+--    por tipo de tienda, sin tocar umbral ni periodicidad).
+--  * `bonos_pago` es el pago de UN colaborador en UN período. La nota se
+--    carga A MANO (no se cruza con las evaluaciones) y el monto a cobrar lo
+--    calcula el cliente con `montoACobrar`: por debajo del umbral no se paga
+--    nada (0 a 69 con umbral 70); desde el umbral en adelante se paga el
+--    porcentaje obtenido, es decir monto × nota / 100.
+--
+-- Al GENERAR la fila se congelan cargo, monto_base y nota_minima: cambiar la
+-- configuración de un cargo mañana no reescribe los pagos ya generados. El
+-- `check` de pagar con nota impide marcar como PAGADO algo sin nota —sin nota
+-- no hay porcentaje que pagar—, y el monto guardado es la foto de esa nota.
+--
+-- Período: `2026-11` para los mensuales y `2026-T1`…`2026-T4` para los
+-- trimestrales, con el `check` de formato para que no entre cualquier texto.
+--
+-- Quién entra: LÍDER y GERENTE DE TALENTO HUMANO. La misma cerradura en el
+-- menú, en la ruta y acá abajo (`puede_bonos`), con el RLS como segunda.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+create table if not exists public.bonos_cargo (
+  id uuid primary key default gen_random_uuid(),
+  cargo text not null,
+  -- El cargo normalizado (sin acentos ni mayúsculas, sólo alfanumérico), la
+  -- misma que calcula el cliente con `claveNormalizada`. NO es único: el
+  -- mismo cargo puede repetirse en otra fila con OTRO conjunto de sucursales
+  -- (montos, umbrales o períodos distintos por tienda), y la regla de que esas
+  -- filas no compartan sucursales la valida la app (`sucursalesTomadas`) —un
+  -- unique no puede expresar «sin filas = todas las sucursales».
+  clave text not null,
+  activo boolean not null default true,
+  monto numeric not null check (monto >= 0),
+  -- Umbral de la nota: por debajo no se cobra nada. Va por cargo porque el
+  -- umbral del cargo es el que decide el prorrateo de sus pagos.
+  nota_minima numeric not null default 70 check (nota_minima >= 0 and nota_minima <= 100),
+  periodicidad text not null default 'MENSUAL' check (periodicidad in ('MENSUAL', 'TRIMESTRAL')),
+  -- Departamento al que ACOTA el bono (NULL = cualquier departamento). La
+  -- nómina trae `department_name` por persona, así que con esto «Comprador/a»
+  -- de Compras no se junta con «Comprador/a» de Servicios Generales: son dos
+  -- filas del mismo cargo que conviven porque sus áreas no se cruzan.
+  departamento text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- MIGRACIÓN: la columna nueva nace en el `create table` de arriba, pero una
+-- tabla ya creada por una versión anterior no la tiene. El `if not exists`
+-- hace que el bloque la agregue sin romper nada y sea idempotente.
+alter table public.bonos_cargo add column if not exists departamento text;
+
+-- MIGRACIÓN: la versión anterior de este bloque traía
+-- `constraint bonos_cargo_unico unique (clave)`, que impedía repetir el
+-- cargo. Se cae acá para que el bloque actualice una tabla ya creada (el
+-- `create table if not exists` no toca la que existe). Sobre una tabla nueva
+-- no hace nada.
+alter table public.bonos_cargo drop constraint if exists bonos_cargo_unico;
+
+create index if not exists idx_bonos_cargo_clave on public.bonos_cargo (clave);
+
+-- ALCANCE POR SUCURSAL: el cargo es una PLANTILLA y este conjunto decide
+-- DÓNDE se paga y con CUÁNTO.
+--
+--  * Sin filas acá, el cargo aplica a TODAS las sucursales con su monto base.
+--  * Con filas, aplica SÓLO a esas sucursales (un conjunto concreto), y cada
+--    una puede traer su propio monto: NULL = el del cargo, con valor = el de
+--    ESA sucursal, que es como se cubre «montos distintos por tipo de tienda».
+--
+-- El umbral de nota y la periodicidad NO se copian acá: siguen siendo del
+-- cargo. Lo que cambia por sucursal es cuánto se paga, no la regla.
+create table if not exists public.bonos_cargo_sucursal (
+  bono_cargo_id uuid not null references public.bonos_cargo(id) on delete cascade,
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  -- NULL = usa el monto base del cargo.
+  monto numeric check (monto is null or monto >= 0),
+  created_at timestamptz not null default now(),
+  constraint bonos_cargo_sucursal_pkey primary key (bono_cargo_id, sucursal_id)
+);
+
+create index if not exists idx_bonos_cargo_sucursal_sucursal
+  on public.bonos_cargo_sucursal (sucursal_id);
+
+create table if not exists public.bonos_pago (
+  id uuid primary key default gen_random_uuid(),
+  bono_cargo_id uuid not null references public.bonos_cargo(id) on delete cascade,
+  -- `2026-11` para MENSUAL, `2026-T1`…`2026-T4` para TRIMESTRAL.
+  periodo text not null check (periodo ~ '^\d{4}-((0[1-9]|1[0-2])|T[1-4])$'),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  -- La identidad es (nacionalidad, dni), la misma de `alerta_trabajadores`:
+  -- la nómina viene de la API de trabajadores y el DNI sólo se repite entre
+  -- países.
+  nacionalidad text not null default 'V',
+  dni bigint not null,
+  nombre text not null,
+  -- Congelados al generar la fila: ver cabecera del bloque.
+  cargo text not null,
+  -- El departamento del cargo EN ESTE PAGO, congelado igual que el cargo:
+  -- distingue los «Comprador/a» de un área de los de la otra en la lista.
+  departamento text,
+  monto_base numeric not null check (monto_base >= 0),
+  nota_minima numeric not null check (nota_minima >= 0 and nota_minima <= 100),
+  -- Cargada a mano, de 0 a 100. Sin nota no hay monto y no se puede pagar.
+  nota numeric check (nota is null or (nota >= 0 and nota <= 100)),
+  -- Lo que se le paga: 0 mientras no haya nota y `monto × nota / 100` una
+  -- vez que la hay. Se guarda para que el histórico no dependa de recalcular.
+  monto numeric not null default 0 check (monto >= 0),
+  estado text not null default 'PENDIENTE' check (estado in ('PENDIENTE', 'PAGADO')),
+  pagado_en date,
+  pagado_por uuid references public.profiles(id) on delete set null,
+  observaciones text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  -- Una fila por (cargo, período, sucursal y persona): la generación se
+  -- puede volver a correr sin duplicar cobros.
+  constraint bonos_pago_unico unique (bono_cargo_id, periodo, sucursal_id, nacionalidad, dni),
+  constraint bonos_pago_paga_con_nota check (estado <> 'PAGADO' or nota is not null)
+);
+
+create index if not exists idx_bonos_pago_periodo on public.bonos_pago (periodo, estado);
+create index if not exists idx_bonos_pago_sucursal on public.bonos_pago (sucursal_id, periodo);
+
+-- Quién gestiona bonos: el LÍDER y el GERENTE DE TALENTO HUMANO. Es la misma
+-- pregunta que el menú y la ruta, así que se responde una sola vez.
+create or replace function public.puede_bonos()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.rol in ('LIDER', 'GERENTE_TH') and p.activo
+  );
+$$;
+
+-- ROW LEVEL SECURITY: sólo quien gestiona bonos los ve ni los toca. A
+-- diferencia del resto de la configuración, el `select` NO va abierto a
+-- todo `authenticated`: un bono es una cifra de sueldo y un EVALUADOR o un
+-- GERENTE_S no tienen por qué leerla.
+alter table public.bonos_cargo enable row level security;
+
+drop policy if exists bonos_cargo_select on public.bonos_cargo;
+create policy bonos_cargo_select on public.bonos_cargo
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_cargo_gestion on public.bonos_cargo;
+create policy bonos_cargo_gestion on public.bonos_cargo
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+-- El alcance por sucursal se lee y se escribe con las MISMAS reglas que la
+-- plantilla que lo trae: es la mitad de la misma configuración.
+alter table public.bonos_cargo_sucursal enable row level security;
+
+drop policy if exists bonos_cargo_sucursal_select on public.bonos_cargo_sucursal;
+create policy bonos_cargo_sucursal_select on public.bonos_cargo_sucursal
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_cargo_sucursal_gestion on public.bonos_cargo_sucursal;
+create policy bonos_cargo_sucursal_gestion on public.bonos_cargo_sucursal
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+alter table public.bonos_pago enable row level security;
+
+drop policy if exists bonos_pago_select on public.bonos_pago;
+create policy bonos_pago_select on public.bonos_pago
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_pago_gestion on public.bonos_pago;
+create policy bonos_pago_gestion on public.bonos_pago
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+-- Segunda mitad de la cerradura, igual que en `parametros-sucursal.sql`: si
+-- algún día RLS queda apagado en estas tablas, el grant por defecto de
+-- Supabase pasa a ser la única puerta. Con el revoke sigue cerrada.
+do $$
+begin
+  execute 'revoke all on public.bonos_cargo from anon';
+  execute 'revoke all on public.bonos_cargo_sucursal from anon';
+  execute 'revoke all on public.bonos_pago from anon';
+end $$;

@@ -35,6 +35,8 @@ const AsignacionesPage = lazy(() =>
   import('./pages/config/Asignaciones').then((m) => ({ default: m.AsignacionesPage }))
 )
 const BitacoraPage = lazy(() => import('./pages/config/Bitacora').then((m) => ({ default: m.BitacoraPage })))
+// Bonos por desempeño: qué cargos gozan de bono y el pago de los mismos.
+const BonosPage = lazy(() => import('./pages/config/Bonos').then((m) => ({ default: m.BonosPage })))
 // Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
 // cuenta. Va con lazy porque sólo se descarga quien abre el enlace.
 const ConciliacionPublica = lazy(() =>
@@ -283,6 +285,18 @@ function Rutas() {
                           la tabla ya lo decide (`bitacora_asignaciones_select`),
                           acá se replica para que ni siquiera se pida la ruta. */}
                       <Route path="/config/bitacora" element={<SoloLider><BitacoraPage /></SoloLider>} />
+                      {/* Bonos por desempeño: es manejo de plata de RRHH, así
+                          que entran los DOS roles que lo gestionan —LÍDER y
+                          GERENTE TH— y el RLS (`puede_bonos`) vuelve a pedir
+                          lo mismo desde la base. */}
+                      <Route
+                        path="/config/bonos"
+                        element={
+                          <RequireRol roles={['LIDER', 'GERENTE_TH']}>
+                            <BonosPage />
+                          </RequireRol>
+                        }
+                      />
                       {/* La cuenta de cualquiera que haya entrado: por eso no
                           lleva `RequireRol`. Va adentro de la consola para que
                           se vea con su barra y su menú, igual que el resto. */}
