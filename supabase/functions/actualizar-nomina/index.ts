@@ -124,7 +124,13 @@ Deno.serve(async (req) => {
 
   await Promise.all(
     ((sucursales ?? []) as Sucursal[]).map(async (s) => {
-      const branch = (s.shop_id ?? s.branch_id ?? '').trim()
+      // `branch_id` PRIMERO: es el ID de la sucursal en la API de TRABAJADORES
+      // (el campo de Unidades lo dice: «puede diferir del shop_id»). El
+      // `shop_id` es el Nº tienda para escanear productos y manda a OTRA
+      // tienda —comprobado: con shop 13 (El Bosque) devolvía la nómina de
+      // Guacara—. El shop_id queda como último recurso para sucursales
+      // antiguas que sólo tengan ese.
+      const branch = (s.branch_id ?? s.shop_id ?? '').trim()
       if (!branch) {
         resumen.sin_id += 1
         resumen.sin_id_nombres.push(s.nombre)
