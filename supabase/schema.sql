@@ -5567,6 +5567,26 @@ create table if not exists public.bonos_cargo_sucursal (
 create index if not exists idx_bonos_cargo_sucursal_sucursal
   on public.bonos_cargo_sucursal (sucursal_id);
 
+-- TRABAJADORES EXCLUIDOS DE UN BONO
+-- Para cargos donde sólo parte de la gente cobra («Comprador/a: hay 5, pero
+-- sólo quiero 3»). Se excluye por PERSONA (nacionalidad + DNI) dentro de un
+-- cargo, desde el modal de ocupantes, y se puede deshacer en cualquier
+-- momento: la fila no se borra de la nómina, sólo deja de contar y de
+-- generar pago en ESTE cargo.
+create table if not exists public.bonos_cargo_excluido (
+  bono_cargo_id uuid not null references public.bonos_cargo(id) on delete cascade,
+  nacionalidad text not null default 'V',
+  dni bigint not null,
+  created_at timestamptz not null default now(),
+  constraint bonos_cargo_excluido_pkey primary key (bono_cargo_id, nacionalidad, dni)
+);
+
+create index if not exists idx_bonos_cargo_excluido_dni
+  on public.bonos_cargo_excluido (nacionalidad, dni);
+
+-- (El RLS de esta tabla va más abajo, con el resto: necesita que exista
+-- `puede_bonos`, que se define después de las tablas.)
+
 create table if not exists public.bonos_pago (
   id uuid primary key default gen_random_uuid(),
   bono_cargo_id uuid not null references public.bonos_cargo(id) on delete cascade,
@@ -5649,6 +5669,22 @@ create policy bonos_cargo_sucursal_select on public.bonos_cargo_sucursal
 drop policy if exists bonos_cargo_sucursal_gestion on public.bonos_cargo_sucursal;
 create policy bonos_cargo_sucursal_gestion on public.bonos_cargo_sucursal
   for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+-- Los excluidos de un cargo se leen y se escriben con las mismas reglas que
+-- el cargo al que pertenecen: es otra mitad de la misma configuración.
+alter table public.bonos_cargo_excluido enable row level security;
+
+drop policy if exists bonos_cargo_excluido_select on public.bonos_cargo_excluido;
+create policy bonos_cargo_excluido_select on public.bonos_cargo_excluido
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_cargo_excluido_gestion on public.bonos_cargo_excluido;
+create policy bonos_cargo_excluido_gestion on public.bonos_cargo_excluido
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+do $$
+begin
+  execute 'revoke all on public.bonos_cargo_excluido from anon';
+end $$;
 
 alter table public.bonos_pago enable row level security;
 

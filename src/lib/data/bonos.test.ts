@@ -43,6 +43,8 @@ function cargo(parcial: Partial<BonoCargo> = {}): BonoCargo {
     departamento: null,
     // Vacío = aplica a todas las sucursales.
     sucursales: [],
+    // Nadie excluido por defecto.
+    excluidos: [],
     created_at: '2026-11-01T00:00:00Z',
     updated_at: '2026-11-01T00:00:00Z',
     ...parcial
@@ -433,7 +435,8 @@ describe('ocupantesDeCargo · quiénes son, con cruce exacto y una vez por perso
         nombre: 'Ana Pérez',
         cargo_nomina: 'Cajera Integral',
         departamento_nomina: '',
-        monto: 150
+        monto: 150,
+        excluido: false
       }
     ])
   })
@@ -516,6 +519,47 @@ describe('nombreDeCargo · el nombre con el que se muestra', () => {
     ])
     // Si el alias se usara para comparar, no encontraría a nadie.
     expect(ocupantesDeCargo(conAlias, nomina).map((o) => o.dni)).toEqual([1])
+  })
+})
+
+describe('excluidos · «hay 5, pero sólo 3 cobran»', () => {
+  const nomina = new Map([
+    [
+      's1',
+      [
+        gente({ name: 'Ana', dni: 1 }),
+        gente({ name: 'Beto', dni: 2 }),
+        gente({ name: 'Caro', dni: 3 }),
+        gente({ name: 'Dana', dni: 4 }),
+        gente({ name: 'Ema', dni: 5 })
+      ]
+    ]
+  ])
+
+  it('el excluido se lista marcado, pero no cuenta en el conteo ni en el gasto', () => {
+    const cfg = cargo({
+      monto: 100,
+      excluidos: [
+        { nacionalidad: 'V', dni: 4 },
+        { nacionalidad: 'V', dni: 5 }
+      ]
+    })
+    const lista = ocupantesDeCargo(cfg, nomina)
+    // Los cinco aparecen (para poder reincorporar), pero dos marcados.
+    expect(lista).toHaveLength(5)
+    expect(lista.filter((o) => o.excluido).map((o) => o.dni)).toEqual([4, 5])
+    // El conteo y el gasto son de los que COBRAN: 3 × 100.
+    expect(gastoDeCargo(cfg, nomina)).toEqual({ ocupantes: 3, gasto: 300 })
+  })
+
+  it('la generación no le arma fila a un excluido', () => {
+    const cfg = cargo({ excluidos: [{ nacionalidad: 'V', dni: 2 }] })
+    const filas = filasDeGeneracion([cfg], nomina, '2026-11')
+    expect(filas.map((f) => f.dni)).toEqual([1, 3, 4, 5])
+  })
+
+  it('sin excluidos sigue contando a todos', () => {
+    expect(gastoDeCargo(cargo(), nomina)).toEqual({ ocupantes: 5, gasto: 500 })
   })
 })
 

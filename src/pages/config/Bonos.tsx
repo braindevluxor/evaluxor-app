@@ -17,6 +17,7 @@ import {
 import { PortalCabecera } from '../../components/PortalCabecera'
 import {
   actualizarNominaAhora,
+  alternarExclusion,
   cargarNomina,
   departamentosSePisan,
   etiquetaFrescura,
@@ -41,6 +42,7 @@ import {
   type BonoCargo,
   type BonoCargoSucursal,
   type BonoPago,
+  type DetalleOcupante,
   type Periodicidad
 } from '../../lib/data/bonos'
 import type { ColaboradorAPI } from '../../lib/data/colaboradores'
@@ -146,6 +148,8 @@ export function BonosPage() {
   /** Se incrementa para releer la nómina (después de un «Actualizar ahora»). */
   const [nominaVersion, setNominaVersion] = useState(0)
   const [actualizando, setActualizando] = useState(false)
+  /** La persona que se está excluyendo/incluyendo, para apagar su botón. */
+  const [excluyendo, setExcluyendo] = useState<string | null>(null)
 
   // --- Pagos (gestión) ---
   const [periodicidad, setPeriodicidad] = useState<Periodicidad>('MENSUAL')
@@ -399,6 +403,40 @@ export function BonosPage() {
     }
   }
 
+  /**
+   * Excluye (o reincorpora) a una persona del cargo que se está mirando:
+   * «hay 5, pero sólo 3 cobran». Se actualiza en el listado Y en el cargo
+   * abierto, para que el conteo y el gasto de la tabla se recalcen solos.
+   */
+  async function alternarExclusionDe(o: DetalleOcupante) {
+    if (!detalleCargos) return
+    const clave = `${o.nacionalidad}-${o.dni}`
+    setExcluyendo(clave)
+    try {
+      const ahoraExcluido = await alternarExclusion(detalleCargos.id, o.nacionalidad, o.dni)
+      const actualizar = (c: BonoCargo): BonoCargo =>
+        c.id !== detalleCargos.id
+          ? c
+          : {
+              ...c,
+              excluidos: ahoraExcluido
+                ? [...c.excluidos, { nacionalidad: o.nacionalidad, dni: o.dni }]
+                : c.excluidos.filter((x) => !(x.nacionalidad === o.nacionalidad && x.dni === o.dni))
+            }
+      setCargos((prev) => prev.map(actualizar))
+      setDetalleCargos((prev) => (prev ? actualizar(prev) : prev))
+      avisar(
+        ahoraExcluido
+          ? `${o.nombre} queda excluido de este bono: no cuenta ni cobra.`
+          : `${o.nombre} vuelve a contar para este bono.`
+      )
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo actualizar la exclusión.', 'error')
+    } finally {
+      setExcluyendo(null)
+    }
+  }
+
   function alternarSucursal(sucursalId: string) {
     setPorSucursal((prev) => {
       const next = { ...prev }
@@ -572,11 +610,13 @@ export function BonosPage() {
         cargo: form.cargo.trim(),
         monto: Number(form.monto) || 0,
         departamento: form.departamento.trim() || null,
-        sucursales: alcance
+        sucursales: alcance,
+        // Los excluidos del cargo que se edita también pesan en la estimación.
+        excluidos: editando?.excluidos ?? []
       },
       nomina ?? new Map()
     )
-  }, [especifico, porSucursal, form.cargo, form.monto, form.departamento, nomina])
+  }, [especifico, porSucursal, form.cargo, form.monto, form.departamento, editando, nomina])
 
   /** El listado exacto del cargo cuyo número de ocupantes se tocó. */
   const detalleLista = detalleCargos && nomina ? ocupantesDeCargo(detalleCargos, nomina) : null
@@ -637,7 +677,10 @@ export function BonosPage() {
       : sucursalesActivas.map((s) => s.id)
     return enAlcance.map((id) => {
       const nombre = porId.get(id) ?? id
-      const cuenta = detalleLista ? detalleLista.filter((o) => o.sucursal_id === id).length : null
+      // Se cuentan sólo los que COBRAN: los excluidos no suman ni por tienda.
+      const cuenta = detalleLista
+        ? detalleLista.filter((o) => o.sucursal_id === id && !o.excluido).length
+        : null
       let motivo: string | null = null
       if (cuenta === 0) {
         if (nominaInactivas.includes(nombre)) motivo = 'inactiva en Unidades'
@@ -1425,14 +1468,18 @@ export function BonosPage() {
         ) : (
           <div className="space-y-3">
             <p className="text-xs text-slate-500">
-              {detalleLista.length} ocupante{detalleLista.length === 1 ? '' : 's'}, cada uno con el monto de su
-              sucursal. Sólo personas activas —«Nuevo ingreso» cuenta— y con el cargo exacto.
+              <b>{detalleLista.filter((o) => !o.excluido).length}</b> de {detalleLista.length} cobran —los excluidos
+              no cuentan ni generan pago—, cada uno con el monto de su sucursal. Sólo personas activas —«Nuevo
+              ingreso» cuenta— y con el cargo exacto.
             </p>
             <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
               {detalleLista.map((o) => (
                 <li
                   key={`${o.nacionalidad}-${o.dni}`}
-                  className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm"
+                  className={cn(
+                    'flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm',
+                    o.excluido && 'bg-red-50/60 opacity-75'
+                  )}
                 >
                   <span className="min-w-0 flex-1 font-semibold text-slate-800">{o.nombre}</span>
                   <span className="tabular-nums text-slate-500">{cedulaDe(o)}</span>
@@ -1443,9 +1490,32 @@ export function BonosPage() {
                     {o.departamento_nomina || 'sin departamento en la nómina'}
                   </span>
                   <span className="text-slate-600">{nombreSucursal(o.sucursal_id)}</span>
-                  <span className="font-bold tabular-nums text-primary-900">
+                  <span
+                    className={cn(
+                      'font-bold tabular-nums text-primary-900',
+                      o.excluido && 'text-slate-400 line-through'
+                    )}
+                  >
                     {o.monto.toLocaleString('es-VE', { maximumFractionDigits: 2 })}
                   </span>
+                  {o.excluido ? (
+                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+                      Excluido
+                    </span>
+                  ) : null}
+                  <Button
+                    variant={o.excluido ? 'success' : 'ghost'}
+                    className="min-h-[28px] px-2 py-1 text-[11px]"
+                    disabled={excluyendo === `${o.nacionalidad}-${o.dni}`}
+                    title={
+                      o.excluido
+                        ? `Volver a contar a ${o.nombre}`
+                        : `Excluir a ${o.nombre} de este bono: no cuenta ni cobra`
+                    }
+                    onClick={() => void alternarExclusionDe(o)}
+                  >
+                    {excluyendo === `${o.nacionalidad}-${o.dni}` ? '…' : o.excluido ? 'Incluir' : 'Excluir'}
+                  </Button>
                 </li>
               ))}
             </ul>

@@ -41,6 +41,12 @@ export interface BonoCargoSucursal {
   monto: number | null
 }
 
+/** Una persona excluida de ESTE cargo: no cuenta ni cobra en él. */
+export interface ExcluidoCargo {
+  nacionalidad: string
+  dni: number
+}
+
 export interface BonoCargo {
   id: string
   cargo: string
@@ -71,6 +77,12 @@ export interface BonoCargo {
    * `bonos_cargo_sucursal`, leídas con la plantilla.
    */
   sucursales: BonoCargoSucursal[]
+  /**
+   * Personas excluidas de ESTE cargo: «hay 5, pero sólo 3 cobran». No
+   * cuentan como ocupantes ni generan pago, y se pueden reincorporar. Son
+   * filas de `bonos_cargo_excluido`, leídas con la plantilla.
+   */
+  excluidos: ExcluidoCargo[]
   created_at: string
   updated_at: string
 }
@@ -175,6 +187,8 @@ export interface DetalleOcupante {
   departamento_nomina: string
   /** El monto de SU sucursal en este cargo: el que se le aplica. */
   monto: number
+  /** Excluida de ESTE cargo: no cuenta ni cobra (se puede deshacer). */
+  excluido: boolean
 }
 
 /**
@@ -194,10 +208,13 @@ export interface DetalleOcupante {
  *     orden es estable para que el número no cambie de una corrida a otra.
  */
 export function ocupantesDeCargo(
-  cfg: Pick<BonoCargo, 'cargo' | 'monto' | 'departamento' | 'sucursales'>,
+  cfg: Pick<BonoCargo, 'cargo' | 'monto' | 'departamento' | 'sucursales' | 'excluidos'>,
   porSucursal: ReadonlyMap<string, readonly ColaboradorAPI[]>
 ): DetalleOcupante[] {
   const vistos = new Set<string>()
+  // Las personas excluidas de ESTE cargo se listan igual (para poder
+  // reincorporarlas) pero quedan marcadas: no cuentan ni cobran.
+  const excluidos = new Set(cfg.excluidos.map((x) => `${x.nacionalidad}|${x.dni}`))
   const salida: DetalleOcupante[] = []
   for (const sucursalId of Array.from(porSucursal.keys()).sort()) {
     const monto = montoParaSucursal(cfg, sucursalId)
@@ -215,7 +232,8 @@ export function ocupantesDeCargo(
         nombre: nombreCompleto(c) || `DNI ${c.dni}`,
         cargo_nomina: c.role_name ?? '',
         departamento_nomina: departamentoDeColaborador(c),
-        monto
+        monto,
+        excluido: excluidos.has(clave)
       })
     }
   }
@@ -234,10 +252,11 @@ export function ocupantesDeCargo(
  * pantalla lo pinta como «—» con su aviso, no como un gasto de cero.
  */
 export function gastoDeCargo(
-  cfg: Pick<BonoCargo, 'cargo' | 'monto' | 'departamento' | 'sucursales'>,
+  cfg: Pick<BonoCargo, 'cargo' | 'monto' | 'departamento' | 'sucursales' | 'excluidos'>,
   porSucursal: ReadonlyMap<string, readonly ColaboradorAPI[]>
 ): { ocupantes: number; gasto: number } {
-  const ocupantes = ocupantesDeCargo(cfg, porSucursal)
+  // Los excluidos no cuentan: el gasto es de los que cobran.
+  const ocupantes = ocupantesDeCargo(cfg, porSucursal).filter((o) => !o.excluido)
   const gasto = ocupantes.reduce((acc, o) => acc + o.monto, 0)
   return { ocupantes: ocupantes.length, gasto: Math.round(gasto * 100) / 100 }
 }
@@ -406,13 +425,18 @@ export function filasDeGeneracion(
       // nada que cruzar con su nómina.
       const monto = montoParaSucursal(cfg, sucursalId)
       if (monto == null) continue
+      // Los excluidos de este cargo no cobran: se saltan antes de armar la
+      // fila (y si ya tenían un pago pendiente, `generarPagos` lo limpia).
+      const excluidos = new Set(cfg.excluidos.map((x) => `${x.nacionalidad}|${x.dni}`))
       for (const t of trabajadoresDeCargoExacto(gente, cfg.cargo, cfg.departamento)) {
         if (t.dni == null) continue
         const nacionalidad = (t.nationality ?? 'V').trim() || 'V'
+        const persona = `${nacionalidad}|${t.dni}`
+        if (excluidos.has(persona)) continue
         // La clave es POR CARGO Y POR PERSONA: ni la sucursal ni la fila de
         // configuración la cambian, así que ni dos tiendas ni dos filas del
         // mismo cargo pueden pagar dos veces al mismo trabajador.
-        const clave = `${cfg.clave}|${nacionalidad}|${t.dni}`
+        const clave = `${cfg.clave}|${persona}`
         if (vistos.has(clave)) continue
         vistos.add(clave)
         filas.push({
@@ -439,13 +463,18 @@ export function filasDeGeneracion(
 export async function listarBonosCargo(): Promise<BonoCargo[]> {
   const { data, error } = await supabase
     .from('bonos_cargo')
-    .select('*, sucursales:bonos_cargo_sucursal(sucursal_id, monto)')
+    .select(
+      '*, sucursales:bonos_cargo_sucursal(sucursal_id, monto), excluidos:bonos_cargo_excluido(nacionalidad, dni)'
+    )
     .order('cargo')
   if (error) throw new Error(error.message)
-  const filas = (data ?? []) as (Omit<BonoCargo, 'sucursales'> & { sucursales: BonoCargoSucursal[] | null })[]
-  // Un cargo sin alcance viene con `sucursales: null` (sin filas hijas): eso
-  // ES «aplica a todas», así que se normaliza a lista vacía y no a null.
-  return filas.map((c) => ({ ...c, sucursales: c.sucursales ?? [] }))
+  const filas = (data ?? []) as (Omit<BonoCargo, 'sucursales' | 'excluidos'> & {
+    sucursales: BonoCargoSucursal[] | null
+    excluidos: ExcluidoCargo[] | null
+  })[]
+  // Sin filas hijas viene `null`: eso ES «aplica a todas» (alcance) y
+  // «nadie excluido», así que se normaliza a lista vacía y no a null.
+  return filas.map((c) => ({ ...c, sucursales: c.sucursales ?? [], excluidos: c.excluidos ?? [] }))
 }
 
 export async function guardarBonoCargo(entrada: BonoCargoEntrada): Promise<void> {
@@ -540,6 +569,45 @@ export async function eliminarBonoCargo(id: string): Promise<void> {
   // eso la pantalla lo avisa antes de ofrecerlo.
   const { error } = await supabase.from('bonos_cargo').delete().eq('id', id)
   if (error) throw new Error(mensajeDeError(error, 'No se pudo eliminar el cargo.'))
+}
+
+/**
+ * Excluye (o reincorpora) a una persona de ESTE cargo.
+ *
+ * Devuelve si quedó EXCLUIDA. Excluir no borra a nadie de la nómina: sólo
+ * deja de contarlo como ocupante y de generarle pago en este cargo —«hay 5,
+ * pero sólo 3 cobran»—, y se deshace desde la misma lista.
+ */
+export async function alternarExclusion(
+  bonoCargoId: string,
+  nacionalidad: string,
+  dni: number
+): Promise<boolean> {
+  const excluida = await supabase
+    .from('bonos_cargo_excluido')
+    .select('dni')
+    .eq('bono_cargo_id', bonoCargoId)
+    .eq('nacionalidad', nacionalidad)
+    .eq('dni', dni)
+    .maybeSingle()
+  if (excluida.error) throw new Error(excluida.error.message)
+
+  if (excluida.data) {
+    const { error } = await supabase
+      .from('bonos_cargo_excluido')
+      .delete()
+      .eq('bono_cargo_id', bonoCargoId)
+      .eq('nacionalidad', nacionalidad)
+      .eq('dni', dni)
+    if (error) throw new Error(mensajeDeError(error, 'No se pudo reincorporar al trabajador.'))
+    return false
+  }
+
+  const { error } = await supabase
+    .from('bonos_cargo_excluido')
+    .insert({ bono_cargo_id: bonoCargoId, nacionalidad, dni })
+  if (error) throw new Error(mensajeDeError(error, 'No se pudo excluir al trabajador.'))
+  return true
 }
 
 export async function listarPagos(periodo: string): Promise<BonoPago[]> {
@@ -811,6 +879,31 @@ export async function generarPagos(periodo: string, periodicidad: Periodicidad):
   const configs = (await listarBonosCargo()).filter((c) => c.activo && c.periodicidad === periodicidad)
   if (!configs.length) {
     throw new Error(`No hay cargos con bono activos con periodicidad ${periodicidad === 'MENSUAL' ? 'mensual' : 'trimestral'}.`)
+  }
+
+  // Los excluidos que tengan un pago PENDIENTE de este período se limpian
+  // acá: excluir a alguien no puede dejar una fila suelta esperando pago.
+  // Los PAGADOS no se tocan: son historia.
+  const excluidosPorCargo = new Map<string, Set<string>>()
+  for (const c of configs) {
+    if (c.excluidos.length) excluidosPorCargo.set(c.id, new Set(c.excluidos.map((x) => `${x.nacionalidad}|${x.dni}`)))
+  }
+  if (excluidosPorCargo.size) {
+    const { data: pendientes, error: errorPendientes } = await supabase
+      .from('bonos_pago')
+      .select('id, bono_cargo_id, nacionalidad, dni')
+      .eq('periodo', periodo)
+      .eq('estado', 'PENDIENTE')
+    if (errorPendientes) throw new Error(errorPendientes.message)
+    const aBorrar = (
+      (pendientes ?? []) as { id: string; bono_cargo_id: string; nacionalidad: string; dni: number }[]
+    )
+      .filter((r) => excluidosPorCargo.get(r.bono_cargo_id)?.has(`${r.nacionalidad}|${r.dni}`))
+      .map((r) => r.id)
+    if (aBorrar.length) {
+      const { error: errorBorrado } = await supabase.from('bonos_pago').delete().in('id', aBorrar)
+      if (errorBorrado) throw new Error(errorBorrado.message)
+    }
   }
 
   const resultadoNomina = await cargarNomina(await listarSucursalesAdmin())

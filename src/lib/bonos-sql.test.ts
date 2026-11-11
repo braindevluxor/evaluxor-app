@@ -329,6 +329,44 @@ describe('bonos.sql · el alcance por sucursal', () => {
   })
 })
 
+describe('bonos.sql · los excluidos de un cargo', () => {
+  it('la identidad es (cargo, nacionalidad, DNI) y se borran con el cargo', async () => {
+    const bono = await insertarCargo({ cargo: 'Vendedor', clave: 'vendedor' })
+    await db.query(
+      `insert into public.bonos_cargo_excluido (bono_cargo_id, nacionalidad, dni) values ($1, 'V', 424242)`,
+      [bono]
+    )
+    // La misma persona no se excluye dos veces.
+    await expect(
+      db.query(`insert into public.bonos_cargo_excluido (bono_cargo_id, nacionalidad, dni) values ($1, 'V', 424242)`, [
+        bono
+      ])
+    ).rejects.toThrow(/duplicate|unique|única/i)
+    // Borrar el cargo se lleva sus excluidos: no quedan huérfanos.
+    await db.query(`delete from public.bonos_cargo where id = $1`, [bono])
+    expect(await contar(`select count(*) as n from public.bonos_cargo_excluido where dni = 424242`)).toBe(0)
+  })
+
+  it('el Líder excluye y el Evaluador ni ve ni toca', async () => {
+    const bono = await insertarCargo({ cargo: 'Albañil', clave: 'albanil' })
+    await conRol(LIDER, async () => {
+      await db.query(
+        `insert into public.bonos_cargo_excluido (bono_cargo_id, nacionalidad, dni) values ($1, 'V', 555)`,
+        [bono]
+      )
+      expect(await contar(`select count(*) as n from public.bonos_cargo_excluido where dni = 555`)).toBe(1)
+    })
+    await conRol(EVALUADOR, async () => {
+      expect(await contar(`select count(*) as n from public.bonos_cargo_excluido`)).toBe(0)
+      await expect(
+        db.query(`insert into public.bonos_cargo_excluido (bono_cargo_id, nacionalidad, dni) values ($1, 'V', 666)`, [
+          bono
+        ])
+      ).rejects.toThrow(/row-level security/i)
+    })
+  })
+})
+
 describe('bonos.sql · quién entra', () => {
   it('puede_bonos deja pasar al Líder y al Gerente de Talento Humano, y a nadie más', async () => {
     await como(LIDER)
