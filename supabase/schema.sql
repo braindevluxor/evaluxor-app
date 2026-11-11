@@ -5653,3 +5653,163 @@ begin
   execute 'revoke all on public.bonos_cargo_sucursal from anon';
   execute 'revoke all on public.bonos_pago from anon';
 end $$;
+
+-- Archivo consolidado: nomina-trabajadores.sql
+-- ###########################################################################
+-- ============================================================================
+-- NÓMINA ESPEJO: LA TABLA DE TRABAJADORES ACTUALES
+--
+-- POR QUÉ EXISTE
+-- -------------
+-- Los bonos contaban ocupantes contra la API de trabajadores, UNA VEZ POR
+-- SUCURSAL, cada vez que se abría la pantalla: el número dependía de que el
+-- API externa estuviera arriba y de que cada tienda tuviera su branchID. Con
+-- esta tabla la nómina queda GUARDADA y se refresca de madrugada; la app lee
+-- rápido y estable, y si algo falta se ve el motivo en pantalla.
+--
+-- QUÉ SE GUARDA
+-- -------------
+-- El REGISTRO CRUDO (`datos`): role_name, department_name, status, active…
+-- La normalización —¿está activo?, qué departamento, qué estado— la sigue
+-- haciendo el cliente con sus propias funciones probadas (`esActivo` y cía),
+-- así no hay dos versiones de la regla que puedan divergir.
+--
+-- QUÉ NO HACE
+-- -----------
+-- NO borra si una sucursal no responde: sus filas se quedan como estaban (el
+-- último estado bueno). Sólo reemplaza las de las tiendas que respondieron
+-- con gente; una respuesta vacía tampoco borra, porque puede ser un bache del
+-- API y no una tienda deshabitada.
+--
+-- QUIÉN LA ESCRIBE
+-- ----------------
+-- La Edge Function `actualizar-nomina`, con la service role (bypasea RLS).
+-- La lee la app con sesión, sólo los que gestionan bonos (`puede_bonos`).
+--
+-- PROGRAMACIÓN DEL CRON (pg_cron + pg_net, en Database → Extensions)
+-- ------------------------------------------------------------------
+-- Requiere el bloque `bonos.sql` aplicado antes (por `puede_bonos`). Una vez
+-- aplicado este bloque, se configura y se programa:
+--
+--   insert into public.nomina_cron (id, activo, url, secreto)
+--   values (true, true,
+--           'https://<REF>.supabase.co/functions/v1/actualizar-nomina',
+--           '<un-secreto-largo>');
+--   select public.programar_nomina_cron();
+--
+-- El mismo secreto se setea en la función (`NOMINA_CRON_SECRET`) y el cron
+-- lo manda en el header `x-cron-secret` a las 05:00 diarias (hora del
+-- servidor). Si las extensiones no están, el bloque no falla: sólo no crea
+-- la función de programación.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+create table if not exists public.trabajadores_nomina (
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  nacionalidad text not null default 'V',
+  dni bigint not null,
+  -- El registro COMO LO DEVUELVE LA API. Guardar el crudo es lo que permite
+  -- que la normalización viva en un solo lugar (el cliente).
+  datos jsonb not null,
+  actualizado_en timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  constraint trabajadores_nomina_unico primary key (sucursal_id, nacionalidad, dni)
+);
+
+create index if not exists idx_trabajadores_nomina_cargo
+  on public.trabajadores_nomina ((datos ->> 'role_name'));
+
+-- Quién la lee: los mismos que gestionan bonos. Quién la ESCRIBE es el cron
+-- con la service role, que bypasea RLS: por eso no hay política de
+-- escritura, y sin política el rol autenticado no puede tocarla.
+alter table public.trabajadores_nomina enable row level security;
+
+drop policy if exists trabajadores_nomina_select on public.trabajadores_nomina;
+create policy trabajadores_nomina_select on public.trabajadores_nomina
+  for select to authenticated using (public.puede_bonos());
+
+do $$
+begin
+  execute 'revoke all on public.trabajadores_nomina from anon';
+end $$;
+
+-- Configuración del cron: dónde apunta y con qué secreto. Se llena con un
+-- update (ver cabecera del bloque). Sin grants para `authenticated`: es
+-- configuración del servidor y nadie más la necesita leer.
+create table if not exists public.nomina_cron (
+  id boolean primary key default true,
+  activo boolean not null default false,
+  url text,
+  secreto text,
+  actualizado_en timestamptz
+);
+
+alter table public.nomina_cron enable row level security;
+
+do $$
+begin
+  execute 'revoke all on public.nomina_cron from anon';
+  execute 'revoke all on public.nomina_cron from authenticated';
+end $$;
+
+-- La función que (re)programa el diario. Sólo se crea si pg_cron y pg_net
+-- están habilitadas: sin ellas no hay ni cron ni http, y el bloque entero no
+-- puede fallar por una extensión que falta. Se vuelve a llamar con el mismo
+-- nombre para que reprogramar sea repetir el `select`.
+do $$
+begin
+  if exists (
+        select 1 from pg_proc p
+          join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'cron' and p.proname = 'schedule'
+      )
+      and exists (
+        select 1 from pg_proc p
+          join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'net' and p.proname = 'http_post'
+      ) then
+    execute $fn$
+      create or replace function public.programar_nomina_cron()
+      returns void
+      language plpgsql
+      security definer
+      set search_path = public
+      as $body$
+      begin
+        -- Sin configuración no se programa: un job que apunta a NULL sólo
+        -- generaría ruido en el log todas las noches.
+        if exists (
+          select 1 from public.nomina_cron
+           where activo and coalesce(url, '') <> '' and coalesce(secreto, '') <> ''
+        ) then
+          perform cron.schedule(
+            'actualizar-nomina-diaria',
+            '0 5 * * *',
+            $job$
+              select net.http_post(
+                url := (select url from public.nomina_cron where activo),
+                headers := jsonb_build_object(
+                  'Content-Type', 'application/json',
+                  'x-cron-secret', (select secreto from public.nomina_cron where activo)
+                ),
+                body := '{}'::jsonb,
+                timeout_milliseconds := 120000
+              );
+            $job$
+          );
+        end if;
+      end;
+      $body$;
+    $fn$;
+
+    -- `perform` y no `select`: una función `void` no deja destino para el
+    -- resultado y el `select` tumba el bloque en el SQL Editor.
+    perform public.programar_nomina_cron();
+
+    -- La cierra el propio bloque, como el resto del archivo: sin sesión no se
+    -- programa nada. Va acá (y no en `permisos-funcion.sql`) porque ese bloque
+    -- corre ANTES de que esta función exista.
+    execute 'revoke execute on function public.programar_nomina_cron() from public, anon';
+  end if;
+end $$;

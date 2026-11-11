@@ -90,6 +90,9 @@ beforeAll(async () => {
   await db.exec(bloqueSql('bonos.sql'))
   // Segunda corrida: tiene que seguir limpio, el bloque es idempotente.
   await db.exec(bloqueSql('bonos.sql'))
+  // La nómina espejo pide `puede_bonos` (sale del bloque de arriba).
+  await db.exec(bloqueSql('nomina-trabajadores.sql'))
+  await db.exec(bloqueSql('nomina-trabajadores.sql'))
 })
 
 afterAll(async () => {
@@ -376,5 +379,76 @@ describe('bonos.sql · quién entra', () => {
         `select case when has_table_privilege('anon', 'public.bonos_pago', 'select') then 1 else 0 end as n`
       )
     ).toBe(0)
+  })
+})
+
+describe('nomina-trabajadores.sql · la tabla espejo de trabajadores', () => {
+  it('la identidad es (sucursal, nacionalidad, DNI) y la foto va cruda en `datos`', async () => {
+    expect(
+      await contar(
+        `select count(*) as n from pg_index i
+          where i.indrelid = 'public.trabajadores_nomina'::regclass and i.indisprimary`
+      )
+    ).toBe(1)
+    expect(
+      await contar(
+        `select count(*) as n from information_schema.columns
+          where table_name = 'trabajadores_nomina' and column_name = 'datos'`
+      )
+    ).toBe(1)
+  })
+
+  it('el bloque es idempotente y sin pg_cron/pg_net no crea la programación', async () => {
+    await db.exec(bloqueSql('nomina-trabajadores.sql'))
+    // En el espejo no están las extensiones: si la función se creara igual,
+    // `cron.schedule` explotaría al definirla. Debe quedarse sin crear.
+    expect(
+      await contar(
+        `select case when to_regprocedure('public.programar_nomina_cron()') is null then 1 else 0 end as n`
+      )
+    ).toBe(1)
+  })
+
+  it('el Líder lee la nómina y el Evaluador ni la ve ni la toca', async () => {
+    // La fila la escribe el dueño de las tablas, igual que la haría el cron
+    // con la service role (que bypasea RLS).
+    await db.query(
+      `insert into public.trabajadores_nomina (sucursal_id, nacionalidad, dni, datos)
+       values ($1, 'V', 777, $2)`,
+      [SUCURSAL, JSON.stringify({ name: 'Ana', role_name: 'Subgerente', active: true })]
+    )
+
+    await conRol(LIDER, async () => {
+      expect(await contar(`select count(*) as n from public.trabajadores_nomina`)).toBe(1)
+    })
+    await conRol(GERENTE_TH, async () => {
+      expect(await contar(`select count(*) as n from public.trabajadores_nomina`)).toBe(1)
+    })
+    await conRol(EVALUADOR, async () => {
+      expect(await contar(`select count(*) as n from public.trabajadores_nomina`)).toBe(0)
+      // Sin política de escritura, el rol autenticado no puede meter filas.
+      await expect(
+        db.query(
+          `insert into public.trabajadores_nomina (sucursal_id, nacionalidad, dni, datos)
+           values ($1, 'V', 888, '{}'::jsonb)`,
+          [SUCURSAL]
+        )
+      ).rejects.toThrow(/row-level security/i)
+    })
+  })
+
+  it('la configuración del cron no la ve nadie más que el servidor', async () => {
+    expect(
+      await contar(
+        `select case when has_table_privilege('authenticated', 'public.nomina_cron', 'select') then 1 else 0 end as n`
+      )
+    ).toBe(0)
+    expect(
+      await contar(`select case when has_table_privilege('anon', 'public.nomina_cron', 'select') then 1 else 0 end as n`)
+    ).toBe(0)
+    // Tampoco se le puede escribir desde la app.
+    await conRol(LIDER, async () => {
+      await expect(db.query(`insert into public.nomina_cron (id, activo) values (true, true)`)).rejects.toThrow()
+    })
   })
 })

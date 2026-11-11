@@ -16,8 +16,10 @@ import {
 } from '../../components/ui'
 import { PortalCabecera } from '../../components/PortalCabecera'
 import {
-  cargarNominaPorSucursal,
+  actualizarNominaAhora,
+  cargarNomina,
   departamentosSePisan,
+  etiquetaFrescura,
   etiquetaPeriodo,
   eliminarBonoCargo,
   gastoDeCargo,
@@ -28,6 +30,7 @@ import {
   listarPagos,
   marcarPagado,
   montoACobrar,
+  nominaDesactualizada,
   ocupantesDeCargo,
   periodoDe,
   periodosRecientes,
@@ -134,6 +137,13 @@ export function BonosPage() {
   const [nominaSinId, setNominaSinId] = useState<string[]>([])
   /** Inactivas en Unidades: tampoco cuentan. */
   const [nominaInactivas, setNominaInactivas] = useState<string[]>([])
+  /** De dónde salió la nómina: la tabla espejo o la API en vivo. */
+  const [nominaFuente, setNominaFuente] = useState<'local' | 'api' | null>(null)
+  /** Última actualización de la tabla espejo. */
+  const [nominaActualizado, setNominaActualizado] = useState<string | null>(null)
+  /** Se incrementa para releer la nómina (después de un «Actualizar ahora»). */
+  const [nominaVersion, setNominaVersion] = useState(0)
+  const [actualizando, setActualizando] = useState(false)
 
   // --- Pagos (gestión) ---
   const [periodicidad, setPeriodicidad] = useState<Periodicidad>('MENSUAL')
@@ -186,21 +196,24 @@ export function BonosPage() {
   }, [])
 
   // La nómina sólo hace falta en la pestaña de Cargos: es la que cuenta los
-  // ocupantes de cada cargo para proyectar su gasto. Se pide una vez por
-  // sucursal (lo mismo que al generar los pagos) y TODO lo que no entró sale
-  // con su motivo —caída, sin ID o inactiva— para avisar que el número está
-  // incompleto en vez de pintarlo de más bajo en silencio.
+  // ocupantes de cada cargo para proyectar su gasto. Primero se lee la tabla
+  // espejo (la refresca el cron diario) y sólo si está vacía se cae a la API
+  // en vivo. Todo lo que no entró sale con su motivo —caída, sin ID o
+  // inactiva— para avisar que el número está incompleto en vez de pintarlo
+  // de más bajo en silencio.
   useEffect(() => {
     if (pestana !== 'cargos' || !sucursales.length) return
     let vivo = true
     setNominaCargando(true)
-    void cargarNominaPorSucursal(sucursales)
-      .then(({ porSucursal, fallos, sinId, inactivas }) => {
+    void cargarNomina(sucursales)
+      .then(({ porSucursal, fallos, sinId, inactivas, fuente, actualizado_en }) => {
         if (!vivo) return
         setNomina(porSucursal)
         setNominaFallo(fallos)
         setNominaSinId(sinId)
         setNominaInactivas(inactivas)
+        setNominaFuente(fuente)
+        setNominaActualizado(actualizado_en)
       })
       .catch(() => {
         if (!vivo) return
@@ -208,6 +221,8 @@ export function BonosPage() {
         setNominaFallo([])
         setNominaSinId([])
         setNominaInactivas([])
+        setNominaFuente(null)
+        setNominaActualizado(null)
       })
       .finally(() => {
         if (vivo) setNominaCargando(false)
@@ -215,7 +230,7 @@ export function BonosPage() {
     return () => {
       vivo = false
     }
-  }, [pestana, sucursales])
+  }, [pestana, sucursales, nominaVersion])
 
   const cargarPagos = useCallback(async () => {
     setCargandoPagos(true)
@@ -358,6 +373,23 @@ export function BonosPage() {
   }
 
   /* --- El alcance del cargo (el conjunto de sucursales) ------------------- */
+
+  /** Le pide a la Edge Function que refresque la tabla espejo, ahora. */
+  async function actualizarNomina() {
+    setActualizando(true)
+    try {
+      const r = await actualizarNominaAhora()
+      const partes = [`${r.trabajadores} trabajadores en ${r.sucursales_ok} sucursales`]
+      if (r.fallos.length) partes.push(`no se pudo leer: ${r.fallos.join(', ')}`)
+      if (r.sin_id_nombres.length) partes.push(`sin ID de trabajadores: ${r.sin_id_nombres.join(', ')}`)
+      avisar(`Nómina actualizada — ${partes.join(' · ')}.`, r.sucursales_fallo || r.sin_id ? 'aviso' : 'ok')
+      setNominaVersion((v) => v + 1)
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo actualizar la nómina.', 'error')
+    } finally {
+      setActualizando(false)
+    }
+  }
 
   function alternarSucursal(sucursalId: string) {
     setPorSucursal((prev) => {
@@ -737,6 +769,36 @@ export function BonosPage() {
           </div>
         ) : (
           <div className="space-y-3">
+            {/* De dónde sale la nómina y si está fresca: la foto la da el
+                cron diario y el botón la refresca en el momento. */}
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+              <span className="font-bold text-slate-700">Nómina:</span>
+              {nominaCargando ? (
+                <span>leyendo…</span>
+              ) : nominaFuente === 'local' ? (
+                <span>
+                  tabla espejo, actualizada{' '}
+                  <b className="text-slate-800">{etiquetaFrescura(nominaActualizado)}</b>
+                  {nominaDesactualizada(nominaActualizado) ? (
+                    <span className="text-amber-700"> · puede estar desactualizada</span>
+                  ) : null}
+                </span>
+              ) : nominaFuente === 'api' ? (
+                <span>API en vivo (la tabla espejo está vacía: falta aplicar el bloque o correr el cron)</span>
+              ) : (
+                <span>—</span>
+              )}
+              <Button
+                variant="secondary"
+                className="ml-auto min-h-[32px] px-3 py-1 text-xs"
+                disabled={actualizando}
+                onClick={() => void actualizarNomina()}
+                title="Pedir la nómina ahora y guardarla en la tabla espejo"
+              >
+                <RefreshCw className={cn('h-3.5 w-3.5', actualizando && 'animate-spin')} />
+                {actualizando ? 'Actualizando…' : 'Actualizar ahora'}
+              </Button>
+            </div>
             {/* La nómina parcial se avisa arriba de la tabla: sin este
                 cartel, un gasto calculado con menos sucursales se leería
                 como el gasto real. */}

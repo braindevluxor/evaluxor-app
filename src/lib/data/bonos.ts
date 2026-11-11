@@ -540,6 +540,10 @@ export interface ResultadoGeneracion {
   sinId: string[]
   /** Inactivas en Unidades: tampoco generan pagos. */
   inactivas: string[]
+  /** De dónde salió la nómina: la tabla espejo o la API en vivo. */
+  fuente: 'local' | 'api'
+  /** Última actualización de la tabla espejo, si fue la que se usó. */
+  actualizado_en: string | null
 }
 
 /** Los motivos de lo que no entró, en una sola línea para el aviso. */
@@ -645,6 +649,123 @@ export async function cargarNominaPorSucursal(
   return { porSucursal, fallos, sinId, inactivas }
 }
 
+/* --- La nómina espejo: la tabla `trabajadores_nomina` --------------------- */
+
+export interface FilaNomina {
+  sucursal_id: string
+  nacionalidad: string
+  dni: number
+  /** El registro CRUDO de la API: la normalización (activo, área, estado) es del cliente. */
+  datos: Record<string, unknown>
+  actualizado_en: string
+}
+
+/** La tabla espejo agrupada por sucursal: la misma forma que la API en vivo. */
+export function nominaDeTabla(filas: readonly FilaNomina[]): Map<string, ColaboradorAPI[]> {
+  const porSucursal = new Map<string, ColaboradorAPI[]>()
+  for (const f of filas) {
+    const gente = porSucursal.get(f.sucursal_id) ?? []
+    gente.push({ ...f.datos, nationality: f.nacionalidad, dni: f.dni } as ColaboradorAPI)
+    porSucursal.set(f.sucursal_id, gente)
+  }
+  return porSucursal
+}
+
+export async function listarNominaLocal(): Promise<{ filas: FilaNomina[]; actualizado_en: string | null }> {
+  const { data, error } = await supabase
+    .from('trabajadores_nomina')
+    .select('sucursal_id, nacionalidad, dni, datos, actualizado_en')
+  if (error) throw new Error(error.message)
+  const filas = (data ?? []) as FilaNomina[]
+  // Los ISO salen con el mismo formato: comparar como texto da el más nuevo.
+  let ultima: string | null = null
+  for (const f of filas) if (!ultima || f.actualizado_en > ultima) ultima = f.actualizado_en
+  return { filas, actualizado_en: ultima }
+}
+
+/** Cuánto hace que se actualizó, en una forma que se pueda leer. */
+export function etiquetaFrescura(iso: string | null, ahora = new Date()): string {
+  if (!iso) return 'sin actualizar'
+  const ms = ahora.getTime() - new Date(iso).getTime()
+  if (!Number.isFinite(ms)) return 'sin actualizar'
+  if (ms < 0) return 'recién actualizada'
+  const horas = Math.floor(ms / 3600000)
+  if (horas < 1) return `hace ${Math.max(1, Math.floor(ms / 60000))} min`
+  if (horas < 24) return `hace ${horas} h`
+  const dias = Math.floor(horas / 24)
+  return `hace ${dias} ${dias === 1 ? 'día' : 'días'}`
+}
+
+/**
+ * ¿La foto ya es vieja para tomar decisiones de plata? 36 horas: si el cron
+ * corre a las 05:00, un pase de más de un día y medio significa que no corrió.
+ */
+export function nominaDesactualizada(iso: string | null, ahora = new Date(), umbralHoras = 36): boolean {
+  if (!iso) return true
+  const ms = ahora.getTime() - new Date(iso).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return false
+  return ms > umbralHoras * 3600000
+}
+
+/** El resumen que devuelve la Edge Function `actualizar-nomina`. */
+export interface ResumenActualizacion {
+  sucursales_ok: number
+  sucursales_fallo: number
+  sin_id: number
+  trabajadores: number
+  fallos: string[]
+  sin_id_nombres: string[]
+}
+
+export interface FuenteNomina extends ResultadoNomina {
+  /** `local` = tabla espejo; `api` = la API en vivo (la tabla está vacía). */
+  fuente: 'local' | 'api'
+  /** Última actualización de la tabla, si fue la que se usó. */
+  actualizado_en: string | null
+}
+
+/**
+ * La nómina para los bonos: PRIMERO la tabla espejo; si está vacía —o el
+ * bloque todavía no se aplicó—, la API en vivo como respaldo.
+ *
+ * Así la pantalla funciona desde el primer día sin cron, y el cron la va
+ * volviendo rápida y estable. Los motivos de lo que queda afuera (sin ID,
+ * inactivas) salen de la clasificación de las sucursales, igual en las dos
+ * fuentes; `fallos` sólo aplica a la API en vivo.
+ */
+export async function cargarNomina(sucursales: readonly SucursalNomina[]): Promise<FuenteNomina> {
+  const { sinId, inactivas } = clasificarSucursalesParaNomina(sucursales)
+  try {
+    const { filas, actualizado_en } = await listarNominaLocal()
+    if (filas.length) {
+      return { porSucursal: nominaDeTabla(filas), fallos: [], sinId, inactivas, fuente: 'local', actualizado_en }
+    }
+  } catch {
+    // Sin tabla (bloque no aplicado) o sin permiso: se cae a la API en vivo.
+  }
+  const enVivo = await cargarNominaPorSucursal(sucursales)
+  return { ...enVivo, fuente: 'api', actualizado_en: null }
+}
+
+/** Pide a la Edge Function que refresque la tabla espejo, ahora. */
+export async function actualizarNominaAhora(): Promise<ResumenActualizacion> {
+  let data: unknown = null
+  let error: { message?: string } | null = null
+  try {
+    const r = await supabase.functions.invoke('actualizar-nomina')
+    data = r.data
+    error = r.error
+  } catch (e) {
+    error = { message: e instanceof Error ? e.message : String(e) }
+  }
+  if (error) throw new Error(error.message || 'No se pudo actualizar la nómina.')
+  const cuerpo = data as { ok?: boolean; error?: string; data?: ResumenActualizacion } | null
+  if (!cuerpo || cuerpo.ok === false) {
+    throw new Error(cuerpo?.error || 'No se pudo actualizar la nómina.')
+  }
+  return cuerpo.data as ResumenActualizacion
+}
+
 /**
  * Genera las filas de pago de un período con la nómina ACTUAL de las
  * sucursales.
@@ -661,8 +782,8 @@ export async function generarPagos(periodo: string, periodicidad: Periodicidad):
     throw new Error(`No hay cargos con bono activos con periodicidad ${periodicidad === 'MENSUAL' ? 'mensual' : 'trimestral'}.`)
   }
 
-  const resultadoNomina = await cargarNominaPorSucursal(await listarSucursalesAdmin())
-  const { porSucursal, fallos, sinId, inactivas } = resultadoNomina
+  const resultadoNomina = await cargarNomina(await listarSucursalesAdmin())
+  const { porSucursal, fallos, sinId, inactivas, fuente, actualizado_en } = resultadoNomina
   const motivos = motivosDeNomina(resultadoNomina)
   if (!porSucursal.size) {
     throw new Error(
@@ -722,7 +843,9 @@ export async function generarPagos(periodo: string, periodicidad: Periodicidad):
     sucursales: porSucursal.size,
     fallos,
     sinId,
-    inactivas
+    inactivas,
+    fuente,
+    actualizado_en
   }
 }
 

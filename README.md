@@ -35,6 +35,8 @@ Módulo en el menú de la consola (`/config/bonos`), para `LIDER` y `GERENTE_TH`
 
 Los datos viven en `supabase/schema.sql`, bloque `bonos.sql` (tablas `bonos_cargo`, `bonos_cargo_sucursal` y `bonos_pago`, con RLS sobre la función `puede_bonos`): hay que pegarlo en el SQL Editor de Supabase una vez. Es idempotente, se puede volver a correr.
 
+**Nómina espejo**: los ocupantes se leen de la tabla `trabajadores_nomina` —el registro **crudo** de la API, porque la normalización (activo, área, estado) vive sólo en el cliente—, que refresca la Edge Function `actualizar-nomina` todos los días a las 05:00 con `pg_cron` + `pg_net`. Si la tabla está vacía (o el bloque no está aplicado) la app cae a la API en vivo, y la pantalla avisa de dónde salió la nómina, cuánto hace que se actualizó y ofrece «Actualizar ahora». Si una tienda no responde, **sus filas no se borran**: se queda el último estado bueno. Para programarlo: habilitar `pg_cron` y `pg_net` (Database → Extensions), desplegar la función, aplicar el bloque `nomina-trabajadores.sql`, cargar la configuración y llamar `select public.programar_nomina_cron();` (el detalle está en la cabecera del bloque).
+
 ## Puesta en marcha
 
 1. Clonar e instalar:

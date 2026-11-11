@@ -2,16 +2,20 @@ import { describe, expect, it } from 'vitest'
 import {
   clasificarSucursalesParaNomina,
   etiquetaPeriodo,
+  etiquetaFrescura,
   filasDeGeneracion,
   gastoDeCargo,
   montoACobrar,
   montoParaSucursal,
+  nominaDeTabla,
+  nominaDesactualizada,
   ocupantesDeCargo,
   periodoDe,
   periodosRecientes,
   sucursalesTomadas,
   trimestreDe,
-  type BonoCargo
+  type BonoCargo,
+  type FilaNomina
 } from './bonos'
 import type { ColaboradorAPI } from './colaboradores'
 
@@ -251,6 +255,73 @@ describe('clasificarSucursalesParaNomina · por qué una tienda queda fuera', ()
     const r = clasificarSucursalesParaNomina([{ id: 's1', nombre: 'El Bosque', shop_id: '12', branch_id: null }])
     expect(r.pedir).toHaveLength(1)
     expect(r.inactivas).toEqual([])
+  })
+})
+
+describe('nominaDeTabla · la tabla espejo con la misma forma que la API', () => {
+  const filas: FilaNomina[] = [
+    {
+      sucursal_id: 's1',
+      nacionalidad: 'V',
+      dni: 111,
+      datos: { name: 'Ana', lastname: 'Pérez', role_name: 'Subgerente', active: true, department_name: 'Operaciones' },
+      actualizado_en: '2026-11-11T05:00:00.000Z'
+    },
+    {
+      sucursal_id: 's1',
+      nacionalidad: 'V',
+      dni: 222,
+      datos: { name: 'Beto', lastname: 'Gómez', role_name: 'Cajero', active: false },
+      actualizado_en: '2026-11-11T05:00:00.000Z'
+    },
+    {
+      sucursal_id: 's2',
+      nacionalidad: 'E',
+      dni: 333,
+      datos: { name: 'Caro', lastname: 'Díaz', role_name: 'Subgerente' },
+      actualizado_en: '2026-11-11T05:00:00.000Z'
+    }
+  ]
+
+  it('agrupa por sucursal y conserva el registro crudo', () => {
+    const porSucursal = nominaDeTabla(filas)
+    expect([...porSucursal.keys()].sort()).toEqual(['s1', 's2'])
+    expect(porSucursal.get('s1')).toHaveLength(2)
+    expect(porSucursal.get('s1')?.[0].role_name).toBe('Subgerente')
+    expect(porSucursal.get('s1')?.[1].active).toBe(false)
+  })
+
+  it('la identidad de la fila manda sobre lo que traiga el JSON', () => {
+    const porSucursal = nominaDeTabla([
+      { ...filas[0], nacionalidad: 'E', dni: 999, datos: { name: 'Ana', dni: 111 } }
+    ])
+    expect(porSucursal.get('s1')?.[0]).toMatchObject({ nationality: 'E', dni: 999 })
+  })
+
+  it('sin filas no hay nómina: la app cae a la API en vivo', () => {
+    expect(nominaDeTabla([]).size).toBe(0)
+  })
+})
+
+describe('frescura de la nómina espejo', () => {
+  it('la etiqueta se lee en minutos, horas y días', () => {
+    const ahora = new Date('2026-11-11T12:00:00Z')
+    expect(etiquetaFrescura(null, ahora)).toBe('sin actualizar')
+    expect(etiquetaFrescura('2026-11-11T11:30:00Z', ahora)).toBe('hace 30 min')
+    expect(etiquetaFrescura('2026-11-11T05:00:00Z', ahora)).toBe('hace 7 h')
+    expect(etiquetaFrescura('2026-11-10T05:00:00Z', ahora)).toBe('hace 1 día')
+    expect(etiquetaFrescura('2026-11-08T05:00:00Z', ahora)).toBe('hace 3 días')
+  })
+
+  it('pasadas 36 horas la foto se considera vieja (el cron corre a las 05:00)', () => {
+    const ahora = new Date('2026-11-11T12:00:00Z')
+    expect(nominaDesactualizada(null, ahora)).toBe(true)
+    // Hace 7 h: corrió esta madrugada.
+    expect(nominaDesactualizada('2026-11-11T05:00:00Z', ahora)).toBe(false)
+    // Hace 31 h: no corrió ayer, pero todavía se usa (sólo avisa).
+    expect(nominaDesactualizada('2026-11-10T05:00:00Z', ahora)).toBe(false)
+    // Hace 48 h: se pasó el umbral.
+    expect(nominaDesactualizada('2026-11-09T12:00:00Z', ahora)).toBe(true)
   })
 })
 
