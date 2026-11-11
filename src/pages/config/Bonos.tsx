@@ -118,6 +118,8 @@ export function BonosPage() {
   // Las sucursales ACTIVAS, para el selector de alcance del modal y para
   // traducir ids a nombres en la tabla.
   const [sucursales, setSucursales] = useState<SucursalVista[]>([])
+  /** Las ACTIVAS: son las que entran al conteo, a los pagos y al selector. */
+  const sucursalesActivas = useMemo(() => sucursales.filter((s) => s.activa), [sucursales])
   // El alcance que se está editando: sin esto el bono es «todas».
   const [especifico, setEspecifico] = useState(false)
   /** sucursal_id → monto de ESA sucursal (lo que se guardaría en la fila). */
@@ -128,6 +130,10 @@ export function BonosPage() {
   const [nominaCargando, setNominaCargando] = useState(false)
   /** Sucursales cuya nómina no se pudo leer: avisa que el gasto está incompleto. */
   const [nominaFallo, setNominaFallo] = useState<string[]>([])
+  /** Activas SIN ID de trabajadores: quedan fuera del conteo y hay que decirlo. */
+  const [nominaSinId, setNominaSinId] = useState<string[]>([])
+  /** Inactivas en Unidades: tampoco cuentan. */
+  const [nominaInactivas, setNominaInactivas] = useState<string[]>([])
 
   // --- Pagos (gestión) ---
   const [periodicidad, setPeriodicidad] = useState<Periodicidad>('MENSUAL')
@@ -164,7 +170,7 @@ export function BonosPage() {
       try {
         const lista = await listarSucursalesAdmin()
         if (!vivo) return
-        setSucursales(lista.filter((s) => s.activa))
+        setSucursales(lista)
         const branches = lista
           .map((s) => (s.shop_id ?? s.branch_id ?? '').trim())
           .filter(Boolean)
@@ -181,23 +187,27 @@ export function BonosPage() {
 
   // La nómina sólo hace falta en la pestaña de Cargos: es la que cuenta los
   // ocupantes de cada cargo para proyectar su gasto. Se pide una vez por
-  // sucursal (lo mismo que al generar los pagos) y una consulta caída queda
-  // en `nominaFallo` para avisar que el número está incompleto en vez de
-  // pintarlo de más bajo.
+  // sucursal (lo mismo que al generar los pagos) y TODO lo que no entró sale
+  // con su motivo —caída, sin ID o inactiva— para avisar que el número está
+  // incompleto en vez de pintarlo de más bajo en silencio.
   useEffect(() => {
     if (pestana !== 'cargos' || !sucursales.length) return
     let vivo = true
     setNominaCargando(true)
     void cargarNominaPorSucursal(sucursales)
-      .then(({ porSucursal, fallos }) => {
+      .then(({ porSucursal, fallos, sinId, inactivas }) => {
         if (!vivo) return
         setNomina(porSucursal)
         setNominaFallo(fallos)
+        setNominaSinId(sinId)
+        setNominaInactivas(inactivas)
       })
       .catch(() => {
         if (!vivo) return
         setNomina(new Map())
         setNominaFallo([])
+        setNominaSinId([])
+        setNominaInactivas([])
       })
       .finally(() => {
         if (vivo) setNominaCargando(false)
@@ -364,7 +374,7 @@ export function BonosPage() {
   }
 
   function marcarTodas() {
-    setPorSucursal(Object.fromEntries(sucursales.map((s) => [s.id, form.monto.trim() || '0'])))
+    setPorSucursal(Object.fromEntries(sucursalesActivas.map((s) => [s.id, form.monto.trim() || '0'])))
   }
 
   async function alternarActivo(c: BonoCargo) {
@@ -414,6 +424,12 @@ export function BonosPage() {
       )
       if (r.fallos.length) {
         avisar(`No se pudo leer la nómina de: ${r.fallos.join(', ')}.`, 'aviso')
+      }
+      if (r.sinId.length) {
+        avisar(`Sin ID de trabajadores: ${r.sinId.join(', ')}. Esos pagos no se generaron.`, 'aviso')
+      }
+      if (r.inactivas.length) {
+        avisar(`Inactivas en Unidades: ${r.inactivas.join(', ')}. Esos pagos no se generaron.`, 'aviso')
       }
       await cargarPagos()
     } catch (e) {
@@ -525,6 +541,27 @@ export function BonosPage() {
   const detalleLista = detalleCargos && nomina ? ocupantesDeCargo(detalleCargos, nomina) : null
 
   /**
+   * Los carteles de la nómina incompleta, cada uno con su motivo. Sin esto,
+   * una tienda sin `branchID` o inactiva simplemente no aparecía y el conteo
+   * salía más bajo sin que nadie supiera por qué.
+   */
+  const avisosNomina = useMemo(() => {
+    const avisos: string[] = []
+    if (nominaFallo.length) {
+      avisos.push(`No se pudo leer la nómina de: ${nominaFallo.join(', ')}.`)
+    }
+    if (nominaSinId.length) {
+      avisos.push(
+        `Sin ID de trabajadores (Nº tienda / branchID en Unidades): ${nominaSinId.join(', ')}. No entran al conteo ni a los pagos.`
+      )
+    }
+    if (nominaInactivas.length) {
+      avisos.push(`Inactivas en Unidades: ${nominaInactivas.join(', ')}. No cuentan ni generan pagos.`)
+    }
+    return avisos
+  }, [nominaFallo, nominaSinId, nominaInactivas])
+
+  /**
    * Las sucursales del cargo cuya celda se tocó, con el monto que le
    * corresponde a cada una. Sin alcance («todas») se listan las activas con
    * el monto base, que es exactamente lo que ese cargo paga en cada tienda.
@@ -532,7 +569,7 @@ export function BonosPage() {
   const detalleSucursales = useMemo(() => {
     if (!detalleAlcance) return null
     if (!detalleAlcance.sucursales.length) {
-      return sucursales.map((s) => ({
+      return sucursalesActivas.map((s) => ({
         nombre: s.nombre,
         monto: detalleAlcance.monto,
         propia: false
@@ -544,7 +581,42 @@ export function BonosPage() {
       monto: f.monto ?? detalleAlcance.monto,
       propia: f.monto != null
     }))
-  }, [detalleAlcance, sucursales])
+  }, [detalleAlcance, sucursalesActivas, sucursales])
+
+  /**
+   * Cada tienda del alcance con CUÁNTOS ocupantes trae y, si trae 0, POR QUÉ.
+   * Es la respuesta directa a «me trae de dos de cuatro»: la tienda que no
+   * se pudo leer aparece acá con su motivo, en vez de no aparecer.
+   */
+  const detalleTiendas = useMemo(() => {
+    if (!detalleAlcance) return null
+    const porId = new Map(sucursales.map((s) => [s.id, s.nombre]))
+    const enAlcance = detalleAlcance.sucursales.length
+      ? detalleAlcance.sucursales.map((f) => f.sucursal_id)
+      : sucursalesActivas.map((s) => s.id)
+    return enAlcance.map((id) => {
+      const nombre = porId.get(id) ?? id
+      const cuenta = detalleLista ? detalleLista.filter((o) => o.sucursal_id === id).length : null
+      let motivo: string | null = null
+      if (cuenta === 0) {
+        if (nominaInactivas.includes(nombre)) motivo = 'inactiva en Unidades'
+        else if (nominaSinId.includes(nombre)) motivo = 'sin ID de trabajadores'
+        else if (nominaFallo.includes(nombre)) motivo = 'la nómina no se pudo leer'
+        else if (!nomina?.has(id)) motivo = 'sin nómina leída'
+        else motivo = 'sin personas con ese cargo exacto en esa tienda'
+      }
+      return { nombre, cuenta, motivo }
+    })
+  }, [
+    detalleAlcance,
+    detalleLista,
+    sucursales,
+    sucursalesActivas,
+    nomina,
+    nominaFallo,
+    nominaSinId,
+    nominaInactivas
+  ])
 
   function nombreSucursal(id: string): string {
     return sucursales.find((s) => s.id === id)?.nombre ?? id
@@ -668,10 +740,12 @@ export function BonosPage() {
             {/* La nómina parcial se avisa arriba de la tabla: sin este
                 cartel, un gasto calculado con menos sucursales se leería
                 como el gasto real. */}
-            {nominaFallo.length ? (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                No se pudo leer la nómina de: <b>{nominaFallo.join(', ')}</b>. Los ocupantes y el gasto de esos
-                cargos pueden estar incompletos.
+            {avisosNomina.length ? (
+              <div className="space-y-1 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <p className="font-semibold">El conteo puede estar incompleto:</p>
+                {avisosNomina.map((a) => (
+                  <p key={a}>• {a}</p>
+                ))}
               </div>
             ) : null}
             <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
@@ -1118,13 +1192,13 @@ export function BonosPage() {
             </p>
             {especifico ? (
               <div className="max-h-60 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
-                {sucursales.length === 0 ? (
+                {sucursalesActivas.length === 0 ? (
                   <p className="p-3 text-sm text-slate-500">No hay sucursales activas cargadas.</p>
                 ) : (
                   <>
                     <div className="flex items-center justify-between gap-2 bg-slate-50 px-3 py-2">
                       <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                        {Object.keys(porSucursal).length} de {sucursales.length}
+                        {Object.keys(porSucursal).length} de {sucursalesActivas.length}
                       </span>
                       <div className="flex gap-1">
                         <Button
@@ -1143,7 +1217,7 @@ export function BonosPage() {
                         </Button>
                       </div>
                     </div>
-                    {sucursales.map((s) => {
+                    {sucursalesActivas.map((s) => {
                       const marcada = s.id in porSucursal
                       return (
                         <div key={s.id} className="flex items-center gap-2 px-3 py-2">
@@ -1290,6 +1364,33 @@ export function BonosPage() {
                 </li>
               ))}
             </ul>
+            {/* Cada tienda del alcance con SU número y, si es 0, el motivo:
+                es lo que contesta «me trae de dos de cuatro». */}
+            {detalleTiendas?.length ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">
+                  Por tienda del alcance
+                </p>
+                <ul className="space-y-1 text-sm">
+                  {detalleTiendas.map((t) => (
+                    <li key={t.nombre} className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-slate-700">{t.nombre}</span>
+                      {t.cuenta == null ? (
+                        <span className="text-slate-400">…</span>
+                      ) : t.motivo ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                          0 · {t.motivo}
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800">
+                          {t.cuenta} {t.cuenta === 1 ? 'ocupante' : 'ocupantes'}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         )}
       </Modal>

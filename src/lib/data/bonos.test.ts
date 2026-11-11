@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  clasificarSucursalesParaNomina,
   etiquetaPeriodo,
   filasDeGeneracion,
   gastoDeCargo,
@@ -211,6 +212,45 @@ describe('sucursalesTomadas · el mismo cargo no se registra dos veces en una su
     expect(
       sucursalesTomadas([general], 'comprador', [{ sucursal_id: 's1', monto: null }], undefined, 'Compras').ids
     ).toEqual(['s1'])
+  })
+})
+
+describe('clasificarSucursalesParaNomina · por qué una tienda queda fuera', () => {
+  it('una activa con ID se puede pedir, y el branch sale del shop_id primero', () => {
+    const r = clasificarSucursalesParaNomina([
+      { id: 's1', nombre: 'El Bosque', shop_id: '12', branch_id: '9', activa: true },
+      { id: 's2', nombre: 'Guacara', shop_id: '7', branch_id: null, activa: true }
+    ])
+    expect(r.pedir.map((p) => [p.nombre, p.branch])).toEqual([
+      ['El Bosque', '12'],
+      ['Guacara', '7']
+    ])
+    expect(r.sinId).toEqual([])
+    expect(r.inactivas).toEqual([])
+  })
+
+  it('una activa SIN ID se queda en sinId, con su nombre y en orden estable', () => {
+    const r = clasificarSucursalesParaNomina([
+      { id: 's1', nombre: 'San Diego', shop_id: null, branch_id: null, activa: true },
+      { id: 's2', nombre: 'Circulo Militar', shop_id: '   ', branch_id: null, activa: true }
+    ])
+    expect(r.pedir).toEqual([])
+    expect(r.sinId).toEqual(['Circulo Militar', 'San Diego'])
+  })
+
+  it('una inactiva se queda en inactivas aunque tenga ID', () => {
+    const r = clasificarSucursalesParaNomina([
+      { id: 's1', nombre: 'Guacara', shop_id: '7', branch_id: null, activa: false },
+      { id: 's2', nombre: 'El Bosque', shop_id: '12', branch_id: null, activa: true }
+    ])
+    expect(r.inactivas).toEqual(['Guacara'])
+    expect(r.pedir.map((p) => p.nombre)).toEqual(['El Bosque'])
+  })
+
+  it('sin el campo `activa` se trata como activa: la ausencia no es una baja', () => {
+    const r = clasificarSucursalesParaNomina([{ id: 's1', nombre: 'El Bosque', shop_id: '12', branch_id: null }])
+    expect(r.pedir).toHaveLength(1)
+    expect(r.inactivas).toEqual([])
   })
 })
 

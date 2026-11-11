@@ -536,6 +536,21 @@ export interface ResultadoGeneracion {
   sucursales: number
   /** Sucursales cuya nómina no se pudo leer (sin su aviso, el resto sigue). */
   fallos: string[]
+  /** Activas SIN ID de trabajadores: se quedaron afuera y hay que decirlo. */
+  sinId: string[]
+  /** Inactivas en Unidades: tampoco generan pagos. */
+  inactivas: string[]
+}
+
+/** Los motivos de lo que no entró, en una sola línea para el aviso. */
+function motivosDeNomina(r: Pick<ResultadoNomina, 'fallos' | 'sinId' | 'inactivas'>): string {
+  return [
+    r.fallos.length ? `no se pudo leer la nómina de ${r.fallos.join(', ')}` : '',
+    r.sinId.length ? `${r.sinId.join(', ')} sin ID de trabajadores` : '',
+    r.inactivas.length ? `${r.inactivas.join(', ')} inactivas en Unidades` : ''
+  ]
+    .filter(Boolean)
+    .join('; ')
 }
 
 /** Lo que hace falta de una sucursal para pedirle su nómina. */
@@ -547,27 +562,78 @@ export interface SucursalNomina {
   activa?: boolean
 }
 
+/** Lo que se puede pedir y lo que queda afuera, antes de tocar la API. */
+export interface ClasificacionNomina {
+  /** Las que sí se pueden pedir: id, nombre y el branch con el que se pide. */
+  pedir: { id: string; nombre: string; branch: string }[]
+  /** Activas SIN ID de trabajadores: no hay con qué pedir su nómina. */
+  sinId: string[]
+  /** Inactivas en Unidades: no cuentan ni generan pagos. */
+  inactivas: string[]
+}
+
+/**
+ * Qué sucursales se le pueden pedir nómina y por qué las demás se quedan.
+ *
+ * ESTE ES EL FILTRO QUE ANTES ERA SILENCIOSO: una tienda sin `shop_id` ni
+ * `branch_id`, o marcada como inactiva en Unidades, simplemente no aparecía
+ * en el mapa y sus trabajadores no entraban al conteo ni a los pagos — sin
+ * ningún aviso que dijera por qué faltaban. Los tres motivos salen acá con
+ * su nombre, para que la pantalla los pueda mostrar.
+ */
+export function clasificarSucursalesParaNomina(sucursales: readonly SucursalNomina[]): ClasificacionNomina {
+  const pedir: { id: string; nombre: string; branch: string }[] = []
+  const sinId: string[] = []
+  const inactivas: string[] = []
+  for (const s of sucursales) {
+    if (s.activa === false) {
+      inactivas.push(s.nombre)
+      continue
+    }
+    const branch = (s.shop_id ?? s.branch_id ?? '').trim()
+    if (!branch) {
+      sinId.push(s.nombre)
+      continue
+    }
+    pedir.push({ id: s.id, nombre: s.nombre, branch })
+  }
+  // Orden estable: los mensajes y los carteles no deben cambiar de orden de
+  // una corrida a otra.
+  inactivas.sort()
+  sinId.sort()
+  return { pedir, sinId, inactivas }
+}
+
+/** El resultado de leer las nóminas, con el MOTIVO de lo que no se pudo. */
+export interface ResultadoNomina {
+  /** Nómina por id de sucursal: sólo las que se pudieron leer. */
+  porSucursal: Map<string, ColaboradorAPI[]>
+  /** La API respondió con error para esa sucursal. */
+  fallos: string[]
+  /** Activas SIN ID de trabajadores: no se ni pudo pedir. */
+  sinId: string[]
+  /** Inactivas en Unidades. */
+  inactivas: string[]
+}
+
 /**
  * La nómina de las sucursales, por id de sucursal: la fuente de los
  * OCUPANTES de cada cargo, para contarlos y multiplicarlos por su monto.
  *
- * Sólo sucursales ACTIVAS con ID de trabajadores —los departamentos no
- * tienen nómina de tienda— y cada una se pide por separado: una consulta
- * caída queda en `fallos` sin frenar a las demás, que es lo que permite
- * pintar «el gasto puede estar incompleto» en vez de un cero mentiroso.
+ * Cada una se pide por separado y sólo se guarda la que salió bien: una
+ * consulta caída queda en `fallos` sin frenar a las demás. Las que ni se
+ * pueden pedir quedan en `sinId` / `inactivas`, con su nombre, para que la
+ * pantalla avise en vez de mostrar un conteo de más bajo en silencio.
  */
 export async function cargarNominaPorSucursal(
   sucursales: readonly SucursalNomina[]
-): Promise<{ porSucursal: Map<string, ColaboradorAPI[]>; fallos: string[] }> {
-  const conBranch = sucursales.filter(
-    (s) => (s.activa ?? true) && Boolean((s.shop_id ?? s.branch_id ?? '').trim())
-  )
+): Promise<ResultadoNomina> {
+  const { pedir, sinId, inactivas } = clasificarSucursalesParaNomina(sucursales)
   const porSucursal = new Map<string, ColaboradorAPI[]>()
   const fallos: string[] = []
   await Promise.all(
-    conBranch.map(async (s) => {
-      const branch = (s.shop_id ?? s.branch_id ?? '').trim()
-      const r = await listarColaboradores(branch)
+    pedir.map(async (s) => {
+      const r = await listarColaboradores(s.branch)
       if (r.mensaje) {
         fallos.push(s.nombre)
         return
@@ -575,7 +641,8 @@ export async function cargarNominaPorSucursal(
       porSucursal.set(s.id, r.colaboradores)
     })
   )
-  return { porSucursal, fallos }
+  fallos.sort()
+  return { porSucursal, fallos, sinId, inactivas }
 }
 
 /**
@@ -594,19 +661,20 @@ export async function generarPagos(periodo: string, periodicidad: Periodicidad):
     throw new Error(`No hay cargos con bono activos con periodicidad ${periodicidad === 'MENSUAL' ? 'mensual' : 'trimestral'}.`)
   }
 
-  const { porSucursal, fallos } = await cargarNominaPorSucursal(await listarSucursalesAdmin())
+  const resultadoNomina = await cargarNominaPorSucursal(await listarSucursalesAdmin())
+  const { porSucursal, fallos, sinId, inactivas } = resultadoNomina
+  const motivos = motivosDeNomina(resultadoNomina)
   if (!porSucursal.size) {
     throw new Error(
-      fallos.length
-        ? `No se pudo leer la nómina de: ${fallos.join(', ')}.`
-        : 'No hay sucursales con ID de trabajadores configurado.'
+      motivos ? `No se pudo cargar ninguna nómina: ${motivos}.` : 'No hay sucursales con ID de trabajadores configurado.'
     )
   }
 
   const filas = filasDeGeneracion(configs, porSucursal, periodo)
   if (!filas.length) {
-    if (fallos.length) throw new Error(`No se pudo leer la nómina de: ${fallos.join(', ')}.`)
-    throw new Error('La nómina no tiene personas activas con esos cargos.')
+    throw new Error(
+      motivos ? `No se generó ningún pago: ${motivos}.` : 'La nómina no tiene personas activas con esos cargos.'
+    )
   }
 
   // Lo ya generado no se duplica, y se compara POR CARGO Y POR PERSONA —sin
@@ -648,7 +716,14 @@ export async function generarPagos(periodo: string, periodicidad: Periodicidad):
     if (error) throw new Error(mensajeDeError(error, 'No se pudieron generar los pagos.'))
   }
 
-  return { creados: aInsertar.length, existentes: existentes.size, sucursales: porSucursal.size, fallos }
+  return {
+    creados: aInsertar.length,
+    existentes: existentes.size,
+    sucursales: porSucursal.size,
+    fallos,
+    sinId,
+    inactivas
+  }
 }
 
 /**
