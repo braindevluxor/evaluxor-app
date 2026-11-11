@@ -3,7 +3,6 @@ import { listarSucursalesAdmin } from './catalog'
 import {
   cedula,
   departamentoDeColaborador,
-  estadoDeColaborador,
   listarColaboradores,
   nombreCompleto,
   trabajadoresDeCargoExacto,
@@ -150,8 +149,6 @@ export interface DetalleOcupante {
   cargo_nomina: string
   /** El departamento que trae la persona (`department_name`): vacío si no trae. */
   departamento_nomina: string
-  /** El estado que trae la persona (`status`…): «Nuevo ingreso» cuenta como activo. */
-  estado_nomina: string
   /** El monto de SU sucursal en este cargo: el que se le aplica. */
   monto: number
 }
@@ -194,7 +191,6 @@ export function ocupantesDeCargo(
         nombre: nombreCompleto(c) || `DNI ${c.dni}`,
         cargo_nomina: c.role_name ?? '',
         departamento_nomina: departamentoDeColaborador(c),
-        estado_nomina: estadoDeColaborador(c),
         monto
       })
     }

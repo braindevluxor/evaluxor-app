@@ -431,7 +431,6 @@ describe('ocupantesDeCargo · quiénes son, con cruce exacto y una vez por perso
         nombre: 'Ana Pérez',
         cargo_nomina: 'Cajera Integral',
         departamento_nomina: '',
-        estado_nomina: '',
         monto: 150
       }
     ])
@@ -485,7 +484,6 @@ describe('ocupantesDeCargo · quiénes son, con cruce exacto y una vez por perso
     const cfg = cargo({ cargo: 'Comprador/a' })
     const lista = ocupantesDeCargo(cfg, nomina)
     expect(lista.map((o) => o.dni)).toEqual([1])
-    expect(lista[0].estado_nomina).toBe('Nuevo ingreso')
     expect(gastoDeCargo(cfg, nomina)).toEqual({ ocupantes: 1, gasto: 100 })
     expect(filasDeGeneracion([cfg], nomina, '2026-11').map((f) => f.dni)).toEqual([1])
   })

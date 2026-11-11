@@ -1419,9 +1419,6 @@ export function BonosPage() {
                   <span className="rounded-full bg-primary-50 px-2 py-0.5 text-xs text-primary-700">
                     {o.departamento_nomina || 'sin departamento en la nómina'}
                   </span>
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
-                    {o.estado_nomina || 'sin estado en la nómina'}
-                  </span>
                   <span className="text-slate-600">{nombreSucursal(o.sucursal_id)}</span>
                   <span className="font-bold tabular-nums text-primary-900">
                     {o.monto.toLocaleString('es-VE', { maximumFractionDigits: 2 })}
