@@ -13,11 +13,11 @@ Vite + React 19 + TypeScript, Tailwind CSS (color primario azul oscuro `#0B2545`
 
 | Rol | Describe |
 |---|---|
-| `LIDER` | Gestiona usuarios/invitaciones, sucursales, módulos/ítems, asignaciones y ve el dashboard global. |
+| `LIDER` | Gestiona usuarios/invitaciones, sucursales, módulos/ítems, asignaciones, los bonos por desempeño y ve el dashboard global. |
 | `EVALUADOR` | Evalúa solo las sucursales asignadas, con la vista móvil. |
 | `GERENTE_S` | Gerente de sucursal: ve solo los resultados de su sucursal. |
 | `GERENTE_C` | Gerente corporativo: ve todas las sucursales. |
-| `GERENTE_TH` | Talento Humano: ve todas las tiendas. |
+| `GERENTE_TH` | Talento Humano: ve todas las tiendas y gestiona los bonos por desempeño. |
 
 ### Flujo de creación de usuarios
 1. El **Líder** genera una *invitación* (correo + **usuario de acceso** + rol + sucursal) desde `/config/usuarios`.
@@ -25,6 +25,17 @@ Vite + React 19 + TypeScript, Tailwind CSS (color primario azul oscuro `#0B2545`
 3. El **login usa el usuario de acceso** (el correo queda como respaldo interno; Supabase resuelve usuario→correo en segundo plano).
 
 > El registro SIN invitación está bloqueado en base de datos (trigger `validar_registro`): solo el Líder crea usuarios.
+
+## Bonos por desempeño
+
+Módulo en el menú de la consola (`/config/bonos`), para `LIDER` y `GERENTE_TH`:
+
+- **Cargos**: qué cargos gozan de bono, con su monto, su nota mínima (umbral, 70 por defecto) y su periodicidad (mensual o trimestral, elegida por cargo). Cada fila puede llevar un **nombre a mostrar** opcional —«Gerente de mercado (Tienda tipo A)»— para distinguir cargos iguales; sólo cambia lo que se ve en pantalla, el cruce con la nómina sigue usando el cargo tal cual. Cada cargo acota su **alcance**: sin sucursales marcadas aplica a **todas** con el monto base; marcadas, sólo a **ese conjunto** y cada sucursal puede traer su propio monto (montos distintos por tipo de tienda, sin tocar umbral ni periodicidad). También puede acotarse por **departamento** (la nómina trae `department_name` por persona): «Comprador/a» de Compras no se junta con «Comprador/a» de Servicios Generales. El mismo cargo puede repetirse en otra fila **si sus sucursales no se cruzan** y sus áreas son distintas: si comparten una (o si una es «todas»), el guardado rechaza el alta con el listado de las que chocan. La tabla muestra por cada cargo la cantidad de **ocupantes** (nómina activa de su alcance y departamento) y su **gasto total proyectado** = monto × ocupantes, con su fila de total; el modal repite esa estimación en vivo mientras se arma. Y desde el modal de ocupantes se pueden **excluir personas puntuales** —«hay 5, pero sólo 3 cobran»—: no cuentan, no generan pago (los pendientes se limpian al regenerar) y se reincorporan con un clic.
+- **Pagos**: por período, se generan las filas con la nómina **actual** de las sucursales (API de trabajadores, sólo personas activas —«Nuevo ingreso» cuenta, «Retirado» no—) y después se carga la nota de cada persona **a mano**. La regla: por debajo del umbral no se paga nada (69 o menos con umbral 70); desde el umbral en adelante se paga el porcentaje obtenido, es decir `monto × nota / 100`.
+
+Los datos viven en `supabase/schema.sql`, bloque `bonos.sql` (tablas `bonos_cargo`, `bonos_cargo_sucursal` y `bonos_pago`, con RLS sobre la función `puede_bonos`): hay que pegarlo en el SQL Editor de Supabase una vez. Es idempotente, se puede volver a correr.
+
+**Nómina espejo**: los ocupantes se leen de la tabla `trabajadores_nomina` —el registro **crudo** de la API, porque la normalización (activo, área, estado) vive sólo en el cliente—, que refresca la Edge Function `actualizar-nomina` todos los días a las 05:00 con `pg_cron` + `pg_net`. Si la tabla está vacía (o el bloque no está aplicado) la app cae a la API en vivo, y la pantalla avisa de dónde salió la nómina, cuánto hace que se actualizó y ofrece «Actualizar ahora». Si una tienda no responde, **sus filas no se borran**: se queda el último estado bueno. Para programarlo: habilitar `pg_cron` y `pg_net` (Database → Extensions), desplegar la función, aplicar el bloque `nomina-trabajadores.sql`, cargar la configuración y llamar `select public.programar_nomina_cron();` (el detalle está en la cabecera del bloque).
 
 ## Puesta en marcha
 
@@ -43,7 +54,9 @@ Vite + React 19 + TypeScript, Tailwind CSS (color primario azul oscuro `#0B2545`
 3. **Crear el esquema**: pegar `supabase/schema.sql` en *Supabase Dashboard → SQL Editor → Run*. Crea tablas, triggers (bloqueo de registro sin invitación, rol por invitación), políticas RLS y el bucket `evidencias`.
    > Si el proyecto no está activo, reactívalo primero (pausas de más de 7 días lo suspenden).
 
-3bis. **Crear el primer LÍDER**: ejecutar `supabase/crear-lider.sql` en el SQL Editor (antés edita correo, usuario y contraseña). Registro posterior sale del menú `Usuarios` del Líder.
+3bis. **Crear el primer LÍDER**: `supabase/schema.sql` ya incluye el bootstrap del primer usuario LÍDER. Antes de ejecutarlo, edita correo, usuario y contraseña si hace falta. Registro posterior sale del menú `Usuarios` del Líder.
+
+3ter. **Ejecuta la base completa una sola vez**: en Supabase se corre únicamente `supabase/schema.sql`. Ese archivo ya consolida el esquema base, incidencias, permisos, políticas RLS, biométrico, bootstrap del líder y controles de seguridad. Es idempotente: se puede volver a correr sin romper nada.
 
 4. Iniciar sesión con el **usuario de acceso** y configurar: sucursales → asignaciones → módulos/ítems.
 

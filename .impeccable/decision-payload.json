@@ -1,0 +1,43 @@
+{
+  "title": "Estructura de la pantalla de seguimiento por cargo",
+  "question": "Histórico acumulado, drill-down al detalle y sólo para el Líder. ¿Con qué estructura arrancamos?",
+  "options": [
+    {
+      "id": "maestra",
+      "label": "Tabla maestra con panel de detalle",
+      "kicker": "THE ROLL",
+      "lineage": "consola de indicadores, densidad de mesa de control",
+      "thesis": "Una tabla densa lista los cargos por sucursal y, al elegir una fila, el panel derecho abre sus puntos no cumplidos.",
+      "palette": ["#28315F", "#0b2545", "#f1f5f9", "#dc2626"],
+      "materials": ["superficie blanca sin borde ni sombra", "cifras tabulares extrabold", "chips redondos de estado"],
+      "viewport": "Franja KPI azul, tabla de cargos (cargo, sucursal, puntos, evaluaciones) a la izquierda y panel de hallazgos a la derecha.",
+      "risk": "A 1280 px el panel lateral le roba ancho a la columna Sucursal.",
+      "html": ".impeccable/mocks/decision/maestra.html"
+    },
+    {
+      "id": "barras",
+      "label": "Barras por cargo, hallazgos filtrados",
+      "lineage": "gráficos de indicadores del dashboard",
+      "thesis": "Un gráfico de barras horizontales apiladas por sucursal manda la pantalla; la barra elegida filtra la lista de puntos no cumplidos de abajo.",
+      "palette": ["#28315F", "#4f87c7", "#16a34a", "#dc2626"],
+      "materials": ["barras apiladas por sucursal", "superficie blanca sin borde", "lista filtrada"],
+      "viewport": "Franja KPI azul, barras horizontales de puntos por cargo ocupando dos tercios y lista de hallazgos filtrada debajo.",
+      "risk": "El detalle por ítem queda a un clic más y se compara peor entre cargos.",
+      "html": ".impeccable/mocks/decision/barras.html"
+    },
+    {
+      "id": "matriz",
+      "label": "Matriz cargo × sucursal",
+      "lineage": "matriz módulo × sucursal del dashboard actual",
+      "thesis": "Filas = cargos, columnas = sucursales, celda = puntos no cumplidos: el color concentra la mirada donde hay que intervenir.",
+      "palette": ["#0b2545", "#dc2626", "#d97706", "#f1f5f9"],
+      "materials": ["celdas tonales", "cabecera de columna azul", "totales por fila y por sucursal"],
+      "viewport": "Matriz densa con totales; al pulsar una celda se abre el detalle de ese cargo en esa sucursal.",
+      "risk": "Con más de 12 sucursales la matriz se estrecha y hay que desplazar en horizontal.",
+      "html": ".impeccable/mocks/decision/matriz.html"
+    }
+  ],
+  "reroll": { "registers": ["safer", "bolder"] },
+  "steer": true,
+  "buildPath": { "value": "code" }
+}

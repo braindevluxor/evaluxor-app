@@ -1,7 +1,75 @@
 @import 'tailwindcss';
 
+/* --- Tipografía -----------------------------------------------------------
+   Una sola familia ('Lato') resuelta con @font-face declarados a mano, porque
+   Lato sólo existe en pesos 100/300/400/700/900 y la app pide 500 (medium),
+   600 (semibold) y 800 (extrabold) — son los de mayor uso junto a 400/700.
+
+   Si se declararan las dos familias en la pila (`'Lato', 'Poppins'`), eso NO
+   resolvería el faltante: la selección de familia es por GLIFO, no por peso,
+   así que al pedir 600 el navegador tomaría Lato 700 y jamás bajaría a
+   Poppins. La única forma de servir un peso con otra fuente es darle a esa
+   fuente un @font-face con el MISMO nombre de familia y su propio
+   `font-weight`. Así `font-semibold` cae en Poppins 600 y `font-bold` sigue
+   en Lato 700, sin tocar una sola clase de Tailwind.
+
+   Auto-hospedada (no de Google Fonts): la app es offline-first y los
+   evaluadores trabajan en tiendas sin señal, así que la tipografía tiene que
+   venir del propio bundle. El service worker ya precachea los `.woff2`
+   (ver `globPatterns` en vite.config.ts), así que la primera visita ya la
+   deja guardada. Subset `latin` a propósito: alcanza para el español
+   (acentos, ñ, ¿ ¡) y pesa mucho menos que el paquete completo.
+   Sin itálica: la app no usa. */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('@fontsource/lato/files/lato-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('@fontsource/lato/files/lato-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('@fontsource/lato/files/lato-latin-900-normal.woff2') format('woff2');
+}
+
+/* Los tres pesos que Lato no tiene: los sirve Poppins, pero declarados bajo
+   el nombre 'Lato' para que la app no cambie de familia a mitad de una frase.
+   Mismo subset y mismo `font-display: swap`. */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('@fontsource/poppins/files/poppins-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('@fontsource/poppins/files/poppins-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('@fontsource/poppins/files/poppins-latin-800-normal.woff2') format('woff2');
+}
+
 @theme {
-  --color-primary: #0b2545;
+  --font-sans: 'Lato', ui-sans-serif, system-ui, sans-serif;
+  --color-primary: #28315F;
   --color-primary-50: #eef4fb;
   --color-primary-100: #d6e4f6;
   --color-primary-200: #afc9ea;
@@ -20,12 +88,585 @@ html {
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  background-color: #f1f5f9;
-  color: #0f172a;
+  /* Sin fondo propio: el del documento (`html`, más arriba) pinta el lienzo
+     entero y ya sigue el tema. Un valor fijo acá tapaba ese fondo y dejaba en
+     gris claro toda página sin layout con fondo propio (login, /perfil) en
+     modo oscuro. El color del TEXTO sí va por token: es lo que hereda todo lo
+     que no pinta su propio color. */
+  color: var(--color-slate-900);
 }
 
 input[type='date'] {
   min-height: 44px;
+}
+
+/* --- Cargador de cajas (loader) ------------------------------------------- */
+/* Escala con la variable --u (definida por el componente Spinner): el diseño
+   original es de 112px (7u x 7u) con cajas de 48px (3u). */
+.cargador {
+  position: relative;
+  display: block;
+  width: calc(7 * var(--u, 16px));
+  height: calc(7 * var(--u, 16px));
+}
+
+.cargador-box {
+  background-color: #c1c1c1;
+  border-radius: calc(0.625 * var(--u, 16px));
+  box-sizing: border-box;
+  position: absolute;
+  display: block;
+}
+
+.cargador--claro .cargador-box {
+  background-color: #ffffff;
+}
+
+.cargador-box--1 {
+  width: calc(7 * var(--u, 16px));
+  height: calc(3 * var(--u, 16px));
+  margin-top: calc(4 * var(--u, 16px));
+  margin-left: 0;
+  animation: cargador-caja1 3s forwards ease-in-out infinite;
+}
+
+.cargador-box--2 {
+  width: calc(3 * var(--u, 16px));
+  height: calc(3 * var(--u, 16px));
+  margin-top: 0;
+  margin-left: 0;
+  animation: cargador-caja2 3s forwards ease-in-out infinite;
+}
+
+.cargador-box--3 {
+  width: calc(3 * var(--u, 16px));
+  height: calc(3 * var(--u, 16px));
+  margin-top: 0;
+  margin-left: calc(4 * var(--u, 16px));
+  animation: cargador-caja3 3s forwards ease-in-out infinite;
+}
+
+@keyframes cargador-caja1 {
+  0% {
+    width: calc(7 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: calc(4 * var(--u, 16px));
+    margin-left: 0;
+  }
+  12.5%, 25%, 37.5%, 50%, 62.5% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: calc(4 * var(--u, 16px));
+    margin-left: 0;
+  }
+  75% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(7 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: 0;
+  }
+  87.5%, 100% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: 0;
+  }
+}
+
+@keyframes cargador-caja2 {
+  0%, 12.5%, 25%, 37.5% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: 0;
+  }
+  50% {
+    width: calc(7 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: 0;
+  }
+  62.5%, 75%, 87.5%, 100% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: calc(4 * var(--u, 16px));
+  }
+}
+
+@keyframes cargador-caja3 {
+  0%, 12.5% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: calc(4 * var(--u, 16px));
+  }
+  25% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(7 * var(--u, 16px));
+    margin-top: 0;
+    margin-left: calc(4 * var(--u, 16px));
+  }
+  37.5%, 50%, 62.5%, 75%, 87.5% {
+    width: calc(3 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: calc(4 * var(--u, 16px));
+    margin-left: calc(4 * var(--u, 16px));
+  }
+  100% {
+    width: calc(7 * var(--u, 16px));
+    height: calc(3 * var(--u, 16px));
+    margin-top: calc(4 * var(--u, 16px));
+    margin-left: 0;
+  }
+}
+
+/* --- Barra de rango (deslizador rojo → verde) -------------------------------- */
+.barra-rango {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.barra-rango::-webkit-slider-runnable-track {
+  background: transparent;
+  border: none;
+}
+.barra-rango::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 4px solid var(--barra-thumb, #64748b);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.45);
+}
+.barra-rango::-moz-range-track {
+  background: transparent;
+  border: none;
+}
+.barra-rango::-moz-range-thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 4px solid var(--barra-thumb, #64748b);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.45);
+}
+.barra-rango:active {
+  cursor: grabbing;
+}
+
+/* Reduce el relieve de las superficies de la interfaz; conserva los bordes de
+   los controles de formulario y de las tablas para mantener su legibilidad.
+   Se respetan los bordes SEMÁNTICOS: bordes gruesos de estado (p. ej. la
+   tarjeta de borrador `border-amber-400`) y separadores direccionales
+   (`border-t`, `border-b`, …) que antes el reglón mataba en silencio. */
+:where(div, section, article, aside, nav, li, a)[class*='rounded-'][class*='border']:not([class*='border-2']):not([class*='border-4']):not([class*='border-l-']):not([class*='border-t-']):not([class*='border-b-']):not([class*='border-r-']) {
+  border-width: 0 !important;
+  border-style: none !important;
+}
+
+/* El relieve plano también aplica a las sombras, salvo en *superficies
+   flotantes* (`fixed`/`sticky`): el tooltip de ayuda y la barra inferior del
+   evaluador necesitan separarse del contenido que pasa debajo. */
+[class*='shadow-']:not([class~='fixed']):not([class~='sticky']),
+[class~='shadow']:not([class~='fixed']):not([class~='sticky']) {
+  box-shadow: none !important;
+}
+
+.barra-rango::-webkit-slider-thumb,
+.barra-rango::-moz-range-thumb {
+  box-shadow: none;
+}
+
+/* --- Superficies: contenedores sin ningún contorno -------------------------
+   Se pidió explícitamente que no hubiera NINGÚN contorno, ni siquiera una
+   línea, y que el fondo sea blanco. Entonces la tarjeta es blanco sobre
+   blanco: no dibuja caja. Lo que estructura la vista es el espacio (padding y
+   gap) y el tono de los paneles de adentro (`bg-slate-50`, `bg-primary-50`,
+   los de estado rojo/ámbar), que son los que tienen color propio.
+   Estas clases NO llevan "border" ni "shadow" en su lista de clases: escapan
+   a los aplanados de arriba, así que si acá se escribiera un borde se vería.
+   Por eso no se escribe ninguno. */
+.sup {
+  background-color: #fff;
+  border-radius: 1rem;
+}
+
+/* Anidadas sobre una `.sup` blanca: mismo blanco, sólo cambia el radio. */
+.sup-anidada {
+  background-color: #fff;
+  border-radius: 0.75rem;
+}
+
+/* Contenedor de superficie con interacción: responde al dedo/cursor con un
+   tinte y un leve encogido, porque sin sombra que elevar no hay otra pista
+   de que es tocable. */
+.sup-activo {
+  transition: background-color 0.18s ease, transform 0.18s ease;
+}
+.sup-activo:active {
+  transform: scale(0.995);
+  background-color: rgb(248 250 252);
+}
+
+/* --- Vista de evaluación: campos grandes y botones cuadrados ----------------
+   Se pidió para la pantalla de evaluación (`EvaluarSucursal`) que los campos
+   sean más grandes y aprovechen mejor el ancho, y que los botones sean
+   cuadrados con esquinas suaves en vez de pastilla (`rounded-full`).
+
+   Por qué una regla propia y no clases de Tailwind pasadas en cada uso:
+
+   - `cn` sólo concatena las clases. A un `Input` ya vienen `py-2 text-sm
+     min-h-[38px]` de fábrica: si se le pasa `py-3 text-base` conviven las dos
+     reglas en el HTML y gana la que esté después en la hoja de estilos, no la
+     del atributo. El resultado final sería una tirada. Acá el tamaño se
+     escribe una sola vez y para todos los campos de la vista.
+   - El alcance es la vista ENTERA, y los modales (navegación rápida,
+     confirmaciones, escáner, fotos) se pintan por portal en `<body>`, fuera
+     de cualquier contenedor de la ruta. Por eso la clase se agrega a `<body>`
+     mientras `EvaluarSucursal` está montada y se retira al desmontar.
+
+   Va sin `@layer`, igual que el resto de este archivo: lo que no está capado
+   le gana a las utilidades de Tailwind, que sí viven dentro de `@layer
+   utilities`, y así la forma manda sobre `rounded-full` y el tamaño sobre
+   `min-h-[38px]` / `text-sm`. */
+.vista-evaluacion button {
+  border-radius: 0.75rem;
+}
+
+/* Campos de texto: 48 px de alto y 16 px de letra. El 16 px no es sólo
+   legibilidad — en iOS un input con menos de 16 px dispara el zoom al
+   enfocarse y el teclado tapa la barra de abajo.
+
+   Sólo se toca el bloque vertical: el `padding-inline` es de cada campo, y ahí
+   vive el hueco del ícono de escanear (`pr-11`) que no se puede pisar.
+
+   Checkbox, radio, slider y file quedan fuera: no se agrandan (son controles
+   que ya tienen su tamaño) u ocultos. */
+.vista-evaluacion input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+.vista-evaluacion textarea {
+  min-height: 3rem;
+  font-size: 1rem;
+  padding-block: 0.625rem;
+}
+
+/* Descripción del producto escaneado: el textarea crece con el texto para que
+   el nombre se lea entero en vez de cortarse en un renglón. `field-sizing` es
+   nativo (Chrome 123, Safari 18.2, Firefox 129); donde no exista, el campo
+   queda en sus dos renglones de siempre con scroll: se lee igual, nunca se
+   pierde texto. Va por clase y no en el `textarea` de arriba para no cambiar
+   el tamaño de los comentarios de evidencia. */
+.vista-evaluacion .nombre-producto {
+  field-sizing: content;
+}
+
+/* --- Barra de KPIs (la barra superior azul del dashboard) -------------------- */
+.barra-kpis {
+  animation: barra-kpis-entrar 0.5s ease-out both;
+}
+.barra-kpis-item {
+  animation: barra-kpis-aparecer 0.4s ease-out both;
+}
+@keyframes barra-kpis-entrar {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes barra-kpis-aparecer {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- Aviso flotante (la confirmación de que algo se hizo) --------------------
+   Sube desde abajo y se apaga sola. El centrado no va en el `transform`: con
+   Tailwind v4 el `-translate-x-1/2` usa la propiedad `translate`, que se aplica
+   ANTES que `transform`, así que las dos conviven sin pisarse y con
+   `prefers-reduced-motion` apagando la animación sigue quedando centrado. */
+.aviso-entrar {
+  animation: aviso-entrar 0.22s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+@keyframes aviso-entrar {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aviso-entrar {
+    animation: none;
+  }
+}
+
+/* --- Foco accesible en los gráficos (recharts 3 habilita accesibilidad por defecto) ---
+   Se quita el anillo negro de los elementos internos (cada celda de la tooltip,
+   cada punto) que hacía la página ilegible, pero el contenedor del gráfico
+   conserva un anillo de marca visible con `focus-visible` para navegación por
+   teclado. Antes se eliminaba sin reemplazo: un foco invisible. */
+.recharts-wrapper *:focus,
+.recharts-wrapper *:focus-visible,
+.recharts-surface *:focus,
+.recharts-surface *:focus-visible {
+  outline: none;
+}
+
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus-visible {
+  outline: 2px solid #7fa8da;
+  outline-offset: 2px;
+}
+
+.recharts-wrapper:focus:not(:focus-visible),
+.recharts-surface:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* --- Modo oscuro ---------------------------------------------------------
+   Se vuelca la ESCALA y no cada pantalla: casi toda la app escribe
+   `bg-slate-100`, `text-slate-900` o `border-slate-200`, y en Tailwind 4 esas
+   clases salen con `var(--color-*)`, así que un bloque en `.dark` cambia las
+   miles de apariciones sin tocar un solo componente.
+   Donde el mismo token sirve de TEXTO y de RELLENO (slate-900, los azules de
+   la marca), la escala no alcanza: ahí se restaura el relleno con una regla
+   más abajo —que, al estar fuera de `@layer`, le gana a la utilidad sin
+   tocar el texto. */
+.dark {
+  /* Superficies: página, paneles, bordes. La página es lo más oscuro y la
+     tarjeta (`bg-white`) un paso más clara, para que un control activo que usa
+     `bg-white` sobre un fondo `bg-slate-100` se siga distinguiendo. */
+  --color-slate-50: #0a101f;
+  --color-slate-100: #0b1220;
+  --color-slate-200: #16203a;
+  --color-slate-300: #1e293b;
+  /* Texto: de gris apagado a gris claro. */
+  --color-slate-400: #8494ab;
+  --color-slate-500: #a7b4c7;
+  --color-slate-600: #c4cede;
+  --color-slate-700: #dbe3ef;
+  --color-slate-800: #eaeff7;
+  --color-slate-900: #f5f8fc;
+
+  /* El amarillo del menú lateral: sólo el tinte de la selección. El 400 sólido
+     (botón de evaluaciones) se queda como está —lleva texto oscuro—. */
+  --color-yellow-50: #3a3010;
+
+  /* Tintes y textos de estado. Los rellenos sólidos (500/600) NO se tocan:
+     siguen siendo el verde/ámbar/rojo con texto blanco de siempre. */
+  --color-green-50: #0c271a;
+  --color-green-100: #10331f;
+  --color-green-200: #16472b;
+  --color-green-700: #6ee7a0;
+  --color-green-800: #a3f0c6;
+  --color-amber-50: #2b1e09;
+  --color-amber-100: #3b290c;
+  --color-amber-200: #4f3810;
+  --color-amber-700: #f2c46b;
+  --color-amber-800: #f9d68d;
+  --color-red-50: #2f1316;
+  --color-red-100: #40181d;
+  --color-red-200: #562027;
+  --color-red-700: #f79b9b;
+  --color-red-800: #f9c0c0;
+}
+
+/* Rellenos que conservan su tono: el mismo token es texto y relleno en
+   pantallas distintas, y acá manda el relleno (el texto se restaura abajo). */
+.dark .bg-white { background-color: #101a2e; }
+.dark .bg-slate-900 { background-color: #020617; }
+/* La franja de sincronización es `bg-slate-800 text-white`: ese token aclarado
+   dejaba fondo claro con texto blanco (ilegible). El relleno mantiene su tono
+   oscuro; el texto blanco de encima ya estaba bien. */
+.dark .bg-slate-800 { background-color: #111a2e; }
+.dark .bg-primary-50 { background-color: #14223a; }
+.dark .hover\:bg-primary-50:hover { background-color: #14223a; }
+.dark .bg-primary-100 { background-color: #1a2c4a; }
+/* El blanco con alfa lleva OTRO nombre de clase (`bg-white/95`,
+   `bg-white/60`), así que `.dark .bg-white` no lo alcanza: en la conciliación
+   pública la cabecera se quedaba blanca sobre la página oscura y las filas
+   rayadas de la tabla quedaban claras con la tinta que la escala ya aclaró —
+   texto lavado sobre fondo claro, ilegible—. Mismo relleno que la versión
+   sólida, con el alfa conservado; la raya baja a un velo de 3 % para quedar
+   entre la tarjeta y la fila blanca, como en claro. */
+.dark .bg-white\/95 { background-color: rgb(16 26 46 / 0.95); }
+.dark .bg-white\/60 { background-color: rgb(255 255 255 / 0.03); }
+/* El logo completo lleva la palabra en navy: sobre la cabecera oscura de la
+   conciliación pública se perdía, así que en oscuro se pinta de blanco
+   (mismo truco que el isotipo de la barra móvil). */
+.dark .logo-invitado { filter: brightness(0) invert(1); }
+
+/* Superficies del modo de evaluación: `.sup` / `.sup-anidada` escriben el
+   blanco A MANO (no pasan por Tailwind, por eso no los tocó la escala) mientras
+   sus textos sí son utilidades —en oscuro quedaba una tarjeta blanca con texto
+   claro y casi ilegible—. Mismo blanco que una tarjeta `bg-white`. */
+.dark .sup,
+.dark .sup-anidada {
+  background-color: #101a2e;
+}
+.dark .sup-activo:active {
+  background-color: rgb(30 41 59);
+}
+
+/* Pasteles del sistema: el par (fondo, tinta) viaja en variables para que en
+   oscuro cambien LOS DOS JUNTOS. Los fondos se pintan en línea y no siguen la
+   escala de Tailwind: si sólo se aclara la tinta (que es lo que hacía la
+   escala), queda texto claro sobre pastel claro —ilegible—. Con `--pastel-*`,
+   fondo tintado oscuro + tinta clara, con el mismo matiz del umbral. */
+:root {
+  --pastel-verde-fondo: #c0edd0;
+  --pastel-verde-tinta: #166534;
+  --pastel-ambar-fondo: #f7dfb6;
+  --pastel-ambar-tinta: #92400e;
+  --pastel-rojo-fondo: #f5bcbc;
+  --pastel-rojo-tinta: #991b1b;
+  --pastel-gris-fondo: #d9dfe8;
+  --pastel-gris-tinta: #334155;
+
+  /* Series de los gráficos (mismos pasteles de siempre en claro; en oscuro
+     los reemplaza `.dark`). Van por variable porque el color viaja en el
+     `fill`/`stroke` de un SVG, que lee variables como cualquier CSS. */
+  --serie-1: #818ecf;
+  --serie-2: #a2c0e2;
+  --serie-3: #70e199;
+  --serie-4: #eacc9a;
+  --serie-5: #e17070;
+  --serie-6: #b29aea;
+  --serie-7: #70d0e1;
+  --serie-8: #ea9abe;
+  --serie-s: 62%;
+  --serie-l: 74%;
+  /* La barra primaria de los gráficos: en oscuro el navy se fundiría con el
+     fondo, así que sube al azul vivo de la marca. */
+  --serie-primaria: #28315f;
+}
+/* El fondo del DOCUMENTO, no el de una pantalla: el arranque (F5) se pinta
+   antes de que exista un layout con fondo propio, así que con el default del
+   navegador salía blanco. Va con valor FIJO por tema y no con `var`: el valor
+   ya está decidido en cada regla y ningún minificador puede romperlo.
+   `color-scheme` va de la mano: le dice al sistema que pinte scrollbars,
+   campos y selección en clave clara u oscura según el tema.
+
+   ESTAS DOS REGLAS VAN SUELTAS, FUERA DE `.dark`: estando anidadas adentro
+   compilaban a `.dark html`, que NUNCA coincide —`.dark` se pone EN el
+   `<html>`, no encima—, así que el fondo del documento se quedaba claro en
+   modo oscuro. Se veía en las páginas sin layout con fondo propio (/perfil,
+   /login), que quedaban en gris claro con texto claro encima. */
+html {
+  color-scheme: light;
+  background-color: #f1f5f9;
+}
+html.dark {
+  color-scheme: dark;
+  background-color: #0b1220;
+}
+
+.dark {
+  /* Pasteles → VÍVIDOS en oscuro (la paleta de referencia del dashboard: bloques
+     saturados con tinta oscura encima, no tintes apagados). El contraste se
+     sostiene bajando la tinta al tono casi negro del mismo matiz. */
+  --pastel-verde-fondo: #22c55e;
+  --pastel-verde-tinta: #052e16;
+  --pastel-ambar-fondo: #f59e0b;
+  --pastel-ambar-tinta: #431407;
+  --pastel-rojo-fondo: #ef4444;
+  --pastel-rojo-tinta: #450a0a;
+  --pastel-gris-fondo: #94a3b8;
+  --pastel-gris-tinta: #0f172a;
+
+  /* Series de los gráficos: mismo matiz, más saturadas y menos claras, para que
+     sobre fondo oscuro no se laven. */
+  --serie-1: #7c8cff;
+  --serie-2: #4ea1f0;
+  --serie-3: #2ee67b;
+  --serie-4: #f5b942;
+  --serie-5: #ef4444;
+  --serie-6: #a855f7;
+  --serie-7: #22d3ee;
+  --serie-8: #f472b6;
+  --serie-s: 72%;
+  --serie-l: 62%;
+  --serie-primaria: #4f87c7;
+}
+
+/* El círculo del icono dentro de una tarjeta pastel: en claro va blanco
+   semitransparente sobre el pastel, en oscuro va velo OSCURO, porque el
+   pastel de oscuro es un bloque saturado con tinta oscura encima. */
+.pastel-icono {
+  background-color: rgb(255 255 255 / 0.7);
+}
+.dark .pastel-icono {
+  background-color: rgb(0 0 0 / 0.18);
+}
+
+/* Selección: el azul del sistema sobre fondo oscuro dejaba texto azul con
+   fondo azul (se leía a medias al marcar filas de una tabla). */
+.dark ::selection {
+  background: #2e6ab0;
+  color: #ffffff;
+}
+
+/* Los divisores necesitan un tono propio: `divide-slate-100` hereda el fondo
+   y sobre el mismo fondo desaparecería. */
+.dark .divide-slate-100 > :not(:last-child) { border-color: #1c2740; }
+.dark .divide-slate-200 > :not(:last-child) { border-color: #1e293b; }
+
+/* Azul de marca como TEXTO: sobre fondo claro el navy es tinta, sobre oscuro
+   hay que aclararlo. Los `bg-primary*` no se tocan: son la marca. */
+.dark .text-primary { color: #8ab4ea; }
+.dark .text-primary-700 { color: #9cc1ef; }
+.dark .text-primary-800 { color: #b9d2f7; }
+.dark .text-primary-900 { color: #e9effb; }
+
+/* Textos de estado en sus tonos sólidos: el 600 sobre oscuro queda corto de
+   contraste; el texto sube al 700, que ya está pensado para fondo claro. */
+.dark .text-red-600 { color: #f79b9b; }
+.dark .text-amber-600 { color: #f2c46b; }
+.dark .text-green-600 { color: #6ee7a0; }
+
+/* --- Revelado radial al cambiar de tema ------------------------------------
+   `startViewTransition` captura antes/después de aplicar el tema; la capa
+   NUEVA se recorta con un círculo que nace en el botón (`--tema-x` /
+   `--tema-y`, que pone `alternarTema`) y crece hasta `--tema-r`, el radio que
+   cubre las cuatro esquinas de la pantalla. La vieja queda entera debajo,
+   así que sólo el círculo cambia. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  clip-path: circle(0px at var(--tema-x, 50%) var(--tema-y, 50%));
+  animation: tema-revelar 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes tema-revelar {
+  to {
+    clip-path: circle(var(--tema-r, 100vmax) at var(--tema-x, 50%) var(--tema-y, 50%));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-new(root) {
+    animation: none;
+    clip-path: none;
+  }
 }

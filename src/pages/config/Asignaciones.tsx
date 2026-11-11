@@ -3,7 +3,9 @@ import { useSearchParams } from 'react-router-dom'
 import { listarUsuarios, listarAsignacionasAdmin, asignarEvaluador, desasignarEvaluador } from '../../lib/data/usuarios'
 import { listarSucursalesAdmin } from '../../lib/data/catalog'
 import type { Profile, Sucursal } from '../../lib/types'
+import { avisar } from '../../lib/aviso'
 import { Spinner, cn } from '../../components/ui'
+import { useTituloVista } from '../../components/layouts/tituloVista'
 
 export function AsignacionesPage() {
   const [params] = useSearchParams()
@@ -14,6 +16,8 @@ export function AsignacionesPage() {
   const [guardando, setGuardando] = useState(false)
   const [filtro, setFiltro] = useState('*')
   const preseleccion = params.get('evaluador') ?? ''
+
+  useTituloVista('Asignaciones', 'Asigna sucursales a evaluadores (evidencias del flujo móvil)')
 
   const cargar = useCallback(async () => {
     const [users, suc] = await Promise.all([listarUsuarios(), listarSucursalesAdmin()])
@@ -45,6 +49,8 @@ export function AsignacionesPage() {
     const key = `${evaluadorId}|${sucursalId}`
     setGuardando(true)
     try {
+      // El estado local sólo se toca DESPUÉS del await: si la base rechaza,
+      // la casilla no se pinta sola y el aviso dice por qué no se guardó.
       if (asignadas.has(key)) {
         await desasignarEvaluador(evaluadorId, sucursalId)
         setAsignadas((prev) => { const n = new Set(prev); n.delete(key); return n })
@@ -52,6 +58,8 @@ export function AsignacionesPage() {
         await asignarEvaluador(evaluadorId, sucursalId)
         setAsignadas((prev) => new Set(prev).add(key))
       }
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo guardar la asignación.', 'error')
     } finally {
       setGuardando(false)
     }
@@ -59,11 +67,6 @@ export function AsignacionesPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-extrabold text-primary-900">Asignaciones</h2>
-        <p className="text-sm text-slate-500">Asigna sucursales a evaluadores (evidencias del flujo móvil)</p>
-      </div>
-
       <div className="flex flex-wrap gap-1.5">
         <button
           onClick={() => seleccionar('*')}
