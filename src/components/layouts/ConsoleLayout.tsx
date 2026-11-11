@@ -1,4 +1,4 @@
-import { Star, Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, UserPlus, X, ClipboardCheck } from 'lucide-react'
+import { Star, Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -30,7 +30,6 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/dashboard/comparativas': { titulo: 'Comparativas', subtitulo: 'Analiza el desempeño por evaluador, mes o sucursal' },
   '/dashboard/responsables': { titulo: 'Seguimiento por cargo', subtitulo: 'Nota promedio de cada responsable por sucursal' },
   '/config/usuarios': { titulo: 'Usuarios', subtitulo: 'Gestión de roles y accesos' },
-  '/config/asignaciones': { titulo: 'Asignaciones', subtitulo: 'Asigna sucursales a evaluadores' },
   '/config/unidades': { titulo: 'Unidades', subtitulo: 'Registro de sucursales y departamentos' },
   '/config/modulos': { titulo: 'Módulos', subtitulo: 'Configuración y explicación de cada módulo' },
   '/config/bonos': { titulo: 'Bonos por desempeño', subtitulo: 'Cargos que gozan de bono y pago de los mismos' },
@@ -78,7 +77,6 @@ function ConsoleLayoutContenido() {
         { to: '/config/unidades', label: 'Unidades', icon: <Store className="h-5 w-5" /> },
         { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> },
         { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> },
-        { to: '/config/asignaciones', label: 'Asignaciones', icon: <UserPlus className="h-5 w-5" /> },
         // Bonos por desempeño: acá entra también el Gerente de Talento Humano
         // (la ruta lo permite y `puede_bonos` es la misma cerradura en RLS).
         { to: '/config/bonos', label: 'Bonos', icon: <Star className="h-5 w-5" /> }

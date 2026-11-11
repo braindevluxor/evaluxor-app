@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { crearInvitacion, actualizarUsuario, desbloquearUsuario, listarAsignacionesModulosAdmin, asignarModulo, desasignarModulo, type ProfileVista } from '../../lib/data/usuarios'
+import { crearInvitacion, actualizarUsuario, desbloquearUsuario, listarAsignacionesModulosAdmin, asignarModulo, desasignarModulo, listarAsignacionasAdmin, asignarEvaluador, desasignarEvaluador, type ProfileVista } from '../../lib/data/usuarios'
 import { listarModulosAdmin } from '../../lib/data/catalog'
 import { supabase } from '../../lib/supabase'
 import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
@@ -376,19 +376,69 @@ function FormUsuario({
   const [sucursal, setSucursal] = useState(usuarioActual.sucursal_id ?? '')
   const [activo, setActivo] = useState(usuarioActual.activo)
 
+  // Las tiendas que este evaluador puede evaluar (tabla `asignaciones`): era
+  // la pantalla «Asignaciones», que ahora vive acá para gestionar todo desde
+  // el usuario. `null` mientras carga; el original queda aparte para poder
+  // calcular qué alta y qué baja mandar al guardar.
+  const [tiendas, setTiendas] = useState<Set<string> | null>(null)
+  const [tiendasOriginales, setTiendasOriginales] = useState<Set<string>>(new Set())
+  const [cargandoTiendas, setCargandoTiendas] = useState(false)
+
+  useEffect(() => {
+    // Sólo para rol EVALUADOR: es el único que usa el flujo móvil con tiendas.
+    if (rol !== 'EVALUADOR') return
+    let vivo = true
+    setCargandoTiendas(true)
+    void listarAsignacionasAdmin()
+      .then((filas) => {
+        if (!vivo) return
+        const m = new Set(
+          filas.filter((a) => a.evaluador_id === usuarioActual.id && a.activa).map((a) => a.sucursal_id)
+        )
+        setTiendas(m)
+        setTiendasOriginales(new Set(m))
+      })
+      .catch(() => {
+        if (!vivo) return
+        setTiendas(new Set())
+        setTiendasOriginales(new Set())
+      })
+      .finally(() => {
+        if (vivo) setCargandoTiendas(false)
+      })
+    return () => {
+      vivo = false
+    }
+  }, [rol, usuarioActual.id])
+
+  async function guardar() {
+    // Primero las tiendas: si algo falla, el modal queda abierto con el error
+    // y no se pierden los cambios de arriba. Las altas son upsert y las
+    // bajas apagan la fila, así que repetir el guardado no duplica nada.
+    if (rol === 'EVALUADOR' && tiendas) {
+      const aPoner = [...tiendas].filter((id) => !tiendasOriginales.has(id))
+      const aQuitar = [...tiendasOriginales].filter((id) => !tiendas.has(id))
+      for (const id of aPoner) await asignarEvaluador(usuarioActual.id, id)
+      for (const id of aQuitar) await desasignarEvaluador(usuarioActual.id, id)
+    }
+    await onGuardar({
+      nombre,
+      usuario,
+      rol,
+      sucursal_id: rol === 'GERENTE_S' || rol === 'EVALUADOR' ? sucursal || null : null,
+      activo
+    })
+  }
+
   return (
     <form
       id="form-usuario"
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
-        void onGuardar({
-          nombre,
-          usuario,
-          rol,
-          sucursal_id: rol === 'GERENTE_S' || rol === 'EVALUADOR' ? sucursal || null : null,
-          activo
-        })
+        void guardar().catch((err) =>
+          avisar(err instanceof Error ? err.message : 'No se pudo guardar el usuario.', 'error')
+        )
       }}
     >
       <Field label="Nombre">
@@ -408,6 +458,44 @@ function FormUsuario({
           {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
         </Select>
       </Field>
+
+      {/* Las tiendas del flujo móvil: era la pantalla «Asignaciones». La de
+          arriba es la SUYA (casa); éstas son las que puede evaluar. */}
+      {rol === 'EVALUADOR' ? (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-slate-700">Tiendas que puede evaluar</p>
+          <p className="text-xs text-slate-500">
+            Son las que aparecen en el celular del evaluador. La sucursal de arriba es su casa; éstas son las
+            tiendas del flujo móvil.
+          </p>
+          {cargandoTiendas || !tiendas ? (
+            <Skeleton className="h-24 w-full" />
+          ) : (
+            <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-xl border border-slate-200 p-3">
+              {sucursales.map((s) => (
+                <label key={s.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-primary"
+                    checked={tiendas.has(s.id)}
+                    onChange={() =>
+                      setTiendas((prev) => {
+                        if (!prev) return prev
+                        const n = new Set(prev)
+                        if (n.has(s.id)) n.delete(s.id)
+                        else n.add(s.id)
+                        return n
+                      })
+                    }
+                  />
+                  <span className="truncate">{s.nombre}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+
       <label className="flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
         Usuario activo

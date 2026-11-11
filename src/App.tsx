@@ -31,9 +31,6 @@ const UnidadesPage = lazy(() => import('./pages/config/Unidades').then((m) => ({
 const ModulosPage = lazy(() => import('./pages/config/Modulos').then((m) => ({ default: m.ModulosPage })))
 const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ default: m.ItemsPage })))
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
-const AsignacionesPage = lazy(() =>
-  import('./pages/config/Asignaciones').then((m) => ({ default: m.AsignacionesPage }))
-)
 // Bonos por desempeño: qué cargos gozan de bono y el pago de los mismos.
 const BonosPage = lazy(() => import('./pages/config/Bonos').then((m) => ({ default: m.BonosPage })))
 // Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
@@ -275,11 +272,6 @@ function Rutas() {
                       />
                       <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
                       <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
-                      {/* Asignar sucursales a evaluadores: escribe `asignaciones`,
-                          una de las cuatro tablas del alcance de la bitácora.
-                          Sin ésta esa tabla no cambia desde la app y su filtro
-                          del historial quedaba siempre vacío. */}
-                      <Route path="/config/asignaciones" element={<SoloLider><AsignacionesPage /></SoloLider>} />
                       {/* Bonos por desempeño: es manejo de plata de RRHH, así
                           que entran los DOS roles que lo gestionan —LÍDER y
                           GERENTE TH— y el RLS (`puede_bonos`) vuelve a pedir
