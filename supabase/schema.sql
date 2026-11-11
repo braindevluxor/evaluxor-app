@@ -5805,6 +5805,15 @@ create table if not exists public.nomina_cron (
 
 alter table public.nomina_cron enable row level security;
 
+-- Política de DENEGACIÓN explícita. Sin ella la tabla también está cerrada
+-- (los grants están revocados y el RLS sin política no deja pasar a nadie),
+-- pero con una sola capa: si algún día alguien le otorga un grant «para
+-- arreglar» algo, no habría nada que lo frenara. Con ésta, la segunda capa
+-- sobrevive — el mismo criterio de doble capa del resto del archivo.
+drop policy if exists nomina_cron_cerrada on public.nomina_cron;
+create policy nomina_cron_cerrada on public.nomina_cron
+  for all using (false) with check (false);
+
 do $$
 begin
   execute 'revoke all on public.nomina_cron from anon';
