@@ -611,13 +611,16 @@ export async function alternarExclusion(
 }
 
 export async function listarPagos(periodo: string): Promise<BonoPago[]> {
-  const { data, error } = await supabase
-    .from('bonos_pago')
-    .select('*, sucursal:sucursales(nombre)')
-    .eq('periodo', periodo)
-    .order('nombre')
-  if (error) throw new Error(error.message)
-  return (data ?? []) as BonoPago[]
+  return leerTodo<BonoPago>((desde) =>
+    supabase
+      .from('bonos_pago')
+      .select('*, sucursal:sucursales(nombre)')
+      .eq('periodo', periodo)
+      // Orden estable (nombre + id como desempate) para paginar sin correrse.
+      .order('nombre')
+      .order('id')
+      .range(desde, desde + TAMANO_PAGINA - 1)
+  )
 }
 
 export interface ResultadoGeneracion {
@@ -770,12 +773,47 @@ export function nominaDeTabla(filas: readonly FilaNomina[]): Map<string, Colabor
   return porSucursal
 }
 
+/**
+ * El API corta en 1000 filas por consulta: sin paginar, con 2.213 personas
+ * sólo llegaban las de 7 de 16 tiendas y todos los cargos de las demás
+ * contaban 0. Toda lectura grande de este módulo pasa por `leerTodo`.
+ */
+const TAMANO_PAGINA = 1000
+
+/**
+ * Lee TODAS las filas de una consulta, de a 1000, hasta que un lote venga
+ * corto —que es como se sabe que no hay más—. Cada página debe venir con un
+ * orden estable, o las filas se pueden correr entre tandas.
+ *
+ * Se exporta para probarla: es la pieza que, sin paginar, dejó a media app
+ * contando 0.
+ */
+export async function leerTodo<T>(
+  pagina: (desde: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>
+): Promise<T[]> {
+  const filas: T[] = []
+  let desde = 0
+  for (;;) {
+    const r = await pagina(desde)
+    if (r.error) throw new Error(r.error.message)
+    const lote = (r.data ?? []) as T[]
+    filas.push(...lote)
+    if (lote.length < TAMANO_PAGINA) break
+    desde += TAMANO_PAGINA
+  }
+  return filas
+}
+
 export async function listarNominaLocal(): Promise<{ filas: FilaNomina[]; actualizado_en: string | null }> {
-  const { data, error } = await supabase
-    .from('trabajadores_nomina')
-    .select('sucursal_id, nacionalidad, dni, datos, actualizado_en')
-  if (error) throw new Error(error.message)
-  const filas = (data ?? []) as FilaNomina[]
+  const filas = await leerTodo<FilaNomina>((desde) =>
+    supabase
+      .from('trabajadores_nomina')
+      .select('sucursal_id, nacionalidad, dni, datos, actualizado_en')
+      // Orden por la clave para que la paginación no se corra entre tandas.
+      .order('sucursal_id')
+      .order('dni')
+      .range(desde, desde + TAMANO_PAGINA - 1)
+  )
   // Los ISO salen con el mismo formato: comparar como texto da el más nuevo.
   let ultima: string | null = null
   for (const f of filas) if (!ultima || f.actualizado_en > ultima) ultima = f.actualizado_en
@@ -889,15 +927,17 @@ export async function generarPagos(periodo: string, periodicidad: Periodicidad):
     if (c.excluidos.length) excluidosPorCargo.set(c.id, new Set(c.excluidos.map((x) => `${x.nacionalidad}|${x.dni}`)))
   }
   if (excluidosPorCargo.size) {
-    const { data: pendientes, error: errorPendientes } = await supabase
-      .from('bonos_pago')
-      .select('id, bono_cargo_id, nacionalidad, dni')
-      .eq('periodo', periodo)
-      .eq('estado', 'PENDIENTE')
-    if (errorPendientes) throw new Error(errorPendientes.message)
-    const aBorrar = (
-      (pendientes ?? []) as { id: string; bono_cargo_id: string; nacionalidad: string; dni: number }[]
+    const pendientes = await leerTodo<{ id: string; bono_cargo_id: string; nacionalidad: string; dni: number }>(
+      (desde) =>
+        supabase
+          .from('bonos_pago')
+          .select('id, bono_cargo_id, nacionalidad, dni')
+          .eq('periodo', periodo)
+          .eq('estado', 'PENDIENTE')
+          .order('id')
+          .range(desde, desde + TAMANO_PAGINA - 1)
     )
+    const aBorrar = pendientes
       .filter((r) => excluidosPorCargo.get(r.bono_cargo_id)?.has(`${r.nacionalidad}|${r.dni}`))
       .map((r) => r.id)
     if (aBorrar.length) {
@@ -927,20 +967,22 @@ export async function generarPagos(periodo: string, periodicidad: Periodicidad):
   // una persona puede aparecer en la nómina de dos tiendas, pero no debe
   // cobrar dos veces el mismo cargo en un período.
   const claveDeFila = new Map(configs.map((c) => [c.id, c.clave]))
-  const { data: actuales, error: errorLectura } = await supabase
-    .from('bonos_pago')
-    .select('bono_cargo_id, sucursal_id, nacionalidad, dni, cargo:bonos_cargo(clave)')
-    .eq('periodo', periodo)
-  if (errorLectura) throw new Error(errorLectura.message)
-  const filasActuales = (actuales ?? []) as {
+  // Sin tipos generados de la base, el join puede venir como objeto o como
+  // arreglo de uno: los dos formatos se leen igual.
+  const filasActuales = await leerTodo<{
     bono_cargo_id: string
     sucursal_id: string
     nacionalidad: string
     dni: number
-    // Sin tipos generados de la base, el join puede venir como objeto o como
-    // arreglo de uno: los dos formatos se leen igual.
     cargo?: { clave: string } | Array<{ clave: string }> | null
-  }[]
+  }>((desde) =>
+    supabase
+      .from('bonos_pago')
+      .select('bono_cargo_id, sucursal_id, nacionalidad, dni, cargo:bonos_cargo(clave)')
+      .eq('periodo', periodo)
+      .order('id')
+      .range(desde, desde + TAMANO_PAGINA - 1)
+  )
   const existentes = new Set(
     filasActuales.map((r) => {
       const cargo = Array.isArray(r.cargo) ? r.cargo[0] : r.cargo

@@ -5,6 +5,7 @@ import {
   etiquetaFrescura,
   filasDeGeneracion,
   gastoDeCargo,
+  leerTodo,
   montoACobrar,
   montoParaSucursal,
   nombreDeCargo,
@@ -519,6 +520,48 @@ describe('nombreDeCargo · el nombre con el que se muestra', () => {
     ])
     // Si el alias se usara para comparar, no encontraría a nadie.
     expect(ocupantesDeCargo(conAlias, nomina).map((o) => o.dni)).toEqual([1])
+  })
+})
+
+describe('leerTodo · el API corta en 1000 filas', () => {
+  const lote = (n: number, desde: number) => Array.from({ length: n }, (_, i) => desde + i)
+
+  it('lee página tras página hasta que un lote venga corto', async () => {
+    const total = 2213
+    let pedidos = 0
+    const filas = await leerTodo<number>((desde) => {
+      pedidos += 1
+      return Promise.resolve({ data: lote(Math.min(1000, total - desde), desde), error: null })
+    })
+    expect(filas).toHaveLength(total)
+    // 1000 + 1000 + 213: tres tandas para 2.213 filas.
+    expect(pedidos).toBe(3)
+  })
+
+  it('un total exacto de 1000 pide una página más, y esa viene vacía', async () => {
+    let pedidos = 0
+    const filas = await leerTodo<number>((desde) => {
+      pedidos += 1
+      return Promise.resolve({ data: desde < 1000 ? lote(1000, 0) : [], error: null })
+    })
+    expect(filas).toHaveLength(1000)
+    expect(pedidos).toBe(2)
+  })
+
+  it('una página con error corta todo: no devuelve filas a medias', async () => {
+    await expect(
+      leerTodo<number>(() => Promise.resolve({ data: [1], error: { message: 'boom' } }))
+    ).rejects.toThrow('boom')
+  })
+
+  it('una consulta sin filas termina en el primer pedido', async () => {
+    let pedidos = 0
+    const filas = await leerTodo<number>(() => {
+      pedidos += 1
+      return Promise.resolve({ data: [], error: null })
+    })
+    expect(filas).toEqual([])
+    expect(pedidos).toBe(1)
   })
 })
 
