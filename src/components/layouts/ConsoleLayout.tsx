@@ -1,4 +1,4 @@
-import { Trophy, Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, UserPlus, X, ClipboardCheck } from 'lucide-react'
+import { Star, Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, UserPlus, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -85,7 +85,7 @@ function ConsoleLayoutContenido() {
         { to: '/config/bitacora', label: 'Bitácora', icon: <History className="h-5 w-5" /> },
         // Bonos por desempeño: acá entra también el Gerente de Talento Humano
         // (la ruta lo permite y `puede_bonos` es la misma cerradura en RLS).
-        { to: '/config/bonos', label: 'Bonos', icon: <Trophy className="h-5 w-5" /> }
+        { to: '/config/bonos', label: 'Bonos', icon: <Star className="h-5 w-5" /> }
       ]
     }
   ] : profile && profile.rol === 'GERENTE_TH' ? [
@@ -95,7 +95,7 @@ function ConsoleLayoutContenido() {
     {
       seccion: 'Gestión',
       items: [
-        { to: '/config/bonos', label: 'Bonos', icon: <Trophy className="h-5 w-5" /> }
+        { to: '/config/bonos', label: 'Bonos', icon: <Star className="h-5 w-5" /> }
       ]
     }
   ] : profile && profile.rol === 'EVALUADOR' ? [
