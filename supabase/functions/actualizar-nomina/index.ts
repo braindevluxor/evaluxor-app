@@ -49,15 +49,22 @@ interface Resumen {
   trabajadores: number
   /** Tiendas cuya nómina no se pudo leer: sus filas NO se tocaron. */
   fallos: string[]
+  /** El mismo fallo, pero con el MOTIVO: para diagnosticar sin adivinar. */
+  detalles: string[]
   /** Tiendas activas sin branchID: no se les pudo pedir nada. */
   sin_id_nombres: string[]
 }
 
-/** El mismo desenvolvimiento que hace el cliente: `data` o `data.data`. */
+/**
+ * El cuerpo que devuelve el API: a veces viene la lista DIRECTA (`[...]`) y
+ * a veces envuelta en `{data: [...]}` o `{data: {data: [...]}}`. Los tres
+ * formatos se desenvuelven acá — con sólo el envuelto, una lista directa
+ * hacía que TODAS las sucursales cayeran en `fallos`.
+ */
 function listaDe(cuerpo: unknown): Record<string, unknown>[] | null {
+  if (Array.isArray(cuerpo)) return cuerpo as Record<string, unknown>[]
   const c = cuerpo as { data?: unknown } | null
-  const primera = Array.isArray(c?.data) ? c?.data : null
-  if (primera) return primera as Record<string, unknown>[]
+  if (Array.isArray(c?.data)) return c.data as Record<string, unknown>[]
   const anidada = (c?.data as { data?: unknown } | undefined)?.data
   return Array.isArray(anidada) ? (anidada as Record<string, unknown>[]) : null
 }
@@ -111,6 +118,7 @@ Deno.serve(async (req) => {
     sin_id: 0,
     trabajadores: 0,
     fallos: [],
+    detalles: [],
     sin_id_nombres: []
   }
 
@@ -124,16 +132,25 @@ Deno.serve(async (req) => {
       }
 
       let registros: Record<string, unknown>[] | null = null
+      let motivo = ''
       try {
         const r = await fetch(`${URL_API}?branchID=${encodeURIComponent(branch)}`, {
           headers: { API_KEY }
         })
-        if (!r.ok) throw new Error(String(r.status))
+        if (!r.ok) {
+          motivo = `HTTP ${r.status}`
+          throw new Error(motivo)
+        }
         registros = listaDe(await r.json())
-        if (!registros) throw new Error('respuesta sin lista')
-      } catch {
+        if (!registros) {
+          motivo = 'respuesta sin lista'
+          throw new Error(motivo)
+        }
+      } catch (e) {
+        if (!motivo) motivo = e instanceof Error ? e.message : String(e)
         resumen.sucursales_fallo += 1
         resumen.fallos.push(s.nombre)
+        resumen.detalles.push(`${s.nombre} → ${motivo}`)
         return
       }
 
@@ -198,6 +215,7 @@ Deno.serve(async (req) => {
   )
 
   resumen.fallos.sort()
+  resumen.detalles.sort()
   resumen.sin_id_nombres.sort()
   resumen.actualizado_en = new Date().toISOString()
   return RESPUESTA(resumen, 200)
