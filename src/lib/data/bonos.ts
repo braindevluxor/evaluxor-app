@@ -594,7 +594,13 @@ export function clasificarSucursalesParaNomina(sucursales: readonly SucursalNomi
       inactivas.push(s.nombre)
       continue
     }
-    const branch = (s.shop_id ?? s.branch_id ?? '').trim()
+    // `branch_id` PRIMERO: es el ID de la sucursal en la API de TRABAJADORES
+    // (así lo dice el campo de Unidades: «puede diferir del shop_id»). El
+    // `shop_id` es el Nº tienda para escanear productos y manda a OTRA tienda
+    // —comprobado: con shop 13 (El Bosque) devolvía la nómina de Guacara—.
+    // El shop_id queda como último recurso para sucursales antiguas que sólo
+    // tengan ese.
+    const branch = (s.branch_id ?? s.shop_id ?? '').trim()
     if (!branch) {
       sinId.push(s.nombre)
       continue

@@ -181,8 +181,11 @@ export function BonosPage() {
         const lista = await listarSucursalesAdmin()
         if (!vivo) return
         setSucursales(lista)
+        // `branch_id` primero: es el ID en la API de trabajadores; el
+        // `shop_id` es el Nº tienda para escanear productos y manda a otra
+        // tienda.
         const branches = lista
-          .map((s) => (s.shop_id ?? s.branch_id ?? '').trim())
+          .map((s) => (s.branch_id ?? s.shop_id ?? '').trim())
           .filter(Boolean)
         const r = await listarResponsables([...branches, BRANCH_CENTRAL])
         if (vivo && !r.mensaje) setCatalogo(r.responsables)

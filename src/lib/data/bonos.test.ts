@@ -220,14 +220,18 @@ describe('sucursalesTomadas · el mismo cargo no se registra dos veces en una su
 })
 
 describe('clasificarSucursalesParaNomina · por qué una tienda queda fuera', () => {
-  it('una activa con ID se puede pedir, y el branch sale del shop_id primero', () => {
+  it('una activa con ID se puede pedir, y el branch sale del branch_id primero', () => {
     const r = clasificarSucursalesParaNomina([
-      { id: 's1', nombre: 'El Bosque', shop_id: '12', branch_id: '9', activa: true },
-      { id: 's2', nombre: 'Guacara', shop_id: '7', branch_id: null, activa: true }
+      // `branch_id` manda: el shop_id es el Nº tienda para escanear productos
+      // y, cuando difiere, devuelve la nómina de otra tienda.
+      { id: 's1', nombre: 'El Bosque', shop_id: '13', branch_id: '12', activa: true },
+      { id: 's2', nombre: 'Guacara', shop_id: '4', branch_id: '13', activa: true },
+      { id: 's3', nombre: 'Sin branch, sólo shop', shop_id: '7', branch_id: null, activa: true }
     ])
     expect(r.pedir.map((p) => [p.nombre, p.branch])).toEqual([
       ['El Bosque', '12'],
-      ['Guacara', '7']
+      ['Guacara', '13'],
+      ['Sin branch, sólo shop', '7']
     ])
     expect(r.sinId).toEqual([])
     expect(r.inactivas).toEqual([])

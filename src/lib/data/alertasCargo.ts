@@ -275,7 +275,11 @@ export async function cargarNomina(
   for (const ev of datos.evaluaciones) {
     const unidad = unidadDe(ev)
     if (!unidades.has(unidad)) continue
-    const branch = ev.sucursal ? (ev.sucursal.shop_id ?? ev.sucursal.branch_id) : null
+    // `branch_id` primero: es el ID de la sucursal en la API de TRABAJADORES.
+  // El `shop_id` es el Nº tienda para escanear productos y, cuando difiere,
+  // devuelve la nómina de OTRA tienda (comprobado: shop 13 devolvía Guacara
+  // siendo El Bosque).
+  const branch = ev.sucursal ? (ev.sucursal.branch_id ?? ev.sucursal.shop_id) : null
     if (branch && !branchDeUnidad.has(unidad)) branchDeUnidad.set(unidad, branch)
   }
   if (!branchDeUnidad.size) return NOMINA_VACIA

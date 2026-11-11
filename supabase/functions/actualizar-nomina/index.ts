@@ -74,8 +74,14 @@ Deno.serve(async (req) => {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
 
   // --- Autorización: el cron con su secreto, o un usuario con su JWT -----
+  // El cron puede mandar DOS credenciales: el secreto propio
+  // (`NOMINA_CRON_SECRET`, si se configuró) o la service role del proyecto,
+  // que es la que queda guardada en `nomina_cron.secreto`. Las dos valen
+  // igual: quien tiene cualquiera de las dos ya tiene permisos de servidor,
+  // acá no se gana ninguno nuevo.
   const secreto = req.headers.get('x-cron-secret')
-  const esCron = Boolean(SECRETO_CRON && secreto && secreto === SECRETO_CRON)
+  const secretosDelCron = [SECRETO_CRON, SERVICE_ROLE].filter(Boolean)
+  const esCron = Boolean(secreto && secretosDelCron.includes(secreto))
   if (!esCron) {
     const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
     if (!jwt) return RESPUESTA(null, 401, 401, 'Sin autorización.')

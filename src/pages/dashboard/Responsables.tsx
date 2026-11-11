@@ -638,10 +638,12 @@ export function DetalleVisita({
       setTrabajadores(null)
       return
     }
-    // El cruce es por la SUCURSAL de la visita (`shop_id`, con `branch_id` de
-    // respaldo): es el mismo identificador que usa la app para pedir la nómina.
+    // El cruce es por la SUCURSAL de la visita: `branch_id` PRIMERO, que es
+    // el ID de la sucursal en la API de trabajadores (con `shop_id` de
+    // respaldo). El shop_id es el Nº tienda para escanear productos y, cuando
+    // difiere, devuelve la nómina de OTRA tienda (comprobado en vivo).
     const ev = datos.evaluaciones.find((e) => e.id === fila.evaluacionId)
-    const branch = ev?.sucursal ? (ev.sucursal.shop_id ?? ev.sucursal.branch_id) : null
+    const branch = ev?.sucursal ? (ev.sucursal.branch_id ?? ev.sucursal.shop_id) : null
     if (!branch) {
       setTrabajadores([])
       setErrorTrabajadores(
