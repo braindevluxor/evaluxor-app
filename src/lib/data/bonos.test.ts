@@ -316,6 +316,7 @@ describe('ocupantesDeCargo · quiénes son, con cruce exacto y una vez por perso
         nombre: 'Ana Pérez',
         cargo_nomina: 'Cajera Integral',
         departamento_nomina: '',
+        estado_nomina: '',
         monto: 150
       }
     ])
@@ -349,6 +350,36 @@ describe('ocupantesDeCargo · quiénes son, con cruce exacto y una vez por perso
     const filas = filasDeGeneracion([compras], nomina, '2026-11')
     expect(filas.map((f) => f.dni)).toEqual([1])
     expect(filas[0].departamento).toBe('Compras')
+  })
+
+  it('el de «Nuevo ingreso» cuenta y se genera su fila, aunque `active` venga en false', () => {
+    const nomina = new Map([
+      [
+        's1',
+        [
+          gente({
+            name: 'Ana',
+            dni: 1,
+            role_name: 'Comprador/a',
+            status: 'Nuevo ingreso',
+            active: false
+          })
+        ]
+      ]
+    ])
+    const cfg = cargo({ cargo: 'Comprador/a' })
+    const lista = ocupantesDeCargo(cfg, nomina)
+    expect(lista.map((o) => o.dni)).toEqual([1])
+    expect(lista[0].estado_nomina).toBe('Nuevo ingreso')
+    expect(gastoDeCargo(cfg, nomina)).toEqual({ ocupantes: 1, gasto: 100 })
+    expect(filasDeGeneracion([cfg], nomina, '2026-11').map((f) => f.dni)).toEqual([1])
+  })
+
+  it('y el retirado sigue fuera, aunque en la nómina le quede `active: true`', () => {
+    const nomina = new Map([
+      ['s1', [gente({ name: 'Beto', dni: 2, role_name: 'Comprador/a', status: 'Retirado', active: true })]]
+    ])
+    expect(ocupantesDeCargo(cargo({ cargo: 'Comprador/a' }), nomina)).toEqual([])
   })
 })
 

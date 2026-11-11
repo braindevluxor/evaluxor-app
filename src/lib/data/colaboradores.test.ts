@@ -3,6 +3,7 @@ import {
   cedula,
   departamentoDeColaborador,
   esActivo,
+  estadoDeColaborador,
   nombreCompleto,
   trabajadoresDeCargoExacto,
   trabajadoresParaCargo,
@@ -80,6 +81,39 @@ describe('esActivo · el estado puede venir de mil formas', () => {
     expect(esActivo(sinFlag)).toBe(false)
     // Y si `active` viene vacío, tampoco.
     expect(esActivo(t({ active: '' }))).toBe(false)
+  })
+
+  it('el ESTADO manda: «Nuevo ingreso» cuenta aunque `active` venga en false o sin traer', () => {
+    expect(esActivo({ dni: 1, status: 'Nuevo ingreso', active: false })).toBe(true)
+    expect(esActivo({ dni: 1, status: 'NUEVO_INGRESO' })).toBe(true)
+    expect(esActivo({ dni: 1, estado: 'Nuevo Ingreso ' })).toBe(true)
+    expect(esActivo({ dni: 1, status_display: 'Nuevo ingreso' })).toBe(true)
+  })
+
+  it('un estado de baja descarta a la persona aunque `active` diga true', () => {
+    expect(esActivo({ dni: 1, status: 'Retirado', active: true })).toBe(false)
+    expect(esActivo({ dni: 1, estado: 'Baja', active: true })).toBe(false)
+    expect(esActivo({ dni: 1, status_display: 'Suspendido' })).toBe(false)
+  })
+
+  it('un estado que no se conoce no manda: sigue el flag de actividad', () => {
+    expect(esActivo({ dni: 1, status: 'De licencia', active: true })).toBe(true)
+    expect(esActivo({ dni: 1, status: 'De licencia', active: false })).toBe(false)
+    expect(esActivo({ dni: 1, status: 'De licencia' })).toBe(false)
+  })
+})
+
+describe('estadoDeColaborador · el estado venga como venga', () => {
+  it('lee status, estado, status_display y estado_display', () => {
+    expect(estadoDeColaborador({ dni: 1, status: 'Nuevo ingreso' })).toBe('Nuevo ingreso')
+    expect(estadoDeColaborador({ dni: 1, estado: 'Activo' })).toBe('Activo')
+    expect(estadoDeColaborador({ dni: 1, status_display: 'Retirado' })).toBe('Retirado')
+    expect(estadoDeColaborador({ dni: 1, estado_display: 'Baja' })).toBe('Baja')
+  })
+
+  it('sin ninguno queda vacío: «se desconoce» no es «activo»', () => {
+    expect(estadoDeColaborador({ dni: 1 })).toBe('')
+    expect(estadoDeColaborador({ dni: 1, status: '   ' })).toBe('')
   })
 })
 

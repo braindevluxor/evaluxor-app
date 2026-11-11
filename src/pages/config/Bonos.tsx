@@ -1264,7 +1264,7 @@ export function BonosPage() {
           <div className="space-y-3">
             <p className="text-xs text-slate-500">
               {detalleLista.length} ocupante{detalleLista.length === 1 ? '' : 's'}, cada uno con el monto de su
-              sucursal. Sólo activos y con el cargo exacto.
+              sucursal. Sólo personas activas —«Nuevo ingreso» cuenta— y con el cargo exacto.
             </p>
             <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
               {detalleLista.map((o) => (
@@ -1279,6 +1279,9 @@ export function BonosPage() {
                   </span>
                   <span className="rounded-full bg-primary-50 px-2 py-0.5 text-xs text-primary-700">
                     {o.departamento_nomina || 'sin departamento en la nómina'}
+                  </span>
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+                    {o.estado_nomina || 'sin estado en la nómina'}
                   </span>
                   <span className="text-slate-600">{nombreSucursal(o.sucursal_id)}</span>
                   <span className="font-bold tabular-nums text-primary-900">

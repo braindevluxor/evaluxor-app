@@ -23,6 +23,11 @@ export interface ColaboradorAPI {
   departamento?: string
   department?: unknown
   area?: unknown
+  /** Estado del trabajador: `status`, `estado`, `status_display`… (ver `estadoDeColaborador`). */
+  status?: unknown
+  estado?: unknown
+  status_display?: unknown
+  estado_display?: unknown
   admission_date?: string | null
 }
 
@@ -80,14 +85,75 @@ function raizCargo(texto: string): string {
 }
 
 /**
+ * Los estados que significan «está laborando», ya normalizados con
+ * `claveNormalizada` (sin tildes, mayúsculas ni guiones bajos).
+ *
+ * ACÁ ESTÁ «NUEVO INGRESO»: la API lo manda en un campo de estado aparte y a
+ * veces con `active` en false o sin traerlo, y esas personas tienen que entrar
+ * a los bonos como cualquiera.
+ */
+const ESTADOS_ACTIVOS = [
+  'activo',
+  'active',
+  'alta',
+  'vigente',
+  'encurso',
+  'nuevoingreso',
+  'nuevayingreso'
+]
+
+/** Estados que ya saben que NO trabajan, pase lo que pase con `active`. */
+const ESTADOS_INACTIVOS = [
+  'inactivo',
+  'inactive',
+  'baja',
+  'retirado',
+  'retirada',
+  'despedido',
+  'despedida',
+  'suspendido',
+  'cesante',
+  'finalizado',
+  'terminado',
+  'egreso'
+]
+
+/**
+ * El estado del trabajador en la nómina, en cualquiera de las formas en que
+ * puede venir: `status`, `estado`, `status_display`, `estado_display`.
+ * Vacío si no trae ninguno (entíendase «se desconoce», no «activo»).
+ */
+export function estadoDeColaborador(c: ColaboradorAPI): string {
+  const r = c as unknown as Record<string, unknown>
+  for (const clave of ['status', 'estado', 'status_display', 'estado_display', 'employment_status', 'job_status']) {
+    const valor = r[clave]
+    if (typeof valor === 'string' && valor.trim()) return valor.trim()
+  }
+  return ''
+}
+
+/**
  * ¿Está ACTIVO el trabajador? Es la puerta de todo lo que se cuenta o se paga.
  *
- * La API no es uniforme: manda `active`, pero puede venir como booleano,
- * número (0/1) o string ("true"/"false"), y en algunas respuestas el flag es
- * `is_active`. Cualquier forma de «no» cuenta como inactivo, y SIN flag no se
- * cuenta: para plata no se paga a alguien cuyo estado no se sabe.
+ * EL ORDEN DE LA LECTURA IMPORTA:
+ *
+ *  1. Primero el ESTADO, si dice algo claro. Es lo que hace que «Nuevo
+ *     ingreso» entre a los bonos aunque `active` venga en false o no venga:
+ *     el estado describe a la persona, el flag es una derivada.
+ *  2. Después el flag de actividad, que puede venir como booleano, número
+ *     (0/1) o string ("true"/"false"), y también como `is_active`. Cualquier
+ *     forma de «no» cuenta como inactivo, y un string que no es un «no» puede
+ *     ser a su vez un estado escrito («Nuevo ingreso»): cuenta como activo.
+ *  3. Sin estado ni flag no se cuenta: para plata no se paga a alguien cuyo
+ *     estado no se sabe.
  */
 export function esActivo(c: ColaboradorAPI): boolean {
+  const estado = claveNormalizada(estadoDeColaborador(c))
+  if (estado) {
+    if (ESTADOS_INACTIVOS.includes(estado)) return false
+    if (ESTADOS_ACTIVOS.includes(estado)) return true
+  }
+
   const registro = c as unknown as Record<string, unknown>
   const valor = registro.active !== undefined && registro.active !== null ? registro.active : registro.is_active
   if (valor === undefined || valor === null) return false
