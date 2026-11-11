@@ -164,8 +164,8 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
     // Se escanea el ARCHIVO ENTERO y no sólo `permisos-funcion.sql`: desde que
     // cada bloque se revoca a sí mismo, una función de trigger puede vivir en
     // su propio bloque. Pasar acá buscando en un solo bloque daba por
-    // expuesta a `registrar_bitacora_asignaciones`, que sí está revocada —
-    // sólo que en `bitacora-asignaciones.sql`.
+    // expuesta a una función de trigger que sí está revocada, sólo que en su
+    // propio bloque consolidado.
     //
     // Mirar un solo bloque además sería insuficiente por orden: si el revoke
     // estuviera en `permisos-funcion.sql` (línea 3545) correría ANTES de que

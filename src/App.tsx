@@ -34,7 +34,6 @@ const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({
 const AsignacionesPage = lazy(() =>
   import('./pages/config/Asignaciones').then((m) => ({ default: m.AsignacionesPage }))
 )
-const BitacoraPage = lazy(() => import('./pages/config/Bitacora').then((m) => ({ default: m.BitacoraPage })))
 // Bonos por desempeño: qué cargos gozan de bono y el pago de los mismos.
 const BonosPage = lazy(() => import('./pages/config/Bonos').then((m) => ({ default: m.BonosPage })))
 // Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
@@ -281,10 +280,6 @@ function Rutas() {
                           Sin ésta esa tabla no cambia desde la app y su filtro
                           del historial quedaba siempre vacío. */}
                       <Route path="/config/asignaciones" element={<SoloLider><AsignacionesPage /></SoloLider>} />
-                      {/* La bitácora es sólo lectura y sólo Líder: el RLS de
-                          la tabla ya lo decide (`bitacora_asignaciones_select`),
-                          acá se replica para que ni siquiera se pida la ruta. */}
-                      <Route path="/config/bitacora" element={<SoloLider><BitacoraPage /></SoloLider>} />
                       {/* Bonos por desempeño: es manejo de plata de RRHH, así
                           que entran los DOS roles que lo gestionan —LÍDER y
                           GERENTE TH— y el RLS (`puede_bonos`) vuelve a pedir

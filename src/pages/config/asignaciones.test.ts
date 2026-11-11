@@ -40,13 +40,12 @@ describe('asignaciones · lo que escribe', () => {
     expect(pagina).toContain('asignarEvaluador')
     expect(pagina).toContain('desasignarEvaluador')
     expect(datos).toContain(".from('asignaciones')")
-    // El upsert contra su única es lo que dispara `trg_bitacora_asignaciones`.
+    // El upsert contra su única es lo que evita duplicar filas al reasignar.
     expect(datos).toContain("onConflict: 'evaluador_id,sucursal_id'")
   })
 
   it('si la base rechaza, avisa y no pinta la casilla igual', () => {
-    // Sin el chequeo la pantalla mostraba «Asignada ✓» con la tabla intacta
-    // y la bitácora sin registrar nada.
+    // Sin el chequeo la pantalla mostraba «Asignada ✓» con la tabla intacta.
     expect(datos).toContain('if (error) throw new Error')
     expect(pagina).toContain("avisar(e instanceof Error ? e.message")
     // El estado local sólo se toca DESPUÉS del await de su propia rama: si
