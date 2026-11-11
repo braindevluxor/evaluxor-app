@@ -5705,6 +5705,13 @@ begin
   execute 'revoke all on public.bonos_pago from anon';
 end $$;
 
+-- `puede_bonos` sólo con sesión. Sus políticas son todas `to authenticated`,
+-- así que anon nunca las evalúa y no tiene por qué poder llamarla (y con eso
+-- se limpia el aviso de la advisor). Lo que SÍ necesita es `authenticated`:
+-- RLS ejecuta la función con el rol que consulta.
+revoke execute on function public.puede_bonos() from public, anon;
+grant execute on function public.puede_bonos() to authenticated;
+
 -- Archivo consolidado: nomina-trabajadores.sql
 -- ###########################################################################
 -- ============================================================================
@@ -5860,7 +5867,11 @@ begin
 
     -- La cierra el propio bloque, como el resto del archivo: sin sesión no se
     -- programa nada. Va acá (y no en `permisos-funcion.sql`) porque ese bloque
-    -- corre ANTES de que esta función exista.
+    -- corre ANTES de que esta función exista. Sólo la usa el dueño desde el
+    -- SQL Editor: a `authenticated` no la llama nadie por RPC, así que se le
+    -- quita también (y se limpia el aviso de la advisor).
     execute 'revoke execute on function public.programar_nomina_cron() from public, anon';
+    execute 'revoke execute on function public.programar_nomina_cron() from authenticated';
+    execute 'grant execute on function public.programar_nomina_cron() to postgres';
   end if;
 end $$;
