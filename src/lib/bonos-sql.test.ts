@@ -196,22 +196,36 @@ describe('bonos.sql · las reglas de los pagos', () => {
     expect(await contar(`select count(*) as n from public.bonos_cargo`)).toBe(0)
   })
 
-  it('las columnas de departamento existen en las dos tablas (la migración incluida)', async () => {
+  it('las columnas de departamento y de alias existen en las dos tablas (la migración incluida)', async () => {
     // `create table if not exists` no agrega columnas a una tabla ya creada:
-    // es el `add column if not exists` del bloque el que las pone, y acá se
-    // comprueba que las dos quedaron.
-    expect(
-      await contar(
-        `select count(*) as n from information_schema.columns
-          where table_name in ('bonos_cargo', 'bonos_pago') and column_name = 'departamento'`
-      )
-    ).toBe(2)
-    // Y se puede guardar: dos filas del mismo cargo, una por área.
+    // son los `add column if not exists` del bloque los que las ponen, y acá
+    // se comprueba que las cuatro quedaron.
+    for (const columna of ['departamento', 'alias']) {
+      expect(
+        await contar(
+          `select count(*) as n from information_schema.columns
+            where table_name in ('bonos_cargo', 'bonos_pago') and column_name = '${columna}'`
+        ),
+        columna
+      ).toBe(2)
+    }
+    // Y se puede guardar: dos filas del mismo cargo, una por área, cada una
+    // con su nombre a mostrar.
     await expect(
-      insertarCargo({ cargo: 'Comprador/a', clave: 'comprador', departamento: 'Compras' })
+      insertarCargo({
+        cargo: 'Comprador/a',
+        clave: 'comprador',
+        departamento: 'Compras',
+        alias: 'Comprador/a (Compras)'
+      })
     ).resolves.toBeTruthy()
     await expect(
-      insertarCargo({ cargo: 'Comprador/a', clave: 'comprador', departamento: 'Servicios Generales' })
+      insertarCargo({
+        cargo: 'Comprador/a',
+        clave: 'comprador',
+        departamento: 'Servicios Generales',
+        alias: 'Comprador/a (Servicios Generales)'
+      })
     ).resolves.toBeTruthy()
   })
 

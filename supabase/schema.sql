@@ -5517,6 +5517,10 @@ create table if not exists public.bonos_cargo (
   -- umbral del cargo es el que decide el prorrateo de sus pagos.
   nota_minima numeric not null default 70 check (nota_minima >= 0 and nota_minima <= 100),
   periodicidad text not null default 'MENSUAL' check (periodicidad in ('MENSUAL', 'TRIMESTRAL')),
+  -- Nombre de EXHIBICIÓN, opcional: sirve para distinguir dos filas del mismo
+  -- cargo («Gerente de mercado (Tienda tipo A)»). NO participa del cruce con
+  -- la nómina: eso lo sigue decidiendo `cargo`.
+  alias text,
   -- Departamento al que ACOTA el bono (NULL = cualquier departamento). La
   -- nómina trae `department_name` por persona, así que con esto «Comprador/a»
   -- de Compras no se junta con «Comprador/a» de Servicios Generales: son dos
@@ -5526,9 +5530,10 @@ create table if not exists public.bonos_cargo (
   updated_at timestamptz not null default now()
 );
 
--- MIGRACIÓN: la columna nueva nace en el `create table` de arriba, pero una
--- tabla ya creada por una versión anterior no la tiene. El `if not exists`
--- hace que el bloque la agregue sin romper nada y sea idempotente.
+-- MIGRACIÓN: las columnas nuevas nacen en el `create table` de arriba, pero
+-- una tabla ya creada por una versión anterior no las tiene. El `if not
+-- exists` hace que el bloque las agregue sin romper nada y sea idempotente.
+alter table public.bonos_cargo add column if not exists alias text;
 alter table public.bonos_cargo add column if not exists departamento text;
 
 -- MIGRACIÓN: la versión anterior de este bloque traía
@@ -5576,6 +5581,10 @@ create table if not exists public.bonos_pago (
   nombre text not null,
   -- Congelados al generar la fila: ver cabecera del bloque.
   cargo text not null,
+  -- El nombre de exhibición del cargo EN ESTE PAGO, congelado igual que el
+  -- cargo: así dos filas del mismo cargo se distinguen también en la lista
+  -- de pagos (NULL = se muestra el cargo tal cual).
+  alias text,
   -- El departamento del cargo EN ESTE PAGO, congelado igual que el cargo:
   -- distingue los «Comprador/a» de un área de los de la otra en la lista.
   departamento text,
@@ -5597,6 +5606,12 @@ create table if not exists public.bonos_pago (
   constraint bonos_pago_unico unique (bono_cargo_id, periodo, sucursal_id, nacionalidad, dni),
   constraint bonos_pago_paga_con_nota check (estado <> 'PAGADO' or nota is not null)
 );
+
+-- MIGRACIÓN: el `create table if not exists` NO agrega columnas a una tabla
+-- ya creada, así que las columnas nuevas se agregan aparte. Sin esto, una
+-- base que ya tenía esta tabla fallaría al generar los pagos.
+alter table public.bonos_pago add column if not exists departamento text;
+alter table public.bonos_pago add column if not exists alias text;
 
 create index if not exists idx_bonos_pago_periodo on public.bonos_pago (periodo, estado);
 create index if not exists idx_bonos_pago_sucursal on public.bonos_pago (sucursal_id, periodo);

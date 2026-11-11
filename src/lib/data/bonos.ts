@@ -44,6 +44,12 @@ export interface BonoCargoSucursal {
 export interface BonoCargo {
   id: string
   cargo: string
+  /**
+   * Nombre de EXHIBICIÓN, opcional: sirve para distinguir dos filas del mismo
+   * cargo («Gerente de mercado (Tienda tipo A)»). No participa del cruce con
+   * la nómina —eso lo decide `cargo`—, sólo de lo que se muestra.
+   */
+  alias: string | null
   /** `cargo` normalizado: es contra lo que se garantiza la unicidad en la base. */
   clave: string
   activo: boolean
@@ -78,6 +84,8 @@ export interface BonoPago {
   dni: number
   nombre: string
   cargo: string
+  /** El nombre de exhibición del cargo al que pertenece ESTA fila, congelado. */
+  alias: string | null
   /** Departamento del cargo al que pertenece ESTA persona, congelado. */
   departamento: string | null
   monto_base: number
@@ -98,6 +106,8 @@ export interface BonoPago {
 export interface BonoCargoEntrada {
   id?: string
   cargo: string
+  /** Nombre a mostrar; vacío o null = se muestra el `cargo` tal cual. */
+  alias: string | null
   activo: boolean
   monto: number
   nota_minima: number
@@ -118,6 +128,20 @@ export interface BonoCargoEntrada {
  * guarda la base mientras la nota siga vacía. El redondeo va a dos decimales
  * porque es plata: `85.555…` no existe en un recibo.
  */
+/**
+ * El nombre con el que se MUESTRA un cargo: su alias si lo tiene, si no el
+ * cargo tal cual.
+ *
+ * El alias existe para distinguir dos filas del mismo cargo («Gerente de
+ * mercado (Tienda tipo A)») sin tocar `cargo`, que es el que se cruza con la
+ * nómina: si el alias se usara para comparar, el cruce dejaría de encontrar
+ * a nadie.
+ */
+export function nombreDeCargo(c: { cargo: string; alias?: string | null }): string {
+  const alias = c.alias?.trim()
+  return alias || c.cargo
+}
+
 export function montoACobrar(montoBase: number, nota: number | null, notaMinima: number): number {
   if (nota == null || !Number.isFinite(nota)) return 0
   if (nota < notaMinima) return 0
@@ -344,6 +368,8 @@ export interface BonoPagoNuevo {
   dni: number
   nombre: string
   cargo: string
+  /** Nombre de exhibición congelado en la fila, para distinguir cargos iguales. */
+  alias: string | null
   /** Departamento congelado en la fila, para distinguir cargos iguales. */
   departamento: string | null
   monto_base: number
@@ -397,6 +423,7 @@ export function filasDeGeneracion(
           dni: t.dni,
           nombre: nombreCompleto(t) || `DNI ${t.dni}`,
           cargo: cfg.cargo,
+          alias: cfg.alias,
           departamento: cfg.departamento,
           monto_base: monto,
           nota_minima: cfg.nota_minima
@@ -432,10 +459,12 @@ export async function guardarBonoCargo(entrada: BonoCargoEntrada): Promise<void>
   }
 
   const departamento = entrada.departamento?.trim() || null
-  const rotulo = departamento ? `«${cargo}» (${departamento})` : `«${cargo}»`
+  const alias = entrada.alias?.trim() || null
+  const rotulo = `«${alias || cargo}»${departamento ? ` (${departamento})` : ''}`
   const campos = {
     cargo,
     clave,
+    alias,
     activo: entrada.activo,
     monto: entrada.monto,
     nota_minima: entrada.nota_minima,

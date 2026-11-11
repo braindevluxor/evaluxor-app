@@ -30,6 +30,7 @@ import {
   listarPagos,
   marcarPagado,
   montoACobrar,
+  nombreDeCargo,
   nominaDesactualizada,
   ocupantesDeCargo,
   periodoDe,
@@ -91,6 +92,7 @@ function notaVigente(p: BonoPago, bruto: string | undefined): number | null {
 
 const FORM_VACIO = {
   cargo: '',
+  alias: '',
   monto: '',
   nota_minima: '70',
   periodicidad: 'MENSUAL' as Periodicidad,
@@ -272,6 +274,7 @@ export function BonosPage() {
     setEditando(c)
     setForm({
       cargo: c.cargo,
+      alias: c.alias ?? '',
       monto: String(c.monto),
       nota_minima: String(c.nota_minima),
       periodicidad: c.periodicidad,
@@ -325,7 +328,8 @@ export function BonosPage() {
     // capa de datos.
     const clave = claveNormalizada(form.cargo)
     const departamento = form.departamento.trim() || null
-    const rotulo = departamento ? `«${form.cargo}» (${departamento})` : `«${form.cargo}»`
+    const alias = form.alias.trim() || null
+    const rotulo = `«${alias || form.cargo}»${departamento ? ` (${departamento})` : ''}`
     const conflicto = sucursalesTomadas(cargos, clave, alcance, editando?.id, departamento)
     if (conflicto.todas) {
       const otroTodas = cargos.some(
@@ -358,6 +362,7 @@ export function BonosPage() {
       await guardarBonoCargo({
         id: editando?.id,
         cargo: form.cargo,
+        alias,
         activo: form.activo,
         monto,
         nota_minima: notaMinima,
@@ -417,6 +422,7 @@ export function BonosPage() {
       await guardarBonoCargo({
         id: c.id,
         cargo: c.cargo,
+        alias: c.alias,
         activo: !c.activo,
         monto: c.monto,
         nota_minima: c.nota_minima,
@@ -681,6 +687,7 @@ export function BonosPage() {
       return (
         p.nombre.toLowerCase().includes(q) ||
         p.cargo.toLowerCase().includes(q) ||
+        (p.alias ?? '').toLowerCase().includes(q) ||
         cedulaDe(p).toLowerCase().includes(q)
       )
     })
@@ -841,7 +848,12 @@ export function BonosPage() {
                     return (
                       <tr key={c.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                         <td className="px-4 py-3 font-semibold text-slate-800">
-                          {c.cargo}
+                          {nombreDeCargo(c)}
+                          {/* Con alias, el cargo REAL queda visible chiquito:
+                              es el que se cruza con la nómina. */}
+                          {c.alias ? (
+                            <span className="block text-xs font-normal text-slate-500">Cargo en la nómina: {c.cargo}</span>
+                          ) : null}
                           {c.departamento ? (
                             <span className="block text-xs font-normal text-slate-500">{c.departamento}</span>
                           ) : null}
@@ -1080,7 +1092,7 @@ export function BonosPage() {
                           <span className="block text-xs text-slate-500">{cedulaDe(p)}</span>
                         </td>
                         <td className="px-4 py-3 text-slate-600">
-                          {p.cargo}
+                          {p.alias || p.cargo}
                           {p.departamento ? (
                             <span className="block text-xs font-normal text-slate-500">{p.departamento}</span>
                           ) : null}
@@ -1172,6 +1184,17 @@ export function BonosPage() {
                 <option key={s} value={s} />
               ))}
             </datalist>
+          </Field>
+
+          <Field
+            label="Nombre a mostrar (opcional)"
+            hint="Para distinguir dos filas del mismo cargo, p. ej. «Gerente de mercado (Tienda tipo A)». Vacío = se muestra el cargo tal cual. No cambia el cruce con la nómina."
+          >
+            <Input
+              value={form.alias}
+              onChange={(e) => setForm((f) => ({ ...f, alias: e.target.value }))}
+              placeholder="Ej.: Gerente de mercado (Tienda tipo A)"
+            />
           </Field>
 
           {/* El área separa cargos IGUALES: «Comprador/a» de Compras no es
@@ -1383,7 +1406,7 @@ export function BonosPage() {
         open={Boolean(detalleCargos)}
         onClose={() => setDetalleCargos(null)}
         wide
-        title={`Ocupantes de «${detalleCargos?.cargo ?? ''}»`}
+        title={`Ocupantes de «${detalleCargos ? nombreDeCargo(detalleCargos) : ''}»`}
         footer={
           <div className="flex justify-end">
             <Button variant="ghost" onClick={() => setDetalleCargos(null)}>
@@ -1464,7 +1487,7 @@ export function BonosPage() {
         open={Boolean(detalleAlcance)}
         onClose={() => setDetalleAlcance(null)}
         wide
-        title={`Sucursales de «${detalleAlcance?.cargo ?? ''}»`}
+        title={`Sucursales de «${detalleAlcance ? nombreDeCargo(detalleAlcance) : ''}»`}
         footer={
           <div className="flex justify-end">
             <Button variant="ghost" onClick={() => setDetalleAlcance(null)}>

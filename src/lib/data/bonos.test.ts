@@ -7,6 +7,7 @@ import {
   gastoDeCargo,
   montoACobrar,
   montoParaSucursal,
+  nombreDeCargo,
   nominaDeTabla,
   nominaDesactualizada,
   ocupantesDeCargo,
@@ -32,6 +33,7 @@ function cargo(parcial: Partial<BonoCargo> = {}): BonoCargo {
   return {
     id: 'b1',
     cargo: 'Cajero integral',
+    alias: null,
     clave: 'cajerointegral',
     activo: true,
     monto: 100,
@@ -496,6 +498,27 @@ describe('ocupantesDeCargo · quiénes son, con cruce exacto y una vez por perso
   })
 })
 
+describe('nombreDeCargo · el nombre con el que se muestra', () => {
+  it('el alias manda, pero si no hay se muestra el cargo tal cual', () => {
+    expect(nombreDeCargo({ cargo: 'Gerente de mercado', alias: 'Gerente de mercado (Tienda tipo A)' })).toBe(
+      'Gerente de mercado (Tienda tipo A)'
+    )
+    expect(nombreDeCargo({ cargo: 'Gerente de mercado', alias: null })).toBe('Gerente de mercado')
+    // Un alias en blanco no tapa al cargo.
+    expect(nombreDeCargo({ cargo: 'Gerente de mercado', alias: '   ' })).toBe('Gerente de mercado')
+    expect(nombreDeCargo({ cargo: 'Gerente de mercado' })).toBe('Gerente de mercado')
+  })
+
+  it('el alias es sólo de exhibición: el cruce con la nómina sigue usando `cargo`', () => {
+    const conAlias = cargo({ cargo: 'Gerente de mercado', alias: 'Gerente de mercado (Tienda tipo A)' })
+    const nomina = new Map([
+      ['s1', [gente({ name: 'Ana', dni: 1, role_name: 'Gerente de Mercado' })]]
+    ])
+    // Si el alias se usara para comparar, no encontraría a nadie.
+    expect(ocupantesDeCargo(conAlias, nomina).map((o) => o.dni)).toEqual([1])
+  })
+})
+
 describe('periodoDe · el período que le corresponde a una fecha', () => {
   it('el mensual sale del mes de la fecha, en dos dígitos', () => {
     expect(periodoDe(new Date(2026, 10, 15), 'MENSUAL')).toBe('2026-11')
@@ -592,10 +615,17 @@ describe('filasDeGeneracion · la nómina contra la configuración', () => {
     expect(filas).toEqual([])
   })
 
-  it('congela monto y umbral del cargo EN LA FILA: un cambio posterior no la mueve', () => {
+  it('congela monto, umbral, alias y departamento EN LA FILA: un cambio posterior no la mueve', () => {
     const filas = filasDeGeneracion(
-      [cargo({ monto: 150, nota_minima: 80 })],
-      new Map([['s1', [gente({ name: 'Ana', dni: 1 })]]]),
+      [
+        cargo({
+          monto: 150,
+          nota_minima: 80,
+          alias: 'Gerente de mercado (Tienda tipo A)',
+          departamento: 'Operaciones'
+        })
+      ],
+      new Map([['s1', [gente({ name: 'Ana', dni: 1, department_name: 'Operaciones' })]]]),
       '2026-T4'
     )
     expect(filas[0]).toMatchObject({
@@ -603,6 +633,8 @@ describe('filasDeGeneracion · la nómina contra la configuración', () => {
       periodo: '2026-T4',
       sucursal_id: 's1',
       cargo: 'Cajero integral',
+      alias: 'Gerente de mercado (Tienda tipo A)',
+      departamento: 'Operaciones',
       monto_base: 150,
       nota_minima: 80
     })
