@@ -74,18 +74,23 @@ Deno.serve(async (req) => {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
 
   // --- Autorización: el cron con su secreto, o un usuario con su JWT -----
-  // El cron puede mandar DOS credenciales: el secreto propio
-  // (`NOMINA_CRON_SECRET`, si se configuró) o la service role del proyecto,
-  // que es la que queda guardada en `nomina_cron.secreto`. Las dos valen
-  // igual: quien tiene cualquiera de las dos ya tiene permisos de servidor,
-  // acá no se gana ninguno nuevo.
+  // El cron puede mandar su credencial de DOS formas: en el header
+  // `x-cron-secret` (si el JWT de verificación de la función está APAGADO)
+  // o como `Authorization: Bearer …` (si está ENCENDIDO, porque el gateway
+  // exige un JWT válido antes de dejar pasar). Las dos valen lo mismo: el
+  // secreto propio (`NOMINA_CRON_SECRET`) o la service role del proyecto,
+  // que es la que queda guardada en `nomina_cron.secreto`. Quien tiene
+  // cualquiera de las dos ya tiene permisos de servidor: acá no se gana
+  // ninguno nuevo.
+  const bearer = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
   const secreto = req.headers.get('x-cron-secret')
   const secretosDelCron = [SECRETO_CRON, SERVICE_ROLE].filter(Boolean)
-  const esCron = Boolean(secreto && secretosDelCron.includes(secreto))
+  const esCron = Boolean(
+    (secreto && secretosDelCron.includes(secreto)) || (bearer && secretosDelCron.includes(bearer))
+  )
   if (!esCron) {
-    const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
-    if (!jwt) return RESPUESTA(null, 401, 401, 'Sin autorización.')
-    const { data } = await admin.auth.getUser(jwt)
+    if (!bearer) return RESPUESTA(null, 401, 401, 'Sin autorización.')
+    const { data } = await admin.auth.getUser(bearer)
     if (!data.user) return RESPUESTA(null, 401, 401, 'Sesión inválida.')
     const { data: perfil } = await admin.from('profiles').select('rol, activo').eq('id', data.user.id).single()
     if (!perfil?.activo || (perfil.rol !== 'LIDER' && perfil.rol !== 'GERENTE_TH')) {
