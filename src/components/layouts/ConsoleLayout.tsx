@@ -1,4 +1,4 @@
-import { Star, Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
+import { Star, Sprout, Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -21,8 +21,26 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
     { to: '/dashboard', label: 'Indicadores', end: true, icon: <Gauge className="h-5 w-5" /> },
     { to: '/dashboard/responsables', label: 'Seguimiento por cargo', icon: <Users className="h-5 w-5" /> },
     { to: '/dashboard/historial', label: 'Historial', icon: <History className="h-5 w-5" /> }
+  ]},
+  // Gran Cosecha va en SU sección y no dentro de «Resultados»: es un concurso
+  // al que entra toda la empresa (presentan los trabajadores, dan seguimiento
+  // los jueces), no una pantalla de indicadores.
+  { seccion: 'Gran Cosecha', items: [
+    { to: '/gran-cosecha', label: 'Proyectos', icon: <Sprout className="h-5 w-5" /> }
   ]}
 ]
+
+/**
+ * El menú de quien sólo da seguimiento al concurso.
+ *
+ * El JUEZ no tiene acceso a las vistas de Resultados (ninguna lo incluye en
+ * su `RequireRol`), así que un enlace de ahí lo rebotaría a su propia casa.
+ * Se le arma el menú con la sección que sí puede abrir y nada más.
+ */
+function seccionesDe(rol: string | undefined): { seccion: string; items: EnlaceMenu[] }[] {
+  if (rol === 'JUEZ') return enlaces.filter((s) => s.seccion === 'Gran Cosecha')
+  return enlaces
+}
 
 const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/dashboard': { titulo: 'Indicadores de gestión', subtitulo: 'Desempeño de las evaluaciones 360' },
@@ -35,7 +53,11 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/config/bonos': { titulo: 'Bonos por desempeño', subtitulo: 'Cargos que gozan de bono y pago de los mismos' },
   // La cuenta se configura DESDE la consola, con su barra y su menú: salirse
   // de la barra para cambiar la contraseña se sentía como otra app.
-  '/perfil': { titulo: 'Configuración', subtitulo: 'Administra tus datos personales y la seguridad de tu cuenta' }
+  '/perfil': { titulo: 'Configuración', subtitulo: 'Administra tus datos personales y la seguridad de tu cuenta' },
+  '/gran-cosecha': {
+    titulo: 'Gran Cosecha',
+    subtitulo: 'Concurso trimestral de proyectos: equipos, propuestas y avances'
+  }
 }
 
 export function ConsoleLayout() {
@@ -106,7 +128,7 @@ function ConsoleLayoutContenido() {
 
   // La inspección de vehículo no vive en la consola: se llena desde el
   // teléfono, en /evaluar, con su propia tarjeta en EvaluarHome.
-  const secciones = [...enlaces, ...config]
+  const secciones = [...seccionesDe(profile?.rol), ...config]
 
   useEffect(() => {
     // Cerrar el panel lateral móvil con Escape.

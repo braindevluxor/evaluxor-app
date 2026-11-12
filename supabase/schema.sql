@@ -5715,3 +5715,258 @@ begin
     execute 'grant execute on function public.programar_nomina_cron() to postgres';
   end if;
 end $$;
+
+-- Archivo consolidado: gran-cosecha.sql
+-- ###########################################################################
+-- ============================================================================
+-- GRAN COSECHA: EL CONCURSO INTERNO DE PROYECTOS
+--
+-- Un concurso por TRIMESTRE del año: los trabajadores arman equipos de
+-- MÍNIMO 3 personas y presentan una propuesta de proyecto con 3 meses de
+-- desarrollo. Tres JUECES le dan seguimiento y la empresa ve los avances.
+--
+-- DOS TABLAS Y UNA REGLA DE ACCESO
+--
+--  * `gran_cosecha_proyecto` es la ficha: el trimestre en que participa
+--    (`2026-T1`…`2026-T4`), el título, la descripción, el equipo y cómo va.
+--    El equipo va en `miembros` (jsonb) y no en una tabla aparte porque el
+--    "mínimo 3" es una regla del PROYECTO: así entra en un `check` y no se
+--    puede guardar un proyecto sin equipo ni borrarle gente hasta dejarlo en
+--    dos. Cada entrada guarda `usuario_id` + el nombre de la foto, para que
+--    la fila se lea aunque el usuario algún día no esté.
+--    `avance` (0 a 100) y `estado` son el estado ACTUAL; el historial está
+--    abajo, en la bitácora.
+--
+--  * `gran_cosecha_bitacora` es la bitácora DE CADA PROYECTO: toda alta,
+--    todo avance, todo cambio de estado, de equipo o de datos queda en una
+--    fila con fecha y quién lo hizo. Los avances son filas `tipo='AVANCE'`
+--    con su `porcentaje`, así el "cómo fue avanzando" sale de la misma
+--    tabla que el "quién cambió qué" —una sola fuente, no dos historiales
+--    que se pueden contradecir.
+--
+-- QUIÉN PUEDE QUÉ  (la misma cerradura en el menú, en la ruta y acá)
+--
+--  * CUALQUIER usuario autenticado CREA su proyecto (`creador_id` lo pone el
+--    servidor con `auth.uid()`: no se puede crear un proyecto "de otro").
+--  * CREA y EDITA su propio proyecto: el equipo reporta sus avances.
+--  * JUEZ y LÍDER editan EL DE CUALQUIERA: son los que dan seguimiento.
+--  * NADIE BORRA. Borrar un proyecto tiraría su bitácora por `on delete
+--    cascade` y con ella el historial del concurso: se CANCELA con `estado`,
+--    que es reversible y queda registrado. Sin política de `delete`, RLS no
+--    deja pasar ningún borrado por más rol que se tenga.
+--
+-- Cómo se registra: POR UN TRIGGER, no desde la app. Un `update` del proyecto
+-- (cualquiera que lo haga) dispara `gran_cosecha_registrar_cambio`, que en la
+-- MISMA transacción escribe la fila de bitácora que corresponda. Así "todo
+-- cambio queda en la bitácora" no depende de que alguien se acuerde de
+-- escribirla: no hay forma de cambiar el proyecto sin dejar registro, y si la
+-- bitácora no puede escribirse, el cambio tampoco se guarda (se revierte
+-- entero). La app no tiene política de INSERT sobre la bitácora: sólo lee.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+-- EL ROL JUEZ
+--
+-- `create table if not exists` no toca el `check` de una tabla ya creada, y
+-- un `check` que no conoce JUEZ haría fallar el INSERT de los jueces con un
+-- 23514 crudo. Se rehace el constraint con el mismo nombre (patrón de
+-- `items_tipo_check`): soltarlo y volver a ponerlo con JUEZ adentro.
+-- `invitaciones.rol` es la otra boca del mismo rol: por ahí el Líder invita
+-- al juez, y con el check viejo la invitación no se podría emitir.
+alter table public.profiles drop constraint if exists profiles_rol_check;
+alter table public.profiles add constraint profiles_rol_check
+  check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ'));
+
+alter table public.invitaciones drop constraint if exists invitaciones_rol_check;
+alter table public.invitaciones add constraint invitaciones_rol_check
+  check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ'));
+
+create table if not exists public.gran_cosecha_proyecto (
+  id uuid primary key default gen_random_uuid(),
+  -- El trimestre del evento, con el mismo formato que los períodos de bonos.
+  periodo text not null check (periodo ~ '^\d{4}-T[1-4]$'),
+  titulo text not null check (length(trim(titulo)) > 0),
+  descripcion text not null default '',
+  -- El equipo, mínimo 3. Jsonb con `{usuario_id, nombre}`: el `usuario_id`
+  -- cruza contra `profiles` y el `nombre` es la foto que se lee en pantalla,
+  -- igual que en `alerta_trabajadores`.
+  miembros jsonb not null check (jsonb_array_length(miembros) >= 3),
+  -- El estado actual. El historial es la bitácora; esto es para leer rápido.
+  avance integer not null default 0 check (avance >= 0 and avance <= 100),
+  -- La nota del ÚLTIMO avance. Vive acá porque quien la escribe es el
+  -- `update`, y es el trigger quien la copia a la bitácora: sin esta columna
+  -- no habría dónde poner el comentario que acompaña al porcentaje.
+  avance_nota text,
+  estado text not null default 'PROPUESTA'
+    check (estado in ('PROPUESTA','EN_CURSO','COMPLETADO','CANCELADO')),
+  -- NULL si el creador algún día se borra: el proyecto no se borra con él
+  -- (su bitácora sigue siendo historia del concurso).
+  creador_id uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_gran_cosecha_proyecto_periodo
+  on public.gran_cosecha_proyecto (periodo, estado);
+
+create table if not exists public.gran_cosecha_bitacora (
+  id uuid primary key default gen_random_uuid(),
+  proyecto_id uuid not null references public.gran_cosecha_proyecto(id) on delete cascade,
+  -- Lo que pasó, en una palabra. El detalle humano va en `detalle`, que arma
+  -- el trigger con valores viejos y nuevos, para que no haya que interpretar
+  -- un jsonb en pantalla.
+  tipo text not null check (tipo in ('ALTA','AVANCE','ESTADO','EDICION','MIEMBROS')),
+  -- Sólo en los avances; los demás cambios no tienen porcentaje.
+  porcentaje integer check (porcentaje is null or (porcentaje >= 0 and porcentaje <= 100)),
+  detalle text not null default '',
+  autor_id uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+-- El orden de la bitácora es por proyecto y por fecha: es lo que lee el
+-- detalle para reconstruir cómo avanzó.
+create index if not exists idx_gran_cosecha_bitacora_proyecto
+  on public.gran_cosecha_bitacora (proyecto_id, created_at);
+
+-- Quién gestiona: los JUECES y el LÍDER. Es la misma pregunta que el menú y
+-- la ruta, así que se responde una sola vez. `security definer` para leer
+-- `profiles` sin que las políticas de esa tabla se interpongan, igual que
+-- `puede_bonos`.
+create or replace function public.puede_gran_cosecha()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.rol in ('JUEZ','LIDER') and p.activo
+  );
+$$;
+
+-- ROW LEVEL SECURITY
+--
+-- El concurso es de TODA la empresa: cualquiera con sesión ve los proyectos
+-- y su bitácora (SELECT abierto). Lo que se RESTRINGE es escribir.
+alter table public.gran_cosecha_proyecto enable row level security;
+
+drop policy if exists gran_cosecha_proyecto_select on public.gran_cosecha_proyecto;
+create policy gran_cosecha_proyecto_select on public.gran_cosecha_proyecto
+  for select to authenticated using (true);
+
+drop policy if exists gran_cosecha_proyecto_insert on public.gran_cosecha_proyecto;
+create policy gran_cosecha_proyecto_insert on public.gran_cosecha_proyecto
+  for insert to authenticated
+  with check (creador_id = auth.uid());
+
+-- Crear el de uno mismo, editar el de cualquiera si es Juez o Líder. El
+-- `with check` repite la misma condición: sin eso, quien edita su proyecto
+-- podría reasignárselo a otra persona en el mismo update.
+drop policy if exists gran_cosecha_proyecto_update on public.gran_cosecha_proyecto;
+create policy gran_cosecha_proyecto_update on public.gran_cosecha_proyecto
+  for update to authenticated
+  using (public.puede_gran_cosecha() or creador_id = auth.uid())
+  with check (public.puede_gran_cosecha() or creador_id = auth.uid());
+
+-- SIN POLÍTICA DE DELETE, A PROPÓSITO: no borra nadie. Un delete en cascata
+-- se llevaría la bitácora y con ella el historial del concurso. El camino es
+-- `estado = 'CANCELADO'`, que además queda registrado.
+
+-- LA BITÁCORA LA ESCRIBE UN TRIGGER, NO LA APP
+--
+-- Un `update` del proyecto dispara ésta y, en la MISMA transacción, escribe
+-- la fila de bitácora que corresponda. Con eso "todo cambio queda en la
+-- bitácora" deja de depender de que alguien se acuerde de escribirla: no hay
+-- forma de cambiar el proyecto sin dejar registro, y si la bitácora no puede
+-- escribirse, el cambio entero se revierte.
+--
+-- Se comparan CAMPO POR CAMPO y no `to_jsonb(new) is distinct from
+-- to_jsonb(old)`: éste último dispararía con cualquier `update` (el
+-- `updated_at` solo ya lo haría) y llenaría la bitácora de filas que no
+-- dicen nada. Acá sólo entra lo que alguien leyó como un cambio.
+--
+-- `security definer` para que la inserción corra como el dueño de la tabla y
+-- no se choque con la RLS de la bitácora (que no tiene política de INSERT
+-- justamente para que nadie escriba desde la app).
+create or replace function public.gran_cosecha_registrar_cambio()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_autor uuid := auth.uid();
+begin
+  if tg_op = 'INSERT' then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'ALTA', null, 'Se presentó el proyecto «' || new.titulo || '»', v_autor);
+    return new;
+  end if;
+
+  -- El avance, con la nota que lo acompaña. La nota sola (mismo porcentaje,
+  -- comentario nuevo) también cuenta: es el equipo contando qué hizo.
+  if new.avance is distinct from old.avance
+     or (new.avance_nota is distinct from old.avance_nota and coalesce(new.avance_nota, '') <> '') then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'AVANCE', new.avance, coalesce(trim(new.avance_nota), ''), v_autor);
+  end if;
+
+  if new.estado is distinct from old.estado then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'ESTADO', null, old.estado || ' → ' || new.estado, v_autor);
+  end if;
+
+  if new.titulo is distinct from old.titulo then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'EDICION', null, 'Título: «' || old.titulo || '» → «' || new.titulo || '»', v_autor);
+  end if;
+
+  if new.descripcion is distinct from old.descripcion then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'EDICION', null, 'Se actualizó la descripción', v_autor);
+  end if;
+
+  if new.periodo is distinct from old.periodo then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'EDICION', null, 'Trimestre: ' || old.periodo || ' → ' || new.periodo, v_autor);
+  end if;
+
+  if new.miembros is distinct from old.miembros then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'MIEMBROS', null,
+            'El equipo pasó de ' || jsonb_array_length(old.miembros) || ' a ' || jsonb_array_length(new.miembros) || ' integrantes',
+            v_autor);
+  end if;
+
+  return new;
+end $$;
+
+drop trigger if exists gran_cosecha_registrar_cambio on public.gran_cosecha_proyecto;
+create trigger gran_cosecha_registrar_cambio
+  after insert or update on public.gran_cosecha_proyecto
+  for each row
+  execute function public.gran_cosecha_registrar_cambio();
+
+-- La bitácora se LEE desde la app y la escribe sólo el trigger: sin política
+-- de INSERT, RLS no deja pasar ningún intento de escribirla desde el cliente,
+-- y sin UPDATE ni DELETE el registro no se puede reescribir después de hecho.
+alter table public.gran_cosecha_bitacora enable row level security;
+
+drop policy if exists gran_cosecha_bitacora_select on public.gran_cosecha_bitacora;
+create policy gran_cosecha_bitacora_select on public.gran_cosecha_bitacora
+  for select to authenticated using (true);
+
+-- La función de trigger también se cierra: no la llama nadie desde la app
+-- (la dispara el propio motor), y sin el revoke quedaría ejecutable por
+-- `anon` con el grant por defecto de Supabase.
+revoke execute on function public.gran_cosecha_registrar_cambio() from public, anon;
+grant execute on function public.gran_cosecha_registrar_cambio() to authenticated;
+
+-- Las dos tablas nacen con el `alter default privileges ... revoke from anon`
+-- de `cerrar-permisos-anon.sql` (que corre antes, más arriba en el archivo),
+-- pero el revoke explícito no deja nada al azar: es el mismo cierre que hace
+-- el bloque de bonos.
+do $$
+begin
+  execute 'revoke all on public.gran_cosecha_proyecto from anon';
+  execute 'revoke all on public.gran_cosecha_bitacora from anon';
+end $$;
+
+-- `puede_gran_cosecha` sólo con sesión: sus políticas son todas
+-- `to authenticated`, así que anon nunca las evalúa. `authenticated` sí la
+-- necesita, porque RLS llama a la función con el rol que consulta.
+revoke execute on function public.puede_gran_cosecha() from public, anon;
+grant execute on function public.puede_gran_cosecha() to authenticated;

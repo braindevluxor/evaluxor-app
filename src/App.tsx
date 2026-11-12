@@ -33,6 +33,10 @@ const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ defau
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
 // Bonos por desempeño: qué cargos gozan de bono y el pago de los mismos.
 const BonosPage = lazy(() => import('./pages/config/Bonos').then((m) => ({ default: m.BonosPage })))
+// Gran Cosecha: el concurso trimestral de proyectos. Sin `RequireRol` —lo
+// crean los trabajadores y lo siguen los jueces— pero con lazy, porque es la
+// única pantalla que no entra nadie si no entra a la consola.
+const GranCosechaPage = lazy(() => import('./pages/GranCosecha').then((m) => ({ default: m.GranCosechaPage })))
 // Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
 // cuenta. Va con lazy porque sólo se descarga quien abre el enlace.
 const ConciliacionPublica = lazy(() =>
@@ -288,6 +292,11 @@ function Rutas() {
                           lleva `RequireRol`. Va adentro de la consola para que
                           se vea con su barra y su menú, igual que el resto. */}
                       <Route path="/perfil" element={<PerfilPage />} />
+                      {/* Gran Cosecha es de TODA la empresa: cualquiera con
+                          sesión presenta su proyecto y cualquiera lo mira; el
+                          seguimiento lo dan los jueces, que entra por el mismo
+                          RLS (`puede_gran_cosecha`) que pide el menú. */}
+                      <Route path="/gran-cosecha" element={<GranCosechaPage />} />
                     </Route>
 
                     <Route path="*" element={<HomeRedirect />} />

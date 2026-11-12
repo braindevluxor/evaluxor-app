@@ -9,7 +9,8 @@ export const ETIQUETAS_ROL: Record<Rol, string> = {
   EVALUADOR: 'Evaluador',
   GERENTE_S: 'Gerente de Sucursal',
   GERENTE_C: 'Gerente Corporativo',
-  GERENTE_TH: 'Gerente de Talento Humano'
+  GERENTE_TH: 'Gerente de Talento Humano',
+  JUEZ: 'Juez de Gran Cosecha'
 }
 
 export const ROLES_EDITABLES: Exclude<Rol, 'SIN_ROL'>[] = [
@@ -17,7 +18,8 @@ export const ROLES_EDITABLES: Exclude<Rol, 'SIN_ROL'>[] = [
   'EVALUADOR',
   'GERENTE_S',
   'GERENTE_C',
-  'GERENTE_TH'
+  'GERENTE_TH',
+  'JUEZ'
 ]
 
 export function puedeEvaluar(rol: Rol): boolean {
@@ -60,6 +62,10 @@ export function homePorRol(rol: Rol): string {
     case 'GERENTE_C':
     case 'GERENTE_TH':
       return '/dashboard'
+    case 'JUEZ':
+      // El juez no entra a Resultados (la ruta lo rebotaría acá), así que su
+      // casa es directamente el concurso que juzga.
+      return '/gran-cosecha'
     default:
       return '/pendiente'
   }
