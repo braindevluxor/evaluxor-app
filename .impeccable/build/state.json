@@ -1,0 +1,127 @@
+{
+  "tool": "build-phase",
+  "version": 2,
+  "startedAt": "2026-11-13T14:02:25.012Z",
+  "comp": ".impeccable\\mocks\\decision\\premios.png",
+  "direction": "f55c8a84",
+  "breakpoint": "1440x900",
+  "artifact": "src/pages/publico/ConcursoPublico.tsx",
+  "phase": "hero",
+  "phases": {
+    "comps": {
+      "status": "closed",
+      "openedAt": "2026-11-13T14:02:25.011Z",
+      "closedAt": "2026-11-13T14:03:53.951Z",
+      "attempts": 2,
+      "notes": [],
+      "gate": {
+        "ok": true,
+        "reasons": [],
+        "summary": "3 comps, 1 approved",
+        "approved": ".impeccable\\mocks\\decision\\premios.png",
+        "at": "2026-11-13T14:03:53.951Z"
+      },
+      "forced": null
+    },
+    "spec": {
+      "status": "closed",
+      "openedAt": "2026-11-13T14:03:53.960Z",
+      "closedAt": "2026-11-13T14:49:50.985Z",
+      "attempts": 5,
+      "notes": [],
+      "gate": {
+        "ok": true,
+        "reasons": [],
+        "summary": "29 regions, 1 plates, 15 text regions measured",
+        "at": "2026-11-13T14:49:50.985Z"
+      },
+      "forced": null
+    },
+    "plates": {
+      "status": "closed",
+      "openedAt": "2026-11-13T14:49:50.985Z",
+      "closedAt": "2026-11-14T17:10:39.387Z",
+      "attempts": 3,
+      "notes": [],
+      "gate": {
+        "ok": true,
+        "reasons": [],
+        "summary": "1/1 plates",
+        "at": "2026-11-14T17:10:39.364Z"
+      },
+      "forced": null
+    },
+    "hero": {
+      "status": "open",
+      "openedAt": "2026-11-14T17:10:39.387Z",
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "sections": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "motion": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "responsive": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "review": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    }
+  },
+  "finish": null,
+  "decisionComp": ".impeccable\\mocks\\decision\\premios.png",
+  "plates": {
+    "logo-marca": {
+      "id": "logo-marca",
+      "file": "assets/plates/logo-marca.png",
+      "status": "ok",
+      "assetHash": "aa70447ad2ae35df4089f5d10cf9ed915a2e01855a71499490f8554931ca6045",
+      "regionHash": "49508f67f64cf5cdb182e1bea7cd2129b1035e7ce28e24bc82262d501c0e710f",
+      "referenceHash": "3de1f410d4ed9017cc03f3c5b9680e2212711f46b2a1a490add3d02c23419abc",
+      "reference": {
+        "policy": "plate-reference-v2",
+        "excludedPixels": 0,
+        "totalPixels": 11968,
+        "remainingPixels": 11968,
+        "excludedFraction": 0.0,
+        "fullyExcluded": false,
+        "regions": [],
+        "ignoredContainers": [
+          "nav"
+        ]
+      },
+      "compHash": "874c3f5590abc37d33f66e1b0ea70a1e0f9658c9695070d66e40e790cc37491f",
+      "size": "660x256",
+      "score": 0.7753
+    }
+  }
+}

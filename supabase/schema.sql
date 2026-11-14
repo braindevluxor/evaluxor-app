@@ -5970,3 +5970,149 @@ end $$;
 -- necesita, porque RLS llama a la función con el rol que consulta.
 revoke execute on function public.puede_gran_cosecha() from public, anon;
 grant execute on function public.puede_gran_cosecha() to authenticated;
+
+-- Archivo consolidado: gran-cosecha-publico.sql
+-- ###########################################################################
+-- ============================================================================
+-- GRAN COSECHA PÚBLICO: la landing /concurso, sin sesión
+--
+-- QUIÉN LO LEE Y POR QUÉ UNA FUNCIÓN
+-- ----------------------------------
+-- La página del concurso se comparte por WhatsApp y se abre SIN cuenta, así
+-- que no puede pasar por la RLS de sesión: `anon` no tiene privilegio de tabla
+-- sobre nada (cierre de `cerrar-permisos-anon.sql`). Mismo patrón que los
+-- enlaces de conciliación: una función SECURITY DEFINER con search_path fijo
+-- que devuelve exactamente lo que la página pinta y nada más.
+--
+-- Lo que devuelve:
+--  * `proyectos` del período, SIN `creador_id`, SIN `autor_id` y sin los
+--    `usuario_id` del equipo (sólo los nombres): lo que la landing muestra
+--    como ficha. Los CANCELADOS quedan afuera — ya no son participantes.
+--  * Los AVANCES de la bitácora de cada proyecto (porcentaje y nota), que es
+--    el «cómo fue avanzando» de la ficha. Sólo `tipo = 'AVANCE'`: cambios de
+--    estado o de equipo no son contenido público.
+--  * El `contenido` editorial del período + lo GLOBAL (bases, faq y ganadores
+--    viven en GLOBAL; calendario, premios y jurado se cargan por trimestre).
+--
+-- QUIÉN ESCRIBE EL CONTENIDO
+-- ---------------------------
+-- `gran_cosecha_contenido` es una fila por (periodo, clave): sin DELETE (el
+-- contenido se REESCRIBE, no se borra — mismo criterio que los proyectos) y
+-- con la MISMA cerradura `puede_gran_cosecha()` que el resto del concurso:
+-- sólo JUEZ y LÍDER cargan bases, fechas, premios y jurado desde la pantalla
+-- de Contenido. `anon` no tiene privilegio de tabla: la página pública lee
+-- por la función de arriba.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 1) La tabla de contenido editorial
+-- ----------------------------------------------------------------------------
+create table if not exists public.gran_cosecha_contenido (
+  -- 'GLOBAL' para lo que no cambia por trimestre (bases, faq, ganadores);
+  -- si no, el mismo formato de trimestre que los proyectos.
+  periodo text not null default 'GLOBAL'
+    check (periodo = 'GLOBAL' or periodo ~ '^\d{4}-T[1-4]$'),
+  clave text not null
+    check (clave in ('bases', 'calendario', 'premios', 'jurado', 'faq', 'ganadores')),
+  -- La forma depende de la clave y vive en la app (ver concursoPublico.ts):
+  -- texto, lista de hitos, lista de premios, lista de jurados, etc.
+  valor jsonb not null default '{}'::jsonb,
+  actualizado_at timestamptz not null default now(),
+  actualizado_por uuid references public.profiles(id) on delete set null,
+  primary key (periodo, clave)
+);
+
+alter table public.gran_cosecha_contenido enable row level security;
+
+-- Lectura: cualquier sesión. No es una apertura — el contenido de todas formas
+-- es PÚBLICO (la landing lo muestra sin cuenta); acá sólo se evita que la
+-- pantalla de Contenido dependa de la función para precargar lo que ya existe.
+drop policy if exists gran_cosecha_contenido_select on public.gran_cosecha_contenido;
+create policy gran_cosecha_contenido_select on public.gran_cosecha_contenido
+  for select to authenticated using (true);
+
+-- Escritura: JUEZ y LÍDER, la misma cerradura que los proyectos.
+drop policy if exists gran_cosecha_contenido_insert on public.gran_cosecha_contenido;
+create policy gran_cosecha_contenido_insert on public.gran_cosecha_contenido
+  for insert to authenticated with check (public.puede_gran_cosecha());
+
+drop policy if exists gran_cosecha_contenido_update on public.gran_cosecha_contenido;
+create policy gran_cosecha_contenido_update on public.gran_cosecha_contenido
+  for update to authenticated
+  using (public.puede_gran_cosecha())
+  with check (public.puede_gran_cosecha());
+
+-- Sin política de delete: nadie borra contenido, se reescribe (como todo el
+-- concurso). Y anon sin privilegio de tabla, por las dos capas.
+do $$
+begin
+  execute 'revoke all on public.gran_cosecha_contenido from anon';
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- 2) La función que lee la landing
+-- ----------------------------------------------------------------------------
+-- SECURITY DEFINER porque corre SIN sesión y anon no tiene permiso de tabla.
+-- `stable`: no escribe nada y PostgREST puede cachearla por petición.
+create or replace function public.ver_concurso_publico(p_periodo text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select jsonb_build_object(
+    'periodo', p_periodo,
+    'contenido', (
+      select coalesce(jsonb_agg(
+        jsonb_build_object('clave', c.clave, 'periodo', c.periodo, 'valor', c.valor)
+        order by c.clave
+      ), '[]'::jsonb)
+      from public.gran_cosecha_contenido c
+      where c.periodo = p_periodo or c.periodo = 'GLOBAL'
+    ),
+    'proyectos', (
+      select coalesce(jsonb_agg(
+        jsonb_build_object(
+          'id', pr.id,
+          'titulo', pr.titulo,
+          'descripcion', pr.descripcion,
+          -- Sólo los NOMBRES del equipo: el usuario_id no es contenido público.
+          'miembros', (
+            select coalesce(jsonb_agg(m -> 'nombre'), '[]'::jsonb)
+            from jsonb_array_elements(pr.miembros) m
+          ),
+          'avance', pr.avance,
+          'avance_nota', pr.avance_nota,
+          'estado', pr.estado,
+          'created_at', pr.created_at,
+          'avances', coalesce((
+            select jsonb_agg(
+              jsonb_build_object(
+                'porcentaje', b.porcentaje,
+                'detalle', b.detalle,
+                'created_at', b.created_at
+              )
+              order by b.created_at
+            )
+            from public.gran_cosecha_bitacora b
+            where b.proyecto_id = pr.id and b.tipo = 'AVANCE'
+          ), '[]'::jsonb)
+        )
+        order by pr.avance desc, pr.created_at
+      ), '[]'::jsonb)
+      from public.gran_cosecha_proyecto pr
+      where pr.periodo = p_periodo
+        and pr.estado <> 'CANCELADO'
+    )
+  );
+$$;
+
+-- Permisos: la página llama por RPC SIN sesión, así que `anon` sí. El revoke
+-- va DESPUÉS de la definición (el archivo se aplica de arriba abajo: un revoke
+-- a una función que todavía no existe frena la instalación) y quita PUBLIC
+-- porque los permisos en Postgres son aditivos.
+revoke execute on function public.ver_concurso_publico(text) from public, anon;
+grant  execute on function public.ver_concurso_publico(text) to anon, authenticated;

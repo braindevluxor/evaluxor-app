@@ -1,0 +1,413 @@
+{
+  "schemaVersion": 3,
+  "stage": "components",
+  "id": "components",
+  "title": "Plan and asset review · src/pages/publico/ConcursoPublico.tsx",
+  "comp": {
+    "path": ".impeccable/mocks/decision/premios.png",
+    "width": 1440,
+    "height": 900
+  },
+  "specSha256": "f5f205eac285d31cd61f6ed0a7c5bce243c829ecfc6704ea7ae15787b5401226",
+  "components": [
+    {
+      "id": "logo-marca",
+      "name": "Logo marca",
+      "kind": "image",
+      "role": "asset",
+      "box": {
+        "x": 0.0167,
+        "y": 0.0044,
+        "w": 0.1222,
+        "h": 0.0756
+      },
+      "note": "logotipo completo EvaLuxor (asset real public/completo.webp) embebido en la barra navy, que sangra hasta los bordes de la caja",
+      "medium": "raster",
+      "preview": {
+        "kind": "image",
+        "path": "assets/plates/logo-marca.png"
+      },
+      "dependencies": []
+    },
+    {
+      "id": "placa-2do",
+      "name": "Placa 2do",
+      "kind": "chrome",
+      "role": "plan",
+      "box": {
+        "x": 0.6,
+        "y": 0.5,
+        "w": 0.3,
+        "h": 0.2
+      },
+      "note": "placa «2º puesto» gris con medalla, dibujada en CSS (rectángulo redondeado, degradado y círculo)",
+      "medium": "code",
+      "preview": {
+        "kind": "comp-crop"
+      },
+      "codeDrawn": false,
+      "dependencies": []
+    },
+    {
+      "id": "placa-1ro",
+      "name": "Placa 1ro",
+      "kind": "chrome",
+      "role": "plan",
+      "box": {
+        "x": 0.7,
+        "y": 0.3,
+        "w": 0.2,
+        "h": 0.4
+      },
+      "note": "placa «1er puesto Gran Cosecha» ámbar elevada al centro, dibujada en CSS",
+      "medium": "code",
+      "preview": {
+        "kind": "comp-crop"
+      },
+      "codeDrawn": false,
+      "dependencies": []
+    },
+    {
+      "id": "placa-mencion",
+      "name": "Placa mencion",
+      "kind": "chrome",
+      "role": "plan",
+      "box": {
+        "x": 0.9,
+        "y": 0.5,
+        "w": 0.1,
+        "h": 0.2
+      },
+      "note": "placa «Mención del jurado» gris a la derecha, dibujada en CSS",
+      "medium": "code",
+      "preview": {
+        "kind": "comp-crop"
+      },
+      "codeDrawn": false,
+      "dependencies": []
+    },
+    {
+      "id": "pos-1-barra",
+      "name": "Pos 1 barra",
+      "kind": "chrome",
+      "role": "plan",
+      "box": {
+        "x": 0.2,
+        "y": 0.8,
+        "w": 0.2,
+        "h": 0.1
+      },
+      "note": "barra de avance verde al 82% sobre riel gris",
+      "medium": "code",
+      "preview": {
+        "kind": "comp-crop"
+      },
+      "codeDrawn": false,
+      "dependencies": []
+    },
+    {
+      "id": "pos-2-barra",
+      "name": "Pos 2 barra",
+      "kind": "chrome",
+      "role": "plan",
+      "box": {
+        "x": 0.5,
+        "y": 0.8,
+        "w": 0.2,
+        "h": 0.1
+      },
+      "note": "barra de avance verde al 67% sobre riel gris",
+      "medium": "code",
+      "preview": {
+        "kind": "comp-crop"
+      },
+      "codeDrawn": false,
+      "dependencies": []
+    },
+    {
+      "id": "pos-3-barra",
+      "name": "Pos 3 barra",
+      "kind": "chrome",
+      "role": "plan",
+      "box": {
+        "x": 0.8,
+        "y": 0.8,
+        "w": 0.2,
+        "h": 0.1
+      },
+      "note": "barra de avance verde al 54% sobre riel gris",
+      "medium": "code",
+      "preview": {
+        "kind": "comp-crop"
+      },
+      "codeDrawn": false,
+      "dependencies": []
+    }
+  ],
+  "codeRegions": [
+    {
+      "id": "nav",
+      "name": "Nav",
+      "kind": "chrome",
+      "box": {
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 0.1
+      },
+      "note": "barra de navegación navy a todo el ancho: fondo de la barra; adentro viven la marca, los enlaces y el CTA como regiones propias"
+    },
+    {
+      "id": "nav-enlaces",
+      "name": "Nav enlaces",
+      "kind": "text",
+      "box": {
+        "x": 0.1389,
+        "y": 0.02,
+        "w": 0.3264,
+        "h": 0.0489
+      },
+      "note": "enlaces de sección: Bases, Calendario, Proyectos, Premios, FAQ"
+    },
+    {
+      "id": "nav-cta",
+      "name": "Nav cta",
+      "kind": "control",
+      "box": {
+        "x": 0.8,
+        "y": 0,
+        "w": 0.2,
+        "h": 0.1
+      },
+      "note": "botón ámbar «Presentá tu proyecto» en la barra"
+    },
+    {
+      "id": "eyebrow",
+      "name": "Eyebrow",
+      "kind": "text",
+      "box": {
+        "x": 0.0333,
+        "y": 0.1467,
+        "w": 0.3375,
+        "h": 0.0333
+      },
+      "note": "antetítulo ámbar «CONCURSO TRIMESTRAL DE PROYECTOS · T4 2026»"
+    },
+    {
+      "id": "titular",
+      "name": "Titular",
+      "kind": "text",
+      "box": {
+        "x": 0,
+        "y": 0.2,
+        "w": 0.5,
+        "h": 0.2
+      },
+      "note": "H1 a dos líneas «Gran Cosecha» navy / «Luxor» ámbar, display 96px"
+    },
+    {
+      "id": "subcopy",
+      "name": "Subcopy",
+      "kind": "text",
+      "box": {
+        "x": 0,
+        "y": 0.4,
+        "w": 0.5,
+        "h": 0.2
+      },
+      "note": "párrafo de presentación de tres renglones bajo el titular"
+    },
+    {
+      "id": "cta-primario",
+      "name": "Cta primario",
+      "kind": "control",
+      "box": {
+        "x": 0.0333,
+        "y": 0.54,
+        "w": 0.2667,
+        "h": 0.0933
+      },
+      "note": "botón ámbar sólido «Presentá tu proyecto» con sombra de base"
+    },
+    {
+      "id": "cta-secundario",
+      "name": "Cta secundario",
+      "kind": "control",
+      "box": {
+        "x": 0.2,
+        "y": 0.54,
+        "w": 0.1458,
+        "h": 0.0933
+      },
+      "note": "botón secundario con borde navy «Ver bases»"
+    },
+    {
+      "id": "panel-vitrina",
+      "name": "Panel vitrina",
+      "kind": "chrome",
+      "box": {
+        "x": 0.5,
+        "y": 0.1,
+        "w": 0.5,
+        "h": 0.7
+      },
+      "note": "columna navy del hero: fondo del panel de la vitrina; adentro vive la repisa y cada placa como región propia"
+    },
+    {
+      "id": "franja-posiciones",
+      "name": "Franja posiciones",
+      "kind": "chrome",
+      "box": {
+        "x": 0,
+        "y": 0.7,
+        "w": 1,
+        "h": 0.2
+      },
+      "note": "franja blanca inferior: fondo de la banda de posiciones; adentro vive el rótulo y las tres posiciones como regiones propias"
+    },
+    {
+      "id": "posiciones-titulo",
+      "name": "Posiciones titulo",
+      "kind": "text",
+      "box": {
+        "x": 0,
+        "y": 0.8,
+        "w": 0.2,
+        "h": 0.1
+      },
+      "note": "rótulo «POSICIONES EN VIVO» en dos renglones, mono uppercase"
+    },
+    {
+      "id": "pos-1-num",
+      "name": "Pos 1 num",
+      "kind": "text",
+      "box": {
+        "x": 0.1,
+        "y": 0.8,
+        "w": 0.1,
+        "h": 0.1
+      },
+      "note": "posición «1»"
+    },
+    {
+      "id": "pos-1-nombre",
+      "name": "Pos 1 nombre",
+      "kind": "text",
+      "box": {
+        "x": 0.2083,
+        "y": 0.8067,
+        "w": 0.0917,
+        "h": 0.06
+      },
+      "note": "nombre del proyecto líder «Estantes sin quiebres»"
+    },
+    {
+      "id": "pos-1-pct",
+      "name": "Pos 1 pct",
+      "kind": "text",
+      "box": {
+        "x": 0.3,
+        "y": 0.8,
+        "w": 0.2,
+        "h": 0.1
+      },
+      "note": "porcentaje «82%» en verde"
+    },
+    {
+      "id": "pos-2-num",
+      "name": "Pos 2 num",
+      "kind": "text",
+      "box": {
+        "x": 0.4,
+        "y": 0.8,
+        "w": 0.1,
+        "h": 0.1
+      },
+      "note": "posición «2»"
+    },
+    {
+      "id": "pos-2-nombre",
+      "name": "Pos 2 nombre",
+      "kind": "text",
+      "box": {
+        "x": 0.4,
+        "y": 0.8,
+        "w": 0.2,
+        "h": 0.1
+      },
+      "note": "nombre «Caja cero espera»"
+    },
+    {
+      "id": "pos-2-pct",
+      "name": "Pos 2 pct",
+      "kind": "text",
+      "box": {
+        "x": 0.65,
+        "y": 0.82,
+        "w": 0.0417,
+        "h": 0.0333
+      },
+      "note": "porcentaje «67%» en verde"
+    },
+    {
+      "id": "pos-3-num",
+      "name": "Pos 3 num",
+      "kind": "text",
+      "box": {
+        "x": 0.7,
+        "y": 0.8,
+        "w": 0.1,
+        "h": 0.1
+      },
+      "note": "posición «3»"
+    },
+    {
+      "id": "pos-3-nombre",
+      "name": "Pos 3 nombre",
+      "kind": "text",
+      "box": {
+        "x": 0.7,
+        "y": 0.8,
+        "w": 0.2,
+        "h": 0.1
+      },
+      "note": "nombre «Fruta fresca al día»"
+    },
+    {
+      "id": "pos-3-pct",
+      "name": "Pos 3 pct",
+      "kind": "text",
+      "box": {
+        "x": 0.925,
+        "y": 0.82,
+        "w": 0.0417,
+        "h": 0.0333
+      },
+      "note": "porcentaje «54%» en verde"
+    },
+    {
+      "id": "peek",
+      "name": "Peek",
+      "kind": "chrome",
+      "box": {
+        "x": 0,
+        "y": 0.9,
+        "w": 1,
+        "h": 0.1
+      },
+      "note": "franja navy al pie del primer viewport: fondo; adentro vive el enlace a la siguiente sección"
+    },
+    {
+      "id": "peek-texto",
+      "name": "Peek texto",
+      "kind": "text",
+      "box": {
+        "x": 0,
+        "y": 0.9067,
+        "w": 0.2,
+        "h": 0.0933
+      },
+      "note": "«Cómo funciona →» en blanco"
+    }
+  ]
+}

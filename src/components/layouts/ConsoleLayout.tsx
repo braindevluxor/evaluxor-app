@@ -1,4 +1,4 @@
-import { Star, Sprout, Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
+import { Star, Sprout, Gauge, FolderOpen, FileText, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -14,6 +14,12 @@ interface EnlaceMenu {
   label: string
   icon: ReactNode
   end?: boolean
+  /**
+   * A quién se le muestra: si va, sólo para esos roles. Sirve para no poner en
+   * el menú un enlace que el `RequireRol` de la ruta rebotaría —el editor del
+   * contenido es de JUEZ y LÍDER, y para el resto sería un callejón—.
+   */
+  roles?: string[]
 }
 
 const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
@@ -26,7 +32,10 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
   // al que entra toda la empresa (presentan los trabajadores, dan seguimiento
   // los jueces), no una pantalla de indicadores.
   { seccion: 'Gran Cosecha', items: [
-    { to: '/gran-cosecha', label: 'Proyectos', icon: <Sprout className="h-5 w-5" /> }
+    { to: '/gran-cosecha', label: 'Proyectos', icon: <Sprout className="h-5 w-5" /> },
+    // Lo que se PUBLICA en la landing /concurso: bases, fechas, premios,
+    // jurado y FAQ. Sólo JUEZ y LÍDER, que es quien los carga.
+    { to: '/gran-cosecha/contenido', label: 'Contenido', roles: ['JUEZ', 'LIDER'], icon: <FileText className="h-5 w-5" /> }
   ]}
 ]
 
@@ -36,10 +45,17 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
  * El JUEZ no tiene acceso a las vistas de Resultados (ninguna lo incluye en
  * su `RequireRol`), así que un enlace de ahí lo rebotaría a su propia casa.
  * Se le arma el menú con la sección que sí puede abrir y nada más.
+ *
+ * Los enlaces con `roles` se filtran primero: el de Contenido no le sirve a
+ * nadie que no sea JUEZ o LÍDER, y un enlace que la ruta rechaza sólo ensucia
+ * el menú.
  */
 function seccionesDe(rol: string | undefined): { seccion: string; items: EnlaceMenu[] }[] {
-  if (rol === 'JUEZ') return enlaces.filter((s) => s.seccion === 'Gran Cosecha')
-  return enlaces
+  const visibles = enlaces
+    .map((s) => ({ ...s, items: s.items.filter((i) => !i.roles || i.roles.includes(rol ?? '')) }))
+    .filter((s) => s.items.length > 0)
+  if (rol === 'JUEZ') return visibles.filter((s) => s.seccion === 'Gran Cosecha')
+  return visibles
 }
 
 const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
@@ -57,6 +73,12 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/gran-cosecha': {
     titulo: 'Gran Cosecha',
     subtitulo: 'Concurso trimestral de proyectos: equipos, propuestas y avances'
+  },
+  // Lo que publica la landing pública (/concurso): sin título propio la
+  // cabecera se quedaría sin rótulo en esta vista.
+  '/gran-cosecha/contenido': {
+    titulo: 'Contenido del concurso',
+    subtitulo: 'Bases, fechas, premios, jurado y FAQ que se publican en la página pública'
   }
 }
 

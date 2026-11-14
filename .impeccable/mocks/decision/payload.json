@@ -1,0 +1,43 @@
+{
+  "title": "Gran Cosecha Luxor — estructura de la landing",
+  "question": "Tres estructuras para la página pública del concurso. ¿Cuál cerramos?",
+  "options": [
+    {
+      "id": "premios",
+      "label": "La vitrina de premios",
+      "kicker": "THE ROLL",
+      "thesis": "El premio abre la página: el hero es lo que se gana, y cada sección debajo responde cómo ganarlo, quién va ganando y cuándo cierra.",
+      "palette": ["#0B2545", "#D97706", "#F8FAFC", "#16A34A"],
+      "materials": ["navy EvaLuxor", "chips pastel del sistema"],
+      "viewport": "Hero a pantalla completa con los premios del trimestre en vitrina, CTA «Presentá tu proyecto» y una franja con las posiciones en vivo.",
+      "risk": "Si los premios son modestos, el hero promete menos de lo que la página cumple.",
+      "html": ".impeccable/mocks/decision/premios.html",
+      "htmlFrame": "1440x900"
+    },
+    {
+      "id": "calendario",
+      "label": "El reloj del trimestre",
+      "thesis": "La línea de tiempo del trimestre es la columna vertebral: cada hito ancla una sección (inscripción → bases, cierre → posiciones, premiación → premios).",
+      "palette": ["#0B2545", "#4F87C7", "#F8FAFC", "#D97706"],
+      "materials": ["navy EvaLuxor", "hitos fechados sobre línea"],
+      "viewport": "El trimestre T4 2026 como línea vertical con hitos fechados, el «hoy» marcado y el CTA de participación pegado al hito activo.",
+      "risk": "Antes del arranque, el reloj muestra un trimestre vacío.",
+      "html": ".impeccable/mocks/decision/calendario.html",
+      "htmlFrame": "1440x900"
+    },
+    {
+      "id": "guia",
+      "label": "Tres pasos al podio",
+      "thesis": "La convocatoria en tres pasos (armá tu equipo, presentá, avanzá) abre con la acción ya visible; el tablero vivo y los premios la respaldan debajo.",
+      "palette": ["#0B2545", "#16A34A", "#F8FAFC", "#D97706"],
+      "materials": ["navy EvaLuxor", "pasos numerados"],
+      "viewport": "Hero con los tres pasos numerados y el CTA «Armá tu equipo»; debajo, vista previa del tablero de posiciones en vivo.",
+      "risk": "Suena a instructivo si el tono festivo no entra en el hero.",
+      "html": ".impeccable/mocks/decision/guia.html",
+      "htmlFrame": "1440x900"
+    }
+  ],
+  "reroll": { "registers": ["safer", "bolder"] },
+  "steer": true,
+  "buildPath": { "value": "comp", "toggle": true }
+}

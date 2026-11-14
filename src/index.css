@@ -67,6 +67,41 @@
   src: url('@fontsource/poppins/files/poppins-latin-800-normal.woff2') format('woff2');
 }
 
+/* --- Archivo: la tipografía de la landing pública Gran Cosecha (/concurso) --
+   Familia medida sobre el comp aprobado (font-match la eligió por huella:
+   Archivo 900 para el display, 96px de tamaño para la altura de mayúscula
+   medida). Va declarada acá con el mismo patrón auto-hospedado que Lato y
+   Poppins: la app es offline-first y el service worker precachea los woff2.
+   Sólo la landing la usa; el resto de la app sigue con Lato/Poppins. */
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('@fontsource/archivo/files/archivo-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('@fontsource/archivo/files/archivo-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('@fontsource/archivo/files/archivo-latin-800-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('@fontsource/archivo/files/archivo-latin-900-normal.woff2') format('woff2');
+}
+
 @theme {
   --font-sans: 'Lato', ui-sans-serif, system-ui, sans-serif;
   --color-primary: #28315F;

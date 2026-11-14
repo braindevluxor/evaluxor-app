@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Gran Cosecha Luxor — El reloj del trimestre</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800;900&family=Archivo+Narrow:wght@700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:1440px; height:900px; overflow:hidden; }
+  body { font-family:'Archivo',sans-serif; background:#0B2545; color:#0B2545; }
+  .nav { height:72px; display:flex; align-items:center; gap:40px; padding:0 56px; background:#081C36; color:#fff; }
+  .mark { font-weight:900; font-size:22px; letter-spacing:-.02em; }
+  .mark span { color:#F59E0B; }
+  .links { display:flex; gap:28px; font-size:15px; font-weight:600; color:#94A3B8; }
+  .links b { color:#fff; }
+  .cta-nav { margin-left:auto; background:#F59E0B; color:#0B2545; font-weight:800; font-size:15px; padding:12px 22px; border-radius:8px; }
+  .wrap { display:grid; grid-template-columns:.9fr 1.1fr; height:754px; background:#F8FAFC; }
+  .left { background:#0B2545; color:#fff; padding:56px 48px; position:relative; }
+  .eyebrow { font-size:13px; font-weight:800; letter-spacing:.18em; text-transform:uppercase; color:#F59E0B; }
+  h1 { font-size:74px; line-height:.96; font-weight:900; letter-spacing:-.03em; margin:16px 0 14px; }
+  .sub { font-size:18px; line-height:1.55; color:#CBD5E1; max-width:440px; }
+  .count { margin-top:38px; background:#081C36; border:1px solid #1E3A63; border-radius:14px; padding:24px 26px; max-width:440px; }
+  .count .lbl { font-size:12px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; color:#64748B; }
+  .count .big { font-family:'Archivo Narrow',sans-serif; font-size:64px; font-weight:700; color:#F59E0B; line-height:1.05; margin-top:6px; }
+  .count .big span { font-size:22px; color:#fff; }
+  .cta { display:inline-block; margin-top:30px; background:#F59E0B; color:#0B2545; font-size:18px; font-weight:800; padding:18px 34px; border-radius:10px; box-shadow:0 6px 0 #B45309; }
+  .right { padding:44px 56px; position:relative; }
+  .right h2 { font-size:15px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; color:#64748B; margin-bottom:8px; }
+  .line { position:absolute; left:96px; top:96px; bottom:36px; width:4px; background:#E2E8F0; }
+  .line i { position:absolute; top:0; left:0; width:100%; height:52%; background:#F59E0B; }
+  .mile { position:relative; padding:0 0 0 74px; height:104px; }
+  .dot { position:absolute; left:26px; top:6px; width:44px; height:44px; border-radius:50%; background:#fff; border:4px solid #CBD5E1; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:15px; color:#64748B; z-index:2; }
+  .mile.done .dot { background:#16A34A; border-color:#16A34A; color:#fff; }
+  .mile.now .dot { background:#F59E0B; border-color:#B45309; color:#0B2545; box-shadow:0 0 0 8px rgba(245,158,11,.25); }
+  .date { font-family:'Archivo Narrow',sans-serif; font-size:14px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:#64748B; }
+  .name { font-size:24px; font-weight:900; letter-spacing:-.01em; margin-top:2px; }
+  .mile.now .name { color:#B45309; }
+  .tag { display:inline-block; margin-top:6px; font-size:12px; font-weight:800; padding:5px 12px; border-radius:999px; background:#FEF3C7; color:#92400E; }
+  .tag.ok { background:#DCFCE7; color:#166534; }
+  .foot { position:absolute; right:56px; bottom:30px; font-size:13px; font-weight:700; color:#64748B; }
+</style>
+</head>
+<body>
+  <div class="nav">
+    <div class="mark">Eva<span>Luxor</span></div>
+    <div class="links"><span>Bases</span><b>Calendario</b><span>Proyectos</span><span>Premios</span><span>FAQ</span></div>
+    <div class="cta-nav">Presentá tu proyecto</div>
+  </div>
+  <div class="wrap">
+    <div class="left">
+      <div class="eyebrow">Gran Cosecha Luxor · T4 2026</div>
+      <h1>El trimestre<br>corre.</h1>
+      <div class="sub">Cada hito del concurso, con su fecha. El reloj marca dónde estamos y cuánto falta para el cierre de entregas.</div>
+      <div class="count">
+        <div class="lbl">Faltan para el cierre de entregas</div>
+        <div class="big">23 <span>días</span></div>
+      </div>
+      <div class="cta">Presentá tu proyecto</div>
+    </div>
+    <div class="right">
+      <h2>Calendario del trimestre</h2>
+      <div class="line"><i></i></div>
+      <div class="mile done"><div class="dot">✓</div><div class="date">6 al 20 de octubre</div><div class="name">Apertura de inscripciones</div><span class="tag ok">Cerrado · 12 equipos</span></div>
+      <div class="mile now"><div class="dot">●</div><div class="date">21 de octubre al 30 de noviembre</div><div class="name">Desarrollo y avances</div><span class="tag">En curso · reportá tu avance</span></div>
+      <div class="mile"><div class="dot">3</div><div class="date">1 al 15 de diciembre</div><div class="name">Cierre de entregas</div></div>
+      <div class="mile"><div class="dot">4</div><div class="date">18 de diciembre</div><div class="name">Premiación</div></div>
+      <div class="foot">Hitos oficiales del concurso · T4 2026</div>
+    </div>
+  </div>
+</body>
+</html>
