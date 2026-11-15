@@ -47,6 +47,16 @@
       overflow: hidden;
     }
 
+    /* Neón del título del hero: sólo sobre "COSECHA" (el mock lo trae en
+       rosa; acá va en el amarillo de la marca). */
+    .neon-amarillo {
+      text-shadow:
+        0 0 12px rgba(250, 204, 21, 0.95),
+        0 0 32px rgba(250, 204, 21, 0.7),
+        0 0 64px rgba(250, 204, 21, 0.45),
+        0 4px 26px rgba(6, 18, 56, 0.65);
+    }
+
     .bokeh-dot {
       position: absolute;
       border-radius: 9999px;
@@ -245,15 +255,17 @@
     <span class="bokeh-dot w-20 h-20 bg-white/20 bottom-20 right-[10%]"></span>
 
     <div class="relative z-10 mx-auto max-w-4xl px-4 text-center pb-14">
-      <!-- Título del hero: SIN la caja blanca — dos palabras apiladas, en
-           blanco con glow amarillo (el neón del mock, en el color de la
-           marca) sobre el fondo navy, que es lo que hace legible el glow. -->
-      <h1
-        class="font-display uppercase leading-[0.92] tracking-wider text-white"
-        style="text-shadow: 0 0 12px rgba(250, 204, 21, 0.95), 0 0 32px rgba(250, 204, 21, 0.7), 0 0 64px rgba(250, 204, 21, 0.45), 0 4px 26px rgba(6, 18, 56, 0.65)"
-      >
-        <span class="block text-5xl sm:text-7xl md:text-8xl">GRAN</span>
-        <span class="block text-6xl sm:text-8xl md:text-9xl mt-1">COSECHA</span>
+      <!-- Título del hero: SIN caja — dos palabras apiladas, del mismo
+           tamaño y del mismo ancho. "GRAN" es más corta, así que se estira
+           con scaleX hasta igualar a "COSECHA" (el factor lo mide el script,
+           ajustarTitulo). El glow amarillo del mock va SÓLO en "COSECHA". -->
+      <h1 class="font-display uppercase leading-[0.92] tracking-wider text-white">
+        <span class="block text-6xl sm:text-8xl md:text-9xl">
+          <span id="heroGran" class="inline-block">GRAN</span>
+        </span>
+        <span class="block text-6xl sm:text-8xl md:text-9xl mt-1 neon-amarillo">
+          <span id="heroCosecha" class="inline-block">COSECHA</span>
+        </span>
       </h1>
 
       <div class="mt-7 space-y-1">
@@ -1089,6 +1101,30 @@
     (function () {
       var URL_BASE = '__SUPABASE_URL__';
       var ANON_KEY = '__SUPABASE_ANON_KEY__';
+
+      // EL TÍTULO DEL HERO ES ESTÁTICO —no viene de la base—, así que se
+      // ajusta acá, ANTES del corte por config: las dos líneas tienen que
+      // quedar del mismo ancho, como en el mock. "GRAN" es más corta que
+      // "COSECHA" y se estira con scaleX; el factor se MIDE en pantalla (si
+      // la fuente no carga o cambia de tamaño, el factor cambia: un valor
+      // fijo a mano dejaría las líneas desalineadas).
+      function ajustarTitulo() {
+        var gran = document.getElementById('heroGran');
+        var cosecha = document.getElementById('heroCosecha');
+        if (!gran || !cosecha) return;
+        // Sin reset, el rectángulo que se mide ya incluiría el stretch
+        // anterior y el factor se corrompería en cada llamada.
+        gran.style.transform = '';
+        var ancho = cosecha.getBoundingClientRect().width;
+        var propio = gran.getBoundingClientRect().width;
+        if (ancho > 0 && propio > 0) gran.style.transform = 'scaleX(' + ancho / propio + ')';
+      }
+      ajustarTitulo();
+      // La fuente del título llega de Google Fonts: si llega después del
+      // primer pintado, se vuelve a medir. Y en cada resize, porque los
+      // tamaños del título cambian por breakpoint.
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(ajustarTitulo);
+      window.addEventListener('resize', ajustarTitulo);
 
       // Sin config (build sin .env, archivo abierto a mano) no se pide nada:
       // los marcadores siguen ahí y arrancan con "_".

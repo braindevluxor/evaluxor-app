@@ -163,6 +163,22 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain("paso.classList.add('hidden')")
   })
 
+  it('el título del hero va sin caja, con el glow sólo en COSECHA', () => {
+    // Las dos palabras, una por línea y del mismo tamaño.
+    expect(landing).toContain('id="heroGran"')
+    expect(landing).toContain('id="heroCosecha"')
+    // El neón amarillo del mock va SÓLO en la palabra de abajo.
+    expect(landing).toMatch(/neon-amarillo[^>]*>\s*<span id="heroCosecha"/)
+    expect(landing).not.toMatch(/neon-amarillo[^>]*>\s*<span id="heroGran"/)
+    // Y el ancho de GRAN se mide contra COSECHA: sin factor a mano, que
+    // se rompería si la fuente no carga o cambia por breakpoint.
+    expect(landing).toContain('function ajustarTitulo(')
+    expect(landing).toContain("gran.style.transform = 'scaleX('")
+    // Se vuelve a medir con la fuente y en cada resize.
+    expect(landing).toContain('document.fonts.ready.then(ajustarTitulo)')
+    expect(landing).toContain("addEventListener('resize', ajustarTitulo)")
+  })
+
   it('lee el contenido por la RPC pública, con la config del build', () => {
     expect(landing).toContain('ver_contenido_gran_cosecha')
     expect(landing).toContain('__SUPABASE_URL__')
