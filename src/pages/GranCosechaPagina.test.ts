@@ -167,9 +167,9 @@ describe('gran cosecha · la landing', () => {
     // Las dos palabras, una por línea y del mismo tamaño.
     expect(landing).toContain('id="heroGran"')
     expect(landing).toContain('id="heroCosecha"')
-    // El neón amarillo del mock va SÓLO en la palabra de abajo.
-    expect(landing).toMatch(/neon-amarillo[^>]*>\s*<span id="heroCosecha"/)
-    expect(landing).not.toMatch(/neon-amarillo[^>]*>\s*<span id="heroGran"/)
+    // El neón rojo va SÓLO en la palabra de abajo.
+    expect(landing).toMatch(/neon-rojo[^>]*>\s*<span id="heroCosecha"/)
+    expect(landing).not.toMatch(/neon-rojo[^>]*>\s*<span id="heroGran"/)
     // +30 % de tamaño en las dos líneas (igual escala para las dos), con
     // tope en vw para que en pantallas angostas no pase del contenedor…
     const escala = 'text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)]'

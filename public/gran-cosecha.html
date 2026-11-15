@@ -47,13 +47,14 @@
       overflow: hidden;
     }
 
-    /* Neón del título del hero: sólo sobre "COSECHA" (el mock lo trae en
-       rosa; acá va en el amarillo de la marca). */
-    .neon-amarillo {
+    /* Neón del título del hero: sólo sobre "COSECHA". El fondo del hero es
+       ROJO, así que el núcleo va brillante y el halo se aclara al
+       esparcirse: un rojo del mismo tono que el fondo no se vería. */
+    .neon-rojo {
       text-shadow:
-        0 0 12px rgba(250, 204, 21, 0.95),
-        0 0 32px rgba(250, 204, 21, 0.7),
-        0 0 64px rgba(250, 204, 21, 0.45),
+        0 0 12px rgba(255, 55, 55, 0.95),
+        0 0 32px rgba(255, 85, 85, 0.75),
+        0 0 64px rgba(255, 125, 125, 0.5),
         0 4px 26px rgba(6, 18, 56, 0.65);
     }
 
@@ -260,14 +261,14 @@
            escalas) y del mismo ancho. "COSECHA" se sube para superponerse
            un poco sobre "GRAN" (como en el mock) y "GRAN" se estira con
            scaleX hasta igualar su ancho (el factor lo mide ajustarTitulo).
-           El glow amarillo del mock va SÓLO en "COSECHA". Los tamaños van
+           El glow rojo va SÓLO en "COSECHA". Los tamaños van
            con tope en vw: en pantallas angostas el título baja de a poco
            en vez de pasar del contenedor. -->
       <h1 class="font-display uppercase leading-[0.92] tracking-wider text-white">
         <span class="block text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)]">
           <span id="heroGran" class="inline-block">GRAN</span>
         </span>
-        <span class="block -mt-[0.15em] text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)] neon-amarillo">
+        <span class="block -mt-[0.15em] text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)] neon-rojo">
           <span id="heroCosecha" class="inline-block">COSECHA</span>
         </span>
       </h1>
