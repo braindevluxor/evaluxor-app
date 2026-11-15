@@ -170,6 +170,13 @@ describe('gran cosecha · la landing', () => {
     // El neón amarillo del mock va SÓLO en la palabra de abajo.
     expect(landing).toMatch(/neon-amarillo[^>]*>\s*<span id="heroCosecha"/)
     expect(landing).not.toMatch(/neon-amarillo[^>]*>\s*<span id="heroGran"/)
+    // +30 % de tamaño en las dos líneas (igual escala para las dos), con
+    // tope en vw para que en pantallas angostas no pase del contenedor…
+    const escala = 'text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)]'
+    expect(landing).toContain(escala)
+    // …y "COSECHA" subida para superponerse un poco sobre "GRAN" (el mock).
+    // El margen va en em de la propia línea: se proporcional en cada escala.
+    expect(landing).toContain('-mt-[0.15em]')
     // Y el ancho de GRAN se mide contra COSECHA: sin factor a mano, que
     // se rompería si la fuente no carga o cambia por breakpoint.
     expect(landing).toContain('function ajustarTitulo(')

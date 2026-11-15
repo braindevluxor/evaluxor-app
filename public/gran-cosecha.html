@@ -256,14 +256,18 @@
 
     <div class="relative z-10 mx-auto max-w-4xl px-4 text-center pb-14">
       <!-- Título del hero: SIN caja — dos palabras apiladas, del mismo
-           tamaño y del mismo ancho. "GRAN" es más corta, así que se estira
-           con scaleX hasta igualar a "COSECHA" (el factor lo mide el script,
-           ajustarTitulo). El glow amarillo del mock va SÓLO en "COSECHA". -->
+           tamaño (+30 % respecto de la escala anterior, en las tres
+           escalas) y del mismo ancho. "COSECHA" se sube para superponerse
+           un poco sobre "GRAN" (como en el mock) y "GRAN" se estira con
+           scaleX hasta igualar su ancho (el factor lo mide ajustarTitulo).
+           El glow amarillo del mock va SÓLO en "COSECHA". Los tamaños van
+           con tope en vw: en pantallas angostas el título baja de a poco
+           en vez de pasar del contenedor. -->
       <h1 class="font-display uppercase leading-[0.92] tracking-wider text-white">
-        <span class="block text-6xl sm:text-8xl md:text-9xl">
+        <span class="block text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)]">
           <span id="heroGran" class="inline-block">GRAN</span>
         </span>
-        <span class="block text-6xl sm:text-8xl md:text-9xl mt-1 neon-amarillo">
+        <span class="block -mt-[0.15em] text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)] neon-amarillo">
           <span id="heroCosecha" class="inline-block">COSECHA</span>
         </span>
       </h1>
