@@ -1,3 +1,4 @@
+import { convertirImagenAWebP, convertirParaCarrusel } from '../convertirMedia'
 import { supabase } from '../supabase'
 
 /**
@@ -5,11 +6,15 @@ import { supabase } from '../supabase'
  * -----------------------------------------------------
  * La página de la Gran Cosecha es HTML estático: se sirve desde `dist/` y
  * queda FUERA del router de React, así que no puede usar esta sesión ni el
- * cliente de la app para mostrar algo. Lo que cambia en ella —el hero, los
- * premios, los equipos y las fotos— vive en UNA fila
+ * cliente de la app para mostrar algo. Lo que cambia en ella —el hero con su
+ * carrusel, los premios, los equipos y las fotos— vive en UNA fila
  * (`public.gran_cosecha_pagina`) y la página lo lee sola, por su cuenta, con
  * `ver_contenido_gran_cosecha` (la única función además de las de los
  * enlaces y el login que está abierta a `anon`).
+ *
+ * Todo lo visual se SUBE CONVERTIDO: las imágenes en WebP y los videos en
+ * WebM, en el navegador, antes de llegar al bucket (ver `../convertirMedia`)
+ * — la landing pide esos formatos y el que sube trae el archivo como lo tenga.
  *
  * Acá se lee y se escribe con la sesión de la consola:
  *
@@ -25,7 +30,18 @@ import { supabase } from '../supabase'
  * siempre muestra algo y la landing funciona aunque Supabase esté caído.
  */
 
-/** El bloque del hero: lema, bajada, fechas y fondo. */
+/**
+ * Un item del carrusel del hero, ya convertido al formato de la página:
+ * las imágenes suben como WebP y los videos como WebM (ver `convertirMedia`),
+ * así que `tipo` es lo que decide cómo la landing lo pinta.
+ */
+export interface ItemCarrusel {
+  tipo: 'imagen' | 'video'
+  /** URL pública en el bucket. */
+  url: string
+}
+
+/** El bloque del hero: lema, bajada, fechas, fondo y carrusel. */
 export interface HeroPagina {
   lema: string
   bajada: string
@@ -35,8 +51,16 @@ export interface HeroPagina {
   fechaDesdeMes: string
   fechaHasta: string
   fechaHastaMes: string
-  /** URL de la foto de fondo ('' = el degradado por defecto de la página). */
+  /**
+   * Foto de fondo, que es lo que queda cuando NO hay carrusel: la landing la
+   * pinta con un velo navy encima, igual que antes.
+   */
   fondo: string
+  /**
+   * Medios que rotan detrás del hero (vacío = se muestra `fondo`).
+   * Vive dentro del jsonb `hero`, así que no pide ningún cambio de esquema.
+   */
+  carrusel: ItemCarrusel[]
 }
 
 /** Un premio de la sección «PREMIOS»: "1° PUESTO" y qué se gana. */
@@ -79,7 +103,8 @@ export const CONTENIDO_BASE: ContenidoPagina = {
     fechaDesdeMes: 'AGT',
     fechaHasta: '27',
     fechaHastaMes: 'SEPT',
-    fondo: ''
+    fondo: '',
+    carrusel: []
   },
   premios: [
     { puesto: '1° PUESTO', descripcion: 'Gran Premio Corporativo y Trofeo Luxor' },
@@ -105,8 +130,12 @@ export async function cargarContenidoPagina(): Promise<ContenidoPagina> {
     .maybeSingle()
   if (error) throw error
   if (!data) return CONTENIDO_BASE
+  const hero = { ...CONTENIDO_BASE.hero, ...(data.hero as Partial<HeroPagina> | null) }
+  // Una fila guardada antes del carrusel no lo trae, y una con un JSON raro
+  // no puede romper la consola: se normaliza a lista, igual que `premios`.
+  if (!Array.isArray(hero.carrusel)) hero.carrusel = []
   return {
-    hero: { ...CONTENIDO_BASE.hero, ...(data.hero as Partial<HeroPagina> | null) },
+    hero,
     premios: Array.isArray(data.premios) ? (data.premios as PremioPagina[]) : [],
     equipos: Array.isArray(data.equipos) ? (data.equipos as EquipoPagina[]) : [],
     imagenes: { ...CONTENIDO_BASE.imagenes, ...(data.imagenes as Partial<ImagenesPagina> | null) }
@@ -138,6 +167,11 @@ export function validarContenido(contenido: ContenidoPagina): string | null {
   if (!contenido.hero.fechaHasta.trim() || !contenido.hero.fechaHastaMes.trim()) {
     return 'Falta la fecha de cierre del hero.'
   }
+  for (const [i, item] of contenido.hero.carrusel.entries()) {
+    if (!item || (item.tipo !== 'imagen' && item.tipo !== 'video') || !item.url.trim()) {
+      return `El elemento ${i + 1} del carrusel no tiene un archivo subido.`
+    }
+  }
   if (!contenido.premios.length) return 'La página necesita al menos un premio.'
   for (const [i, premio] of contenido.premios.entries()) {
     if (!premio.puesto.trim() || !premio.descripcion.trim()) {
@@ -154,13 +188,8 @@ export function validarContenido(contenido: ContenidoPagina): string | null {
 export type FotoPagina = 'fondo' | 'round1' | 'round2' | 'round3'
 
 const BUCKET = 'gran-cosecha'
-/** El límite es de la pantalla: la foto entra en una tarjeta de la landing. */
-const LIMITE_FOTO = 5 * 1024 * 1024
-const EXTENSIONES: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp'
-}
+/** Extensión del archivo ya convertido, según el tipo que salió de la conversión. */
+const EXT_POR_TIPO = { imagen: 'webp', video: 'webm' } as const
 
 /** La ruta dentro del bucket de una URL pública nuestra ('' si no es nuestra). */
 function rutaDeUrlPublica(url: string): string {
@@ -173,6 +202,11 @@ function rutaDeUrlPublica(url: string): string {
 /**
  * Sube una foto de la página y devuelve su URL pública.
  *
+ * La imagen se CONVIERTE a WebP antes de subirla, a su resolución natural
+ * (ver `convertirMedia`): la landing pide WebP y que se vea nítida, y el que
+ * elige el archivo no tiene que saberlo. Cualquier formato que el navegador
+ * lea sirve de entrada — JPG, PNG, WEBP, GIF—.
+ *
  * El nombre del archivo sale del SLOT y no del archivo elegido: subir dos
  * veces la misma foto reemplaza la anterior en vez de acumular copias en el
  * bucket. La URL lleva `?v=` con la hora porque el navegador y el CDN de
@@ -180,26 +214,42 @@ function rutaDeUrlPublica(url: string): string {
  * seguiría mostrando la foto vieja.
  */
 export async function subirFotoPagina(slot: FotoPagina, archivo: File, urlActual: string): Promise<string> {
-  if (!EXTENSIONES[archivo.type]) {
-    throw new Error('La imagen tiene que ser un archivo JPG, PNG o WEBP.')
-  }
-  if (archivo.size > LIMITE_FOTO) {
-    throw new Error('La imagen no puede pasar de 5 MB.')
-  }
-  const ruta = `pagina/${slot}.${EXTENSIONES[archivo.type]}`
-  const { error } = await supabase.storage.from(BUCKET).upload(ruta, archivo, {
-    contentType: archivo.type,
+  const webp = await convertirImagenAWebP(archivo)
+  const ruta = `pagina/${slot}.webp`
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, webp, {
+    contentType: 'image/webp',
     upsert: true
   })
   if (error) throw error
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
   const url = `${data.publicUrl}?v=${Date.now()}`
-  // Si el slot cambió de extensión (jpg → png), el archivo anterior queda
-  // huérfano en el bucket: se borra sólo si es otro distinto del recién
+  // Los slots viejos guardaban jpg/png: al migrar a webp el archivo anterior
+  // queda huérfano en el bucket. Se borra sólo si es otro distinto del recién
   // subido, y un fallo acá no deshace la subida.
   const anterior = rutaDeUrlPublica(urlActual)
   if (anterior && anterior !== ruta) {
     await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
   }
   return url
+}
+
+/**
+ * Sube un item del carrusel YA CONVERTIDO (WebP o WebM) y devuelve el item
+ * listo para guardar en el hero.
+ *
+ * La ruta lleva un uuid y no un slot porque el carrusel no tiene cupos
+ * fijos: cada subida es un archivo nuevo —no hay nada que reemplazar—, así
+ * que la URL ya sale distinta y no hace falta el `?v=` que rompe la caché
+ * en los slots fijos.
+ */
+export async function subirMediaCarrusel(
+  archivo: File,
+  alAvanzar?: (fraccion: number) => void
+): Promise<ItemCarrusel> {
+  const { blob, tipo } = await convertirParaCarrusel(archivo, alAvanzar)
+  const ruta = `pagina/carrusel/${crypto.randomUUID()}.${EXT_POR_TIPO[tipo]}`
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, blob, { contentType: blob.type })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  return { tipo, url: data.publicUrl }
 }

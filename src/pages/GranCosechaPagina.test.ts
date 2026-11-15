@@ -43,6 +43,16 @@ describe('gran cosecha · la página en la consola', () => {
     // «Ver página» abre la landing en otra pestaña.
     expect(pagina).toContain('href="/gran-cosecha.html"')
   })
+
+  it('el carrusel del hero se edita con su conversión en pantalla', () => {
+    expect(pagina).toContain('Carrusel del hero')
+    expect(pagina).toContain('subirMediaCarrusel')
+    // La barra de avance: convertir un video tarda lo que dura el clip.
+    expect(pagina).toContain('convirtiendo')
+    expect(pagina).toContain('moverSlide')
+    // El selector acepta lo que traiga el navegador: la conversión es de la app.
+    expect(pagina).toContain('accept="image/*,video/*"')
+  })
 })
 
 describe('gran cosecha · el módulo de datos', () => {
@@ -66,6 +76,22 @@ describe('gran cosecha · el módulo de datos', () => {
     expect(datos).toContain('getPublicUrl')
     // La ruta sale del SLOT y no del archivo: no acumula copias en el bucket.
     expect(datos).toContain('pagina/${')
+  })
+
+  it('todo lo que sube se convierte antes de subirlo', () => {
+    expect(datos).toContain('convertirImagenAWebP')
+    expect(datos).toContain('convertirParaCarrusel')
+    // Los slots fijos quedan en .webp; el carrusel, en su carpeta con uuid
+    // (no tiene cupos fijos, así que no hay nada que reemplazar).
+    expect(datos).toContain('pagina/${slot}.webp')
+    expect(datos).toContain('pagina/carrusel/${')
+    expect(datos).not.toContain('EXTENSIONES')
+  })
+
+  it('el hero arranca sin carrusel y lo normaliza al cargar', () => {
+    expect(CONTENIDO_BASE.hero.carrusel).toEqual([])
+    // Una fila guardada antes del carrusel no lo trae: no puede romper la consola.
+    expect(datos).toContain('if (!Array.isArray(hero.carrusel)) hero.carrusel = []')
   })
 
   it('los valores por defecto pasan la validación', () => {
@@ -92,6 +118,10 @@ describe('gran cosecha · el módulo de datos', () => {
     const sinFecha = structuredClone(CONTENIDO_BASE)
     sinFecha.hero.fechaHastaMes = ''
     expect(validarContenido(sinFecha)).toMatch(/fecha de cierre/)
+
+    const slideRoto = structuredClone(CONTENIDO_BASE)
+    slideRoto.hero.carrusel = [{ tipo: 'imagen', url: '   ' }]
+    expect(validarContenido(slideRoto)).toMatch(/carrusel/)
   })
 })
 
@@ -104,6 +134,7 @@ describe('gran cosecha · la landing', () => {
       'heroFechaDesdeMes',
       'heroFechaHasta',
       'heroFechaHastaMes',
+      'heroCarrusel',
       'premiosLista',
       'round1',
       'round2',
@@ -118,6 +149,18 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toMatch(/<section id="equipos" class="[^"]*\bhidden\b/)
     // Y el script la muestra sólo si hay equipos con nombre.
     expect(landing).toContain("seccion.classList.remove('hidden')")
+  })
+
+  it('el hero tiene su carrusel, con velo y videos en mudo', () => {
+    expect(landing).toContain('id="heroCarrusel"')
+    expect(landing).toContain('function pintarCarrusel(')
+    expect(landing).toContain('pintarCarrusel(hero.carrusel)')
+    // Mudo y con playsinline: autoplay de fondo en cualquier navegador.
+    expect(landing).toContain('muted loop playsinline')
+    // El velo navy que hace legible el texto blanco sobre cualquier medio.
+    expect(landing).toContain('rgba(6,18,56,0.55)')
+    // Un medio que no se pueda reproducir se oculta en vez de girar en negro.
+    expect(landing).toContain("paso.classList.add('hidden')")
   })
 
   it('lee el contenido por la RPC pública, con la config del build', () => {

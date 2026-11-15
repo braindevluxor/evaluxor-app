@@ -234,6 +234,10 @@
 
   <!-- HERO BANNER -->
   <section id="top" class="hero-bg text-white pt-14 pb-0">
+    <!-- CARRUSEL DEL HERO: lo publica la consola (imágenes/videos con velo
+         navy encima). Nace oculto: sin carrusel publicado queda el fondo
+         estático de abajo y el degradado del CSS. -->
+    <div id="heroCarrusel" class="hidden absolute inset-0 overflow-hidden"></div>
     <!-- Decorative Bokeh Circles -->
     <span class="bokeh-dot w-24 h-24 bg-[#facc15]/25 top-10 left-[8%]"></span>
     <span class="bokeh-dot w-16 h-16 bg-white/20 top-28 right-[14%]"></span>
@@ -1187,6 +1191,65 @@
         });
       }
 
+      // El carrusel del hero: capas absolutas que se rotan con un fundido,
+      // cada una con el mismo velo navy del fondo estático para que el texto
+      // blanco siga leyéndose sobre cualquier medio. Nace oculto: sin
+      // carrusel publicado, el hero se queda con su fondo.
+      function pintarCarrusel(carrusel) {
+        var cont = document.getElementById('heroCarrusel');
+        if (!cont || !Array.isArray(carrusel)) return;
+        var items = carrusel.filter(function (s) {
+          return s && (s.tipo === 'imagen' || s.tipo === 'video') && typeof s.url === 'string' && s.url;
+        });
+        if (!items.length) return;
+        var html = '';
+        items.forEach(function (s, i) {
+          var url = esc(s.url);
+          // El primero va con preload completo (es lo primero que se ve); el
+          // resto sólo pide metadata hasta que le toca girar.
+          var medio = s.tipo === 'video'
+            ? '<video src="' + url + '" muted loop playsinline preload="' + (i === 0 ? 'auto' : 'metadata') + '" class="h-full w-full object-cover"></video>'
+            : '<img src="' + url + '" alt="" decoding="async" class="h-full w-full object-cover" />';
+          html += '<div class="absolute inset-0 transition-opacity duration-700' + (i === 0 ? ' opacity-100' : ' opacity-0') + '">'
+            + medio
+            + '<div class="absolute inset-0" style="background:linear-gradient(rgba(6,18,56,0.55),rgba(6,18,56,0.55))"></div>'
+            + '</div>';
+        });
+        cont.innerHTML = html;
+        cont.classList.remove('hidden');
+        girarCarrusel(cont);
+      }
+
+      function girarCarrusel(cont) {
+        var pasos = Array.prototype.slice.call(cont.children);
+        // Un medio que el navegador no sabe reproducir se oculta: no queda un
+        // cuadro negro girando en el hero, y sigue el que sí se pueda ver.
+        pasos.forEach(function (paso) {
+          var medio = paso.querySelector('img, video');
+          if (medio) medio.addEventListener('error', function () { paso.classList.add('hidden'); });
+        });
+        var actual = pasos[0];
+        var primero = actual.querySelector('video');
+        if (primero) primero.play().catch(function () {});
+        if (pasos.length < 2) return;
+        var reloj = setInterval(function () {
+          actual.classList.replace('opacity-100', 'opacity-0');
+          var saliente = actual.querySelector('video');
+          if (saliente) saliente.pause();
+          var desde = pasos.indexOf(actual);
+          var hacia = desde;
+          do {
+            hacia = (hacia + 1) % pasos.length;
+          } while (pasos[hacia].classList.contains('hidden') && hacia !== desde);
+          // Si se dio toda la vuelta es que no queda ningún slide visible.
+          if (pasos[hacia].classList.contains('hidden')) { clearInterval(reloj); return; }
+          actual = pasos[hacia];
+          actual.classList.replace('opacity-0', 'opacity-100');
+          var entrante = actual.querySelector('video');
+          if (entrante) entrante.play().catch(function () {});
+        }, 5000);
+      }
+
       function aplicar(contenido) {
         if (!contenido || typeof contenido !== 'object') return;
         var hero = contenido.hero;
@@ -1198,6 +1261,7 @@
           texto('heroFechaHasta', hero.fechaHasta);
           texto('heroFechaHastaMes', hero.fechaHastaMes);
           pintarFondo(hero.fondo);
+          pintarCarrusel(hero.carrusel);
         }
         pintarPremios(contenido.premios);
         pintarEquipos(contenido.equipos);
