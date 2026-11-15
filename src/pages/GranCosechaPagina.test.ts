@@ -130,10 +130,6 @@ describe('gran cosecha · la landing', () => {
     for (const id of [
       'heroLema',
       'heroBajada',
-      'heroFechaDesde',
-      'heroFechaDesdeMes',
-      'heroFechaHasta',
-      'heroFechaHastaMes',
       'heroCarrusel',
       'premiosLista',
       'round1',
@@ -163,31 +159,21 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain("paso.classList.add('hidden')")
   })
 
-  it('el título del hero va sin caja, con el glow sólo en COSECHA', () => {
-    // Las dos palabras, una por línea y del mismo tamaño.
-    expect(landing).toContain('id="heroGran"')
-    expect(landing).toContain('id="heroCosecha"')
-    // El neón rojo va SÓLO en la palabra de abajo.
-    expect(landing).toMatch(/neon-rojo[^>]*>\s*<span id="heroCosecha"/)
-    expect(landing).not.toMatch(/neon-rojo[^>]*>\s*<span id="heroGran"/)
-    // +30 % de tamaño en las dos líneas (igual escala para las dos), con
-    // tope en vw para que en pantallas angostas no pase del contenedor…
-    const escala = 'text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)]'
-    expect(landing).toContain(escala)
-    // …y "COSECHA" subida para superponerse un poco sobre "GRAN" (el mock).
-    // El margen va en em de la propia línea: se proporcional en cada escala.
-    expect(landing).toContain('-mt-[0.15em]')
-    // "COSECHA" pinta ENCIMA de "GRAN": el scaleX de "GRAN" crea un
-    // contexto de apilamiento que, sin este z-index, tapa las letras y el
-    // neon de "COSECHA".
-    expect(landing).toMatch(/relative z-10[^"]*neon-rojo/)
-    // Y el ancho de GRAN se mide contra COSECHA: sin factor a mano, que
-    // se rompería si la fuente no carga o cambia por breakpoint.
-    expect(landing).toContain('function ajustarTitulo(')
-    expect(landing).toContain("gran.style.transform = 'scaleX('")
-    // Se vuelve a medir con la fuente y en cada resize.
-    expect(landing).toContain('document.fonts.ready.then(ajustarTitulo)')
-    expect(landing).toContain("addEventListener('resize', ajustarTitulo)")
+  it('el hero está en cero: sin título, fechas ni botón, sólo huecos', () => {
+    // Sólo el bloque del hero: el resto de la página tiene su propio copy
+    // (su "INSCRÍBETE" de la sección de inscripción sigue ahí).
+    const hero = landing.slice(landing.indexOf('<!-- HERO BANNER -->'), landing.indexOf('<!-- PRESENTADO POR'))
+    // Se quitó todo el texto para rediseñar el hero desde cero.
+    expect(hero).not.toContain('id="heroGran"')
+    expect(hero).not.toContain('INSCRÍBETE AHORA')
+    expect(hero).not.toContain('heroFechaDesde')
+    // Los huecos de lema y bajada existen pero SIN contenido en el HTML:
+    // los llena la consola al Guardar (sin JS o sin conexión, el hero
+    // sale vacío a propósito, a diferencia del resto de la página).
+    expect(hero).toMatch(/<p id="heroLema"[^>]*><\/p>/)
+    expect(hero).toMatch(/<p id="heroBajada"[^>]*><\/p>/)
+    // Y la sección no se colapsa mientras no hay nada adentro.
+    expect(hero).toContain('min-h-[60vh]')
   })
 
   it('lee el contenido por la RPC pública, con la config del build', () => {
@@ -201,8 +187,7 @@ describe('gran cosecha · la landing', () => {
 
   it('sin JavaScript o sin conexión, sigue mostrando sus valores', () => {
     // Los mismos que `CONTENIDO_BASE`: si cambia uno, cambian los dos.
-    expect(landing).toContain(CONTENIDO_BASE.hero.lema)
-    expect(landing).toContain(CONTENIDO_BASE.hero.bajada)
+    // (El hero queda fuera: está en cero a propósito, ver el test de arriba.)
     for (const premio of CONTENIDO_BASE.premios) expect(landing).toContain(premio.descripcion)
     expect(landing).toContain('img/round-1.jpg')
     // Y lo que viene de la base se escapa antes de pintarlo.

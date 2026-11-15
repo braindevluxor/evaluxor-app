@@ -47,17 +47,6 @@
       overflow: hidden;
     }
 
-    /* Neón del título del hero: sólo sobre "COSECHA". El fondo del hero es
-       ROJO, así que el núcleo va brillante y el halo se aclara al
-       esparcirse: un rojo del mismo tono que el fondo no se vería. */
-    .neon-rojo {
-      text-shadow:
-        0 0 12px rgba(255, 55, 55, 0.95),
-        0 0 32px rgba(255, 85, 85, 0.75),
-        0 0 64px rgba(255, 125, 125, 0.5),
-        0 4px 26px rgba(6, 18, 56, 0.65);
-    }
-
     .bokeh-dot {
       position: absolute;
       border-radius: 9999px;
@@ -244,7 +233,7 @@
   </header>
 
   <!-- HERO BANNER -->
-  <section id="top" class="hero-bg text-white pt-14 pb-0">
+  <section id="top" class="hero-bg text-white pt-14 pb-0 min-h-[60vh]">
     <!-- CARRUSEL DEL HERO: lo publica la consola (imágenes/videos con velo
          navy encima). Nace oculto: sin carrusel publicado queda el fondo
          estático de abajo y el degradado del CSS. -->
@@ -256,53 +245,15 @@
     <span class="bokeh-dot w-20 h-20 bg-white/20 bottom-20 right-[10%]"></span>
 
     <div class="relative z-10 mx-auto max-w-4xl px-4 text-center pb-14">
-      <!-- Título del hero: SIN caja — dos palabras apiladas, del mismo
-           tamaño (+30 % respecto de la escala anterior, en las tres
-           escalas) y del mismo ancho. "COSECHA" se sube para superponerse
-           un poco sobre "GRAN" (como en el mock) y "GRAN" se estira con
-           scaleX hasta igualar su ancho (el factor lo mide ajustarTitulo).
-           El glow rojo va SÓLO en "COSECHA". "COSECHA" lleva z-10 para
-           pintar ENCIMA de "GRAN": el scaleX de "GRAN" crea un contexto de
-           apilamiento y, sin este z-index, las letras de "GRAN" taparían
-           las de "COSECHA" y su neon (que es justamente lo que resalta el
-           borde para que se lea). Los tamaños van
-           con tope en vw: en pantallas angostas el título baja de a poco
-           en vez de pasar del contenedor. -->
-      <h1 class="font-display uppercase leading-[0.92] tracking-wider text-white">
-        <span class="block text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)]">
-          <span id="heroGran" class="inline-block">GRAN</span>
-        </span>
-        <span class="block relative z-10 -mt-[0.15em] text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)] neon-rojo">
-          <span id="heroCosecha" class="inline-block">COSECHA</span>
-        </span>
-      </h1>
-
+      <!-- HERO EN CERO: se quitó TODO el texto (título, lema, fechas y
+           botón) para rediseñarlo desde cero. Quedan sólo los huecos de
+           lema y bajada, SIN contenido en el HTML: los llena la consola al
+           Guardar, así que sin sesión y sin JS el hero sale vacío a
+           propósito. El min-height de la sección evita que el hero se
+           colapse mientras no hay nada adentro. -->
       <div class="mt-7 space-y-1">
-        <p id="heroLema" class="text-sm sm:text-base md:text-lg font-extrabold uppercase tracking-widest text-[#facc15]">
-          COMPETENCIA INTERNA DE EXCELENCIA Y SERVICIO
-        </p>
-        <p id="heroBajada" class="text-xs sm:text-sm md:text-base font-bold uppercase tracking-wider text-white/95">
-          IMPULSANDO EL TALENTO DE NUESTRAS SUCURSALES LUXOR
-        </p>
-      </div>
-
-      <!-- Dates -->
-      <div class="mt-8 inline-flex items-center justify-center gap-3 sm:gap-5 px-7 py-3.5 rounded-2xl bg-white/15 border-2 border-[#facc15] backdrop-blur-sm">
-        <div class="text-center leading-none">
-          <span id="heroFechaDesde" class="font-display text-4xl sm:text-5xl text-white">23</span>
-          <span id="heroFechaDesdeMes" class="block text-xs sm:text-sm font-bold tracking-widest text-[#facc15] mt-1">AGT</span>
-        </div>
-        <span class="font-display text-xl sm:text-2xl text-[#facc15]">AL</span>
-        <div class="text-center leading-none">
-          <span id="heroFechaHasta" class="font-display text-4xl sm:text-5xl text-white">27</span>
-          <span id="heroFechaHastaMes" class="block text-xs sm:text-sm font-bold tracking-widest text-[#facc15] mt-1">SEPT</span>
-        </div>
-      </div>
-
-      <div class="mt-8">
-        <a href="#inscripcion" class="inline-block rounded-full bg-[#facc15] hover:bg-yellow-300 px-8 py-3.5 text-sm sm:text-base font-black uppercase tracking-wider text-[#0a1e5e] shadow-lg transition-transform hover:scale-105">
-          INSCRÍBETE AHORA
-        </a>
+        <p id="heroLema" class="text-sm sm:text-base md:text-lg font-extrabold uppercase tracking-widest text-[#facc15]"></p>
+        <p id="heroBajada" class="text-xs sm:text-sm md:text-base font-bold uppercase tracking-wider text-white/95"></p>
       </div>
     </div>
 
@@ -1111,30 +1062,6 @@
       var URL_BASE = '__SUPABASE_URL__';
       var ANON_KEY = '__SUPABASE_ANON_KEY__';
 
-      // EL TÍTULO DEL HERO ES ESTÁTICO —no viene de la base—, así que se
-      // ajusta acá, ANTES del corte por config: las dos líneas tienen que
-      // quedar del mismo ancho, como en el mock. "GRAN" es más corta que
-      // "COSECHA" y se estira con scaleX; el factor se MIDE en pantalla (si
-      // la fuente no carga o cambia de tamaño, el factor cambia: un valor
-      // fijo a mano dejaría las líneas desalineadas).
-      function ajustarTitulo() {
-        var gran = document.getElementById('heroGran');
-        var cosecha = document.getElementById('heroCosecha');
-        if (!gran || !cosecha) return;
-        // Sin reset, el rectángulo que se mide ya incluiría el stretch
-        // anterior y el factor se corrompería en cada llamada.
-        gran.style.transform = '';
-        var ancho = cosecha.getBoundingClientRect().width;
-        var propio = gran.getBoundingClientRect().width;
-        if (ancho > 0 && propio > 0) gran.style.transform = 'scaleX(' + ancho / propio + ')';
-      }
-      ajustarTitulo();
-      // La fuente del título llega de Google Fonts: si llega después del
-      // primer pintado, se vuelve a medir. Y en cada resize, porque los
-      // tamaños del título cambian por breakpoint.
-      if (document.fonts && document.fonts.ready) document.fonts.ready.then(ajustarTitulo);
-      window.addEventListener('resize', ajustarTitulo);
-
       // Sin config (build sin .env, archivo abierto a mano) no se pide nada:
       // los marcadores siguen ahí y arrancan con "_".
       if (URL_BASE.charAt(0) === '_' || ANON_KEY.charAt(0) === '_') return;
@@ -1305,10 +1232,6 @@
         if (hero && typeof hero === 'object') {
           texto('heroLema', hero.lema);
           texto('heroBajada', hero.bajada);
-          texto('heroFechaDesde', hero.fechaDesde);
-          texto('heroFechaDesdeMes', hero.fechaDesdeMes);
-          texto('heroFechaHasta', hero.fechaHasta);
-          texto('heroFechaHastaMes', hero.fechaHastaMes);
           pintarFondo(hero.fondo);
           pintarCarrusel(hero.carrusel);
         }
