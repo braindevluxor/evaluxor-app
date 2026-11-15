@@ -37,6 +37,11 @@ const BonosPage = lazy(() => import('./pages/config/Bonos').then((m) => ({ defau
 // crean los trabajadores y lo siguen los jueces— pero con lazy, porque es la
 // única pantalla que no entra nadie si no entra a la consola.
 const GranCosechaPage = lazy(() => import('./pages/GranCosecha').then((m) => ({ default: m.GranCosechaPage })))
+// La página pública (/gran-cosecha.html) vista desde la consola: sólo el
+// Líder la abre —la misma cerradura que su item de menú y su RLS—.
+const GranCosechaPagina = lazy(() =>
+  import('./pages/GranCosechaPagina').then((m) => ({ default: m.GranCosechaPaginaPage }))
+)
 // Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
 // cuenta. Va con lazy porque sólo se descarga quien abre el enlace.
 const ConciliacionPublica = lazy(() =>
@@ -297,6 +302,17 @@ function Rutas() {
                           seguimiento lo dan los jueces, que entra por el mismo
                           RLS (`puede_gran_cosecha`) que pide el menú. */}
                       <Route path="/gran-cosecha" element={<GranCosechaPage />} />
+                      {/* El contenido de la landing: la edita sólo el Líder,
+                          que es quien además puede escribir en la tabla
+                          (`es_lider()`) y subir las fotos del bucket. */}
+                      <Route
+                        path="/gran-cosecha/contenido"
+                        element={
+                          <SoloLider>
+                            <GranCosechaPagina />
+                          </SoloLider>
+                        }
+                      />
                     </Route>
 
                     <Route path="*" element={<HomeRedirect />} />

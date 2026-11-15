@@ -249,10 +249,10 @@
       </div>
 
       <div class="mt-7 space-y-1">
-        <p class="text-sm sm:text-base md:text-lg font-extrabold uppercase tracking-widest text-[#facc15]">
+        <p id="heroLema" class="text-sm sm:text-base md:text-lg font-extrabold uppercase tracking-widest text-[#facc15]">
           COMPETENCIA INTERNA DE EXCELENCIA Y SERVICIO
         </p>
-        <p class="text-xs sm:text-sm md:text-base font-bold uppercase tracking-wider text-white/95">
+        <p id="heroBajada" class="text-xs sm:text-sm md:text-base font-bold uppercase tracking-wider text-white/95">
           IMPULSANDO EL TALENTO DE NUESTRAS SUCURSALES LUXOR
         </p>
       </div>
@@ -260,13 +260,13 @@
       <!-- Dates -->
       <div class="mt-8 inline-flex items-center justify-center gap-3 sm:gap-5 px-7 py-3.5 rounded-2xl bg-white/15 border-2 border-[#facc15] backdrop-blur-sm">
         <div class="text-center leading-none">
-          <span class="font-display text-4xl sm:text-5xl text-white">23</span>
-          <span class="block text-xs sm:text-sm font-bold tracking-widest text-[#facc15] mt-1">AGT</span>
+          <span id="heroFechaDesde" class="font-display text-4xl sm:text-5xl text-white">23</span>
+          <span id="heroFechaDesdeMes" class="block text-xs sm:text-sm font-bold tracking-widest text-[#facc15] mt-1">AGT</span>
         </div>
         <span class="font-display text-xl sm:text-2xl text-[#facc15]">AL</span>
         <div class="text-center leading-none">
-          <span class="font-display text-4xl sm:text-5xl text-white">27</span>
-          <span class="block text-xs sm:text-sm font-bold tracking-widest text-[#facc15] mt-1">SEPT</span>
+          <span id="heroFechaHasta" class="font-display text-4xl sm:text-5xl text-white">27</span>
+          <span id="heroFechaHastaMes" class="block text-xs sm:text-sm font-bold tracking-widest text-[#facc15] mt-1">SEPT</span>
         </div>
       </div>
 
@@ -526,6 +526,7 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center">
           <div class="flex justify-center">
             <img
+              id="round1"
               src="img/round-1.jpg"
               alt="Colaboradores de supermercado organizando frutas y verduras frescas en Round 1"
               class="blob-mask-1 w-full max-w-md h-auto object-cover border-4 border-[#facc15] shadow-[0_0_30px_rgba(250,204,21,0.35)]"
@@ -581,6 +582,7 @@
           </div>
           <div class="flex justify-center order-1 md:order-2">
             <img
+              id="round2"
               src="img/round-2.jpg"
               alt="Equipo de supermercado surtiendo anaqueles en Round 2"
               class="blob-mask-2 w-full max-w-md h-auto object-cover border-4 border-[#dc2626] shadow-[0_0_30px_rgba(220,38,38,0.4)]"
@@ -592,6 +594,7 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center">
           <div class="flex justify-center">
             <img
+              id="round3"
               src="img/round-3.jpg"
               alt="Equipo finalista celebrando en línea de cajas en Round 3"
               class="blob-mask-3 w-full max-w-md h-auto object-cover border-4 border-white shadow-[0_0_30px_rgba(255,255,255,0.28)]"
@@ -715,7 +718,7 @@
         En GRAN COSECHA LUXOR, reconocemos la dedicación, el compromiso y la calidad de servicio de nuestros colaboradores con premios pensados para celebrar el esfuerzo de cada equipo.
       </p>
 
-      <div class="mt-12 grid grid-cols-1 md:grid-cols-3 gap-10">
+      <div id="premiosLista" class="mt-12 grid grid-cols-1 md:grid-cols-3 gap-10">
         <!-- 1° PUESTO -->
         <div class="flex flex-col items-center">
           <div class="mb-4 flex h-28 w-28 items-center justify-center drop-shadow-xl">
@@ -767,6 +770,20 @@
           INSCRÍBETE AHORA
         </a>
       </div>
+    </div>
+  </section>
+
+  <!-- EQUIPOS PARTICIPANTES: la consola la publica (sección oculta por
+       defecto; el script de abajo la muestra si hay equipos cargados) -->
+  <section id="equipos" class="bg-[#0a1e5e] text-white py-16 px-4 hidden">
+    <div class="mx-auto max-w-6xl text-center">
+      <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#facc15] tracking-wide">
+        EQUIPOS PARTICIPANTES
+      </h2>
+      <p class="mt-4 text-sm sm:text-base text-gray-200 max-w-2xl mx-auto">
+        Los equipos que ya están compitiendo en GRAN COSECHA LUXOR.
+      </p>
+      <div id="equiposLista" class="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
     </div>
   </section>
 
@@ -1047,6 +1064,160 @@
         });
       }
     });
+  </script>
+
+  <!-- CONTENIDO EDITABLE DESDE LA CONSOLA
+       La consola (sólo el Líder) guarda en la tabla `gran_cosecha_pagina` y
+       acá se lee con `ver_contenido_gran_cosecha`, la función abierta a anon
+       —el mismo camino de los enlaces públicos de la app—. Los marcadores
+       __SUPABASE_URL__ / __SUPABASE_ANON_KEY__ los reemplaza el build (ver
+       vite.config.ts): la anon key es pública por diseño, igual que en el
+       bundle de la app.
+       Si algo falla —sin red, sin config, tabla todavía vacía— la página se
+       queda con los valores que trae el HTML: la landing funciona aunque
+       Supabase esté caído. Todo lo que este script toca está ARRIBA en el
+       archivo, así que el DOM ya existe cuando corre. -->
+  <script>
+    (function () {
+      var URL_BASE = '__SUPABASE_URL__';
+      var ANON_KEY = '__SUPABASE_ANON_KEY__';
+
+      // Sin config (build sin .env, archivo abierto a mano) no se pide nada:
+      // los marcadores siguen ahí y arrancan con "_".
+      if (URL_BASE.charAt(0) === '_' || ANON_KEY.charAt(0) === '_') return;
+
+      function texto(id, valor) {
+        var el = document.getElementById(id);
+        if (el && typeof valor === 'string' && valor.trim()) el.textContent = valor.trim();
+      }
+
+      // Lo que viene de la base se escapa antes de meterlo en innerHTML.
+      function esc(valor) {
+        return String(valor).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+
+      // Un trofeo por premio, con los tres colores de la página girando por
+      // posición: es el mismo SVG de los premios estáticos del HTML.
+      var PALETAS = [
+        { cuerpo: '#facc15', tope: '#fde047', franja: '#dc2626', asa: '#dc2626' },
+        { cuerpo: '#dc2626', tope: '#ef4444', franja: '#facc15', asa: '#facc15' },
+        { cuerpo: '#0a1e5e', tope: '#1e3a8a', franja: '#facc15', asa: '#dc2626' }
+      ];
+
+      function trofeo(i) {
+        var p = PALETAS[i % PALETAS.length];
+        return '<svg viewBox="0 0 100 100" class="h-full w-full" aria-hidden="true">'
+          + '<rect x="18" y="40" width="64" height="46" rx="8" fill="' + p.cuerpo + '" />'
+          + '<rect x="14" y="28" width="72" height="16" rx="5" fill="' + p.tope + '" />'
+          + '<rect x="44" y="28" width="12" height="58" fill="' + p.franja + '" />'
+          + '<rect x="14" y="33" width="72" height="6" fill="' + p.franja + '" />'
+          + '<path d="M50 28c-8-12-22-10-18 0h18zm0 0c8-12 22-10 18 0H50z" fill="' + p.asa + '" />'
+          + '</svg>';
+      }
+
+      function pintarPremios(premios) {
+        var cont = document.getElementById('premiosLista');
+        if (!cont || !Array.isArray(premios)) return;
+        var html = '';
+        premios.forEach(function (p, i) {
+          var puesto = p && typeof p.puesto === 'string' ? p.puesto.trim() : '';
+          var descripcion = p && typeof p.descripcion === 'string' ? p.descripcion.trim() : '';
+          if (!puesto || !descripcion) return;
+          html += '<div class="flex flex-col items-center">'
+            + '<div class="mb-4 flex h-28 w-28 items-center justify-center drop-shadow-xl">' + trofeo(i) + '</div>'
+            + '<span class="font-display text-3xl text-[#dc2626]">' + esc(puesto) + '</span>'
+            + '<p class="mt-2 text-base font-bold text-[#0a1e5e]">' + esc(descripcion) + '</p>'
+            + '</div>';
+        });
+        // Una lista vacía o ilegible no tapa los premios del HTML.
+        if (html) cont.innerHTML = html;
+      }
+
+      function pintarEquipos(equipos) {
+        var seccion = document.getElementById('equipos');
+        var cont = document.getElementById('equiposLista');
+        if (!seccion || !cont || !Array.isArray(equipos)) return;
+        var html = '';
+        equipos.forEach(function (e) {
+          var nombre = e && typeof e.nombre === 'string' ? e.nombre.trim() : '';
+          if (!nombre) return;
+          var sucursal = e && typeof e.sucursal === 'string' ? e.sucursal.trim() : '';
+          html += '<div class="rounded-2xl border-2 border-[#facc15] bg-white/5 px-5 py-4 text-left">'
+            + '<p class="font-display text-lg uppercase text-[#facc15]">' + esc(nombre) + '</p>'
+            + (sucursal ? '<p class="mt-1 text-sm text-gray-200">' + esc(sucursal) + '</p>' : '')
+            + '</div>';
+        });
+        // Sin equipos publicados la sección sigue oculta.
+        if (html) {
+          cont.innerHTML = html;
+          seccion.classList.remove('hidden');
+        }
+      }
+
+      function pintarFondo(url) {
+        var hero = document.getElementById('top');
+        if (!hero) return;
+        if (typeof url !== 'string' || !url) {
+          // Sin foto propia se limpia lo inline y vuelve el degradado del CSS.
+          hero.style.backgroundImage = '';
+          hero.style.backgroundSize = '';
+          hero.style.backgroundPosition = '';
+          hero.style.backgroundRepeat = '';
+          hero.style.backgroundColor = '';
+          return;
+        }
+        // La foto tapa el degradado, con un velo navy encima para que el
+        // texto blanco siga leyéndose sobre cualquier imagen.
+        var velo = 'linear-gradient(rgba(6, 18, 56, 0.55), rgba(6, 18, 56, 0.55))';
+        hero.style.backgroundImage = velo + ', url("' + url.replace(/["\\]/g, '') + '")';
+        hero.style.backgroundSize = 'cover, cover';
+        hero.style.backgroundPosition = 'center, center';
+        hero.style.backgroundRepeat = 'no-repeat, no-repeat';
+        hero.style.backgroundColor = '#b91c1c';
+      }
+
+      function pintarImagenes(imagenes) {
+        if (!imagenes || typeof imagenes !== 'object') return;
+        ['round1', 'round2', 'round3'].forEach(function (clave) {
+          var el = document.getElementById(clave);
+          var url = imagenes[clave];
+          if (el && typeof url === 'string' && url) el.src = url;
+        });
+      }
+
+      function aplicar(contenido) {
+        if (!contenido || typeof contenido !== 'object') return;
+        var hero = contenido.hero;
+        if (hero && typeof hero === 'object') {
+          texto('heroLema', hero.lema);
+          texto('heroBajada', hero.bajada);
+          texto('heroFechaDesde', hero.fechaDesde);
+          texto('heroFechaDesdeMes', hero.fechaDesdeMes);
+          texto('heroFechaHasta', hero.fechaHasta);
+          texto('heroFechaHastaMes', hero.fechaHastaMes);
+          pintarFondo(hero.fondo);
+        }
+        pintarPremios(contenido.premios);
+        pintarEquipos(contenido.equipos);
+        pintarImagenes(contenido.imagenes);
+      }
+
+      fetch(URL_BASE + '/rest/v1/rpc/ver_contenido_gran_cosecha', {
+        method: 'POST',
+        headers: {
+          apikey: ANON_KEY,
+          Authorization: 'Bearer ' + ANON_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: '{}',
+        cache: 'no-store'
+      })
+        .then(function (respuesta) { return respuesta.ok ? respuesta.json() : null; })
+        .then(aplicar)
+        .catch(function () { /* sin conexión, la página se queda con sus valores */ });
+    })();
   </script>
 </body>
 </html>

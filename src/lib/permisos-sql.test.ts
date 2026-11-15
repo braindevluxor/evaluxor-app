@@ -271,16 +271,20 @@ describe('schema.sql · los enlaces públicos', () => {
    * venir con su motivo.
    */
   it('las únicas funciones abiertas a anon, además de las del login, son los enlaces', () => {
-    const abiertas = [...remediation.matchAll(
+    // Se mira el ARCHIVO ENTERO y no sólo `permisos-funcion.sql`: la apertura
+    // de la landing (`ver_contenido_gran_cosecha`) vive en su propio bloque,
+    // y el invariante es de todas formas global — cada nombre de abajo
+    // tiene que venir con su motivo (son los enlaces públicos, el login y la
+    // página de la Gran Cosecha).
+    const abiertas = [...new Set([...schemaCompleto.matchAll(
       /grant\s+execute\s+on\s+function\s+public\.(\w+)\([^)]*\)\s+to\s+([^;]*\banon\b[^;]*);/gi
-    )]
-      .map((m) => m[1])
-      .sort()
+    )].map((m) => m[1]))].sort()
     expect(abiertas).toEqual([
       'email_por_usuario',
       'intento_login',
       'ver_cargos_compartidos',
-      'ver_conciliacion_compartida'
+      'ver_conciliacion_compartida',
+      'ver_contenido_gran_cosecha'
     ])
   })
 

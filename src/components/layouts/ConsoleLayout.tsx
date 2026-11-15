@@ -1,4 +1,4 @@
-import { Star, Sprout, Gauge, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
+import { Star, Sprout, Gauge, Globe, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -14,6 +14,8 @@ interface EnlaceMenu {
   label: string
   icon: ReactNode
   end?: boolean
+  /** Sólo para el Líder: la misma cerradura que su guard y su RLS. */
+  soloLider?: boolean
 }
 
 const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
@@ -26,7 +28,11 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
   // al que entra toda la empresa (presentan los trabajadores, dan seguimiento
   // los jueces), no una pantalla de indicadores.
   { seccion: 'Gran Cosecha', items: [
-    { to: '/gran-cosecha', label: 'Proyectos', icon: <Sprout className="h-5 w-5" /> }
+    { to: '/gran-cosecha', label: 'Proyectos', icon: <Sprout className="h-5 w-5" /> },
+    // La landing /gran-cosecha.html: su contenido lo escribe sólo el Líder,
+    // así que el item tampoco se muestra a nadie más (no es un guard, es
+    // sólo el menú: la ruta y la RLS siguen pidiendo lo mismo).
+    { to: '/gran-cosecha/contenido', label: 'Página', icon: <Globe className="h-5 w-5" />, soloLider: true }
   ]}
 ]
 
@@ -38,8 +44,15 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
  * Se le arma el menú con la sección que sí puede abrir y nada más.
  */
 function seccionesDe(rol: string | undefined): { seccion: string; items: EnlaceMenu[] }[] {
-  if (rol === 'JUEZ') return enlaces.filter((s) => s.seccion === 'Gran Cosecha')
-  return enlaces
+  // La página de la landing la edita sólo el Líder: su item se saca del menú
+  // de cualquier otro (el JUEZ sí ve la sección, pero sólo Proyectos), y una
+  // sección que queda sin items no se pinta.
+  const paraRol = (s: { seccion: string; items: EnlaceMenu[] }) => ({
+    ...s,
+    items: s.items.filter((i) => !i.soloLider || rol === 'LIDER')
+  })
+  const base = rol === 'JUEZ' ? enlaces.filter((s) => s.seccion === 'Gran Cosecha') : enlaces
+  return base.map(paraRol).filter((s) => s.items.length > 0)
 }
 
 const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
@@ -57,6 +70,10 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/gran-cosecha': {
     titulo: 'Gran Cosecha',
     subtitulo: 'Concurso trimestral de proyectos: equipos, propuestas y avances'
+  },
+  '/gran-cosecha/contenido': {
+    titulo: 'Página de la Gran Cosecha',
+    subtitulo: 'Contenido que se publica en /gran-cosecha.html'
   }
 }
 

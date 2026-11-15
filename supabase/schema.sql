@@ -4246,9 +4246,10 @@ create policy departamentos_centralizados_select on public.departamentos_central
 drop policy if exists "departamentos_centralizados_lider" on public.departamentos_centralizados;
 create policy departamentos_centralizados_lider on public.departamentos_centralizados for all using (public.es_lider()) with check (public.es_lider());
 
--- storage.objects (22 políticas: 11 distintas, cada una re-declarada por el
--- bloque que la trae y por `reactivar-politicas.sql`; son 7 de evidencias e
--- incidencias + 4 de la pre-entrega)
+-- storage.objects (24 políticas: 11 distintas de fotos, cada una re-declarada
+-- por el bloque que la trae y por `reactivar-politicas.sql` —7 de evidencias
+-- e incidencias + 4 de la pre-entrega—, y 2 de la página de la Gran Cosecha,
+-- que sólo se declaran en su propio bloque)
 -- (storage.objects ya tiene RLS; solo se reponen sus polÃ­ticas)
 drop policy if exists "evidencias_select" on storage.objects;
 create policy "evidencias_select" on storage.objects for select to authenticated using (bucket_id = 'evidencias');
@@ -4773,7 +4774,7 @@ order by c.relrowsecurity, n.nspname || '.' || c.relname;
 -- ----------------------------------------------------------------------------
 -- 2) Las politicas del repo, una por fila
 -- ----------------------------------------------------------------------------
--- Si esta consulta NO devuelve filas, estan las 61. Cada fila que aparezca es
+-- Si esta consulta NO devuelve filas, estan las 65. Cada fila que aparezca es
 -- una politica que falta: se creo la tabla pero no su regla, y queda abierta o
 -- inaccesible segun el caso.
 with esperadas (politica, tabla) as (
@@ -4838,7 +4839,11 @@ with esperadas (politica, tabla) as (
     ('storage_pre_entrega_delete', 'storage.objects'),
     ('storage_pre_entrega_insert', 'storage.objects'),
     ('storage_pre_entrega_select', 'storage.objects'),
-    ('storage_pre_entrega_update', 'storage.objects')
+    ('storage_pre_entrega_update', 'storage.objects'),
+    ('gran_cosecha_pagina_select', 'public.gran_cosecha_pagina'),
+    ('gran_cosecha_pagina_lider', 'public.gran_cosecha_pagina'),
+    ('gran_cosecha_pagina_fotos_select', 'storage.objects'),
+    ('gran_cosecha_pagina_fotos_lider', 'storage.objects')
 )
 select
   e.tabla,
@@ -4886,19 +4891,22 @@ order by p.proname;
 -- ----------------------------------------------------------------------------
 -- 'intento_login' y 'email_por_usuario' si van abiertas: son la pantalla de
 -- login, que corre antes de autenticar, y por ahi no se puede evitar.
--- 'ver_conciliacion_compartida' tambien, y es la cuarta y ultima: es el
--- enlace publico de conciliacion (`/compartir/:token`). Es SECURITY DEFINER,
--- con search_path fijo y con el token como unica autorizacion; ver
--- `compartir-evaluacion.sql`. La tercera es `ver_cargos_compartidos`, el
--- enlace de fallas por cargo (`/compartir/cargos/:token`), con las mismas
--- condiciones; ver `compartir-cargos.sql`.
+-- 'ver_conciliacion_compartida' tambien: es el enlace publico de
+-- conciliacion (`/compartir/:token`). Es SECURITY DEFINER, con search_path
+-- fijo y con el token como unica autorizacion; ver `compartir-evaluacion.sql`.
+-- 'ver_cargos_compartidos' es la de fallas por cargo
+-- (`/compartir/cargos/:token`), con las mismas condiciones; ver
+-- `compartir-cargos.sql`. La quinta es `ver_contenido_gran_cosecha`: sirve
+-- el contenido de la landing `/gran-cosecha.html` sin sesion, y no expone
+-- nada que la propia página no muestre a cualquiera; ver
+-- `gran-cosecha-pagina.sql`.
 -- Las demas deberian dar 'ok' (cerradas para anon).
 select
   p.proname as funcion,
   has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede,
   case
     when p.proname in ('intento_login', 'email_por_usuario', 'ver_conciliacion_compartida',
-                       'ver_cargos_compartidos')
+                       'ver_cargos_compartidos', 'ver_contenido_gran_cosecha')
       then 'permitido sin sesion'
     when has_function_privilege('anon', p.oid, 'EXECUTE')
       then 'ABIERTA A ANON: correr reactivar-politicas.sql'
@@ -4912,7 +4920,7 @@ where n.nspname = 'public'
     'validar_modulo_compartido', 'validar_unico_evaluador_modulo',
     'desbloquear_usuario', 'registrar_sync',
     'intento_login', 'email_por_usuario', 'ver_conciliacion_compartida',
-    'ver_cargos_compartidos',
+    'ver_cargos_compartidos', 'ver_contenido_gran_cosecha',
     'mergear_conciliacion', 'puede_usar_revision_pre_entrega',
     'previsualizar_departamentos', 'aplicar_departamentos'
   )
@@ -5970,3 +5978,113 @@ end $$;
 -- necesita, porque RLS llama a la función con el rol que consulta.
 revoke execute on function public.puede_gran_cosecha() from public, anon;
 grant execute on function public.puede_gran_cosecha() to authenticated;
+
+-- ###########################################################################
+-- Archivo consolidado: gran-cosecha-pagina.sql
+-- ###########################################################################
+-- ============================================================================
+-- LA PÁGINA PÚBLICA DE LA GRAN COSECHA
+--
+-- `public/gran-cosecha.html` es una landing estática: se sirve desde `dist/`
+-- y queda FUERA del router de React, así que no puede usar el cliente de la
+-- app ni la sesión de nadie. Lo que cambia en esa página —el hero, los
+-- premios, los equipos y las fotos— vive acá, en UNA sola fila, y la página
+-- lo lee con `ver_contenido_gran_cosecha`: una función `security definer`
+-- con `grant ... to anon`, el mismo camino de lo público que usan
+-- `ver_conciliacion_compartida` y `ver_cargos_compartidos`. En este repo
+-- ningún dato llega a `anon` por tabla, y ésta no es la excepción.
+--
+-- Escribe sólo el LÍDER (`es_lider()`), la misma cerradura del menú de
+-- consola (`SoloLider`), y cada sección nace con un `check` de forma: ni una
+-- sesión con rol ni una llamada mal armada dejan un JSON que la página no
+-- sabe leer.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+
+-- Una sola fila de contenido: el `check` del id no deja meter una segunda
+-- (mismo patrón que `nomina_cron`).
+create table if not exists public.gran_cosecha_pagina (
+  id boolean primary key default true,
+  constraint gran_cosecha_pagina_fila_unica check (id),
+  -- Cada sección es un JSON con su forma mínima acá. La consola además
+  -- valida antes de guardar —para explicar el problema en pantalla—, pero
+  -- esa validación es del cliente: el `check` es la del límite de confianza.
+  hero jsonb not null default '{}'::jsonb
+    constraint gran_cosecha_pagina_hero check (jsonb_typeof(hero) = 'object'),
+  premios jsonb not null default '[]'::jsonb
+    constraint gran_cosecha_pagina_premios check (jsonb_typeof(premios) = 'array'),
+  equipos jsonb not null default '[]'::jsonb
+    constraint gran_cosecha_pagina_equipos check (jsonb_typeof(equipos) = 'array'),
+  imagenes jsonb not null default '{}'::jsonb
+    constraint gran_cosecha_pagina_imagenes check (jsonb_typeof(imagenes) = 'object'),
+  actualizado_en timestamptz not null default now()
+);
+
+alter table public.gran_cosecha_pagina enable row level security;
+
+-- Con sesión se lee —el form de la consola tiene que mostrar lo que ya está
+-- guardado— y sólo el Líder toca cualquier cosa.
+drop policy if exists gran_cosecha_pagina_select on public.gran_cosecha_pagina;
+create policy gran_cosecha_pagina_select on public.gran_cosecha_pagina
+  for select to authenticated using (true);
+
+drop policy if exists gran_cosecha_pagina_lider on public.gran_cosecha_pagina;
+create policy gran_cosecha_pagina_lider on public.gran_cosecha_pagina
+  for all using (public.es_lider()) with check (public.es_lider());
+
+-- La tabla nace con el `alter default privileges ... revoke from anon` de
+-- `cerrar-permisos-anon.sql`, pero el revoke explícito no deja nada al azar
+-- (es el mismo cierre que hacen los bloques de gran cosecha y de bonos).
+do $$
+begin
+  execute 'revoke all on public.gran_cosecha_pagina from anon';
+end $$;
+
+-- Lo que lee la landing: el contenido entero en una sola llamada. Va por
+-- función y no por la tabla porque la página NO tiene sesión — exponer la
+-- tabla sería dejar la escritura a merced de una política mal puesta. Sin
+-- argumentos y `stable`: no cambia dentro de una corrida.
+create or replace function public.ver_contenido_gran_cosecha()
+returns jsonb
+language sql stable security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'hero', hero,
+    'premios', premios,
+    'equipos', equipos,
+    'imagenes', imagenes
+  )
+  from public.gran_cosecha_pagina
+  where id;
+$$;
+
+-- Igual que las funciones de los enlaces compartidos: sin el revoke, el
+-- grant por defecto de Supabase la deja ejecutable por todos. El acceso
+-- público de ésta es éste, declarado de una vez.
+revoke execute on function public.ver_contenido_gran_cosecha() from public, anon;
+grant execute on function public.ver_contenido_gran_cosecha() to anon, authenticated;
+
+-- Las FOTOS de la página: un bucket propio y PÚBLICO, porque la landing se
+-- ve sin sesión y con las URLs directas del bucket. Es el primer bucket
+-- público del repo —`evidencias` sigue privado y con URLs firmadas—, y sólo
+-- sube quien puede editar la página: el Líder, con `es_lider()` en las
+-- políticas de abajo.
+insert into storage.buckets (id, name, public)
+values ('gran-cosecha', 'gran-cosecha', true)
+on conflict (id) do update set public = excluded.public;
+
+-- Ver las fotos: cualquiera, que es lo que significa un bucket público.
+drop policy if exists gran_cosecha_pagina_fotos_select on storage.objects;
+create policy gran_cosecha_pagina_fotos_select on storage.objects
+  for select to public
+  using (bucket_id = 'gran-cosecha');
+
+-- Subir, reemplazar y borrar: sólo el Líder, y sólo en ESTE bucket.
+drop policy if exists gran_cosecha_pagina_fotos_lider on storage.objects;
+create policy gran_cosecha_pagina_fotos_lider on storage.objects
+  for all to authenticated
+  using (bucket_id = 'gran-cosecha' and public.es_lider())
+  with check (bucket_id = 'gran-cosecha' and public.es_lider());
