@@ -261,14 +261,18 @@
            escalas) y del mismo ancho. "COSECHA" se sube para superponerse
            un poco sobre "GRAN" (como en el mock) y "GRAN" se estira con
            scaleX hasta igualar su ancho (el factor lo mide ajustarTitulo).
-           El glow rojo va SÓLO en "COSECHA". Los tamaños van
+           El glow rojo va SÓLO en "COSECHA". "COSECHA" lleva z-10 para
+           pintar ENCIMA de "GRAN": el scaleX de "GRAN" crea un contexto de
+           apilamiento y, sin este z-index, las letras de "GRAN" taparían
+           las de "COSECHA" y su neon (que es justamente lo que resalta el
+           borde para que se lea). Los tamaños van
            con tope en vw: en pantallas angostas el título baja de a poco
            en vez de pasar del contenedor. -->
       <h1 class="font-display uppercase leading-[0.92] tracking-wider text-white">
         <span class="block text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)]">
           <span id="heroGran" class="inline-block">GRAN</span>
         </span>
-        <span class="block -mt-[0.15em] text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)] neon-rojo">
+        <span class="block relative z-10 -mt-[0.15em] text-[min(20vw,78px)] sm:text-[125px] md:text-[min(166px,20vw)] neon-rojo">
           <span id="heroCosecha" class="inline-block">COSECHA</span>
         </span>
       </h1>

@@ -177,6 +177,10 @@ describe('gran cosecha · la landing', () => {
     // …y "COSECHA" subida para superponerse un poco sobre "GRAN" (el mock).
     // El margen va en em de la propia línea: se proporcional en cada escala.
     expect(landing).toContain('-mt-[0.15em]')
+    // "COSECHA" pinta ENCIMA de "GRAN": el scaleX de "GRAN" crea un
+    // contexto de apilamiento que, sin este z-index, tapa las letras y el
+    // neon de "COSECHA".
+    expect(landing).toMatch(/relative z-10[^"]*neon-rojo/)
     // Y el ancho de GRAN se mide contra COSECHA: sin factor a mano, que
     // se rompería si la fuente no carga o cambia por breakpoint.
     expect(landing).toContain('function ajustarTitulo(')
