@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="es" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GRAN COSECHA LUXOR | Supermercados Luxor</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800;900&family=Poppins:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --luxor-yellow: #facc15;
+      --luxor-amber: #f59e0b;
+      --luxor-red: #dc2626;
+      --luxor-red-dark: #b91c1c;
+      --luxor-navy: #0a1e5e;
+      --luxor-navy-deep: #061238;
+      --luxor-white: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Poppins', 'Inter', sans-serif;
+      overflow-x: hidden;
+      background-color: #ffffff;
+      color: #0a1e5e;
+    }
+
+    .font-display {
+      font-family: 'Anton', 'Poppins', sans-serif;
+      letter-spacing: 0.03em;
+    }
+
+    /* Hero Vibrant Red & Yellow Bokeh Background */
+    .hero-bg {
+      background:
+        radial-gradient(circle at 15% 25%, rgba(250, 204, 21, 0.32) 0%, transparent 30%),
+        radial-gradient(circle at 82% 20%, rgba(255, 255, 255, 0.20) 0%, transparent 28%),
+        radial-gradient(circle at 50% 50%, rgba(220, 38, 38, 0.85) 0%, transparent 65%),
+        radial-gradient(circle at 20% 80%, rgba(250, 204, 21, 0.25) 0%, transparent 32%),
+        linear-gradient(160deg, #b91c1c 0%, #dc2626 50%, #991b1b 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .bokeh-dot {
+      position: absolute;
+      border-radius: 9999px;
+      pointer-events: none;
+      filter: blur(2px);
+    }
+
+    /* Luxor Navy Display Title on Light/Yellow Badge */
+    .luxor-title-shadow {
+      color: #0a1e5e;
+      text-shadow:
+        -3px 0 0 #facc15,
+        3px 0 0 #ffffff;
+    }
+
+    .glitch-title {
+      text-shadow:
+        -3px 0 0 #facc15,
+        3px 0 0 #dc2626;
+    }
+
+    .glitch-step-num {
+      text-shadow:
+        -3px 2px 0 #ffffff,
+        3px -2px 0 #dc2626;
+    }
+
+    /* Pixel-art stepped borders */
+    .pixel-border-hero-to-white {
+      height: 28px;
+      width: 100%;
+      background-image:
+        linear-gradient(90deg, #ffffff 50%, transparent 50%),
+        linear-gradient(90deg, transparent 50%, #ffffff 50%);
+      background-size: 32px 14px, 32px 14px;
+      background-position: 0 14px, 16px 0;
+      background-repeat: repeat-x;
+    }
+
+    .pixel-border-white-to-navy {
+      height: 28px;
+      width: 100%;
+      background-color: #ffffff;
+      background-image:
+        linear-gradient(90deg, #061238 50%, transparent 50%),
+        linear-gradient(90deg, transparent 50%, #061238 50%);
+      background-size: 32px 14px, 32px 14px;
+      background-position: 0 14px, 16px 0;
+      background-repeat: repeat-x;
+    }
+
+    .pixel-border-navy-to-yellow {
+      height: 28px;
+      width: 100%;
+      background-color: #061238;
+      background-image:
+        linear-gradient(90deg, #facc15 50%, transparent 50%),
+        linear-gradient(90deg, transparent 50%, #facc15 50%);
+      background-size: 32px 14px, 32px 14px;
+      background-position: 0 14px, 16px 0;
+      background-repeat: repeat-x;
+    }
+
+    .pixel-border-yellow-to-white {
+      height: 28px;
+      width: 100%;
+      background-color: #facc15;
+      background-image:
+        linear-gradient(90deg, #ffffff 50%, transparent 50%),
+        linear-gradient(90deg, transparent 50%, #ffffff 50%);
+      background-size: 32px 14px, 32px 14px;
+      background-position: 0 14px, 16px 0;
+      background-repeat: repeat-x;
+    }
+
+    /* Accordion Bokeh Card */
+    .accordion-bokeh {
+      background:
+        radial-gradient(circle at 12% 30%, rgba(250, 204, 21, 0.28) 0%, transparent 25%),
+        radial-gradient(circle at 75% 20%, rgba(255, 255, 255, 0.16) 0%, transparent 24%),
+        radial-gradient(circle at 88% 75%, rgba(250, 204, 21, 0.22) 0%, transparent 20%),
+        linear-gradient(135deg, #991b1b 0%, #dc2626 55%, #7f1d1d 100%);
+    }
+
+    /* Organic Blob Photo Masks */
+    .blob-mask-1 {
+      border-radius: 44% 56% 48% 52% / 55% 42% 58% 45%;
+    }
+
+    .blob-mask-2 {
+      border-radius: 56% 44% 53% 47% / 44% 58% 42% 56%;
+    }
+
+    .blob-mask-3 {
+      border-radius: 48% 52% 40% 60% / 52% 46% 54% 48%;
+    }
+
+    /* Premios Background Marquee Text */
+    .premios-watermark {
+      color: #facc15;
+      text-shadow:
+        -2px -2px 0 #dc2626,
+        2px 2px 0 #0a1e5e;
+      opacity: 0.25;
+      user-select: none;
+    }
+
+    @keyframes marqueeScroll {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    .animate-marquee {
+      display: flex;
+      width: max-content;
+      animation: marqueeScroll 22s linear infinite;
+    }
+  </style>
+</head>
+<body class="antialiased">
+
+  <!-- HEADER / NAVBAR -->
+  <header class="sticky top-0 z-50 w-full bg-[#dc2626] text-white shadow-md border-b-4 border-[#facc15]">
+    <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-2.5 sm:px-6">
+      <!-- Official 4-Leaf Logo + Project Name -->
+      <a href="#top" class="flex items-center gap-3 shrink-0 focus:outline-none">
+        <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-white p-1.5 shadow">
+          <svg viewBox="0 0 100 100" class="h-full w-full" aria-hidden="true">
+            <!-- Top-Left Leaf (Yellow / Amber) -->
+            <path d="M8,8 H30 C42,8 46,16 46,46 H18 C10,46 8,36 8,8 Z" fill="#f59e0b" />
+            <path d="M8,8 L46,46 H18 C10,46 8,36 8,8 Z" fill="#facc15" />
+            <!-- Top-Right Leaf (Red) -->
+            <path d="M92,8 H70 C58,8 54,16 54,46 H82 C90,46 92,36 92,8 Z" fill="#dc2626" />
+            <path d="M92,8 L54,46 H82 C90,46 92,36 92,8 Z" fill="#b91c1c" />
+            <!-- Bottom-Left Leaf (Yellow / Amber) -->
+            <path d="M8,92 H30 C42,92 46,84 46,54 H18 C10,54 8,64 8,92 Z" fill="#f59e0b" />
+            <path d="M8,92 L46,54 H18 C10,54 8,64 8,92 Z" fill="#facc15" />
+            <!-- Bottom-Right Leaf (Red) -->
+            <path d="M92,92 H70 C58,92 54,84 54,54 H82 C90,54 92,64 92,92 Z" fill="#b91c1c" />
+            <path d="M92,92 L54,54 H82 C90,54 92,64 92,92 Z" fill="#dc2626" />
+          </svg>
+        </span>
+        <div class="leading-none rounded-lg bg-white/95 px-3 py-1.5 shadow-sm">
+          <span class="block text-[10px] font-extrabold tracking-[0.18em] text-[#dc2626]">SUPERMERCADOS</span>
+          <span class="font-display block text-lg sm:text-xl tracking-wider text-[#0a1e5e]">GRAN COSECHA LUXOR</span>
+        </div>
+      </a>
+
+      <!-- Desktop Two-Row Navigation -->
+      <nav class="hidden md:flex flex-col items-center gap-1 text-xs lg:text-sm font-semibold">
+        <div class="flex items-center gap-6">
+          <a href="#inscripcion" class="hover:text-[#facc15] transition-colors">Inscripción</a>
+          <a href="#dinamica" class="hover:text-[#facc15] transition-colors">Dinámica del concurso</a>
+          <a href="#como-participar" class="hover:text-[#facc15] transition-colors">Cómo participar</a>
+          <a href="#premios" class="hover:text-[#facc15] transition-colors">Premios</a>
+        </div>
+        <div class="flex items-center gap-6 text-[11px] lg:text-xs font-medium text-yellow-100">
+          <a href="#contacto" class="hover:text-white transition-colors">Contacto</a>
+          <button type="button" data-modal="privacy" class="hover:text-white transition-colors cursor-pointer">Política de privacidad</button>
+          <button type="button" data-modal="terms" class="hover:text-white transition-colors cursor-pointer">Términos y condiciones</button>
+        </div>
+      </nav>
+
+      <!-- Mobile Menu Button -->
+      <button id="mobileMenuBtn" type="button" aria-label="Abrir menú" class="md:hidden rounded-lg p-2 text-white hover:bg-red-700 focus:outline-none">
+        <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Mobile Dropdown -->
+    <div id="mobileMenu" class="hidden md:hidden border-t border-yellow-300/40 bg-[#b91c1c] px-4 py-3">
+      <div class="flex flex-col gap-2 text-sm font-semibold">
+        <a href="#inscripcion" class="mobile-nav-link py-1 hover:text-[#facc15]">Inscripción</a>
+        <a href="#dinamica" class="mobile-nav-link py-1 hover:text-[#facc15]">Dinámica del concurso</a>
+        <a href="#como-participar" class="mobile-nav-link py-1 hover:text-[#facc15]">Cómo participar</a>
+        <a href="#premios" class="mobile-nav-link py-1 hover:text-[#facc15]">Premios</a>
+        <a href="#contacto" class="mobile-nav-link py-1 hover:text-[#facc15]">Contacto</a>
+        <button type="button" data-modal="privacy" class="mobile-nav-link text-left py-1 hover:text-[#facc15]">Política de privacidad</button>
+        <button type="button" data-modal="terms" class="mobile-nav-link text-left py-1 hover:text-[#facc15]">Términos y condiciones</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- HERO BANNER -->
+  <section id="top" class="hero-bg text-white pt-14 pb-0">
+    <!-- Decorative Bokeh Circles -->
+    <span class="bokeh-dot w-24 h-24 bg-[#facc15]/25 top-10 left-[8%]"></span>
+    <span class="bokeh-dot w-16 h-16 bg-white/20 top-28 right-[14%]"></span>
+    <span class="bokeh-dot w-32 h-32 bg-[#facc15]/20 bottom-24 left-[18%]"></span>
+    <span class="bokeh-dot w-20 h-20 bg-white/20 bottom-20 right-[10%]"></span>
+
+    <div class="relative z-10 mx-auto max-w-4xl px-4 text-center pb-14">
+      <div class="inline-block rounded-3xl bg-white px-6 sm:px-10 py-5 shadow-2xl border-4 border-[#facc15]">
+        <h1 class="font-display uppercase leading-[0.92] tracking-wider text-[#0a1e5e]">
+          <span class="block text-5xl sm:text-7xl md:text-8xl">GRAN COSECHA</span>
+          <span class="block text-6xl sm:text-8xl md:text-9xl mt-1">LUXOR</span>
+        </h1>
+      </div>
+
+      <div class="mt-7 space-y-1">
+        <p class="text-sm sm:text-base md:text-lg font-extrabold uppercase tracking-widest text-[#facc15]">
+          COMPETENCIA INTERNA DE EXCELENCIA Y SERVICIO
+        </p>
+        <p class="text-xs sm:text-sm md:text-base font-bold uppercase tracking-wider text-white/95">
+          IMPULSANDO EL TALENTO DE NUESTRAS SUCURSALES LUXOR
+        </p>
+      </div>
+
+      <!-- Dates -->
+      <div class="mt-8 inline-flex items-center justify-center gap-3 sm:gap-5 px-7 py-3.5 rounded-2xl bg-white/15 border-2 border-[#facc15] backdrop-blur-sm">
+        <div class="text-center leading-none">
+          <span class="font-display text-4xl sm:text-5xl text-white">23</span>
+          <span class="block text-xs sm:text-sm font-bold tracking-widest text-[#facc15] mt-1">AGT</span>
+        </div>
+        <span class="font-display text-xl sm:text-2xl text-[#facc15]">AL</span>
+        <div class="text-center leading-none">
+          <span class="font-display text-4xl sm:text-5xl text-white">27</span>
+          <span class="block text-xs sm:text-sm font-bold tracking-widest text-[#facc15] mt-1">SEPT</span>
+        </div>
+      </div>
+
+      <div class="mt-8">
+        <a href="#inscripcion" class="inline-block rounded-full bg-[#facc15] hover:bg-yellow-300 px-8 py-3.5 text-sm sm:text-base font-black uppercase tracking-wider text-[#0a1e5e] shadow-lg transition-transform hover:scale-105">
+          INSCRÍBETE AHORA
+        </a>
+      </div>
+    </div>
+
+    <div class="pixel-border-hero-to-white"></div>
+  </section>
+
+  <!-- PRESENTADO POR & ¿QUÉ ES GRAN COSECHA LUXOR? -->
+  <section class="bg-white py-12 sm:py-16 px-4 text-center">
+    <div class="mx-auto max-w-3xl">
+      <p class="text-xs sm:text-sm font-extrabold uppercase tracking-[0.22em] text-[#dc2626]">
+        PRESENTADO POR
+      </p>
+
+      <!-- Official 4-Leaf Logo -->
+      <div class="mt-4 inline-flex items-center justify-center gap-3.5">
+        <svg viewBox="0 0 100 100" class="h-14 w-14" aria-hidden="true">
+          <path d="M8,8 H30 C42,8 46,16 46,46 H18 C10,46 8,36 8,8 Z" fill="#f59e0b" />
+          <path d="M8,8 L46,46 H18 C10,46 8,36 8,8 Z" fill="#facc15" />
+          <path d="M92,8 H70 C58,8 54,16 54,46 H82 C90,46 92,36 92,8 Z" fill="#dc2626" />
+          <path d="M92,8 L54,46 H82 C90,46 92,36 92,8 Z" fill="#b91c1c" />
+          <path d="M8,92 H30 C42,92 46,84 46,54 H18 C10,54 8,64 8,92 Z" fill="#f59e0b" />
+          <path d="M8,92 L46,54 H18 C10,54 8,64 8,92 Z" fill="#facc15" />
+          <path d="M92,92 H70 C58,92 54,84 54,54 H82 C90,54 92,64 92,92 Z" fill="#b91c1c" />
+          <path d="M92,92 L54,54 H82 C90,54 92,64 92,92 Z" fill="#dc2626" />
+        </svg>
+        <div class="text-left leading-none">
+          <span class="block text-xs font-extrabold tracking-[0.22em] text-[#dc2626]">SUPERMERCADOS</span>
+          <span class="font-display block text-3xl tracking-wider text-[#0a1e5e]">GRAN COSECHA LUXOR</span>
+        </div>
+      </div>
+
+      <!-- ¿Qué es Gran Cosecha Luxor? -->
+      <div class="mt-12">
+        <h2 class="font-display glitch-title text-3xl sm:text-5xl uppercase text-[#0a1e5e] leading-tight">
+          ¿QUÉ ES
+          <span class="inline-block rounded-full bg-[#facc15] border-2 border-[#dc2626] px-5 py-1 text-[#0a1e5e]">
+            GRAN COSECHA LUXOR
+          </span>
+          ?
+        </h2>
+        <p class="mt-6 text-sm sm:text-base md:text-lg font-medium leading-relaxed text-[#0a1e5e] max-w-2xl mx-auto">
+          Una iniciativa corporativa de integración y excelencia operativa para las sucursales de Supermercados Luxor. En tres emocionantes rounds, nuestros equipos demuestran frescura, exhibición comercial, atención al cliente y trabajo en equipo para alcanzar los grandes premios de la temporada.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FORMULARIO DE INSCRIPCIÓN -->
+  <section id="inscripcion" class="bg-white pt-4 pb-16 px-4">
+    <div class="mx-auto max-w-xl text-center">
+      <h2 class="font-display text-3xl sm:text-4xl uppercase text-[#0a1e5e] tracking-wide">
+        FORMULARIO DE INSCRIPCIÓN
+      </h2>
+      <p class="mt-2 text-sm sm:text-base font-medium text-[#dc2626]">
+        Participa con tu sucursal, destaca en piso de venta y gana increíbles premios.
+      </p>
+
+      <form id="registrationForm" class="mt-8 space-y-4 text-left" novalidate>
+        <div>
+          <input
+            type="text"
+            id="teamName"
+            placeholder="Nombre del equipo o sucursal *"
+            required
+            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+          />
+        </div>
+
+        <div>
+          <input
+            type="text"
+            id="gameName"
+            placeholder="Nombre de la propuesta o área *"
+            required
+            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+          />
+        </div>
+
+        <div>
+          <input
+            type="email"
+            id="email"
+            placeholder="Email corporativo o personal *"
+            required
+            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+          />
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <select
+              id="prefix"
+              aria-label="Prefijo telefónico"
+              class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-4 py-3 text-sm font-medium text-[#0a1e5e] focus:border-[#dc2626] focus:outline-none"
+            >
+              <option value="+58" selected>VE +58</option>
+              <option value="+57">CO +57</option>
+              <option value="+52">MX +52</option>
+              <option value="+54">AR +54</option>
+              <option value="+56">CL +56</option>
+              <option value="+51">PE +51</option>
+              <option value="+34">ES +34</option>
+              <option value="+1">US +1</option>
+            </select>
+          </div>
+          <div class="sm:col-span-2">
+            <input
+              type="tel"
+              id="phone"
+              placeholder="Teléfono *"
+              required
+              class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div class="relative">
+          <label for="birthDate" class="sr-only">Fecha de nacimiento</label>
+          <input
+            type="date"
+            id="birthDate"
+            required
+            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] focus:border-[#dc2626] focus:outline-none"
+          />
+          <span class="block mt-1 pl-5 text-[11px] font-medium text-[#0a1e5e]/70">Fecha de nacimiento * obligatorio</span>
+        </div>
+
+        <div>
+          <input
+            type="text"
+            id="discordUser"
+            placeholder="Departamento o Cargo (Ej. Fruver, Cajas, Pasillos)"
+            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+          />
+        </div>
+
+        <div class="flex items-center gap-3 pl-2 pt-1">
+          <input
+            type="checkbox"
+            id="acceptTerms"
+            class="h-5 w-5 rounded-full border-2 border-[#0a1e5e] text-[#dc2626] focus:ring-[#dc2626]"
+          />
+          <label for="acceptTerms" class="text-xs sm:text-sm font-semibold text-[#0a1e5e]">
+            1. <button type="button" data-modal="terms" class="underline hover:text-[#dc2626] cursor-pointer">Acepto los términos y condiciones</button>
+          </label>
+        </div>
+
+        <div class="pt-4 text-center">
+          <button
+            type="submit"
+            class="rounded-full bg-[#dc2626] hover:bg-[#b91c1c] px-10 py-3.5 text-sm sm:text-base font-black uppercase tracking-wider text-white shadow-[0_6px_0_#facc15] transition-transform active:translate-y-0.5 cursor-pointer"
+          >
+            ENVIAR INSCRIPCIÓN
+          </button>
+        </div>
+      </form>
+
+      <!-- Feedback Box -->
+      <div id="formFeedback" class="hidden mt-6 rounded-2xl border-2 border-[#facc15] bg-yellow-50 p-4 text-sm text-[#0a1e5e]">
+        <p id="formFeedbackTitle" class="font-bold">¡Registro recibido para GRAN COSECHA LUXOR!</p>
+        <p id="formFeedbackText" class="mt-1 text-xs">
+          Tu equipo ha sido preinscrito. Un coordinador de Talento Humano confirmará los detalles de tu sucursal.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <div class="pixel-border-white-to-navy"></div>
+
+  <!-- DINÁMICA DEL CONCURSO & DETALLES DE LOS ROUNDS -->
+  <section id="dinamica" class="bg-[#061238] text-white pt-14 pb-16 px-4">
+    <div class="mx-auto max-w-5xl">
+      <!-- ¿Dinámica del concurso? -->
+      <div class="text-center max-w-2xl mx-auto">
+        <h2 class="font-display text-3xl sm:text-5xl uppercase text-[#facc15] tracking-wide">
+          ¿DINÁMICA DEL CONCURSO?
+        </h2>
+        <p class="mt-3 text-sm sm:text-base text-gray-200">
+          Conoce las etapas de evaluación y los estándares operativos de GRAN COSECHA LUXOR.
+        </p>
+      </div>
+
+      <!-- Accordions -->
+      <div class="mt-8 mx-auto max-w-2xl space-y-4">
+        <!-- Accordion 1 -->
+        <div class="accordion-bokeh rounded-2xl border border-[#facc15]/40 overflow-hidden shadow-lg">
+          <button
+            type="button"
+            class="accordion-toggle w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer"
+            aria-expanded="false"
+          >
+            <div class="flex items-center gap-4">
+              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 border-[#facc15] text-[#facc15]">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </span>
+              <span class="text-base sm:text-lg font-bold text-white">Fases del concurso</span>
+            </div>
+            <svg class="accordion-chevron h-6 w-6 text-white transition-transform duration-200" fill="none" stroke="currentColor" stroke-dasharray="2 2" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <div class="accordion-content hidden px-6 pb-5 pt-1 text-sm text-yellow-50 space-y-2 border-t border-white/15">
+            <p><strong>Round 1 (Selección Inicial):</strong> Evaluación de exhibición fresca, orden de pasillos y presentación de cada equipo participante.</p>
+            <p><strong>Round 2 (Selección de Finalistas):</strong> Auditoría de reposición, rotación de inventario, señalización de precios y trabajo en equipo.</p>
+            <p><strong>Round 3 (Gran Final):</strong> Medición integral de experiencia de compra, rapidez en cajas y resultado comercial de la sucursal.</p>
+          </div>
+        </div>
+
+        <!-- Accordion 2 -->
+        <div class="accordion-bokeh rounded-2xl border border-[#facc15]/40 overflow-hidden shadow-lg">
+          <button
+            type="button"
+            class="accordion-toggle w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer"
+            aria-expanded="false"
+          >
+            <div class="flex items-center gap-4">
+              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 border-[#facc15] text-[#facc15]">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </span>
+              <span class="text-base sm:text-lg font-bold text-white">Modalidad y Sucursales</span>
+            </div>
+            <svg class="accordion-chevron h-6 w-6 text-white transition-transform duration-200" fill="none" stroke="currentColor" stroke-dasharray="2 2" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <div class="accordion-content hidden px-6 pb-5 pt-1 text-sm text-yellow-50 space-y-2 border-t border-white/15">
+            <p>Pueden participar equipos de todas las sucursales de <strong>Supermercados Luxor</strong> (piso de venta, fruver, cajas, almacén y áreas operativas).</p>
+            <p>Las evidencias y seguimiento de cada ronda se registran con el coordinador asignado en tienda.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- DETALLES DE LOS ROUNDS -->
+      <div class="mt-20 text-center">
+        <h2 class="font-display text-3xl sm:text-5xl uppercase text-[#facc15] tracking-wide">
+          DETALLES DE LOS ROUNDS
+        </h2>
+        <p class="mt-2 text-sm sm:text-base text-gray-200">
+          Un programa creado por Supermercados Luxor para reconocer el esfuerzo y la excelencia de nuestros equipos.
+        </p>
+      </div>
+
+      <!-- Zig-zag Rounds -->
+      <div class="mt-14 space-y-16">
+        <!-- ROUND 1 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center">
+          <div class="flex justify-center">
+            <img
+              src="img/round-1.jpg"
+              alt="Colaboradores de supermercado organizando frutas y verduras frescas en Round 1"
+              class="blob-mask-1 w-full max-w-md h-auto object-cover border-4 border-[#facc15] shadow-[0_0_30px_rgba(250,204,21,0.35)]"
+            />
+          </div>
+          <div class="space-y-4">
+            <h3 class="font-display text-2xl sm:text-3xl uppercase text-[#facc15]">
+              ROUND 1 - Selección Inicial
+            </h3>
+            <p class="text-sm sm:text-base text-gray-200 leading-relaxed">
+              En esta primera etapa, evaluamos la frescura, el surtido y el impacto visual en piso de venta. Buscamos compromiso, orden y una presentación impecable para nuestros clientes.
+            </p>
+            <div>
+              <h4 class="text-sm sm:text-base font-extrabold uppercase text-[#facc15]">Puntos a Evaluar</h4>
+              <ul class="mt-2 list-disc list-inside space-y-1 text-sm text-gray-100">
+                <li>Calidad y frescura en exhibición de productos.</li>
+                <li>Limpieza, orden y correcta señalización de precios.</li>
+                <li>Integración y actitud del equipo en tienda.</li>
+              </ul>
+            </div>
+            <div>
+              <h4 class="text-sm sm:text-base font-extrabold uppercase text-[#facc15]">Reconocimiento</h4>
+              <p class="mt-1 text-sm text-gray-200 leading-relaxed">
+                Los mejores equipos pasan a la etapa de finalistas y son destacados en los canales internos de Supermercados Luxor.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ROUND 2 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center">
+          <div class="space-y-4 order-2 md:order-1">
+            <h3 class="font-display text-2xl sm:text-3xl uppercase text-[#facc15]">
+              ROUND 2 - Selección de Finalistas
+            </h3>
+            <p class="text-sm sm:text-base text-gray-200 leading-relaxed">
+              Los equipos clasificados demuestran su capacidad operativa en reposición continua, control de inventarios y atención cercana en pasillos.
+            </p>
+            <div>
+              <h4 class="text-sm sm:text-base font-extrabold uppercase text-[#facc15]">Puntos a Evaluar</h4>
+              <ul class="mt-2 list-disc list-inside space-y-1 text-sm text-gray-100">
+                <li>Reposición oportuna y rotación FIFO de mercancía.</li>
+                <li>Cumplimiento de planogramas y exhibiciones especiales.</li>
+                <li>Trabajo coordinado entre áreas de tienda.</li>
+              </ul>
+            </div>
+            <div>
+              <h4 class="text-sm sm:text-base font-extrabold uppercase text-[#facc15]">Reconocimiento</h4>
+              <p class="mt-1 text-sm text-gray-200 leading-relaxed">
+                Los equipos finalistas reciben mención especial de la gerencia y acceden a la gran jornada de evaluación final.
+              </p>
+            </div>
+          </div>
+          <div class="flex justify-center order-1 md:order-2">
+            <img
+              src="img/round-2.jpg"
+              alt="Equipo de supermercado surtiendo anaqueles en Round 2"
+              class="blob-mask-2 w-full max-w-md h-auto object-cover border-4 border-[#dc2626] shadow-[0_0_30px_rgba(220,38,38,0.4)]"
+            />
+          </div>
+        </div>
+
+        <!-- ROUND 3 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center">
+          <div class="flex justify-center">
+            <img
+              src="img/round-3.jpg"
+              alt="Equipo finalista celebrando en línea de cajas en Round 3"
+              class="blob-mask-3 w-full max-w-md h-auto object-cover border-4 border-white shadow-[0_0_30px_rgba(255,255,255,0.28)]"
+            />
+          </div>
+          <div class="space-y-4">
+            <h3 class="font-display text-2xl sm:text-3xl uppercase text-[#facc15]">
+              ROUND 3 - Gran Final
+            </h3>
+            <p class="text-sm sm:text-base text-gray-200 leading-relaxed">
+              En la gran final se elige al equipo campeón de GRAN COSECHA LUXOR, reconociendo la excelencia integral en servicio, frescura y resultados.
+            </p>
+            <div>
+              <h4 class="text-sm sm:text-base font-extrabold uppercase text-[#facc15]">Puntos a Evaluar</h4>
+              <ul class="mt-2 list-disc list-inside space-y-1 text-sm text-gray-100">
+                <li>Experiencia de compra y satisfacción del cliente.</li>
+                <li>Agilidad en línea de cajas y atención personalizada.</li>
+                <li>Desempeño global de la sucursal durante la campaña.</li>
+              </ul>
+            </div>
+            <div>
+              <h4 class="text-sm sm:text-base font-extrabold uppercase text-[#facc15]">Gran Premio</h4>
+              <p class="mt-1 text-sm text-gray-200 leading-relaxed">
+                El equipo ganador obtiene el trofeo oficial GRAN COSECHA LUXOR, incentivos especiales y reconocimiento corporativo en toda la cadena.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="pixel-border-navy-to-yellow"></div>
+
+  <!-- ¿CÓMO PARTICIPAR? -->
+  <section id="como-participar" class="bg-[#facc15] text-[#0a1e5e] py-16 px-4">
+    <div class="mx-auto max-w-6xl text-center">
+      <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#0a1e5e] tracking-wide">
+        ¿CÓMO PARTICIPAR?
+      </h2>
+
+      <div class="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+        <!-- Paso 1 -->
+        <div class="flex flex-col items-center">
+          <span class="font-display glitch-step-num text-5xl text-[#0a1e5e] mb-3">1</span>
+          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#dc2626]">
+            <svg class="h-12 w-12 text-[#dc2626]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </div>
+          <p class="mt-4 text-sm font-semibold leading-relaxed max-w-[220px]">
+            Inscribe a tu equipo o sucursal en el formulario oficial.
+          </p>
+        </div>
+
+        <!-- Paso 2 -->
+        <div class="flex flex-col items-center">
+          <span class="font-display glitch-step-num text-5xl text-[#0a1e5e] mb-3">2</span>
+          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#0a1e5e]">
+            <svg class="h-12 w-12 text-[#0a1e5e]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+          </div>
+          <p class="mt-4 text-sm font-semibold leading-relaxed max-w-[220px]">
+            Prepara tu área, exhibiciones y estándares de frescura y servicio.
+          </p>
+        </div>
+
+        <!-- Paso 3 -->
+        <div class="flex flex-col items-center">
+          <span class="font-display glitch-step-num text-5xl text-[#0a1e5e] mb-3">3</span>
+          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#dc2626]">
+            <svg class="h-12 w-12 text-[#dc2626]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p class="mt-4 text-sm font-semibold leading-relaxed max-w-[220px]">
+            Supera las auditorías de los tres rounds junto a tu equipo.
+          </p>
+        </div>
+
+        <!-- Paso 4 -->
+        <div class="flex flex-col items-center">
+          <span class="font-display glitch-step-num text-5xl text-[#0a1e5e] mb-3">4</span>
+          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#0a1e5e]">
+            <svg class="h-12 w-12 text-[#0a1e5e]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+            </svg>
+          </div>
+          <p class="mt-4 text-sm font-semibold leading-relaxed max-w-[220px]">
+            Recibe la confirmación del equipo evaluador y celebra los resultados.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-12">
+        <a href="#inscripcion" class="inline-block rounded-full bg-[#dc2626] hover:bg-[#b91c1c] px-8 py-3.5 text-sm sm:text-base font-extrabold uppercase tracking-wider text-white shadow-lg transition-transform hover:scale-105">
+          INICIAR INSCRIPCIÓN
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <div class="pixel-border-yellow-to-white"></div>
+
+  <!-- PREMIOS -->
+  <section id="premios" class="bg-white py-16 px-4 relative overflow-hidden">
+    <!-- Repeating Marquee Background -->
+    <div class="pointer-events-none absolute top-8 left-0 w-full overflow-hidden">
+      <div class="animate-marquee font-display text-6xl sm:text-7xl tracking-widest premios-watermark whitespace-nowrap">
+        <span>PREMIOS &nbsp; PREMIOS &nbsp; PREMIOS &nbsp; PREMIOS &nbsp; PREMIOS &nbsp;</span>
+        <span>PREMIOS &nbsp; PREMIOS &nbsp; PREMIOS &nbsp; PREMIOS &nbsp; PREMIOS &nbsp;</span>
+      </div>
+    </div>
+
+    <div class="relative z-10 mx-auto max-w-5xl text-center">
+      <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#dc2626] tracking-wide">
+        PREMIOS
+      </h2>
+      <p class="mt-4 text-sm sm:text-base font-medium leading-relaxed text-[#0a1e5e] max-w-2xl mx-auto">
+        En GRAN COSECHA LUXOR, reconocemos la dedicación, el compromiso y la calidad de servicio de nuestros colaboradores con premios pensados para celebrar el esfuerzo de cada equipo.
+      </p>
+
+      <div class="mt-12 grid grid-cols-1 md:grid-cols-3 gap-10">
+        <!-- 1° PUESTO -->
+        <div class="flex flex-col items-center">
+          <div class="mb-4 flex h-28 w-28 items-center justify-center drop-shadow-xl">
+            <svg viewBox="0 0 100 100" class="h-full w-full" aria-hidden="true">
+              <rect x="18" y="40" width="64" height="46" rx="8" fill="#facc15" />
+              <rect x="14" y="28" width="72" height="16" rx="5" fill="#fde047" />
+              <rect x="44" y="28" width="12" height="58" fill="#dc2626" />
+              <rect x="14" y="33" width="72" height="6" fill="#dc2626" />
+              <path d="M50 28c-8-12-22-10-18 0h18zm0 0c8-12 22-10 18 0H50z" fill="#dc2626" />
+            </svg>
+          </div>
+          <span class="font-display text-3xl text-[#dc2626]">1° PUESTO</span>
+          <p class="mt-2 text-base font-bold text-[#0a1e5e]">Gran Premio Corporativo y Trofeo Luxor</p>
+        </div>
+
+        <!-- 2° PUESTO -->
+        <div class="flex flex-col items-center">
+          <div class="mb-4 flex h-28 w-28 items-center justify-center drop-shadow-xl">
+            <svg viewBox="0 0 100 100" class="h-full w-full" aria-hidden="true">
+              <rect x="18" y="40" width="64" height="46" rx="8" fill="#dc2626" />
+              <rect x="14" y="28" width="72" height="16" rx="5" fill="#ef4444" />
+              <rect x="44" y="28" width="12" height="58" fill="#facc15" />
+              <rect x="14" y="33" width="72" height="6" fill="#facc15" />
+              <path d="M50 28c-8-12-22-10-18 0h18zm0 0c8-12 22-10 18 0H50z" fill="#facc15" />
+            </svg>
+          </div>
+          <span class="font-display text-3xl text-[#dc2626]">2° PUESTO</span>
+          <p class="mt-2 text-base font-bold text-[#0a1e5e]">Incentivo Especial para Todo el Equipo</p>
+        </div>
+
+        <!-- 3° PUESTO -->
+        <div class="flex flex-col items-center">
+          <div class="mb-4 flex h-28 w-28 items-center justify-center drop-shadow-xl">
+            <svg viewBox="0 0 100 100" class="h-full w-full" aria-hidden="true">
+              <rect x="18" y="40" width="64" height="46" rx="8" fill="#0a1e5e" />
+              <rect x="14" y="28" width="72" height="16" rx="5" fill="#1e3a8a" />
+              <rect x="44" y="28" width="12" height="58" fill="#facc15" />
+              <rect x="14" y="33" width="72" height="6" fill="#facc15" />
+              <path d="M50 28c-8-12-22-10-18 0h18zm0 0c8-12 22-10 18 0H50z" fill="#dc2626" />
+            </svg>
+          </div>
+          <span class="font-display text-3xl text-[#dc2626]">3° PUESTO</span>
+          <p class="mt-2 text-base font-bold text-[#0a1e5e]">Reconocimiento Destacado y Cesta Luxor</p>
+        </div>
+      </div>
+
+      <div class="mt-12">
+        <a href="#inscripcion" class="inline-block rounded-full bg-[#0a1e5e] hover:bg-blue-900 px-8 py-3.5 text-sm sm:text-base font-extrabold uppercase tracking-wider text-white shadow-lg transition-transform hover:scale-105">
+          INSCRÍBETE AHORA
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer id="contacto" class="bg-white border-t-4 border-[#facc15] pt-14 pb-8 px-4 text-center">
+    <div class="mx-auto max-w-5xl">
+      <!-- Footer Logo -->
+      <div class="inline-flex items-center justify-center gap-3">
+        <svg viewBox="0 0 100 100" class="h-12 w-12" aria-hidden="true">
+          <path d="M8,8 H30 C42,8 46,16 46,46 H18 C10,46 8,36 8,8 Z" fill="#f59e0b" />
+          <path d="M8,8 L46,46 H18 C10,46 8,36 8,8 Z" fill="#facc15" />
+          <path d="M92,8 H70 C58,8 54,16 54,46 H82 C90,46 92,36 92,8 Z" fill="#dc2626" />
+          <path d="M92,8 L54,46 H82 C90,46 92,36 92,8 Z" fill="#b91c1c" />
+          <path d="M8,92 H30 C42,92 46,84 46,54 H18 C10,54 8,64 8,92 Z" fill="#f59e0b" />
+          <path d="M8,92 L46,54 H18 C10,54 8,64 8,92 Z" fill="#facc15" />
+          <path d="M92,92 H70 C58,92 54,84 54,54 H82 C90,54 92,64 92,92 Z" fill="#b91c1c" />
+          <path d="M92,92 L54,54 H82 C90,54 92,64 92,92 Z" fill="#dc2626" />
+        </svg>
+        <div class="text-left leading-none">
+          <span class="block text-xs font-extrabold tracking-[0.22em] text-[#dc2626]">SUPERMERCADOS</span>
+          <span class="font-display block text-2xl tracking-wider text-[#0a1e5e]">GRAN COSECHA LUXOR</span>
+        </div>
+      </div>
+
+      <p class="mt-4 text-sm sm:text-base font-medium text-[#0a1e5e]">
+        Frescura, calidad y compromiso en cada una de nuestras sucursales.
+      </p>
+
+      <!-- Social Links -->
+      <div class="mt-5 flex items-center justify-center gap-5 text-[#0a1e5e]">
+        <a href="#contacto" aria-label="Instagram" class="hover:text-[#dc2626] transition-colors font-bold text-xs">Instagram</a>
+        <a href="#contacto" aria-label="Facebook" class="hover:text-[#dc2626] transition-colors font-bold text-xs">Facebook</a>
+        <a href="#contacto" aria-label="LinkedIn" class="hover:text-[#dc2626] transition-colors font-bold text-xs">LinkedIn</a>
+        <a href="#contacto" aria-label="YouTube" class="hover:text-[#dc2626] transition-colors font-bold text-xs">YouTube</a>
+        <a href="#contacto" aria-label="TikTok" class="hover:text-[#dc2626] transition-colors font-bold text-xs">TikTok</a>
+      </div>
+
+      <!-- Footer Links -->
+      <div class="mt-6 space-y-1.5 text-xs sm:text-sm font-semibold text-[#0a1e5e]">
+        <div class="flex flex-wrap justify-center gap-5">
+          <a href="#inscripcion" class="hover:text-[#dc2626] hover:underline">Inscripción</a>
+          <a href="#dinamica" class="hover:text-[#dc2626] hover:underline">Dinámica del concurso</a>
+          <a href="#como-participar" class="hover:text-[#dc2626] hover:underline">Cómo participar</a>
+          <a href="#premios" class="hover:text-[#dc2626] hover:underline">Premios</a>
+        </div>
+        <div class="flex flex-wrap justify-center gap-5">
+          <a href="#contacto" class="hover:text-[#dc2626] hover:underline">Contacto</a>
+          <button type="button" data-modal="privacy" class="hover:text-[#dc2626] hover:underline cursor-pointer">Política de privacidad</button>
+          <button type="button" data-modal="terms" class="hover:text-[#dc2626] hover:underline cursor-pointer">Términos y condiciones</button>
+        </div>
+      </div>
+
+      <!-- 3 Columns: Dirección, Email, Suscríbete -->
+      <div class="mt-12 grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
+        <!-- Dirección -->
+        <div class="flex flex-col items-center">
+          <svg class="h-6 w-6 text-[#dc2626] mb-1.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <h3 class="text-xs font-extrabold uppercase tracking-widest text-[#dc2626]">COBERTURA</h3>
+          <p class="mt-2 text-xs sm:text-sm text-[#0a1e5e] font-medium">
+            Sucursales Supermercados Luxor<br />Aragua, Venezuela
+          </p>
+        </div>
+
+        <!-- Email -->
+        <div class="flex flex-col items-center">
+          <svg class="h-6 w-6 text-[#dc2626] mb-1.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+          <h3 class="text-xs font-extrabold uppercase tracking-widest text-[#dc2626]">CONTACTO</h3>
+          <a href="mailto:evaluaciones@supermercadosluxor.com" class="mt-2 text-xs sm:text-sm text-[#0a1e5e] font-medium hover:underline">
+            evaluaciones@supermercadosluxor.com
+          </a>
+          <div class="mt-4 flex flex-wrap justify-center gap-2">
+            <span class="rounded-lg bg-[#0a1e5e] px-3 py-1.5 text-[11px] font-bold text-white shadow">Programa Interno Luxor</span>
+            <span class="rounded-lg bg-[#facc15] px-3 py-1.5 text-[11px] font-bold text-[#0a1e5e] shadow">Edición 2026</span>
+          </div>
+        </div>
+
+        <!-- Suscríbete -->
+        <div class="flex flex-col items-center">
+          <svg class="h-6 w-6 text-[#dc2626] mb-1.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+          </svg>
+          <h3 class="text-xs font-extrabold uppercase tracking-widest text-[#dc2626]">ACTUALIZACIONES</h3>
+          <form id="newsletterForm" class="mt-3 flex w-full max-w-xs flex-col gap-2">
+            <input
+              type="email"
+              id="newsletterEmail"
+              placeholder="Escribe tu email aquí"
+              required
+              class="w-full rounded-full border-2 border-[#0a1e5e] px-4 py-2 text-xs text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:outline-none"
+            />
+            <button
+              type="submit"
+              class="rounded-full bg-[#dc2626] hover:bg-[#b91c1c] px-6 py-2 text-xs font-bold text-white transition-colors cursor-pointer"
+            >
+              Unirse
+            </button>
+          </form>
+          <p id="newsletterFeedback" class="hidden mt-2 text-xs font-bold text-emerald-600">
+            Gracias por suscribirte
+          </p>
+        </div>
+      </div>
+
+      <!-- Bottom Copyright -->
+      <div class="mt-12 pt-5 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[#0a1e5e] font-medium">
+        <span>2026 © Todos los Derechos reservados.</span>
+        <span>Supermercados Luxor, C.A. — GRAN COSECHA LUXOR</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- FLOATING ACTION BUTTONS (Bottom Right) -->
+  <div class="fixed bottom-5 right-5 z-40 flex flex-col gap-3">
+    <button
+      type="button"
+      data-modal="itch"
+      aria-label="Bases del concurso"
+      class="flex h-12 w-12 items-center justify-center rounded-full bg-[#dc2626] text-white shadow-lg hover:scale-105 transition-transform cursor-pointer border-2 border-[#facc15]"
+    >
+      <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+    </button>
+    <button
+      type="button"
+      data-modal="discord"
+      aria-label="Soporte y coordinación"
+      class="flex h-12 w-12 items-center justify-center rounded-full bg-[#facc15] text-[#0a1e5e] border-2 border-[#0a1e5e] shadow-lg hover:scale-105 transition-transform cursor-pointer"
+    >
+      <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+      </svg>
+    </button>
+  </div>
+
+  <!-- MODAL -->
+  <div id="infoModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 px-4">
+    <div class="w-full max-w-lg rounded-2xl bg-white p-6 text-left shadow-2xl border-t-8 border-[#dc2626]">
+      <div class="flex items-center justify-between border-b border-gray-200 pb-3">
+        <h3 id="modalTitle" class="font-display text-2xl uppercase text-[#0a1e5e]">Información</h3>
+        <button id="closeModalBtn" type="button" aria-label="Cerrar" class="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-black cursor-pointer">
+          <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div id="modalBody" class="mt-4 text-sm text-gray-700 space-y-3 max-h-[60vh] overflow-y-auto"></div>
+      <div class="mt-6 text-right">
+        <button id="modalConfirmBtn" type="button" class="rounded-full bg-[#0a1e5e] px-6 py-2 text-xs font-bold uppercase text-white hover:bg-blue-900 cursor-pointer">
+          Entendido
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Mobile menu toggle
+      const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+      const mobileMenu = document.getElementById('mobileMenu');
+      if (mobileMenuBtn && mobileMenu) {
+        mobileMenuBtn.addEventListener('click', () => {
+          mobileMenu.classList.toggle('hidden');
+        });
+        document.querySelectorAll('.mobile-nav-link').forEach((el) => {
+          el.addEventListener('click', () => mobileMenu.classList.add('hidden'));
+        });
+      }
+
+      // Accordions
+      document.querySelectorAll('.accordion-toggle').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const content = btn.nextElementSibling;
+          const chevron = btn.querySelector('.accordion-chevron');
+          const expanded = btn.getAttribute('aria-expanded') === 'true';
+          btn.setAttribute('aria-expanded', String(!expanded));
+          if (content) content.classList.toggle('hidden');
+          if (chevron) chevron.classList.toggle('rotate-180');
+        });
+      });
+
+      // Registration form feedback
+      const regForm = document.getElementById('registrationForm');
+      const formFeedback = document.getElementById('formFeedback');
+      const formFeedbackTitle = document.getElementById('formFeedbackTitle');
+      const formFeedbackText = document.getElementById('formFeedbackText');
+      if (regForm && formFeedback) {
+        regForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const team = document.getElementById('teamName').value.trim();
+          const area = document.getElementById('gameName').value.trim();
+          const email = document.getElementById('email').value.trim();
+          const terms = document.getElementById('acceptTerms').checked;
+
+          if (!team || !area || !email || !terms) {
+            formFeedbackTitle.textContent = 'Completa los campos obligatorios';
+            formFeedbackText.textContent = 'Por favor ingresa el nombre del equipo/sucursal, propuesta, email y acepta los términos y condiciones.';
+          } else {
+            formFeedbackTitle.textContent = `¡Inscripción registrada para ${team}!`;
+            formFeedbackText.textContent = `Propuesta "${area}" recibida correctamente. El equipo de coordinación de GRAN COSECHA LUXOR se comunicará a ${email}.`;
+          }
+          formFeedback.classList.remove('hidden');
+          formFeedback.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+      }
+
+      // Newsletter form
+      const newsletterForm = document.getElementById('newsletterForm');
+      const newsletterFeedback = document.getElementById('newsletterFeedback');
+      const newsletterEmail = document.getElementById('newsletterEmail');
+      if (newsletterForm && newsletterFeedback && newsletterEmail) {
+        newsletterForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          if (newsletterEmail.value.trim()) {
+            newsletterFeedback.classList.remove('hidden');
+            newsletterEmail.value = '';
+          }
+        });
+      }
+
+      // Modals
+      const modal = document.getElementById('infoModal');
+      const modalTitle = document.getElementById('modalTitle');
+      const modalBody = document.getElementById('modalBody');
+      const closeModalBtn = document.getElementById('closeModalBtn');
+      const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+
+      const modalContent = {
+        terms: {
+          title: 'Términos y condiciones - GRAN COSECHA LUXOR',
+          body: '<p><strong>Descripción del Programa:</strong> GRAN COSECHA LUXOR es una competencia interna organizada por Supermercados Luxor, C.A. para fortalecer la excelencia operativa, la frescura en piso de venta y la atención al cliente.</p><p><strong>Participación:</strong> Abierta a colaboradores y equipos de todas las sucursales de Supermercados Luxor.</p><p><strong>Evaluación:</strong> Los equipos serán evaluados en tres rondas sucesivas conforme a los criterios publicados en la dinámica del concurso.</p>'
+        },
+        privacy: {
+          title: 'Política de privacidad',
+          body: '<p>Supermercados Luxor, C.A. utiliza los datos suministrados en este formulario exclusivamente para la coordinación logística y seguimiento de los equipos participantes en GRAN COSECHA LUXOR.</p>'
+        },
+        itch: {
+          title: 'Guía operativa GRAN COSECHA LUXOR',
+          body: '<p>Recuerda mantener tus áreas ordenadas, señalización de precios vigente y exhibición de productos frescos al día antes de cada visita de evaluación.</p>'
+        },
+        discord: {
+          title: 'Soporte y Coordinación',
+          body: '<p>¿Tienes dudas sobre los criterios de evaluación o el registro de tu sucursal? Contacta a tu coordinador de Evaluaciones o escribe a <strong>evaluaciones@supermercadosluxor.com</strong>.</p>'
+        }
+      };
+
+      const openModal = (key) => {
+        const data = modalContent[key];
+        if (!data || !modal || !modalTitle || !modalBody) return;
+        modalTitle.textContent = data.title;
+        modalBody.innerHTML = data.body;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      };
+
+      const closeModal = () => {
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      };
+
+      document.querySelectorAll('[data-modal]').forEach((trigger) => {
+        trigger.addEventListener('click', () => {
+          openModal(trigger.getAttribute('data-modal'));
+        });
+      });
+
+      if (closeModalBtn) closeModalBtn.addEventListener('click', closeModal);
+      if (modalConfirmBtn) modalConfirmBtn.addEventListener('click', closeModal);
+      if (modal) {
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) closeModal();
+        });
+      }
+    });
+  </script>
+</body>
+</html>
