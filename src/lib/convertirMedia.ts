@@ -42,23 +42,33 @@ export const LIMITE_IMAGEN = 15 * 1024 * 1024
 export const LIMITE_VIDEO = 200 * 1024 * 1024
 
 /**
- * Duración máxima del video, en segundos.
+ * Duración máxima del video, en segundos: CINCO MINUTOS.
  *
  * La conversión reproduce el archivo de punta a punta para grabarlo —en
- * tiempo real, con APIs del navegador—, así que un clip de 10 minutos tardaría
- * 10 minutos en convertir y saldría pesando para el hero, que es FONDO. Sesenta
- * segundos alcanzan para una apertura de concurso; más largo se rechaza al
- * elegirlo, con el motivo a la vista (el mismo criterio que
- * `LIMITE_SEGUNDOS_VIDEO` de las evidencias, que es más chico porque ahí sí
- * se sube sin convertir).
+ * tiempo real, con APIs del navegador—, así que un video de 5 minutos
+ * tarda 5 minutos en convertir: la barra de avance de la consola lleva
+ * ese ritmo y el corte de seguridad se pone a la duración leída + 5 s.
+ * Más largo se rechaza al elegirlo, con el motivo a la vista.
  */
-export const DURACION_MAX_VIDEO = 60
+export const DURACION_MAX_VIDEO = 300
 
 /**
- * Bitrate del WebM saliente: 5 Mbps se ve nítido en 1080p y fija el techo
- * del archivo (60 s × 5 Mbps ≈ 38 MB).
+ * Bitrate del WebM saliente: 5 Mbps se ve nítido en 1080p y es el que
+ * llevan los clips cortos (60 s × 5 Mbps ≈ 38 MB).
  */
 const BITRATE_VIDEO = 5_000_000
+
+/**
+ * Techo del video YA CONVERTIDO, en bytes.
+ *
+ * Con el bitrate fijo, un video de la duración máxima saldría ~187 MB:
+ * pasa el límite de subida de Storage (50 MB por archivo en el plan
+ * gratuito) y nadie debería bajar semejante peso para un fondo de hero.
+ * Por eso el bitrate baja SOLO cuando hace falta —min(bitrate fijo,
+ * techo × 8 / duración)—: hasta ~75 s sigue saliendo con 5 Mbps y el de
+ * 5 minutos queda en ~1,3 Mbps, que con VP9 y el velo encima se ve bien.
+ */
+const TAM_MAX_VIDEO = 45 * 1024 * 1024
 
 const MENSAJE_WEBM = 'Este navegador no puede convertir videos a WebM. Probá con Chrome o Edge.'
 
@@ -218,9 +228,14 @@ export async function convertirVideoAWebM(
     if (!pista) throw new Error(MENSAJE_WEBM)
     // Sólo el track de video: el carrusel es fondo y se reproduce en mudo.
     stream = new MediaStream([pista])
+    // El bitrate baja sólo si el video es largo: con el techo de tamaño,
+    // el de 5 minutos queda en ~1,3 Mbps en vez de los ~187 MB que
+    // saldrían con 5 Mbps fijos.
+    const duracionParaBitrate = Number.isFinite(duracion) ? duracion : DURACION_MAX_VIDEO
+    const bitrate = Math.min(BITRATE_VIDEO, Math.round((TAM_MAX_VIDEO * 8) / duracionParaBitrate))
     recorder = new MediaRecorder(stream, {
       mimeType: elegirTipoWebm((mime) => MediaRecorder.isTypeSupported(mime)),
-      videoBitsPerSecond: BITRATE_VIDEO
+      videoBitsPerSecond: bitrate
     })
     const trozos: BlobPart[] = []
     recorder.ondataavailable = (e) => {
@@ -243,7 +258,7 @@ export async function convertirVideoAWebM(
     }
     // Con duración leída el corte va 5 s después del final (para no cortar
     // un video sano que tarde en reportar `ended`); sin duración, el tope ES
-    // el corte: el clip queda truncado en 60 s.
+    // el corte: el clip queda truncado en 5 minutos.
     const corteSeg = Number.isFinite(duracion) ? tope + 5 : DURACION_MAX_VIDEO
     await grabarHastaElFinal(video, recorder, corteSeg)
     const webm = await grabado

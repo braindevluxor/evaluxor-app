@@ -50,8 +50,16 @@ describe('convertirMedia · la duración de los videos', () => {
   it('acepta hasta el tope y rechaza lo que lo pasa, con el motivo', () => {
     expect(() => validarDuracionVideo(0)).not.toThrow()
     expect(() => validarDuracionVideo(DURACION_MAX_VIDEO)).not.toThrow()
-    expect(() => validarDuracionVideo(DURACION_MAX_VIDEO + 0.1)).toThrow(/60 segundos/)
+    expect(() => validarDuracionVideo(DURACION_MAX_VIDEO + 0.1)).toThrow(new RegExp(DURACION_MAX_VIDEO + ' segundos'))
     expect(() => validarDuracionVideo(600)).toThrow(/fondo/)
+  })
+
+  it('el tope es de 5 minutos y el bitrate se acomoda al techo de tamaño', () => {
+    expect(fuente).toContain('export const DURACION_MAX_VIDEO = 300')
+    // Con bitrate fijo, 5 minutos saldrían ~187 MB: no suben a Storage
+    // (límite de 50 MB por archivo) y es un peso absurdo para un fondo.
+    expect(fuente).toContain('const TAM_MAX_VIDEO = 45 * 1024 * 1024')
+    expect(fuente).toContain('Math.min(BITRATE_VIDEO, Math.round((TAM_MAX_VIDEO * 8)')
   })
 
   it('si el navegador no pudo leer la duración, no se rechaza el archivo', () => {

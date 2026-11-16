@@ -298,6 +298,11 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain("data-modal=\"privacy\"")
   })
 
+  it('el hero ya no tiene los círculos bokeh', () => {
+    expect(landing).not.toContain('bokeh-dot')
+    expect(landing).not.toContain('Decorative Bokeh Circles')
+  })
+
   it('la sección de dinámica se eliminó, con sus enlaces y acordeones', () => {
     expect(landing).not.toContain('id="dinamica"')
     expect(landing).not.toContain('href="#dinamica"')
