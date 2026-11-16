@@ -132,9 +132,6 @@ describe('gran cosecha · la landing', () => {
       'heroBajada',
       'heroCarrusel',
       'premiosLista',
-      'round1',
-      'round2',
-      'round3',
       'equiposLista'
     ]) {
       expect(landing, id).toContain(`id="${id}"`)
@@ -224,26 +221,35 @@ describe('gran cosecha · la landing', () => {
   it('los separadores entre segmentos son una onda de dos curvas, sin cuadros', () => {
     // Se fueron los bordes de cuadros tipo creayera.
     expect(landing).not.toContain('pixel-border')
-    // Los cuatro llevan DOS paths (el cerrado con relleno y la línea):
-    // la misma curva aparece ocho veces.
+    // Los tres que quedan —la dinámica se eliminó— llevan DOS paths (el
+    // cerrado con relleno y la línea): la curva aparece seis veces.
     const ondas = landing.match(/C200,0 400,0 600,20 C800,40 1000,40 1200,20/g) || []
-    expect(ondas.length).toBe(8)
+    expect(ondas.length).toBe(6)
     // Todos cierran hasta las esquinas inferiores y se rellenan con el
-    // color de la sección de ABAJO.
-    for (const relleno of ['#a81e3e', '#061238', '#facc15', '#ffffff']) {
+    // color de la sección de ABAJO (rojo→amarillo, amarillo→blanco y
+    // hero→vinotinto).
+    for (const relleno of ['#a81e3e', '#facc15', '#ffffff']) {
       expect(landing, relleno).toContain(`L1200,40 L0,40 Z" fill="${relleno}"`)
     }
-    // Los cuatro absolutos al fondo de su sección con -1px, y con
+    // Los tres absolutos al fondo de su sección con -1px, y con
     // w-full: el svg es un elemento reemplazado y con sólo inset-x-0
     // no estira —usa su tamaño intrínseco— y la línea no llegaba
     // de lado a lado.
-    expect((landing.match(/absolute inset-x-0 -bottom-px h-10 w-full/g) || []).length).toBe(4)
+    expect((landing.match(/absolute inset-x-0 -bottom-px h-10 w-full/g) || []).length).toBe(3)
     // El grosor no se deforma con el estiramiento horizontal.
-    expect((landing.match(/vector-effect="non-scaling-stroke"/g) || []).length).toBe(4)
+    expect((landing.match(/vector-effect="non-scaling-stroke"/g) || []).length).toBe(3)
     // La línea va en un color que se lea en cada frontera.
     expect(landing).toContain('stroke="#ffffff"')
-    expect(landing).toContain('stroke="#facc15"')
     expect(landing).toContain('stroke="#0a1e5e"')
+    expect(landing).not.toContain('stroke="#facc15"')
+  })
+
+  it('la sección de dinámica se eliminó, con sus enlaces y acordeones', () => {
+    expect(landing).not.toContain('id="dinamica"')
+    expect(landing).not.toContain('href="#dinamica"')
+    expect(landing).not.toContain('Dinámica del concurso')
+    // Los acordeones sólo vivían ahí: se fueron con su CSS y su JS.
+    expect(landing).not.toContain('accordion')
   })
 
   it('los tres premios muestran su caja de regalo, en el HTML y en el script', () => {
@@ -271,7 +277,7 @@ describe('gran cosecha · la landing', () => {
     // Los mismos que `CONTENIDO_BASE`: si cambia uno, cambian los dos.
     // (El hero queda fuera: está en cero a propósito, ver el test de arriba.)
     for (const premio of CONTENIDO_BASE.premios) expect(landing).toContain(premio.descripcion)
-    expect(landing).toContain('img/round-1.jpg')
+    // (Las fotos de rounds se eliminaron con la sección de dinámica.)
     // Y lo que viene de la base se escapa antes de pintarlo.
     expect(landing).toContain('function esc(')
   })

@@ -74,28 +74,6 @@
         3px -2px 0 #dc2626;
     }
 
-    /* Accordion Bokeh Card */
-    .accordion-bokeh {
-      background:
-        radial-gradient(circle at 12% 30%, rgba(250, 204, 21, 0.28) 0%, transparent 25%),
-        radial-gradient(circle at 75% 20%, rgba(255, 255, 255, 0.16) 0%, transparent 24%),
-        radial-gradient(circle at 88% 75%, rgba(250, 204, 21, 0.22) 0%, transparent 20%),
-        linear-gradient(135deg, #991b1b 0%, #dc2626 55%, #7f1d1d 100%);
-    }
-
-    /* Organic Blob Photo Masks */
-    .blob-mask-1 {
-      border-radius: 44% 56% 48% 52% / 55% 42% 58% 45%;
-    }
-
-    .blob-mask-2 {
-      border-radius: 56% 44% 53% 47% / 44% 58% 42% 56%;
-    }
-
-    .blob-mask-3 {
-      border-radius: 48% 52% 40% 60% / 52% 46% 54% 48%;
-    }
-
     /* Premios Background Marquee Text */
     .premios-watermark {
       color: #facc15;
@@ -145,7 +123,6 @@
       <nav class="hidden md:flex flex-col items-center gap-1 text-xs lg:text-sm font-semibold">
         <div class="flex items-center gap-6">
           <a href="#inscripcion" class="hover:text-[#dc2626] transition-colors">Inscripción</a>
-          <a href="#dinamica" class="hover:text-[#dc2626] transition-colors">Dinámica del concurso</a>
           <a href="#como-participar" class="hover:text-[#dc2626] transition-colors">Cómo participar</a>
           <a href="#premios" class="hover:text-[#dc2626] transition-colors">Premios</a>
         </div>
@@ -168,7 +145,6 @@
     <div id="mobileMenu" class="hidden md:hidden border-t border-slate-200 bg-white px-4 py-3">
       <div class="flex flex-col gap-2 text-sm font-semibold">
         <a href="#inscripcion" class="mobile-nav-link py-1 hover:text-[#dc2626]">Inscripción</a>
-        <a href="#dinamica" class="mobile-nav-link py-1 hover:text-[#dc2626]">Dinámica del concurso</a>
         <a href="#como-participar" class="mobile-nav-link py-1 hover:text-[#dc2626]">Cómo participar</a>
         <a href="#premios" class="mobile-nav-link py-1 hover:text-[#dc2626]">Premios</a>
         <a href="#contacto" class="mobile-nav-link py-1 hover:text-[#dc2626]">Contacto</a>
@@ -238,15 +214,16 @@
       </div>
     </div>
 
-    <!-- Divisor rojo→navy: el path se CIERRA hasta las esquinas
-         inferiores (L1200,40 L0,40 Z) y se rellena con el azul marino
-         de la sección de abajo; la línea blanca va en un segundo path,
-         sólo con trazo. Va absoluto al fondo de la sección roja con
-         -bottom-px: el rojo llega hasta la línea blanca por arriba y el
-         navy empieza desde ella hacia abajo, sin costura de subpíxel y
-         sin márgenes que rompan la continuidad. -->
+    <!-- Divisor rojo→amarillo: con la dinámica fuera, la que sigue es
+         «cómo participar» (amarillo), así que el path se CIERRA hasta
+         las esquinas inferiores (L1200,40 L0,40 Z) y se rellena con SU
+         color; la línea blanca va en un segundo path, sólo con trazo.
+         Va absoluto al fondo de la sección roja con -bottom-px: el rojo
+         llega hasta la línea blanca por arriba y el amarillo empieza
+         desde ella hacia abajo, sin costura de subpíxel y sin márgenes
+         que rompan la continuidad. -->
     <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="pointer-events-none absolute inset-x-0 -bottom-px h-10 w-full">
-      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#061238" />
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#facc15" />
       <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#ffffff" stroke-width="4" vector-effect="non-scaling-stroke" />
     </svg>
   </section>
@@ -392,197 +369,6 @@
       </div>
     </div>
   </div>
-
-  <!-- DINÁMICA DEL CONCURSO & DETALLES DE LOS ROUNDS -->
-  <section id="dinamica" class="bg-[#061238] text-white pt-14 pb-16 px-4 relative">
-    <div class="mx-auto max-w-5xl">
-      <!-- ¿Dinámica del concurso? -->
-      <div class="text-center max-w-2xl mx-auto">
-        <h2 class="font-display text-3xl sm:text-5xl uppercase text-[#facc15] tracking-wide">
-          ¿DINÁMICA DEL CONCURSO?
-        </h2>
-        <p class="mt-3 text-sm sm:text-base text-gray-200">
-          Conoce las etapas de evaluación y los estándares operativos de GRAN COSECHA LUXOR.
-        </p>
-      </div>
-
-      <!-- Accordions -->
-      <div class="mt-8 mx-auto max-w-2xl space-y-4">
-        <!-- Accordion 1 -->
-        <div class="accordion-bokeh rounded-2xl border border-[#facc15]/40 overflow-hidden shadow-lg">
-          <button
-            type="button"
-            class="accordion-toggle w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer"
-            aria-expanded="false"
-          >
-            <div class="flex items-center gap-4">
-              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 border-[#facc15] text-[#facc15]">
-                <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </span>
-              <span class="text-base sm:text-lg font-bold text-white">Fases del concurso</span>
-            </div>
-            <svg class="accordion-chevron h-6 w-6 text-white transition-transform duration-200" fill="none" stroke="currentColor" stroke-dasharray="2 2" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          <div class="accordion-content hidden px-6 pb-5 pt-1 text-sm text-yellow-50 space-y-2 border-t border-white/15">
-            <p><strong>Round 1 (Selección Inicial):</strong> Evaluación de exhibición fresca, orden de pasillos y presentación de cada equipo participante.</p>
-            <p><strong>Round 2 (Selección de Finalistas):</strong> Auditoría de reposición, rotación de inventario, señalización de precios y trabajo en equipo.</p>
-            <p><strong>Round 3 (Gran Final):</strong> Medición integral de experiencia de compra, rapidez en cajas y resultado comercial de la sucursal.</p>
-          </div>
-        </div>
-
-        <!-- Accordion 2 -->
-        <div class="accordion-bokeh rounded-2xl border border-[#facc15]/40 overflow-hidden shadow-lg">
-          <button
-            type="button"
-            class="accordion-toggle w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer"
-            aria-expanded="false"
-          >
-            <div class="flex items-center gap-4">
-              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 border-[#facc15] text-[#facc15]">
-                <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-              </span>
-              <span class="text-base sm:text-lg font-bold text-white">Modalidad y Sucursales</span>
-            </div>
-            <svg class="accordion-chevron h-6 w-6 text-white transition-transform duration-200" fill="none" stroke="currentColor" stroke-dasharray="2 2" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          <div class="accordion-content hidden px-6 pb-5 pt-1 text-sm text-yellow-50 space-y-2 border-t border-white/15">
-            <p>Pueden participar equipos de todas las sucursales de <strong>Supermercados Luxor</strong> (piso de venta, fruver, cajas, almacén y áreas operativas).</p>
-            <p>Las evidencias y seguimiento de cada ronda se registran con el coordinador asignado en tienda.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- DETALLES DE LOS ROUNDS -->
-      <div class="mt-20 text-center">
-        <h2 class="font-display text-3xl sm:text-5xl uppercase text-[#facc15] tracking-wide">
-          DETALLES DE LOS ROUNDS
-        </h2>
-        <p class="mt-2 text-sm sm:text-base text-gray-200">
-          Un programa creado por Supermercados Luxor para reconocer el esfuerzo y la excelencia de nuestros equipos.
-        </p>
-      </div>
-
-      <!-- Zig-zag Rounds -->
-      <div class="mt-14 space-y-16">
-        <!-- ROUND 1 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center">
-          <div class="flex justify-center">
-            <img
-              id="round1"
-              src="img/round-1.jpg"
-              alt="Colaboradores de supermercado organizando frutas y verduras frescas en Round 1"
-              class="blob-mask-1 w-full max-w-md h-auto object-cover border-4 border-[#facc15] shadow-[0_0_30px_rgba(250,204,21,0.35)]"
-            />
-          </div>
-          <div class="space-y-4">
-            <h3 class="font-display text-2xl sm:text-3xl uppercase text-[#facc15]">
-              ROUND 1 - Selección Inicial
-            </h3>
-            <p class="text-sm sm:text-base text-gray-200 leading-relaxed">
-              En esta primera etapa, evaluamos la frescura, el surtido y el impacto visual en piso de venta. Buscamos compromiso, orden y una presentación impecable para nuestros clientes.
-            </p>
-            <div>
-              <h4 class="text-sm sm:text-base font-extrabold uppercase text-[#facc15]">Puntos a Evaluar</h4>
-              <ul class="mt-2 list-disc list-inside space-y-1 text-sm text-gray-100">
-                <li>Calidad y frescura en exhibición de productos.</li>
-                <li>Limpieza, orden y correcta señalización de precios.</li>
-                <li>Integración y actitud del equipo en tienda.</li>
-              </ul>
-            </div>
-            <div>
-              <h4 class="text-sm sm:text-base font-extrabold uppercase text-[#facc15]">Reconocimiento</h4>
-              <p class="mt-1 text-sm text-gray-200 leading-relaxed">
-                Los mejores equipos pasan a la etapa de finalistas y son destacados en los canales internos de Supermercados Luxor.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <!-- ROUND 2 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center">
-          <div class="space-y-4 order-2 md:order-1">
-            <h3 class="font-display text-2xl sm:text-3xl uppercase text-[#facc15]">
-              ROUND 2 - Selección de Finalistas
-            </h3>
-            <p class="text-sm sm:text-base text-gray-200 leading-relaxed">
-              Los equipos clasificados demuestran su capacidad operativa en reposición continua, control de inventarios y atención cercana en pasillos.
-            </p>
-            <div>
-              <h4 class="text-sm sm:text-base font-extrabold uppercase text-[#facc15]">Puntos a Evaluar</h4>
-              <ul class="mt-2 list-disc list-inside space-y-1 text-sm text-gray-100">
-                <li>Reposición oportuna y rotación FIFO de mercancía.</li>
-                <li>Cumplimiento de planogramas y exhibiciones especiales.</li>
-                <li>Trabajo coordinado entre áreas de tienda.</li>
-              </ul>
-            </div>
-            <div>
-              <h4 class="text-sm sm:text-base font-extrabold uppercase text-[#facc15]">Reconocimiento</h4>
-              <p class="mt-1 text-sm text-gray-200 leading-relaxed">
-                Los equipos finalistas reciben mención especial de la gerencia y acceden a la gran jornada de evaluación final.
-              </p>
-            </div>
-          </div>
-          <div class="flex justify-center order-1 md:order-2">
-            <img
-              id="round2"
-              src="img/round-2.jpg"
-              alt="Equipo de supermercado surtiendo anaqueles en Round 2"
-              class="blob-mask-2 w-full max-w-md h-auto object-cover border-4 border-[#dc2626] shadow-[0_0_30px_rgba(220,38,38,0.4)]"
-            />
-          </div>
-        </div>
-
-        <!-- ROUND 3 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center">
-          <div class="flex justify-center">
-            <img
-              id="round3"
-              src="img/round-3.jpg"
-              alt="Equipo finalista celebrando en línea de cajas en Round 3"
-              class="blob-mask-3 w-full max-w-md h-auto object-cover border-4 border-white shadow-[0_0_30px_rgba(255,255,255,0.28)]"
-            />
-          </div>
-          <div class="space-y-4">
-            <h3 class="font-display text-2xl sm:text-3xl uppercase text-[#facc15]">
-              ROUND 3 - Gran Final
-            </h3>
-            <p class="text-sm sm:text-base text-gray-200 leading-relaxed">
-              En la gran final se elige al equipo campeón de GRAN COSECHA LUXOR, reconociendo la excelencia integral en servicio, frescura y resultados.
-            </p>
-            <div>
-              <h4 class="text-sm sm:text-base font-extrabold uppercase text-[#facc15]">Puntos a Evaluar</h4>
-              <ul class="mt-2 list-disc list-inside space-y-1 text-sm text-gray-100">
-                <li>Experiencia de compra y satisfacción del cliente.</li>
-                <li>Agilidad en línea de cajas y atención personalizada.</li>
-                <li>Desempeño global de la sucursal durante la campaña.</li>
-              </ul>
-            </div>
-            <div>
-              <h4 class="text-sm sm:text-base font-extrabold uppercase text-[#facc15]">Gran Premio</h4>
-              <p class="mt-1 text-sm text-gray-200 leading-relaxed">
-                El equipo ganador obtiene el trofeo oficial GRAN COSECHA LUXOR, incentivos especiales y reconocimiento corporativo en toda la cadena.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <!-- Divisor navy→amarillo: relleno con el amarillo de la sección
-         de abajo y línea amarilla sobre la curva —la mitad de arriba
-         brilla sobre el navy y la de abajo se funde con el relleno. -->
-    <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="pointer-events-none absolute inset-x-0 -bottom-px h-10 w-full">
-      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#facc15" />
-      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#facc15" stroke-width="4" vector-effect="non-scaling-stroke" />
-    </svg>
-  </section>
 
   <!-- ¿CÓMO PARTICIPAR? -->
   <section id="como-participar" class="bg-[#facc15] text-[#0a1e5e] py-16 px-4 relative">
@@ -746,7 +532,6 @@
       <div class="mt-6 space-y-1.5 text-xs sm:text-sm font-semibold text-[#0a1e5e]">
         <div class="flex flex-wrap justify-center gap-5">
           <a href="#inscripcion" class="hover:text-[#dc2626] hover:underline">Inscripción</a>
-          <a href="#dinamica" class="hover:text-[#dc2626] hover:underline">Dinámica del concurso</a>
           <a href="#como-participar" class="hover:text-[#dc2626] hover:underline">Cómo participar</a>
           <a href="#premios" class="hover:text-[#dc2626] hover:underline">Premios</a>
         </div>
@@ -878,18 +663,6 @@
           el.addEventListener('click', () => mobileMenu.classList.add('hidden'));
         });
       }
-
-      // Accordions
-      document.querySelectorAll('.accordion-toggle').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const content = btn.nextElementSibling;
-          const chevron = btn.querySelector('.accordion-chevron');
-          const expanded = btn.getAttribute('aria-expanded') === 'true';
-          btn.setAttribute('aria-expanded', String(!expanded));
-          if (content) content.classList.toggle('hidden');
-          if (chevron) chevron.classList.toggle('rotate-180');
-        });
-      });
 
       // Registration form feedback
       const regForm = document.getElementById('registrationForm');
