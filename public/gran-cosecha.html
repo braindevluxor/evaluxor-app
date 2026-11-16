@@ -74,54 +74,6 @@
         3px -2px 0 #dc2626;
     }
 
-    /* Pixel-art stepped borders */
-    .pixel-border-hero-to-white {
-      height: 28px;
-      width: 100%;
-      background-image:
-        linear-gradient(90deg, #ffffff 50%, transparent 50%),
-        linear-gradient(90deg, transparent 50%, #ffffff 50%);
-      background-size: 32px 14px, 32px 14px;
-      background-position: 0 14px, 16px 0;
-      background-repeat: repeat-x;
-    }
-
-    .pixel-border-white-to-navy {
-      height: 28px;
-      width: 100%;
-      background-color: #ffffff;
-      background-image:
-        linear-gradient(90deg, #061238 50%, transparent 50%),
-        linear-gradient(90deg, transparent 50%, #061238 50%);
-      background-size: 32px 14px, 32px 14px;
-      background-position: 0 14px, 16px 0;
-      background-repeat: repeat-x;
-    }
-
-    .pixel-border-navy-to-yellow {
-      height: 28px;
-      width: 100%;
-      background-color: #061238;
-      background-image:
-        linear-gradient(90deg, #facc15 50%, transparent 50%),
-        linear-gradient(90deg, transparent 50%, #facc15 50%);
-      background-size: 32px 14px, 32px 14px;
-      background-position: 0 14px, 16px 0;
-      background-repeat: repeat-x;
-    }
-
-    .pixel-border-yellow-to-white {
-      height: 28px;
-      width: 100%;
-      background-color: #facc15;
-      background-image:
-        linear-gradient(90deg, #ffffff 50%, transparent 50%),
-        linear-gradient(90deg, transparent 50%, #ffffff 50%);
-      background-size: 32px 14px, 32px 14px;
-      background-position: 0 14px, 16px 0;
-      background-repeat: repeat-x;
-    }
-
     /* Accordion Bokeh Card */
     .accordion-bokeh {
       background:
@@ -251,7 +203,13 @@
       </div>
     </div>
 
-    <div class="pixel-border-hero-to-white"></div>
+    <!-- Separador ondulado: DOS curvas —una hacia arriba y otra hacia
+         abajo— en vez de los cuadros tipo creayera. Sin fondo: el
+         separador vive dentro del hero y se ve el rojo detrás. El
+         grosor no se deforma al estirarse el viewBox. -->
+    <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="block h-10 w-full">
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#ffffff" stroke-width="4" vector-effect="non-scaling-stroke" />
+    </svg>
   </section>
 
   <!-- ¿QUÉ ES GRAN COSECHA LUXOR?: fondo vinotinto (liso, sin textura),
@@ -418,7 +376,11 @@
     </div>
   </div>
 
-  <div class="pixel-border-white-to-navy"></div>
+  <!-- Separador ondulado (dos curvas): el fondo sigue la sección de
+       arriba —vinotinto— y la línea blanca se lee sobre él. -->
+  <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="block h-10 w-full bg-[#a81e3e]">
+    <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#ffffff" stroke-width="4" vector-effect="non-scaling-stroke" />
+  </svg>
 
   <!-- DINÁMICA DEL CONCURSO & DETALLES DE LOS ROUNDS -->
   <section id="dinamica" class="bg-[#061238] text-white pt-14 pb-16 px-4">
@@ -604,7 +566,11 @@
     </div>
   </section>
 
-  <div class="pixel-border-navy-to-yellow"></div>
+  <!-- Separador ondulado (dos curvas): el fondo sigue la sección de
+       arriba —navy— y la línea amarilla se lee sobre él. -->
+  <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="block h-10 w-full bg-[#061238]">
+    <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#facc15" stroke-width="4" vector-effect="non-scaling-stroke" />
+  </svg>
 
   <!-- ¿CÓMO PARTICIPAR? -->
   <section id="como-participar" class="bg-[#facc15] text-[#0a1e5e] py-16 px-4">
@@ -675,7 +641,12 @@
     </div>
   </section>
 
-  <div class="pixel-border-yellow-to-white"></div>
+  <!-- Separador ondulado (dos curvas): el fondo sigue la sección de
+       arriba —amarillo— y la línea navy se lee sobre él (blanco sobre
+       amarillo no se vería). -->
+  <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="block h-10 w-full bg-[#facc15]">
+    <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#0a1e5e" stroke-width="4" vector-effect="non-scaling-stroke" />
+  </svg>
 
   <!-- PREMIOS -->
   <section id="premios" class="bg-white py-16 px-4 relative overflow-hidden">

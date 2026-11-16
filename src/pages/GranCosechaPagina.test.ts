@@ -209,6 +209,23 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain('items-center justify-end px-4 py-2.5')
   })
 
+  it('los separadores entre segmentos son una onda de dos curvas, sin cuadros', () => {
+    // Se fueron los bordes de cuadros tipo creayera.
+    expect(landing).not.toContain('pixel-border')
+    // Los cuatro separadores dibujan la MISMA onda: una curva hacia
+    // arriba y otra hacia abajo, nada más.
+    const ondas = landing.match(/C200,0 400,0 600,20 C800,40 1000,40 1200,20/g) || []
+    expect(ondas.length).toBe(4)
+    // El viewBox se estira al ancho de la pantalla: sin esto el grosor
+    // de la línea se deformaría con el tramo horizontal.
+    expect(landing).toContain('vector-effect="non-scaling-stroke"')
+    // Cada fondo continúa la sección de arriba, y la línea va en un
+    // color que se lea sobre él.
+    expect(landing).toContain('bg-[#a81e3e]')
+    expect(landing).toContain('stroke="#facc15"')
+    expect(landing).toContain('stroke="#0a1e5e"')
+  })
+
   it('los tres premios muestran su caja de regalo, en el HTML y en el script', () => {
     // Una imagen por puesto, en el HTML estático…
     for (const n of [1, 2, 3]) expect(landing).toContain(`src="regalo-${n}.png"`)
