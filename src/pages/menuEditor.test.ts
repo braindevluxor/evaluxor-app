@@ -72,4 +72,22 @@ describe('editor del menú · la pantalla', () => {
     // Y desde ahí se salta al menú público de clientes.
     expect(pagina).toContain('Ver menú público')
   })
+
+  it('la descripción se escribe en la carta y se guarda al salir del campo', () => {
+    expect(pagina).toContain('Descripción para la carta (opcional)')
+    expect(pagina).toContain('guardarDescripcion')
+    expect(pagina).toContain('onBlur')
+  })
+
+  it('las fotos perduran: quitar es una baja, no un borrado', () => {
+    // quitarProducto APAGA la fila (y su foto) en vez de borrarla…
+    expect(datos).toContain('update({ activo: false })')
+    expect(datos).not.toContain(".from('menu_productos').delete(")
+    // …cargarMenu sólo lista las activas…
+    expect(datos).toContain(".eq('activo', true)")
+    // …y re-agregar el mismo SKU la revive con todo adentro: el upsert
+    // trae activo: true y no menciona foto_url (que por eso perdura).
+    expect(datos).toContain('activo: true')
+    expect(datos).toContain('export async function guardarDescripcion')
+  })
 })

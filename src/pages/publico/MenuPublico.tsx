@@ -180,6 +180,11 @@ export function MenuPublico() {
                         </div>
                         <div className="min-w-0 flex-1 self-center">
                           <p className="font-bold leading-snug">{p.nombre}</p>
+                          {p.descripcion ? (
+                            <p className="mt-1 text-sm leading-snug text-slate-500">
+                              {p.descripcion}
+                            </p>
+                          ) : null}
                           {p.precio != null ? (
                             <span className="mt-2 inline-block rounded-full bg-[#facc15] px-3 py-1 text-sm font-black tabular-nums text-[#0a1e5e]">
                               {formatearPrecioBase(p.precio)}

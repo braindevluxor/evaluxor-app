@@ -55,4 +55,9 @@ describe('menú público · la pantalla', () => {
   it('el precio sale del PVP de siempre (formatearPrecioBase)', () => {
     expect(pagina).toContain('formatearPrecioBase')
   })
+
+  it('la descripción que escribe el encargado se muestra en la carta', () => {
+    expect(pagina).toContain('p.descripcion')
+    expect(datos).toContain('descripcion: string | null')
+  })
 })

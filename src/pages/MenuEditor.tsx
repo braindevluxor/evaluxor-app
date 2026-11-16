@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import {
   agregarProducto,
   cargarMenu,
+  guardarDescripcion,
   precioDeMenu,
   quitarProducto,
   reordenarMenu,
@@ -181,6 +182,18 @@ export function MenuEditorPage() {
     }
   }
 
+  // La descripción se guarda al salir del campo: el estado local se va
+  // actualizando con cada tecla y sólo se persiste cuando se termina de
+  // escribir (un error sí se avisa; el guardado exitoso no interrumpe).
+  const persistirDescripcion = async (producto: ProductoMenu) => {
+    try {
+      await guardarDescripcion(producto.id, producto.descripcion ?? '')
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo guardar la descripción.', 'error')
+      await recargar()
+    }
+  }
+
   if (!sucursales) {
     return (
       <div className="mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-white p-4">
@@ -346,6 +359,20 @@ export function MenuEditorPage() {
                   {p.departamento ? <span>{p.departamento}</span> : null}
                   <span>SKU {p.sku}</span>
                 </p>
+                <input
+                  type="text"
+                  value={p.descripcion ?? ''}
+                  placeholder="Descripción para la carta (opcional)"
+                  aria-label={`Descripción de ${p.nombre}`}
+                  onChange={(e) => {
+                    const texto = e.target.value
+                    setProductos((l) =>
+                      (l ?? []).map((x) => (x.id === p.id ? { ...x, descripcion: texto || null } : x))
+                    )
+                  }}
+                  onBlur={() => void persistirDescripcion(p)}
+                  className="mt-1.5 w-full rounded-lg border border-transparent bg-slate-50 px-2 py-1 text-xs text-slate-600 placeholder:text-slate-400 focus:border-[#dc2626]/40 focus:bg-white focus:outline-none"
+                />
               </div>
 
               <div className="flex items-center gap-1">

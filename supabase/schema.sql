@@ -6136,6 +6136,7 @@ create table if not exists public.menu_productos (
   sku text not null,
   producto_id text,
   nombre text not null,
+  descripcion text,
   precio numeric(12,2),
   departamento text,
   foto_url text,
@@ -6144,6 +6145,11 @@ create table if not exists public.menu_productos (
   created_at timestamptz not null default now(),
   unique (sucursal_id, sku)
 );
+
+-- La descripción vino después del primer despliegue y la tabla YA EXISTE en
+-- producción: `create table if not exists` no agrega columnas, así que va el
+-- alter idempotente (el mismo patrón que shop_id en sucursales).
+alter table public.menu_productos add column if not exists descripcion text;
 
 -- Quién puede con esta sucursal: su encargado (Gerente de Sucursal con esa
 -- sucursal en el perfil) o el Líder. `security definer` para leer `profiles`
@@ -6199,6 +6205,7 @@ as $$
       select jsonb_agg(
                jsonb_build_object(
                  'nombre', m.nombre,
+                 'descripcion', m.descripcion,
                  'precio', m.precio,
                  'departamento', m.departamento,
                  'foto', m.foto_url

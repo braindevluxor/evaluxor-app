@@ -35,6 +35,8 @@ export interface ProductoMenu {
   /** El `id` del producto en la API, cuando vino en la respuesta. */
   productoId: string | null
   nombre: string
+  /** Texto que escribe el encargado para la carta (opcional). */
+  descripcion: string | null
   /** PVP: finalBase + finalTax (la base ya descontada más el impuesto). */
   precio: number | null
   departamento: string | null
@@ -47,6 +49,7 @@ export interface MenuPublicoDatos {
   sucursal: { nombre: string } | null
   productos: {
     nombre: string
+    descripcion: string | null
     precio: number | null
     departamento: string | null
     foto: string | null
@@ -76,14 +79,17 @@ export function precioDeMenu(r: ResultadoScan): number | null {
   return precioVentaPvp({ finalBase: r.finalBase ?? null, finalTax: r.finalTax ?? null })
 }
 
-/** El menú de una sucursal, con sesión: lo carga el editor. */
+/** El menú PUBLICADO de una sucursal, con sesión: lo carga el editor. */
 export async function cargarMenu(sucursalId: string): Promise<ProductoMenu[]> {
   const { data, error } = await supabase
     .from('menu_productos')
     .select(
-      'id, sku, productoId:producto_id, nombre, precio, departamento, fotoUrl:foto_url, orden'
+      'id, sku, productoId:producto_id, nombre, descripcion, precio, departamento, fotoUrl:foto_url, orden'
     )
     .eq('sucursal_id', sucursalId)
+    // Los dados de baja quedan fuera: siguen en la base (con su foto) para
+    // que una futura selección del mismo SKU los reviva.
+    .eq('activo', true)
     .order('orden')
     .order('created_at')
   if (error) throw error
@@ -91,9 +97,11 @@ export async function cargarMenu(sucursalId: string): Promise<ProductoMenu[]> {
 }
 
 /**
- * Agrega un producto al menú; si el SKU ya estaba, se ACTUALIZA (nombre,
- * precio y departamento al día de la API; la foto no se toca). El orden lo
- * manda el renglón más alto + 1, así lo recién agregado queda al final.
+ * Agrega un producto al menú; si el SKU ya estaba —activo o dado de baja—,
+ * se ACTUALIZA: nombre, precio y departamento al día de la API y
+ * `activo: true`, lo que REVIVE la fila anterior… y con ella su foto y su
+ * descripción: por eso quitar un producto no borra nada, sólo lo apaga
+ * (ver `quitarProducto`). El orden lo manda el renglón más alto + 1.
  */
 export async function agregarProducto(
   sucursalId: string,
@@ -120,6 +128,7 @@ export async function agregarProducto(
       nombre: r.nombre,
       precio: precioDeMenu(r),
       departamento: r.departamento ?? null,
+      activo: true,
       orden: ((ultimo as { orden: number } | null)?.orden ?? 0) + 1
     },
     { onConflict: 'sucursal_id,sku' }
@@ -127,9 +136,23 @@ export async function agregarProducto(
   if (error) throw error
 }
 
-/** Quita el producto del menú (la foto queda en el bucket, sin referencias). */
+/**
+ * Da de baja el producto del menú SIN borrar la fila: la foto y la
+ * descripción que ya se cargaron quedan guardadas para la PRÓXIMA selección
+ * de ese SKU —al re-agregarlo, `agregarProducto` la reactiva con todo
+ * adentro—. La página pública no lo muestra (`activo` lo filtra la RPC).
+ */
 export async function quitarProducto(id: string): Promise<void> {
-  const { error } = await supabase.from('menu_productos').delete().eq('id', id)
+  const { error } = await supabase.from('menu_productos').update({ activo: false }).eq('id', id)
+  if (error) throw error
+}
+
+/** La descripción que escribe el encargado para su carta. */
+export async function guardarDescripcion(id: string, descripcion: string): Promise<void> {
+  const { error } = await supabase
+    .from('menu_productos')
+    .update({ descripcion: descripcion.trim() || null })
+    .eq('id', id)
   if (error) throw error
 }
 

@@ -320,6 +320,74 @@ describe('menu-sucursal.sql · la función pública', () => {
   })
 })
 
+describe('menu-sucursal.sql · descripciones y bajas lógicas', () => {
+  it('la descripción viaja en la RPC pública', async () => {
+    // El encargado escribe la descripción de un producto…
+    await conRol(GERENTE_A, async () => {
+      await db.query(
+        `update public.menu_productos set descripcion = 'Horneado el mismo día' where sku = '7790003'`
+      )
+    })
+
+    // …y la página de clientes la recibe, sin inventar nada en las demás.
+    await conAnon(async () => {
+      const r = await db.query<{
+        r: { productos: { nombre: string; descripcion: string | null }[] }
+      }>(`select public.ver_menu_publico('${SUC_A}') as r`)
+      const arroz = r.rows[0].r.productos.find((p) => p.nombre === 'Arroz')
+      expect(arroz?.descripcion).toBe('Horneado el mismo día')
+      const papel = r.rows[0].r.productos.find((p) => p.nombre === 'Papel higiénico')
+      expect(papel?.descripcion).toBeNull()
+    })
+  })
+
+  it('quitar es una baja: la fila y su foto sobreviven para la próxima selección', async () => {
+    // La foto que el encargado ya subió quedó en el renglón…
+    await conRol(GERENTE_A, async () => {
+      await db.query(
+        `update public.menu_productos set foto_url = 'https://fotos.test/menu/7790003.webp?v=1' where sku = '7790003'`
+      )
+      // …y "quitar del menú" APAGA, no borra (el mismo camino que la app).
+      await db.query(`update public.menu_productos set activo = false where sku = '7790003'`)
+    })
+
+    // La página pública ya no lo muestra…
+    await conAnon(async () => {
+      const r = await db.query<{ r: { productos: { nombre: string }[] } }>(
+        `select public.ver_menu_publico('${SUC_A}') as r`
+      )
+      expect(r.rows[0].r.productos.map((p) => p.nombre)).not.toContain('Arroz')
+    })
+
+    // …pero la próxima selección del mismo SKU la revive CON su foto: el
+    // upsert del app va por on conflict (sucursal, sku), así que actualiza
+    // la MISMA fila en vez de crear otra.
+    await conRol(GERENTE_A, async () => {
+      await db.query(
+        `insert into public.menu_productos (sucursal_id, sku, nombre, activo)
+         values ('${SUC_A}', '7790003', 'Arroz del Sol', true)
+         on conflict (sucursal_id, sku) do update set nombre = excluded.nombre, activo = true`
+      )
+    })
+
+    const filas = await contar(
+      `select count(*)::int as n from public.menu_productos where sku = '7790003'`
+    )
+    expect(filas).toBe(1)
+    const foto = await db.query<{ foto_url: string | null }>(
+      `select foto_url from public.menu_productos where sku = '7790003'`
+    )
+    expect(foto.rows[0].foto_url).toBe('https://fotos.test/menu/7790003.webp?v=1')
+
+    await conAnon(async () => {
+      const r = await db.query<{ r: { productos: { nombre: string }[] } }>(
+        `select public.ver_menu_publico('${SUC_A}') as r`
+      )
+      expect(r.rows[0].r.productos.map((p) => p.nombre)).toContain('Arroz del Sol')
+    })
+  })
+})
+
 describe('menu-sucursal.sql · las fotos', () => {
   it('el bucket nace público: es lo que significa poder verlo sin sesión', async () => {
     const n = await contar(
