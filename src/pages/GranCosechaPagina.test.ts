@@ -212,16 +212,22 @@ describe('gran cosecha · la landing', () => {
   it('los separadores entre segmentos son una onda de dos curvas, sin cuadros', () => {
     // Se fueron los bordes de cuadros tipo creayera.
     expect(landing).not.toContain('pixel-border')
-    // Los cuatro separadores dibujan la MISMA onda: una curva hacia
-    // arriba y otra hacia abajo, nada más.
+    // Tres siguen como trazo suelto; el divisor rojo→navy lleva dos
+    // paths (el cerrado con relleno y la línea blanca), así que la
+    // misma curva aparece cinco veces.
     const ondas = landing.match(/C200,0 400,0 600,20 C800,40 1000,40 1200,20/g) || []
-    expect(ondas.length).toBe(4)
+    expect(ondas.length).toBe(5)
     // El viewBox se estira al ancho de la pantalla: sin esto el grosor
     // de la línea se deformaría con el tramo horizontal.
     expect(landing).toContain('vector-effect="non-scaling-stroke"')
-    // Cada fondo continúa la sección de arriba, y la línea va en un
-    // color que se lea sobre él.
-    expect(landing).toContain('bg-[#a81e3e]')
+    // El divisor rojo→navy cierra el path hasta las esquinas inferiores
+    // y lo rellena con el color de la sección de abajo…
+    expect(landing).toContain('C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#061238"')
+    // …la línea blanca va en un segundo path, sólo con trazo…
+    expect(landing).toContain('C800,40 1000,40 1200,20" fill="none" stroke="#ffffff"')
+    // …y el svg vive al fondo de la sección roja, con -1px para que no
+    // se cuelen líneas de subpíxel entre el relleno navy y la sección.
+    expect(landing).toContain('-bottom-px')
     expect(landing).toContain('stroke="#facc15"')
     expect(landing).toContain('stroke="#0a1e5e"')
   })

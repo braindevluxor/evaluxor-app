@@ -215,7 +215,7 @@
   <!-- ¿QUÉ ES GRAN COSECHA LUXOR?: fondo vinotinto (liso, sin textura),
        tomado de la imagen de referencia. El lockup con el nombre de la
        marca se quitó de toda la página (navbar, este bloque y footer). -->
-  <section class="bg-[#a81e3e] py-12 sm:py-16 px-4 text-center">
+  <section class="bg-[#a81e3e] py-12 sm:py-16 px-4 text-center relative">
     <div class="mx-auto max-w-3xl">
 
       <!-- ¿Qué es Gran Cosecha Luxor? -->
@@ -232,6 +232,18 @@
         </p>
       </div>
     </div>
+
+    <!-- Divisor rojo→navy: el path se CIERRA hasta las esquinas
+         inferiores (L1200,40 L0,40 Z) y se rellena con el azul marino
+         de la sección de abajo; la línea blanca va en un segundo path,
+         sólo con trazo. Va absoluto al fondo de la sección roja con
+         -bottom-px: el rojo llega hasta la línea blanca por arriba y el
+         navy empieza desde ella hacia abajo, sin costura de subpíxel y
+         sin márgenes que rompan la continuidad. -->
+    <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="pointer-events-none absolute inset-x-0 -bottom-px h-10">
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#061238" />
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#ffffff" stroke-width="4" vector-effect="non-scaling-stroke" />
+    </svg>
   </section>
 
   <!-- FORMULARIO DE INSCRIPCIÓN — MODAL
@@ -375,12 +387,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Separador ondulado (dos curvas): el fondo sigue la sección de
-       arriba —vinotinto— y la línea blanca se lee sobre él. -->
-  <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="block h-10 w-full bg-[#a81e3e]">
-    <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#ffffff" stroke-width="4" vector-effect="non-scaling-stroke" />
-  </svg>
 
   <!-- DINÁMICA DEL CONCURSO & DETALLES DE LOS ROUNDS -->
   <section id="dinamica" class="bg-[#061238] text-white pt-14 pb-16 px-4">
