@@ -192,6 +192,18 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain('body:has(#inscripcion:target)')
   })
 
+  it('los tres premios muestran su caja de regalo, en el HTML y en el script', () => {
+    // Una imagen por puesto, en el HTML estático…
+    for (const n of [1, 2, 3]) expect(landing).toContain(`src="regalo-${n}.png"`)
+    // …y en pintarPremios, que rehace la lista desde la base: sin la
+    // misma imagen ahí, al cargar el contenido guardado las cajas
+    // volverían a ser trofeos.
+    expect(landing).toContain('i < 3')
+    expect(landing).toContain("regalo-' + (i + 1) + '.png")
+    // Un premio 4° en adelante se queda con el trofeo de colores.
+    expect(landing).toContain('trofeo(i)')
+  })
+
   it('lee el contenido por la RPC pública, con la config del build', () => {
     expect(landing).toContain('ver_contenido_gran_cosecha')
     expect(landing).toContain('__SUPABASE_URL__')
