@@ -179,7 +179,7 @@
   </header>
 
   <!-- HERO BANNER -->
-  <section id="top" class="hero-bg text-white pt-14 pb-0 min-h-[60vh]">
+  <section id="top" class="hero-bg text-white pt-14 pb-0 min-h-[60vh] relative">
     <!-- CARRUSEL DEL HERO: lo publica la consola (imágenes/videos con velo
          navy encima). Nace oculto: sin carrusel publicado queda el fondo
          estático de abajo y el degradado del CSS. -->
@@ -203,11 +203,16 @@
       </div>
     </div>
 
-    <!-- Separador ondulado: DOS curvas —una hacia arriba y otra hacia
-         abajo— en vez de los cuadros tipo creayera. Sin fondo: el
-         separador vive dentro del hero y se ve el rojo detrás. El
-         grosor no se deforma al estirarse el viewBox. -->
-    <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="block h-10 w-full">
+    <!-- Divisor rojo→vinotinto: path cerrado con relleno del color de
+         la sección de abajo y la línea blanca sólo sobre la curva, el
+         mismo patrón del divisor rojo→navy. Absoluto al fondo del hero
+         con -1px (contra subpíxeles); su overflow:hidden recorta ese
+         1px, da igual: el relleno es del mismo color que la sección
+         siguiente. w-full es indispensable: el svg es un elemento
+         REEMPLAZADO y con sólo inset-x-0 no estira —usa su tamaño
+         intrínseco—, por eso la línea no llegaba de lado a lado. -->
+    <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="pointer-events-none absolute inset-x-0 -bottom-px h-10 w-full">
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#a81e3e" />
       <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#ffffff" stroke-width="4" vector-effect="non-scaling-stroke" />
     </svg>
   </section>
@@ -240,7 +245,7 @@
          -bottom-px: el rojo llega hasta la línea blanca por arriba y el
          navy empieza desde ella hacia abajo, sin costura de subpíxel y
          sin márgenes que rompan la continuidad. -->
-    <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="pointer-events-none absolute inset-x-0 -bottom-px h-10">
+    <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="pointer-events-none absolute inset-x-0 -bottom-px h-10 w-full">
       <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#061238" />
       <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#ffffff" stroke-width="4" vector-effect="non-scaling-stroke" />
     </svg>
@@ -389,7 +394,7 @@
   </div>
 
   <!-- DINÁMICA DEL CONCURSO & DETALLES DE LOS ROUNDS -->
-  <section id="dinamica" class="bg-[#061238] text-white pt-14 pb-16 px-4">
+  <section id="dinamica" class="bg-[#061238] text-white pt-14 pb-16 px-4 relative">
     <div class="mx-auto max-w-5xl">
       <!-- ¿Dinámica del concurso? -->
       <div class="text-center max-w-2xl mx-auto">
@@ -570,16 +575,17 @@
         </div>
       </div>
     </div>
+    <!-- Divisor navy→amarillo: relleno con el amarillo de la sección
+         de abajo y línea amarilla sobre la curva —la mitad de arriba
+         brilla sobre el navy y la de abajo se funde con el relleno. -->
+    <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="pointer-events-none absolute inset-x-0 -bottom-px h-10 w-full">
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#facc15" />
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#facc15" stroke-width="4" vector-effect="non-scaling-stroke" />
+    </svg>
   </section>
 
-  <!-- Separador ondulado (dos curvas): el fondo sigue la sección de
-       arriba —navy— y la línea amarilla se lee sobre él. -->
-  <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="block h-10 w-full bg-[#061238]">
-    <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#facc15" stroke-width="4" vector-effect="non-scaling-stroke" />
-  </svg>
-
   <!-- ¿CÓMO PARTICIPAR? -->
-  <section id="como-participar" class="bg-[#facc15] text-[#0a1e5e] py-16 px-4">
+  <section id="como-participar" class="bg-[#facc15] text-[#0a1e5e] py-16 px-4 relative">
     <div class="mx-auto max-w-6xl text-center">
       <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#0a1e5e] tracking-wide">
         ¿CÓMO PARTICIPAR?
@@ -645,14 +651,15 @@
         </a>
       </div>
     </div>
-  </section>
 
-  <!-- Separador ondulado (dos curvas): el fondo sigue la sección de
-       arriba —amarillo— y la línea navy se lee sobre él (blanco sobre
-       amarillo no se vería). -->
-  <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="block h-10 w-full bg-[#facc15]">
-    <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#0a1e5e" stroke-width="4" vector-effect="non-scaling-stroke" />
-  </svg>
+    <!-- Divisor amarillo→blanco: relleno con el blanco de la sección
+         de abajo y línea navy sobre la curva —navy se lee tanto sobre
+         el amarillo de arriba como sobre el relleno blanco. -->
+    <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="pointer-events-none absolute inset-x-0 -bottom-px h-10 w-full">
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#ffffff" />
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#0a1e5e" stroke-width="4" vector-effect="non-scaling-stroke" />
+    </svg>
+  </section>
 
   <!-- PREMIOS -->
   <section id="premios" class="bg-white py-16 px-4 relative overflow-hidden">

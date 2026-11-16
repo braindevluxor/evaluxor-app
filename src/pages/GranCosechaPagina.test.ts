@@ -212,22 +212,24 @@ describe('gran cosecha · la landing', () => {
   it('los separadores entre segmentos son una onda de dos curvas, sin cuadros', () => {
     // Se fueron los bordes de cuadros tipo creayera.
     expect(landing).not.toContain('pixel-border')
-    // Tres siguen como trazo suelto; el divisor rojo→navy lleva dos
-    // paths (el cerrado con relleno y la línea blanca), así que la
-    // misma curva aparece cinco veces.
+    // Los cuatro llevan DOS paths (el cerrado con relleno y la línea):
+    // la misma curva aparece ocho veces.
     const ondas = landing.match(/C200,0 400,0 600,20 C800,40 1000,40 1200,20/g) || []
-    expect(ondas.length).toBe(5)
-    // El viewBox se estira al ancho de la pantalla: sin esto el grosor
-    // de la línea se deformaría con el tramo horizontal.
-    expect(landing).toContain('vector-effect="non-scaling-stroke"')
-    // El divisor rojo→navy cierra el path hasta las esquinas inferiores
-    // y lo rellena con el color de la sección de abajo…
-    expect(landing).toContain('C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#061238"')
-    // …la línea blanca va en un segundo path, sólo con trazo…
-    expect(landing).toContain('C800,40 1000,40 1200,20" fill="none" stroke="#ffffff"')
-    // …y el svg vive al fondo de la sección roja, con -1px para que no
-    // se cuelen líneas de subpíxel entre el relleno navy y la sección.
-    expect(landing).toContain('-bottom-px')
+    expect(ondas.length).toBe(8)
+    // Todos cierran hasta las esquinas inferiores y se rellenan con el
+    // color de la sección de ABAJO.
+    for (const relleno of ['#a81e3e', '#061238', '#facc15', '#ffffff']) {
+      expect(landing, relleno).toContain(`L1200,40 L0,40 Z" fill="${relleno}"`)
+    }
+    // Los cuatro absolutos al fondo de su sección con -1px, y con
+    // w-full: el svg es un elemento reemplazado y con sólo inset-x-0
+    // no estira —usa su tamaño intrínseco— y la línea no llegaba
+    // de lado a lado.
+    expect((landing.match(/absolute inset-x-0 -bottom-px h-10 w-full/g) || []).length).toBe(4)
+    // El grosor no se deforma con el estiramiento horizontal.
+    expect((landing.match(/vector-effect="non-scaling-stroke"/g) || []).length).toBe(4)
+    // La línea va en un color que se lea en cada frontera.
+    expect(landing).toContain('stroke="#ffffff"')
     expect(landing).toContain('stroke="#facc15"')
     expect(landing).toContain('stroke="#0a1e5e"')
   })
