@@ -684,21 +684,21 @@
              funde con la sección blanca. El script la repite al rehacer
              la lista desde la base. -->
         <div class="flex flex-col items-center">
-          <img src="regalo-1.png" alt="Regalo del 1° PUESTO" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain" />
+          <img src="regalo-1.png" data-regalo="1" alt="Regalo del 1° PUESTO" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain" />
           <span class="font-display text-3xl text-[#dc2626]">1° PUESTO</span>
           <p class="mt-2 text-base font-bold text-[#0a1e5e]">Gran Premio Corporativo y Trofeo Luxor</p>
         </div>
 
         <!-- 2° PUESTO -->
         <div class="flex flex-col items-center">
-          <img src="regalo-2.png" alt="Regalo del 2° PUESTO" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain" />
+          <img src="regalo-2.png" data-regalo="2" alt="Regalo del 2° PUESTO" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain" />
           <span class="font-display text-3xl text-[#dc2626]">2° PUESTO</span>
           <p class="mt-2 text-base font-bold text-[#0a1e5e]">Incentivo Especial para Todo el Equipo</p>
         </div>
 
         <!-- 3° PUESTO -->
         <div class="flex flex-col items-center">
-          <img src="regalo-3.png" alt="Regalo del 3° PUESTO" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain" />
+          <img src="regalo-3.png" data-regalo="3" alt="Regalo del 3° PUESTO" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain" />
           <span class="font-display text-3xl text-[#dc2626]">3° PUESTO</span>
           <p class="mt-2 text-base font-bold text-[#0a1e5e]">Reconocimiento Destacado y Cesta Luxor</p>
         </div>
@@ -930,6 +930,25 @@
         });
       }
 
+      // Los regalos de premios se ABREN al pasar el mouse: la caja
+      // cerrada (regalo-N.png) cambia por su caja abierta (open-N.png)
+      // mientras el puntero está encima. Va con DELEGACIÓN en la lista
+      // y por el número de la imagen, así que también aplica a los
+      // premios que pintarPremios rehace desde la base (con el listener
+      // en cada img, al guardar desde la consola se perdería). Al salir,
+      // el navegador deja la cerrada mientras carga si hace falta.
+      const premiosLista = document.getElementById('premiosLista');
+      if (premiosLista) {
+        premiosLista.addEventListener('mouseover', (e) => {
+          const img = e.target.closest('img[data-regalo]');
+          if (img) img.src = 'open-' + img.dataset.regalo + '.png';
+        });
+        premiosLista.addEventListener('mouseout', (e) => {
+          const img = e.target.closest('img[data-regalo]');
+          if (img) img.src = 'regalo-' + img.dataset.regalo + '.png';
+        });
+      }
+
       // Modals
       const modal = document.getElementById('infoModal');
       const modalTitle = document.getElementById('modalTitle');
@@ -1089,7 +1108,7 @@
           // se queda con el trofeo, que es el respaldo que no se queda
           // sin imagen.
           var media = i < 3
-            ? '<img src="regalo-' + (i + 1) + '.png" alt="Regalo del ' + esc(puesto) + '" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain" />'
+            ? '<img src="regalo-' + (i + 1) + '.png" data-regalo="' + (i + 1) + '" alt="Regalo del ' + esc(puesto) + '" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain" />'
             : '<div class="mb-4 flex h-28 w-28 items-center justify-center drop-shadow-xl">' + trofeo(i) + '</div>';
           html += '<div class="flex flex-col items-center">'
             + media

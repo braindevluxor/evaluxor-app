@@ -195,6 +195,18 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain('body:has(#inscripcion:target)')
   })
 
+  it('los regalos de premios se abren al pasar el mouse', () => {
+    // Cada caja cerrada sabe cuál es su abierta (regalo-N ↔ open-N)…
+    expect((landing.match(/data-regalo="/g) || []).length).toBe(4)
+    // …el swap va por delegación en la lista y no por listener en cada
+    // imagen: así también aplica a los premios que pintarPremios rehace
+    // desde la base al Guardar desde la consola.
+    expect(landing).toContain("addEventListener('mouseover'")
+    expect(landing).toContain("'open-' + img.dataset.regalo + '.png'")
+    expect(landing).toContain("'regalo-' + img.dataset.regalo + '.png'")
+    expect(landing).toContain(`data-regalo="' + (i + 1) + '"`)
+  })
+
   it('el bloque «¿QUÉ ES?» va sobre fondo vinotinto y sin logos', () => {
     // Vinotinto liso — sin textura (el tono salió de la imagen de
     // referencia: crimson, más oscuro y frío que el rojo de marca).
