@@ -254,14 +254,20 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
       // propia apertura y ofrece el selector de sucursales.
       'ver_menu_publico',
       'registrar_visita_menu',
-      'ver_sucursales_menu'
+      'ver_sucursales_menu',
+      // La landing /concurso se abre sin cuenta: lee por esta RPC.
+      'ver_concurso_publico'
     ])
     const rpcs = new Set([...codigoApp.matchAll(/supabase\.rpc\(\s*'(\w+)'/g)].map((m) => m[1]))
     expect(rpcs.size).toBeGreaterThan(0)
     for (const fn of rpcs) {
       const rol = sinSesion.has(fn) ? 'anon' : 'authenticated'
+      // Se busca en el ARCHIVO ENTERO y no en `permisos-funcion.sql`: esa
+      // corre a mitad de archivo y las funciones de los bloques posteriores
+      // (la de la landing pública, por ejemplo) no pueden recibir su grant
+      // ahí, porque el grant a una función inexistente tumba la instalación.
       expect(
-        remediation,
+        schemaCompleto,
         `${fn}: la app la llama por RPC pero ningún archivo le da permiso a ${rol}`
       ).toMatch(new RegExp(`grant\\s+execute\\s+on\\s+function\\s+public\\.${fn}\\([^)]*\\)\\s+to\\s+${rol}`, 'i'))
     }
@@ -271,17 +277,17 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
 describe('schema.sql · los enlaces públicos', () => {
   /**
    * Son las únicas aperturas a `anon` que existen después del login, y son
-   * deliberadas: hay pantallas públicas (`/compartir/:token` y
-   * `/compartir/cargos/:token`) para quien quiere ver una evaluación sin
-   * tener cuenta. Estos tests existen para que la próxima apertura tenga que
-   * venir con su motivo.
+   * deliberadas: hay pantallas públicas (`/compartir/:token`,
+   * `/compartir/cargos/:token` y la landing `/concurso`) para quien quiere
+   * ver algo sin tener cuenta. Estos tests existen para que la próxima
+   * apertura tenga que venir con su motivo.
    */
-  it('las únicas funciones abiertas a anon, además de las del login, son los enlaces', () => {
-    // Se mira el ARCHIVO ENTERO y no sólo `permisos-funcion.sql`: la apertura
-    // de la landing (`ver_contenido_gran_cosecha`) vive en su propio bloque,
-    // y el invariante es de todas formas global — cada nombre de abajo
-    // tiene que venir con su motivo (son los enlaces públicos, el login y la
-    // página de la Gran Cosecha).
+  it('las únicas funciones abiertas a anon, además de las del login, son las pantallas públicas', () => {
+    // Se mira el ARCHIVO ENTERO y no sólo `permisos-funcion.sql`: los grants
+    // de los bloques que van después de ese (la landing de la Gran Cosecha,
+    // el menú público) no pueden recibir su grant ahí, porque el grant a una
+    // función inexistente tumba la instalación. El invariante es de todas
+    // formas global: cada nombre de abajo tiene que venir con su motivo.
     const abiertas = [...new Set([...schemaCompleto.matchAll(
       /grant\s+execute\s+on\s+function\s+public\.(\w+)\([^)]*\)\s+to\s+([^;]*\banon\b[^;]*);/gi
     )].map((m) => m[1]))].sort()
@@ -293,6 +299,7 @@ describe('schema.sql · los enlaces públicos', () => {
       'registrar_visita_menu',
       'ver_cargos_compartidos',
       'ver_conciliacion_compartida',
+      'ver_concurso_publico',
       'ver_contenido_gran_cosecha',
       'ver_menu_publico',
       'ver_sucursales_menu'

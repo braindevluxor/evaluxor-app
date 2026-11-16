@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Scaffold reference: premios.png</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black:wght@400&display=swap">
+  <link rel="stylesheet" href="layout.css">
+  <style>html,body{margin:0}body{background:#f7f7f7}.region{box-sizing:border-box}.region.text p{white-space:pre-wrap}</style>
+</head>
+<body>
+<!-- Reference only. Every region sits at its measured box inside a comp-aspect frame. Take the boxes (layout.css), keep your own semantic structure. -->
+<main class="comp-frame" style="max-width:1440px">
+  <div class="r-nav region chrome" data-region="nav"><!-- barra de navegación navy a todo el ancho: fondo de la barra; adentro viven la marca, los enlaces y el CTA como regiones propias --></div>
+  <figure class="r-logo-marca region plate" data-region="logo-marca"><img src="../../../assets/plates/logo-marca.png" alt="" style="width:100%;height:100%;object-fit:contain;object-position:center"></figure>
+  <div class="r-nav-enlaces region text" data-region="nav-enlaces"><!-- enlaces de sección: Bases, Calendario, Proyectos, Premios, FAQ --><p style="font-size:var(--r-nav-enlaces-font);line-height:1.05;margin:0">nav-enlaces</p></div>
+  <div class="r-nav-cta region control" data-region="nav-cta"><!-- botón ámbar «Presentá tu proyecto» en la barra: match the control's lettering and visible shape to the crop (comp-spec.mjs --crop nav-cta); a control need not have button chrome --></div>
+  <div class="r-eyebrow region text" data-region="eyebrow"><!-- antetítulo ámbar «CONCURSO TRIMESTRAL DE PROYECTOS · T4 2026» --><p style="font-size:var(--r-eyebrow-font);line-height:1.05;margin:0">eyebrow</p></div>
+  <div class="r-titular region text" data-region="titular"><!-- H1 a dos líneas «Gran Cosecha» navy / «Luxor» ámbar, display 96px --><p style="font-size:var(--r-titular-font);font-family:var(--r-titular-family),sans-serif;font-weight:var(--r-titular-weight);line-height:1.05;margin:0">titular</p></div>
+  <div class="r-subcopy region text" data-region="subcopy"><!-- párrafo de presentación de tres renglones bajo el titular --><p style="line-height:1.05;margin:0">subcopy</p></div>
+  <div class="r-cta-primario region control" data-region="cta-primario"><!-- botón ámbar sólido «Presentá tu proyecto» con sombra de base: match the control's lettering and visible shape to the crop (comp-spec.mjs --crop cta-primario); a control need not have button chrome --></div>
+  <div class="r-cta-secundario region control" data-region="cta-secundario"><!-- botón secundario con borde navy «Ver bases»: match the control's lettering and visible shape to the crop (comp-spec.mjs --crop cta-secundario); a control need not have button chrome --></div>
+  <div class="r-panel-vitrina region chrome" data-region="panel-vitrina"><!-- columna navy del hero: fondo del panel de la vitrina; adentro vive la repisa y cada placa como región propia --></div>
+  <div class="r-placa-2do region chrome" data-region="placa-2do"><!-- placa «2º puesto» gris con medalla, dibujada en CSS (rectángulo redondeado, degradado y círculo) --></div>
+  <div class="r-placa-1ro region chrome" data-region="placa-1ro"><!-- placa «1er puesto Gran Cosecha» ámbar elevada al centro, dibujada en CSS --></div>
+  <div class="r-placa-mencion region chrome" data-region="placa-mencion"><!-- placa «Mención del jurado» gris a la derecha, dibujada en CSS --></div>
+  <div class="r-franja-posiciones region chrome" data-region="franja-posiciones"><!-- franja blanca inferior: fondo de la banda de posiciones; adentro vive el rótulo y las tres posiciones como regiones propias --></div>
+  <div class="r-posiciones-titulo region text" data-region="posiciones-titulo"><!-- rótulo «POSICIONES EN VIVO» en dos renglones, mono uppercase --><p style="font-size:var(--r-posiciones-titulo-font);line-height:1.05;margin:0">posiciones-titulo</p></div>
+  <div class="r-pos-1-num region text" data-region="pos-1-num"><!-- posición «1» --><p style="font-size:var(--r-pos-1-num-font);line-height:1.05;margin:0">pos-1-num</p></div>
+  <div class="r-pos-1-nombre region text" data-region="pos-1-nombre"><!-- nombre del proyecto líder «Estantes sin quiebres» --><p style="font-size:var(--r-pos-1-nombre-font);line-height:1.05;margin:0">pos-1-nombre</p></div>
+  <div class="r-pos-1-barra region chrome" data-region="pos-1-barra"><!-- barra de avance verde al 82% sobre riel gris --></div>
+  <div class="r-pos-1-pct region text" data-region="pos-1-pct"><!-- porcentaje «82%» en verde --><p style="font-size:var(--r-pos-1-pct-font);line-height:1.05;margin:0">pos-1-pct</p></div>
+  <div class="r-pos-2-num region text" data-region="pos-2-num"><!-- posición «2» --><p style="font-size:var(--r-pos-2-num-font);line-height:1.05;margin:0">pos-2-num</p></div>
+  <div class="r-pos-2-nombre region text" data-region="pos-2-nombre"><!-- nombre «Caja cero espera» --><p style="font-size:var(--r-pos-2-nombre-font);line-height:1.05;margin:0">pos-2-nombre</p></div>
+  <div class="r-pos-2-barra region chrome" data-region="pos-2-barra"><!-- barra de avance verde al 67% sobre riel gris --></div>
+  <div class="r-pos-2-pct region text" data-region="pos-2-pct"><!-- porcentaje «67%» en verde --><p style="font-size:var(--r-pos-2-pct-font);line-height:1.05;margin:0">pos-2-pct</p></div>
+  <div class="r-pos-3-num region text" data-region="pos-3-num"><!-- posición «3» --><p style="font-size:var(--r-pos-3-num-font);line-height:1.05;margin:0">pos-3-num</p></div>
+  <div class="r-pos-3-nombre region text" data-region="pos-3-nombre"><!-- nombre «Fruta fresca al día» --><p style="font-size:var(--r-pos-3-nombre-font);line-height:1.05;margin:0">pos-3-nombre</p></div>
+  <div class="r-pos-3-barra region chrome" data-region="pos-3-barra"><!-- barra de avance verde al 54% sobre riel gris --></div>
+  <div class="r-pos-3-pct region text" data-region="pos-3-pct"><!-- porcentaje «54%» en verde --><p style="font-size:var(--r-pos-3-pct-font);line-height:1.05;margin:0">pos-3-pct</p></div>
+  <div class="r-peek region chrome" data-region="peek"><!-- franja navy al pie del primer viewport: fondo; adentro vive el enlace a la siguiente sección --></div>
+  <div class="r-peek-texto region text" data-region="peek-texto"><!-- «Cómo funciona →» en blanco --><p style="line-height:1.05;margin:0">peek-texto</p></div>
+</main>
+</body>
+</html>

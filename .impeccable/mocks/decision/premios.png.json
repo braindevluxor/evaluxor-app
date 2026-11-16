@@ -1,0 +1,6 @@
+{
+  "prompt": "Render a 1440x900 raster del boceto HTML aprobado .impeccable/mocks/decision/premios.html («La vitrina de premios», tarjeta elegida en la ronda de decisión de la landing de Gran Cosecha Luxor), capturado con Edge headless. Composición: nav navy con marca EvaLuxor, hero 1.15/0.85 con H1 «Gran Cosecha Luxor», CTA ámbar «Presentá tu proyecto», panel derecho con vitrina de tres placas (oro al centro elevado), franja «Posiciones en vivo» con tres barras y peek «Cómo funciona →». Paleta: navy #0B2545, ámbar #F59E0B/#D97706, fondo #F8FAFC, verde #16A34A. Tipografía Archivo. Es el comp de referencia (north star) de la construcción, no una captura de producción.",
+  "origin": "render of approved decision sketch premios.html (Edge headless, 1440x900)",
+  "approved": true,
+  "sketch": ".impeccable/mocks/decision/premios.html"
+}

@@ -1,0 +1,33 @@
+{
+  "regions": [
+    { "id": "nav", "kind": "chrome", "grid": "A0:J0", "container": true, "note": "barra de navegación navy a todo el ancho: fondo de la barra; adentro viven la marca, los enlaces y el CTA como regiones propias" },
+    { "id": "logo-marca", "kind": "image", "bleed": true, "pixelBox": { "x": 24, "y": 4, "w": 176, "h": 68 }, "note": "logotipo completo EvaLuxor (asset real public/completo.webp) embebido en la barra navy, que sangra hasta los bordes de la caja" },
+    { "id": "nav-enlaces", "kind": "text", "pixelBox": { "x": 200, "y": 18, "w": 470, "h": 44 }, "note": "enlaces de sección: Bases, Calendario, Proyectos, Premios, FAQ" },
+    { "id": "nav-cta", "kind": "control", "grid": "I0:J0", "note": "botón ámbar «Presentá tu proyecto» en la barra" },
+    { "id": "eyebrow", "kind": "text", "grid": "A1:D1", "note": "antetítulo ámbar «CONCURSO TRIMESTRAL DE PROYECTOS · T4 2026»" },
+    { "id": "titular", "kind": "text", "grid": "A2:E3", "note": "H1 a dos líneas «Gran Cosecha» navy / «Luxor» ámbar, display 96px" },
+    { "id": "subcopy", "kind": "text", "grid": "A4:E5", "note": "párrafo de presentación de tres renglones bajo el titular" },
+    { "id": "cta-primario", "kind": "control", "grid": "A5:C6", "note": "botón ámbar sólido «Presentá tu proyecto» con sombra de base" },
+    { "id": "cta-secundario", "kind": "control", "grid": "C5:D6", "note": "botón secundario con borde navy «Ver bases»" },
+    { "id": "panel-vitrina", "kind": "chrome", "grid": "F1:J7", "container": true, "note": "columna navy del hero: fondo del panel de la vitrina; adentro vive la repisa y cada placa como región propia" },
+    { "id": "placa-2do", "kind": "chrome", "grid": "G5:I6", "note": "placa «2º puesto» gris con medalla, dibujada en CSS (rectángulo redondeado, degradado y círculo)" },
+    { "id": "placa-1ro", "kind": "chrome", "grid": "H3:I6", "note": "placa «1er puesto Gran Cosecha» ámbar elevada al centro, dibujada en CSS" },
+    { "id": "placa-mencion", "kind": "chrome", "grid": "J5:J6", "note": "placa «Mención del jurado» gris a la derecha, dibujada en CSS" },
+    { "id": "franja-posiciones", "kind": "chrome", "grid": "A7:J8", "container": true, "note": "franja blanca inferior: fondo de la banda de posiciones; adentro vive el rótulo y las tres posiciones como regiones propias" },
+    { "id": "posiciones-titulo", "kind": "text", "grid": "A8:B8", "note": "rótulo «POSICIONES EN VIVO» en dos renglones, mono uppercase" },
+    { "id": "pos-1-num", "kind": "text", "grid": "B8:B8", "note": "posición «1»" },
+    { "id": "pos-1-nombre", "kind": "text", "grid": "C8:C8", "note": "nombre del proyecto líder «Estantes sin quiebres»" },
+    { "id": "pos-1-barra", "kind": "chrome", "grid": "C8:D8", "note": "barra de avance verde al 82% sobre riel gris" },
+    { "id": "pos-1-pct", "kind": "text", "grid": "D8:E8", "note": "porcentaje «82%» en verde" },
+    { "id": "pos-2-num", "kind": "text", "grid": "E8:E8", "note": "posición «2»" },
+    { "id": "pos-2-nombre", "kind": "text", "grid": "E8:F8", "note": "nombre «Caja cero espera»" },
+    { "id": "pos-2-barra", "kind": "chrome", "grid": "F8:G8", "note": "barra de avance verde al 67% sobre riel gris" },
+    { "id": "pos-2-pct", "kind": "text", "grid": "G8:G8", "note": "porcentaje «67%» en verde" },
+    { "id": "pos-3-num", "kind": "text", "grid": "H8:H8", "note": "posición «3»" },
+    { "id": "pos-3-nombre", "kind": "text", "grid": "H8:I8", "note": "nombre «Fruta fresca al día»" },
+    { "id": "pos-3-barra", "kind": "chrome", "grid": "I8:J8", "note": "barra de avance verde al 54% sobre riel gris" },
+    { "id": "pos-3-pct", "kind": "text", "grid": "J8:J8", "note": "porcentaje «54%» en verde" },
+    { "id": "peek", "kind": "chrome", "grid": "A9:J9", "container": true, "note": "franja navy al pie del primer viewport: fondo; adentro vive el enlace a la siguiente sección" },
+    { "id": "peek-texto", "kind": "text", "grid": "A9:B9", "note": "«Cómo funciona →» en blanco" }
+  ]
+}

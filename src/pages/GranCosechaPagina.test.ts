@@ -18,15 +18,15 @@ describe('gran cosecha · la página en la consola', () => {
   it('la ruta es de sólo Líder, con su guard y su lazy', () => {
     expect(app).toContain("import('./pages/GranCosechaPagina')")
     // El guard tiene que estar en ESTA ruta y no sólo en el archivo.
-    expect(app).toMatch(/path="\/gran-cosecha\/contenido"[\s\S]{0,160}?<SoloLider>/)
+    expect(app).toMatch(/path="\/gran-cosecha\/pagina"[\s\S]{0,160}?<SoloLider>/)
   })
 
   it('el menú se lo muestra sólo al Líder, y tiene su cabecera', () => {
-    expect(consola).toContain("to: '/gran-cosecha/contenido'")
+    expect(consola).toContain("to: '/gran-cosecha/pagina'")
     expect(consola).toContain('soloLider: true')
     // El filtro de `seccionesDe`: sin esto el item se vería con cualquier rol.
     expect(consola).toContain("!i.soloLider || rol === 'LIDER'")
-    expect(consola).toContain("'/gran-cosecha/contenido': {")
+    expect(consola).toContain("'/gran-cosecha/pagina': {")
     expect(consola).toContain("titulo: 'Página de la Gran Cosecha'")
   })
 

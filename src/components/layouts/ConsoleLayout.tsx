@@ -1,4 +1,4 @@
-import { Star, Sprout, Gauge, Globe, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen } from 'lucide-react'
+import { Star, Sprout, Gauge, Globe, FileText, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -16,6 +16,12 @@ interface EnlaceMenu {
   end?: boolean
   /** Sólo para el Líder: la misma cerradura que su guard y su RLS. */
   soloLider?: boolean
+  /**
+   * A quién se le muestra: si va, sólo para esos roles. Sirve para no poner en
+   * el menú un enlace que el `RequireRol` de la ruta rebotaría —el editor del
+   * contenido es de JUEZ y LÍDER, y para el resto sería un callejón—.
+   */
+  roles?: string[]
 }
 
 const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
@@ -32,7 +38,10 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
     // La landing /gran-cosecha.html: su contenido lo escribe sólo el Líder,
     // así que el item tampoco se muestra a nadie más (no es un guard, es
     // sólo el menú: la ruta y la RLS siguen pidiendo lo mismo).
-    { to: '/gran-cosecha/contenido', label: 'Página', icon: <Globe className="h-5 w-5" />, soloLider: true }
+    { to: '/gran-cosecha/pagina', label: 'Página', icon: <Globe className="h-5 w-5" />, soloLider: true },
+    // Lo que se PUBLICA en la landing /concurso: bases, fechas, premios,
+    // jurado y FAQ. Sólo JUEZ y LÍDER, que es quien los carga.
+    { to: '/gran-cosecha/contenido', label: 'Contenido', roles: ['JUEZ', 'LIDER'], icon: <FileText className="h-5 w-5" /> }
   ]}
 ]
 
@@ -42,17 +51,24 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
  * El JUEZ no tiene acceso a las vistas de Resultados (ninguna lo incluye en
  * su `RequireRol`), así que un enlace de ahí lo rebotaría a su propia casa.
  * Se le arma el menú con la sección que sí puede abrir y nada más.
+ *
+ * Los enlaces con `roles` se filtran primero: el de Contenido no le sirve a
+ * nadie que no sea JUEZ o LÍDER, y un enlace que la ruta rechaza sólo ensucia
+ * el menú.
  */
 function seccionesDe(rol: string | undefined): { seccion: string; items: EnlaceMenu[] }[] {
-  // La página de la landing la edita sólo el Líder: su item se saca del menú
-  // de cualquier otro (el JUEZ sí ve la sección, pero sólo Proyectos), y una
-  // sección que queda sin items no se pinta.
-  const paraRol = (s: { seccion: string; items: EnlaceMenu[] }) => ({
-    ...s,
-    items: s.items.filter((i) => !i.soloLider || rol === 'LIDER')
-  })
-  const base = rol === 'JUEZ' ? enlaces.filter((s) => s.seccion === 'Gran Cosecha') : enlaces
-  return base.map(paraRol).filter((s) => s.items.length > 0)
+  // Los dos filtros conviven: primero `roles` (el de Contenido sólo es de
+  // JUEZ/LÍDER) y después `soloLider` (la página de la landing la edita sólo
+  // el Líder). Una sección que queda sin items no se pinta.
+  const visibles = enlaces
+    .map((s) => ({
+      ...s,
+      items: s.items.filter((i) => !i.roles || i.roles.includes(rol ?? '')).filter((i) => !i.soloLider || rol === 'LIDER')
+    }))
+    .filter((s) => s.items.length > 0)
+  // El JUEZ no ve Resultados: sólo la sección del concurso.
+  if (rol === 'JUEZ') return visibles.filter((s) => s.seccion === 'Gran Cosecha')
+  return visibles
 }
 
 const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
@@ -71,13 +87,19 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
     titulo: 'Gran Cosecha',
     subtitulo: 'Concurso trimestral de proyectos: equipos, propuestas y avances'
   },
-  '/gran-cosecha/contenido': {
+  '/gran-cosecha/pagina': {
     titulo: 'Página de la Gran Cosecha',
     subtitulo: 'Contenido que se publica en /gran-cosecha.html'
   },
   '/menu-editor': {
     titulo: 'Menú de la sucursal',
     subtitulo: 'Productos que se muestran en el menú público de clientes'
+  },
+  // Lo que publica la landing pública (/concurso): sin título propio la
+  // cabecera se quedaría sin rótulo en esta vista.
+  '/gran-cosecha/contenido': {
+    titulo: 'Contenido del concurso',
+    subtitulo: 'Bases, fechas, premios, jurado y FAQ que se publican en la página pública'
   }
 }
 

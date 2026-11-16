@@ -1,0 +1,1230 @@
+/* ---------------------------------------------------------------------------
+ * Landing pública de Gran Cosecha Luxor (/concurso).
+ *
+ * Superficie Persuade con mundo propio: navy EvaLuxor a campo completo, fondo
+ * claro #F8FAFC y ámbar de premio como tinta de acción. Va en su propio
+ * archivo (no en index.css) porque es una sola pantalla y porque el resto de
+ * la app no debe heredar estas reglas.
+ *
+ * DOS TRAMPAS DEL CSS GLOBAL que este archivo evita a propósito:
+ *  · index.css aplana bordes en todo elemento cuya class contenga 'rounded-'
+ *    Y 'border', y sombras en toda class que contenga 'shadow-'. Acá los
+ *    bordes y sombras se escriben en CSS propio (clases .concurso-*), nunca
+ *    con utilidades Tailwind, así que ninguna regla global los toca.
+ *  · El modo oscuro reescribe los tokens de color (--color-slate-*, .dark
+ *    .bg-white…). Esta página es SIEMPRE clara (es una marca, no la consola):
+ *    todos los colores van literales, sin tokens, y se ignora el tema.
+ * ------------------------------------------------------------------------- */
+
+.concurso {
+  --navy: #0b2545;
+  --navy-800: #0e2a4e;
+  --navy-700: #1e3a63;
+  --ground: #f8fafc;
+  --line: #e2e8f0;
+  --amber: #f59e0b;
+  --amber-600: #d97706;
+  --amber-700: #b45309;
+  --green: #16a34a;
+  --green-light: #4ade80;
+  --ink: #0b2545;
+  --ink-2: #334155;
+  --ink-3: #64748b;
+  font-family: 'Archivo', 'Lato', ui-sans-serif, sans-serif;
+  background: var(--ground);
+  color: var(--ink-2);
+  color-scheme: light;
+  min-height: 100vh;
+}
+
+.concurso :where(h1, h2, h3) {
+  color: var(--ink);
+}
+
+/* --- Aviso de vista previa (sólo cuando no hay datos reales) --------------- */
+.concurso-aviso {
+  background: #f7dfb6;
+  color: #92400e;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 11px 56px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* --- Nav ------------------------------------------------------------------ */
+.concurso-nav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: 76px;
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  padding: 0 56px;
+  background: var(--navy);
+  color: #fff;
+}
+
+.concurso-logo {
+  height: 34px;
+  width: auto;
+  /* La marca navy sobre la barra navy: se invierte a blanco, igual que el
+     tratamiento del modo oscuro de la app (.logo-invitado). */
+  filter: brightness(0) invert(1);
+}
+
+.concurso-nav-links {
+  display: flex;
+  gap: 28px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.concurso-nav-links a {
+  color: #cbd5e1;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.concurso-nav-links a:hover {
+  color: var(--amber);
+}
+
+.concurso-nav-cta {
+  margin-left: auto;
+  background: var(--amber);
+  color: var(--navy);
+  font-weight: 800;
+  font-size: 15px;
+  padding: 12px 22px;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: filter 0.15s ease;
+}
+
+.concurso-nav-cta:hover {
+  filter: brightness(1.07);
+}
+
+/* --- Botones --------------------------------------------------------------- */
+.concurso-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 800;
+  padding: 18px 34px;
+  border-radius: 10px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.concurso-btn--primario {
+  background: var(--amber);
+  color: var(--navy);
+  /* Sombra dura de base: es la del boceto aprobado, parte de la vitrina. */
+  box-shadow: 0 6px 0 var(--amber-700);
+}
+
+.concurso-btn--primario:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 0 var(--amber-700);
+}
+
+.concurso-btn--primario:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 0 var(--amber-700);
+}
+
+.concurso-btn--secundario {
+  background: transparent;
+  color: var(--navy);
+  border: 2px solid var(--navy);
+}
+
+.concurso-btn--secundario:hover {
+  background: var(--navy);
+  color: #fff;
+}
+
+.concurso a:focus-visible,
+.concurso button:focus-visible,
+.concurso summary:focus-visible {
+  outline: 2px solid var(--amber-600);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* --- Hero ------------------------------------------------------------------ */
+.concurso-hero {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  min-height: 600px;
+}
+
+.concurso-hero-izq {
+  padding: 64px 56px 48px;
+}
+
+.concurso-eyebrow {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--amber-700);
+}
+
+.concurso-h1 {
+  font-size: clamp(40px, 6.7vw, 96px);
+  line-height: 0.94;
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  margin: 18px 0 20px;
+  overflow-wrap: break-word;
+}
+
+.concurso-h1 em {
+  font-style: normal;
+  color: var(--amber-600);
+}
+
+.concurso-sub {
+  font-size: 20px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  max-width: 560px;
+}
+
+.concurso-acciones {
+  display: flex;
+  gap: 16px;
+  margin-top: 34px;
+  flex-wrap: wrap;
+}
+
+/* --- Vitrina ---------------------------------------------------------------- */
+.concurso-vitrina {
+  position: relative;
+  background: linear-gradient(160deg, #0b2545 0%, #1e3a63 60%, #0b2545 100%);
+  border-left: 1px solid var(--navy-800);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 34px;
+  padding-bottom: 64px;
+  overflow: hidden;
+}
+
+.concurso-repisa {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 58%;
+  height: 4px;
+  background: linear-gradient(90deg, transparent, #4f87c7, transparent);
+}
+
+/* El envoltorio lleva la entrada y la placa su elevación: si las dos
+   animaran transform se pisarían (la de oro está trasladada -46px). */
+.concurso-placa-env {
+  position: relative;
+  z-index: 2;
+}
+
+.concurso-placa {
+  width: 150px;
+  height: 190px;
+  border-radius: 10px 10px 4px 4px;
+  background: linear-gradient(180deg, #f8fafc, #cbd5e1);
+  border: 6px solid #94a3b8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 14px;
+}
+
+.concurso-placa--oro {
+  width: 176px;
+  height: 238px;
+  transform: translateY(-46px);
+  border-color: var(--amber);
+  background: linear-gradient(180deg, #fffbeb, #fde68a);
+}
+
+.concurso-medalla {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fde68a, #d97706);
+  border: 4px solid var(--amber-700);
+  margin-bottom: 12px;
+}
+
+.concurso-placa--oro .concurso-medalla {
+  width: 74px;
+  height: 74px;
+}
+
+.concurso-placa b {
+  display: block;
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--ink);
+  text-align: center;
+}
+
+.concurso-placa i {
+  display: block;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-align: center;
+  margin-top: 2px;
+}
+
+.concurso-vitrina-vacia {
+  position: relative;
+  z-index: 2;
+  color: #cbd5e1;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  max-width: 320px;
+  padding-bottom: 40px;
+}
+
+/* --- Franja de posiciones ---------------------------------------------------- */
+.concurso-franja {
+  min-height: 150px;
+  background: #fff;
+  border-top: 3px solid var(--navy);
+  display: flex;
+  align-items: center;
+  gap: 44px;
+  padding: 20px 56px;
+}
+
+.concurso-franja-titulo {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  width: 150px;
+  line-height: 1.5;
+}
+
+.concurso-fila {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.concurso-fila-pos {
+  font-size: 26px;
+  font-weight: 900;
+  width: 44px;
+  color: var(--ink);
+}
+
+.concurso-fila-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.concurso-fila-nombre {
+  font-size: 16px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.concurso-barra {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.concurso-barra i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--green), var(--green-light));
+  transform-origin: left;
+  animation: concurso-crecer 0.9s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  animation-delay: var(--d, 0s);
+}
+
+.concurso-fila-pct {
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--green);
+  width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.concurso-franja-vacia {
+  color: var(--ink-3);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* --- Peek ------------------------------------------------------------------- */
+.concurso-peek {
+  height: 74px;
+  background: var(--navy);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 56px;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+}
+
+.concurso-peek:hover {
+  background: var(--navy-800);
+}
+
+.concurso-peek span {
+  transition: transform 0.2s ease;
+}
+
+.concurso-peek:hover span {
+  transform: translateX(6px);
+}
+
+/* --- Secciones ---------------------------------------------------------------- */
+.concurso-seccion {
+  padding: 96px 56px;
+  scroll-margin-top: 90px;
+}
+
+.concurso-seccion--blanco {
+  background: #fff;
+}
+
+.concurso-contenedor {
+  max-width: 1328px;
+  margin: 0 auto;
+}
+
+.concurso-h2 {
+  font-size: clamp(30px, 3.4vw, 44px);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.concurso-linea {
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  max-width: 720px;
+  margin-top: 16px;
+}
+
+.concurso-subtitulo {
+  margin-bottom: 48px;
+}
+
+/* --- Pasos (cómo funciona) ----------------------------------------------------- */
+.concurso-pasos {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  margin-top: 48px;
+}
+
+.concurso-paso-num {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--navy);
+  color: var(--amber);
+  font-size: 24px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.concurso-paso h3 {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.concurso-paso p {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+/* --- Proyectos participantes ---------------------------------------------------- */
+.concurso-grilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 24px;
+}
+
+.concurso-ficha {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px;
+}
+
+.concurso-seccion--blanco .concurso-ficha {
+  background: var(--ground);
+}
+
+.concurso-ficha-cabeza {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.concurso-ficha h3 {
+  font-size: 21px;
+  font-weight: 800;
+}
+
+.concurso-chip {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.concurso-chip--cumple { background: #c0edd0; color: #166534; }
+.concurso-chip--riesgo { background: #f7dfb6; color: #92400e; }
+.concurso-chip--sindato { background: #d9dfe8; color: #334155; }
+.concurso-chip--nocumple { background: #f5bcbc; color: #991b1b; }
+
+.concurso-ficha p {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  margin-bottom: 16px;
+}
+
+.concurso-ficha-equipo {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-3);
+  margin-bottom: 16px;
+}
+
+.concurso-ficha-avance {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.concurso-ficha-avance .concurso-barra {
+  flex: 1;
+}
+
+.concurso-ficha-avance b {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+}
+
+.concurso-ficha-nota {
+  font-size: 14px;
+  color: var(--ink-3);
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+
+.concurso-detalles {
+  margin-top: 14px;
+}
+
+.concurso-detalles summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--navy);
+  list-style: none;
+  padding: 8px 0;
+}
+
+.concurso-detalles summary::-webkit-details-marker {
+  display: none;
+}
+
+.concurso-detalles summary::after {
+  content: ' +';
+  color: var(--amber-700);
+}
+
+.concurso-detalles[open] summary::after {
+  content: ' \2212';
+}
+
+.concurso-avance-fila {
+  display: flex;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.concurso-avance-fila time {
+  font-weight: 800;
+  color: var(--ink-3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.concurso-avance-fila b {
+  color: var(--green);
+  font-weight: 900;
+}
+
+.concurso-avance-fila span {
+  color: var(--ink-2);
+}
+
+/* --- Tabla de posiciones --------------------------------------------------------- */
+.concurso-tabla-wrap {
+  overflow-x: auto;
+}
+
+.concurso-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.concurso-tabla th {
+  text-align: left;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 12px;
+  border-bottom: 3px solid var(--navy);
+}
+
+.concurso-tabla td {
+  padding: 16px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 16px;
+  vertical-align: middle;
+}
+
+.concurso-tabla .num {
+  font-size: 22px;
+  font-weight: 900;
+  width: 56px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.concurso-tabla .fuerte {
+  font-weight: 800;
+}
+
+.concurso-tabla .equipo {
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+.concurso-tabla .avance-celda {
+  min-width: 200px;
+}
+
+.concurso-tabla .avance-celda > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.concurso-tabla .avance-celda .concurso-barra {
+  flex: 1;
+}
+
+.concurso-tabla .avance-celda b {
+  font-weight: 900;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Calendario -------------------------------------------------------------------- */
+.concurso-timeline {
+  position: relative;
+  margin-top: 48px;
+  max-width: 760px;
+}
+
+.concurso-timeline::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  background: var(--line);
+}
+
+.concurso-hito {
+  position: relative;
+  padding: 0 0 40px 48px;
+}
+
+.concurso-hito:last-child {
+  padding-bottom: 0;
+}
+
+.concurso-hito::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--line);
+  box-sizing: border-box;
+}
+
+.concurso-hito--pasado::before {
+  background: var(--green);
+  border-color: var(--green);
+}
+
+.concurso-hito--proximo::before {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.25);
+}
+
+.concurso-hito-fecha {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.concurso-hito h3 {
+  font-size: 21px;
+  font-weight: 800;
+  margin: 4px 0;
+}
+
+.concurso-hito p {
+  font-size: 15px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+.concurso-hito-badge {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #f7dfb6;
+  color: #92400e;
+}
+
+.concurso-hito--pasado .concurso-hito-badge {
+  background: #c0edd0;
+  color: #166534;
+}
+
+/* --- Premios ------------------------------------------------------------------------ */
+.concurso-premios {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 24px;
+  margin-top: 48px;
+}
+
+.concurso-premio {
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 32px 28px;
+  text-align: center;
+}
+
+.concurso-seccion--blanco .concurso-premio {
+  background: #fff;
+}
+
+.concurso-premio .concurso-medalla {
+  margin: 0 auto 16px;
+  width: 64px;
+  height: 64px;
+}
+
+.concurso-premio-puesto {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--amber-700);
+  margin-bottom: 6px;
+}
+
+.concurso-premio h3 {
+  font-size: 24px;
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+
+.concurso-premio p {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+/* --- Bases (texto con markdown) ------------------------------------------------------ */
+.concurso-prose {
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  max-width: 720px;
+}
+
+.concurso-prose :where(p) {
+  margin-bottom: 16px;
+}
+
+.concurso-prose :where(ul, ol) {
+  margin: 0 0 16px 22px;
+}
+
+.concurso-prose :where(li) {
+  margin-bottom: 8px;
+}
+
+.concurso-prose :where(strong) {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.concurso-prose :where(table) {
+  border-collapse: collapse;
+  margin-bottom: 16px;
+}
+
+.concurso-prose :where(th, td) {
+  border: 1px solid var(--line);
+  padding: 8px 14px;
+  text-align: left;
+}
+
+/* --- Jurado y ganadores ------------------------------------------------------------------ */
+.concurso-jurado {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 24px;
+  margin-top: 48px;
+}
+
+.concurso-juez {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.concurso-seccion--blanco .concurso-juez {
+  background: var(--ground);
+}
+
+.concurso-inicial {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--navy);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.concurso-juez b {
+  display: block;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.concurso-juez span {
+  font-size: 14px;
+  color: var(--ink-3);
+}
+
+.concurso-ganadores {
+  margin-top: 48px;
+}
+
+.concurso-ganador {
+  display: flex;
+  align-items: baseline;
+  gap: 20px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.concurso-ganador-periodo {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  background: var(--navy);
+  color: #fff;
+  padding: 5px 14px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.concurso-ganador b {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.concurso-ganador span {
+  font-size: 15px;
+  color: var(--ink-3);
+}
+
+/* --- FAQ ------------------------------------------------------------------------------- */
+.concurso-faq {
+  max-width: 860px;
+  margin-top: 40px;
+}
+
+.concurso-faq details {
+  border-bottom: 1px solid var(--line);
+}
+
+.concurso-faq summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+  padding: 22px 44px 22px 0;
+  position: relative;
+}
+
+.concurso-faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.concurso-faq summary::after {
+  content: '+';
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 26px;
+  font-weight: 400;
+  color: var(--amber-700);
+}
+
+.concurso-faq details[open] summary::after {
+  content: '\2212';
+}
+
+.concurso-faq p {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  padding-bottom: 22px;
+  max-width: 760px;
+}
+
+/* --- CTA final y footer ------------------------------------------------------------------- */
+.concurso-cta-final {
+  background: var(--navy);
+  color: #fff;
+  padding: 96px 56px;
+  text-align: center;
+}
+
+.concurso-cta-final h2 {
+  color: #fff;
+  font-size: clamp(30px, 3.4vw, 44px);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  margin-bottom: 16px;
+}
+
+.concurso-cta-final p {
+  color: #cbd5e1;
+  font-size: 18px;
+  max-width: 620px;
+  margin: 0 auto 36px;
+  line-height: 1.6;
+}
+
+.concurso-footer {
+  background: #081c36;
+  color: #94a3b8;
+  padding: 36px 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+
+.concurso-footer nav {
+  display: flex;
+  gap: 24px;
+}
+
+.concurso-footer a {
+  color: #cbd5e1;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.concurso-footer a:hover {
+  color: var(--amber);
+}
+
+/* --- Estados vacíos y carga ---------------------------------------------------------------- */
+.concurso-vacio {
+  border: 1px dashed #cbd5e1;
+  border-radius: 16px;
+  padding: 36px;
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 16px;
+  font-weight: 600;
+  margin-top: 40px;
+}
+
+.concurso-hueso {
+  background: linear-gradient(90deg, #e2e8f0, #eef2f6, #e2e8f0);
+  background-size: 200% 100%;
+  animation: concurso-shimmer 1.4s linear infinite;
+  border-radius: 10px;
+  height: 18px;
+}
+
+@keyframes concurso-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.concurso-carga {
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+
+.concurso-carga-rueda {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 4px solid var(--line);
+  border-top-color: var(--amber);
+  animation: concurso-girar 0.8s linear infinite;
+}
+
+@keyframes concurso-girar {
+  to { transform: rotate(360deg); }
+}
+
+/* --- Motion: la entrada de la vitrina (el momento de la página) --------------------------- */
+@keyframes concurso-subir {
+  from { opacity: 0; transform: translateY(26px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.concurso-placa-env {
+  animation: concurso-subir 0.55s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  /* El desfasaje entre placas (segunda, tercera) lo pone el componente con
+     animationDelay inline: cada placa entra cuando le toca en la coreografía. */
+}
+
+@keyframes concurso-crecer {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .concurso-placa-env,
+  .concurso-barra i,
+  .concurso-hueso,
+  .concurso-carga-rueda {
+    animation: none;
+  }
+
+  .concurso-btn:hover {
+    transform: none;
+  }
+}
+
+/* --- Responsive ------------------------------------------------------------------------------- */
+@media (max-width: 1100px) {
+  .concurso-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .concurso-vitrina {
+    min-height: 420px;
+    border-left: none;
+    border-top: 1px solid var(--navy-800);
+    padding-bottom: 56px;
+  }
+
+  .concurso-hero-izq {
+    padding-bottom: 32px;
+  }
+
+  .concurso-pasos {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+}
+
+@media (max-width: 900px) {
+  .concurso-aviso,
+  .concurso-nav,
+  .concurso-hero-izq,
+  .concurso-franja,
+  .concurso-peek,
+  .concurso-seccion,
+  .concurso-cta-final,
+  .concurso-footer {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+
+  .concurso-nav {
+    gap: 14px;
+  }
+
+  .concurso-nav-links {
+    display: none;
+  }
+
+  .concurso-franja {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 20px;
+  }
+
+  .concurso-franja-titulo {
+    width: auto;
+  }
+
+  .concurso-seccion {
+    padding-top: 64px;
+    padding-bottom: 64px;
+  }
+}
+
+@media (max-width: 600px) {
+  /* Sin estos ajustes la nav (logo + CTA) empuja el ancho de la página por
+     encima del viewport y todo queda cortado a la derecha. */
+  .concurso-nav {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .concurso-logo {
+    height: 26px;
+    max-width: 38vw;
+    object-fit: contain;
+    object-position: left center;
+  }
+
+  .concurso-nav-cta {
+    font-size: 14px;
+    padding: 10px 14px;
+    white-space: nowrap;
+  }
+
+  .concurso-acciones .concurso-btn {
+    width: 100%;
+  }
+
+  .concurso-placa {
+    width: 104px;
+    height: 140px;
+    padding: 8px;
+    border-width: 5px;
+  }
+
+  .concurso-placa--oro {
+    width: 124px;
+    height: 172px;
+    transform: translateY(-30px);
+  }
+
+  .concurso-medalla {
+    width: 40px;
+    height: 40px;
+  }
+
+  .concurso-placa--oro .concurso-medalla {
+    width: 52px;
+    height: 52px;
+  }
+
+  .concurso-placa b {
+    font-size: 12px;
+  }
+
+  .concurso-placa i {
+    font-size: 11px;
+  }
+
+  .concurso-vitrina {
+    gap: 8px;
+    min-height: 340px;
+  }
+
+  .concurso-peek {
+    font-size: 20px;
+  }
+}
