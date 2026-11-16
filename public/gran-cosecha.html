@@ -74,27 +74,6 @@
         3px -2px 0 #dc2626;
     }
 
-    /* Premios Background Marquee Text */
-    .premios-watermark {
-      color: #facc15;
-      text-shadow:
-        -2px -2px 0 #dc2626,
-        2px 2px 0 #0a1e5e;
-      opacity: 0.25;
-      user-select: none;
-    }
-
-    @keyframes marqueeScroll {
-      0% { transform: translateX(0); }
-      100% { transform: translateX(-50%); }
-    }
-
-    .animate-marquee {
-      display: flex;
-      width: max-content;
-      animation: marqueeScroll 22s linear infinite;
-    }
-
     /* CTA «Inscríbete ahora»: late de forma constante —estira y
        encoja— para llamar la atención sobre el botón de inscripción. */
     @keyframes pulsoCta {
@@ -475,12 +454,19 @@
 
   <!-- PREMIOS -->
   <section id="premios" class="bg-white py-16 px-4 relative overflow-hidden">
-    <!-- Repeating Marquee Background -->
-    <div class="pointer-events-none absolute top-8 left-0 w-full overflow-hidden">
-      <div class="animate-marquee font-display text-6xl sm:text-7xl tracking-widest premios-watermark whitespace-nowrap">
-        <span>PREMIOS &nbsp; PREMIOS &nbsp; PREMIOS &nbsp; PREMIOS &nbsp; PREMIOS &nbsp;</span>
-        <span>PREMIOS &nbsp; PREMIOS &nbsp; PREMIOS &nbsp; PREMIOS &nbsp; PREMIOS &nbsp;</span>
-      </div>
+    <!-- Carrusel de premios: las seis gráficas 13…18 de public/evidencia
+         reemplazan al marquee de "PREMIOS". Gira sola con fundido cada
+         4 s; va en aspect-video para verlas COMPLETAS —son flyers con
+         texto y recortarlos en una franja larga los arruinaría—. Las
+         imágenes van convertidas a WebP a resolución natural (39,4 MB
+         de PNG → 2,7 MB). -->
+    <div id="premiosCarrusel" class="relative z-10 mx-auto mb-12 aspect-video w-full max-w-3xl overflow-hidden rounded-2xl border-4 border-[#facc15] shadow-xl bg-white">
+      <img src="evidencia/premios-13.webp" alt="Gráfica de premios 13" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-100" />
+      <img src="evidencia/premios-14.webp" alt="Gráfica de premios 14" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
+      <img src="evidencia/premios-15.webp" alt="Gráfica de premios 15" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
+      <img src="evidencia/premios-16.webp" alt="Gráfica de premios 16" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
+      <img src="evidencia/premios-17.webp" alt="Gráfica de premios 17" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
+      <img src="evidencia/premios-18.webp" alt="Gráfica de premios 18" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
     </div>
 
     <div class="relative z-10 mx-auto max-w-5xl text-center">
@@ -703,6 +689,23 @@
             newsletterEmail.value = '';
           }
         });
+      }
+
+      // Carrusel de premios: las seis gráficas giran solas con fundido
+      // cada 4 s. El cambio es por CLASE de opacidad (no por src): así
+      // las seis se cargan con lazy cuando la sección se acerca y el
+      // slide activo nunca queda en blanco esperando descarga.
+      const premiosCarrusel = document.getElementById('premiosCarrusel');
+      if (premiosCarrusel) {
+        const slides = Array.from(premiosCarrusel.querySelectorAll('img'));
+        let slideActual = 0;
+        if (slides.length > 1) {
+          setInterval(() => {
+            slides[slideActual].classList.replace('opacity-100', 'opacity-0');
+            slideActual = (slideActual + 1) % slides.length;
+            slides[slideActual].classList.replace('opacity-0', 'opacity-100');
+          }, 4000);
+        }
       }
 
       // Los regalos de premios se ABREN al pasar el mouse: la caja

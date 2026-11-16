@@ -212,6 +212,19 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain(`data-regalo="' + (i + 1) + '"`)
   })
 
+  it('la sección de premios lleva el carrusel de las gráficas 13…18', () => {
+    // El marquee de "PREMIOS" se fue con su CSS y sus keyframes.
+    expect(landing).not.toContain('animate-marquee')
+    expect(landing).not.toContain('premios-watermark')
+    expect(landing).not.toContain('marqueeScroll')
+    // Las seis gráficas convertidas a WebP (13…18)…
+    const fotos = landing.match(/evidencia\/premios-\d+\.webp/g) || []
+    expect(fotos.length).toBe(6)
+    expect(landing).toContain('id="premiosCarrusel"')
+    // …girando solas con fundido, por clase de opacidad.
+    expect(landing).toContain("slides[slideActual].classList.replace('opacity-100', 'opacity-0')")
+  })
+
   it('el CTA dice INSCRÍBETE AHORA y late de forma constante', () => {
     expect(landing).not.toContain('INICIAR INSCRIPCIÓN')
     // Dos botones con el texto, pero el pulso sólo en el de «cómo
