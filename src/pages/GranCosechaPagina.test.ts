@@ -161,8 +161,11 @@ describe('gran cosecha · la landing', () => {
 
   it('el hero está en cero: sin título, fechas ni botón, sólo huecos', () => {
     // Sólo el bloque del hero: el resto de la página tiene su propio copy
-    // (su "INSCRÍBETE" de la sección de inscripción sigue ahí).
-    const hero = landing.slice(landing.indexOf('<!-- HERO BANNER -->'), landing.indexOf('<!-- PRESENTADO POR'))
+    // (su "INSCRÍBETE" de la sección de inscripción sigue ahí). El corte
+    // es el primer </section> después del inicio del hero — el hero no
+    // tiene secciones anidadas—: cortar por un comentario era frágil.
+    const inicio = landing.indexOf('<!-- HERO BANNER -->')
+    const hero = landing.slice(inicio, landing.indexOf('</section>', inicio))
     // Se quitó todo el texto para rediseñar el hero desde cero.
     expect(hero).not.toContain('id="heroGran"')
     expect(hero).not.toContain('INSCRÍBETE AHORA')
@@ -190,6 +193,19 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain("e.key !== 'Escape'")
     // Y con el modal abierto el fondo no se desplaza detrás.
     expect(landing).toContain('body:has(#inscripcion:target)')
+  })
+
+  it('el bloque «¿QUÉ ES?» va sobre fondo rojo liso y la página ya no tiene logos', () => {
+    // Rojo de marca, liso — sin textura.
+    expect(landing).toContain('bg-[#dc2626] py-12 sm:py-16')
+    // El texto va en blanco: navy sobre rojo no pasa AA en el párrafo.
+    expect(landing).toMatch(/<h2 class="font-display glitch-title[^"]*text-white/)
+    // Se fueron los tres lockups con el nombre de la marca (navbar,
+    // este bloque y footer) y el rótulo que los presentaba.
+    expect(landing).not.toContain('>SUPERMERCADOS<')
+    expect(landing).not.toContain('PRESENTADO POR')
+    // El navbar queda sólo con links, alineados a la derecha.
+    expect(landing).toContain('items-center justify-end px-4 py-2.5')
   })
 
   it('los tres premios muestran su caja de regalo, en el HTML y en el script', () => {

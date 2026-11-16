@@ -186,32 +186,10 @@
 
   <!-- HEADER / NAVBAR -->
   <header class="sticky top-0 z-50 w-full bg-white text-[#0a1e5e] shadow-md border-b-4 border-[#facc15]">
-    <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-2.5 sm:px-6">
-      <!-- Official 4-Leaf Logo + Project Name -->
-      <a href="#top" class="flex items-center gap-3 shrink-0 focus:outline-none">
-        <span class="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
-          <svg viewBox="0 0 100 100" class="h-full w-full" aria-hidden="true">
-            <!-- Top-Left Leaf (Yellow / Amber) -->
-            <path d="M8,8 H30 C42,8 46,16 46,46 H18 C10,46 8,36 8,8 Z" fill="#f59e0b" />
-            <path d="M8,8 L46,46 H18 C10,46 8,36 8,8 Z" fill="#facc15" />
-            <!-- Top-Right Leaf (Red) -->
-            <path d="M92,8 H70 C58,8 54,16 54,46 H82 C90,46 92,36 92,8 Z" fill="#dc2626" />
-            <path d="M92,8 L54,46 H82 C90,46 92,36 92,8 Z" fill="#b91c1c" />
-            <!-- Bottom-Left Leaf (Yellow / Amber) -->
-            <path d="M8,92 H30 C42,92 46,84 46,54 H18 C10,54 8,64 8,92 Z" fill="#f59e0b" />
-            <path d="M8,92 L46,54 H18 C10,54 8,64 8,92 Z" fill="#facc15" />
-            <!-- Bottom-Right Leaf (Red) -->
-            <path d="M92,92 H70 C58,92 54,84 54,54 H82 C90,54 92,64 92,92 Z" fill="#b91c1c" />
-            <path d="M92,92 L54,54 H82 C90,54 92,64 92,92 Z" fill="#dc2626" />
-          </svg>
-        </span>
-        <div class="leading-none rounded-lg px-3 py-1.5">
-          <span class="block text-[10px] font-extrabold tracking-[0.18em] text-[#dc2626]">SUPERMERCADOS</span>
-          <span class="font-display block text-lg sm:text-xl tracking-wider text-[#0a1e5e]">GRAN COSECHA LUXOR</span>
-        </div>
-      </a>
-
-      <!-- Desktop Two-Row Navigation -->
+    <div class="mx-auto flex max-w-6xl items-center justify-end px-4 py-2.5 sm:px-6">
+      <!-- Desktop Two-Row Navigation: sin logo — el lockup con el nombre
+           de la marca se quitó de la página entera; los links quedan a
+           la derecha (justify-end), como estaban con el logo. -->
       <nav class="hidden md:flex flex-col items-center gap-1 text-xs lg:text-sm font-semibold">
         <div class="flex items-center gap-6">
           <a href="#inscripcion" class="hover:text-[#dc2626] transition-colors">Inscripción</a>
@@ -276,41 +254,22 @@
     <div class="pixel-border-hero-to-white"></div>
   </section>
 
-  <!-- PRESENTADO POR & ¿QUÉ ES GRAN COSECHA LUXOR? -->
-  <section class="bg-white py-12 sm:py-16 px-4 text-center">
+  <!-- ¿QUÉ ES GRAN COSECHA LUXOR?: fondo rojo (liso, sin textura). El
+       lockup con el nombre de la marca se quitó de toda la página
+       (navbar, este bloque y footer). -->
+  <section class="bg-[#dc2626] py-12 sm:py-16 px-4 text-center">
     <div class="mx-auto max-w-3xl">
-      <p class="text-xs sm:text-sm font-extrabold uppercase tracking-[0.22em] text-[#dc2626]">
-        PRESENTADO POR
-      </p>
-
-      <!-- Official 4-Leaf Logo -->
-      <div class="mt-4 inline-flex items-center justify-center gap-3.5">
-        <svg viewBox="0 0 100 100" class="h-14 w-14" aria-hidden="true">
-          <path d="M8,8 H30 C42,8 46,16 46,46 H18 C10,46 8,36 8,8 Z" fill="#f59e0b" />
-          <path d="M8,8 L46,46 H18 C10,46 8,36 8,8 Z" fill="#facc15" />
-          <path d="M92,8 H70 C58,8 54,16 54,46 H82 C90,46 92,36 92,8 Z" fill="#dc2626" />
-          <path d="M92,8 L54,46 H82 C90,46 92,36 92,8 Z" fill="#b91c1c" />
-          <path d="M8,92 H30 C42,92 46,84 46,54 H18 C10,54 8,64 8,92 Z" fill="#f59e0b" />
-          <path d="M8,92 L46,54 H18 C10,54 8,64 8,92 Z" fill="#facc15" />
-          <path d="M92,92 H70 C58,92 54,84 54,54 H82 C90,54 92,64 92,92 Z" fill="#b91c1c" />
-          <path d="M92,92 L54,54 H82 C90,54 92,64 92,92 Z" fill="#dc2626" />
-        </svg>
-        <div class="text-left leading-none">
-          <span class="block text-xs font-extrabold tracking-[0.22em] text-[#dc2626]">SUPERMERCADOS</span>
-          <span class="font-display block text-3xl tracking-wider text-[#0a1e5e]">GRAN COSECHA LUXOR</span>
-        </div>
-      </div>
 
       <!-- ¿Qué es Gran Cosecha Luxor? -->
-      <div class="mt-12">
-        <h2 class="font-display glitch-title text-3xl sm:text-5xl uppercase text-[#0a1e5e] leading-tight">
+      <div>
+        <h2 class="font-display glitch-title text-3xl sm:text-5xl uppercase text-white leading-tight">
           ¿QUÉ ES
           <span class="inline-block rounded-full bg-[#facc15] border-2 border-[#dc2626] px-5 py-1 text-[#0a1e5e]">
             GRAN COSECHA LUXOR
           </span>
           ?
         </h2>
-        <p class="mt-6 text-sm sm:text-base md:text-lg font-medium leading-relaxed text-[#0a1e5e] max-w-2xl mx-auto">
+        <p class="mt-6 text-sm sm:text-base md:text-lg font-medium leading-relaxed text-white max-w-2xl mx-auto">
           Una iniciativa corporativa de integración y excelencia operativa para las sucursales de Supermercados Luxor. En tres emocionantes rounds, nuestros equipos demuestran frescura, exhibición comercial, atención al cliente y trabajo en equipo para alcanzar los grandes premios de la temporada.
         </p>
       </div>
@@ -786,24 +745,6 @@
   <!-- FOOTER -->
   <footer id="contacto" class="bg-white border-t-4 border-[#facc15] pt-14 pb-8 px-4 text-center">
     <div class="mx-auto max-w-5xl">
-      <!-- Footer Logo -->
-      <div class="inline-flex items-center justify-center gap-3">
-        <svg viewBox="0 0 100 100" class="h-12 w-12" aria-hidden="true">
-          <path d="M8,8 H30 C42,8 46,16 46,46 H18 C10,46 8,36 8,8 Z" fill="#f59e0b" />
-          <path d="M8,8 L46,46 H18 C10,46 8,36 8,8 Z" fill="#facc15" />
-          <path d="M92,8 H70 C58,8 54,16 54,46 H82 C90,46 92,36 92,8 Z" fill="#dc2626" />
-          <path d="M92,8 L54,46 H82 C90,46 92,36 92,8 Z" fill="#b91c1c" />
-          <path d="M8,92 H30 C42,92 46,84 46,54 H18 C10,54 8,64 8,92 Z" fill="#f59e0b" />
-          <path d="M8,92 L46,54 H18 C10,54 8,64 8,92 Z" fill="#facc15" />
-          <path d="M92,92 H70 C58,92 54,84 54,54 H82 C90,54 92,64 92,92 Z" fill="#b91c1c" />
-          <path d="M92,92 L54,54 H82 C90,54 92,64 92,92 Z" fill="#dc2626" />
-        </svg>
-        <div class="text-left leading-none">
-          <span class="block text-xs font-extrabold tracking-[0.22em] text-[#dc2626]">SUPERMERCADOS</span>
-          <span class="font-display block text-2xl tracking-wider text-[#0a1e5e]">GRAN COSECHA LUXOR</span>
-        </div>
-      </div>
-
       <p class="mt-4 text-sm sm:text-base font-medium text-[#0a1e5e]">
         Frescura, calidad y compromiso en cada una de nuestras sucursales.
       </p>
