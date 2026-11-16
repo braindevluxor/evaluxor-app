@@ -4009,6 +4009,34 @@ exception when undefined_function then null;
 end $$;
 
 -- ----------------------------------------------------------------------------
+-- 10) Menú: registrar visita y su reporte
+-- ----------------------------------------------------------------------------
+-- Las dos funciones del menú que faltan, llamadas por RPC desde la app:
+--
+-- - `registrar_visita_menu`: la página pública cuenta SU apertura sin
+--   sesión (el cliente sólo llama una vez por hora). Va para `anon` a
+--   propósito — la tercera apertura deliberada además del login y los
+--   enlaces, y por el mismo motivo: hay una pantalla pública. Sólo inserta
+--   si la sucursal existe y está activa.
+-- - `ver_visitas_menu`: el reporte por día/hora del editor: sólo con
+--   sesión, y el cuerpo además exige ser encargado de esa sucursal o Líder.
+--
+-- El `do` con la misma razón que en el punto 9: este bloque corre ANTES
+-- de que el bloque `menu-sucursal.sql` (al final del archivo) cree las
+-- funciones, y un grant plano a una función inexistente tiraría el pegado.
+do $$
+begin
+  execute 'grant execute on function public.registrar_visita_menu(uuid) to anon, authenticated';
+exception when undefined_function then null;
+end $$;
+
+do $$
+begin
+  execute 'grant execute on function public.ver_visitas_menu(uuid, date, date) to authenticated';
+exception when undefined_function then null;
+end $$;
+
+-- ----------------------------------------------------------------------------
 -- Verificacion
 -- ----------------------------------------------------------------------------
 -- Correr `diagnostico-permisos.sql` despues de esto: la columna `estado` deberia
@@ -4929,7 +4957,7 @@ select
   case
     when p.proname in ('intento_login', 'email_por_usuario', 'ver_conciliacion_compartida',
                        'ver_cargos_compartidos', 'ver_contenido_gran_cosecha',
-                       'ver_menu_publico')
+                       'registrar_visita_menu', 'ver_menu_publico')
       then 'permitido sin sesion'
     when has_function_privilege('anon', p.oid, 'EXECUTE')
       then 'ABIERTA A ANON: correr reactivar-politicas.sql'
@@ -4944,7 +4972,7 @@ where n.nspname = 'public'
     'desbloquear_usuario', 'registrar_sync',
     'intento_login', 'email_por_usuario', 'ver_conciliacion_compartida',
     'ver_cargos_compartidos', 'ver_contenido_gran_cosecha',
-    'ver_menu_publico',
+    'ver_menu_publico', 'registrar_visita_menu', 'ver_visitas_menu',
     'mergear_conciliacion', 'puede_usar_revision_pre_entrega',
     'previsualizar_departamentos', 'aplicar_departamentos'
   )
@@ -6137,6 +6165,7 @@ create table if not exists public.menu_productos (
   producto_id text,
   nombre text not null,
   descripcion text,
+  categoria text,
   precio numeric(12,2),
   departamento text,
   foto_url text,
@@ -6150,6 +6179,10 @@ create table if not exists public.menu_productos (
 -- producción: `create table if not exists` no agrega columnas, así que va el
 -- alter idempotente (el mismo patrón que shop_id en sucursales).
 alter table public.menu_productos add column if not exists descripcion text;
+
+-- La categoría (la pestaña de la carta: Entradas, Bebidas…) se sumó junto
+-- con la descripción por la misma razón: la tabla ya existe en producción.
+alter table public.menu_productos add column if not exists categoria text;
 
 -- Quién puede con esta sucursal: su encargado (Gerente de Sucursal con esa
 -- sucursal en el perfil) o el Líder. `security definer` para leer `profiles`
@@ -6206,6 +6239,7 @@ as $$
                jsonb_build_object(
                  'nombre', m.nombre,
                  'descripcion', m.descripcion,
+                 'categoria', m.categoria,
                  'precio', m.precio,
                  'departamento', m.departamento,
                  'foto', m.foto_url
@@ -6259,3 +6293,87 @@ create policy menu_fotos_encargado on storage.objects
       )
     )
   );
+
+-- ---------------------------------------------------------------------------
+-- VISITAS: cuántas veces se abre la página del menú, por día y por hora.
+-- (Separador de guiones y no de numeral: `bloqueSql` corta el bloque en la
+-- próxima línea con ###, que es cómo se marcan los bloques consolidados.)
+-- ---------------------------------------------------------------------------
+-- La página se abre SIN SESIÓN, así que quien cuenta es una función
+-- `security definer` llamada desde ella (mismo porqué que
+-- `ver_menu_publico`). La tabla nace con RLS activada y SIN políticas:
+-- nadie —ni authenticated— lee filas crudas, sólo las funciones de abajo;
+-- el revoke a anon es cinturón y corbata porque los defaults ya lo
+-- cerraron. Ojo con lo que mide: son APERTURAS, no usuarios únicos — un
+-- bot que repita la URL subiría el número; el cliente de todos modos sólo
+-- cuenta una vez por hora (localStorage), así que un refresco no infla.
+
+create table if not exists public.menu_visitas (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales (id) on delete cascade,
+  abierta_en timestamptz not null default now()
+);
+
+alter table public.menu_visitas enable row level security;
+
+do $$
+begin
+  execute 'revoke all on public.menu_visitas from anon';
+end $$;
+
+-- Registra la apertura. Sin `stable`: escribe. Sólo cuenta sucursales
+-- EXISTENTES y activas — un uuid al azar no deja filas, así que la tabla
+-- no se puede poblar con URLs inventadas.
+create or replace function public.registrar_visita_menu(p_sucursal uuid)
+returns void
+language sql security definer
+set search_path = public
+as $$
+  insert into public.menu_visitas (sucursal_id, abierta_en)
+  select s.id, now()
+    from public.sucursales s
+   where s.id = p_sucursal and s.activa
+$$;
+
+revoke execute on function public.registrar_visita_menu(uuid) from public, anon;
+grant execute on function public.registrar_visita_menu(uuid) to anon, authenticated;
+
+-- El reporte por día y hora: ES DE SESIÓN (nada de anon) y sólo devuelve
+-- datos si el llamador ES encargado de ESA sucursal o Líder — sin permiso
+-- devuelve la lista vacía, indistinguible de "sin visitas". Las horas van
+-- en la zona de la empresa (Caracas): lo que el encargado llama "las 10
+-- de la mañana" no es las 6 UTC.
+create or replace function public.ver_visitas_menu(
+  p_sucursal uuid,
+  p_desde date,
+  p_hasta date
+)
+returns jsonb
+language sql stable security definer
+set search_path = public
+as $$
+  select case
+    when public.es_encargado_menu(p_sucursal) then (
+      select coalesce(
+        jsonb_agg(
+          jsonb_build_object('fecha', fecha, 'hora', hora, 'visitas', visitas)
+          order by fecha, hora
+        ),
+        '[]'::jsonb
+      )
+      from (
+        select date_trunc('day', v.abierta_en at time zone 'America/Caracas')::date as fecha,
+               extract(hour from v.abierta_en at time zone 'America/Caracas')::int as hora,
+               count(*)::int as visitas
+          from public.menu_visitas v
+         where v.sucursal_id = p_sucursal
+           and (v.abierta_en at time zone 'America/Caracas')::date between p_desde and p_hasta
+         group by 1, 2
+      ) x
+    )
+    else '[]'::jsonb
+  end
+$$;
+
+revoke execute on function public.ver_visitas_menu(uuid, date, date) from public, anon;
+grant execute on function public.ver_visitas_menu(uuid, date, date) to authenticated;

@@ -4,6 +4,7 @@ import { Package, RefreshCw } from 'lucide-react'
 import {
   cargarMenuPublico,
   esUuid,
+  registrarVisita,
   type MenuPublicoDatos
 } from '../../lib/data/menuSucursal'
 import { formatearPrecioBase } from '../../lib/scoring'
@@ -17,10 +18,16 @@ import { formatearPrecioBase } from '../../lib/scoring'
  * trae NADA de edición: los productos los carga el encargado desde la
  * consola (`/menu-editor`).
  *
+ * Organización: las CATEGORÍAS que armó el encargado (Entradas, Bebidas…)
+ * se pegan arriba como pestañas —como en una carta moderna— y filtran la
+ * lista; con una sola categoría (o ninguna) no hay pestañas y todo va
+ * plano. Cada apertura se cuenta para el reporte del editor: una por hora
+ * por navegador (`registrarVisita`), sin romper nunca la carta.
+ *
  * Presentación: identidad corporativa de Supermercados Luxor —navy,
  * amarillo y rojo— con aire de carta gourmet: la tapa navy con el nombre
- * de la sucursal y su rombo, secciones con hilo de oro a los costados y
- * tarjetas con foto grande, precio en chip dorado y hover suave.
+ * de la sucursal y su rombo, y tarjetas con foto grande, precio en chip
+ * dorado y hover suave.
  */
 
 type Estado = 'cargando' | 'listo' | 'no-existe' | 'fallo'
@@ -64,11 +71,15 @@ function Rombo({ className = '' }: { className?: string }) {
   )
 }
 
+/** La categoría de un producto sin categoría: su propia pestaña. */
+const SIN_CATEGORIA = 'Otros'
+
 export function MenuPublico() {
   const { sucursalId } = useParams<{ sucursalId: string }>()
   const [estado, setEstado] = useState<Estado>('cargando')
   const [menu, setMenu] = useState<MenuPublicoDatos | null>(null)
   const [intento, setIntento] = useState(0)
+  const [categoriaActiva, setCategoriaActiva] = useState<string | null>(null)
 
   useEffect(() => {
     let vivo = true
@@ -88,6 +99,9 @@ export function MenuPublico() {
         }
         setMenu(datos)
         setEstado('listo')
+        // La apertura se cuenta aparte y sin esperarla: el contador no
+        // retrasa ni puede tumbar la carta.
+        void registrarVisita(sucursalId)
       })
       .catch(() => {
         if (vivo) setEstado('fallo')
@@ -97,17 +111,19 @@ export function MenuPublico() {
     }
   }, [sucursalId, intento])
 
-  // Los productos se agrupan por departamento en el orden en que llegan
-  // (la RPC ya los manda por `orden`); sin departamento van a "Productos".
-  const grupos: { departamento: string; items: NonNullable<MenuPublicoDatos['productos']> }[] = []
-  if (estado === 'listo' && menu) {
-    for (const p of menu.productos) {
-      const clave = p.departamento?.trim() || 'Productos'
-      const grupo = grupos.find((g) => g.departamento === clave)
-      if (grupo) grupo.items.push(p)
-      else grupos.push({ departamento: clave, items: [p] })
-    }
-  }
+  const productos = (estado === 'listo' && menu?.productos) || []
+
+  // Las pestañas salen de las categorías que armó el encargado, en el
+  // orden en que aparecen los productos (la RPC ya los manda por `orden`);
+  // sin categoría va a "Otros". Si hay UNA sola, no hay pestañas: se ve
+  // todo plano, que es exactamente la carta de siempre.
+  const categorias = [...new Set(productos.map((p) => p.categoria?.trim() || SIN_CATEGORIA))]
+  const pestana =
+    categoriaActiva && categorias.includes(categoriaActiva) ? categoriaActiva : categorias[0]
+  const filtrados = productos.filter(
+    (p) => (p.categoria?.trim() || SIN_CATEGORIA) === pestana
+  )
+  const hayPestanas = categorias.length > 1
 
   return (
     <div className="flex min-h-screen flex-col bg-[#f4f6fb] font-sans text-[#0a1e5e]">
@@ -165,69 +181,80 @@ export function MenuPublico() {
         ) : null}
 
         {estado === 'listo' && menu?.sucursal ? (
-          menu.productos.length === 0 ? (
+          productos.length === 0 ? (
             <Aviso
               titulo="Este menú todavía no tiene productos"
               detalle="El encargado de la sucursal está cargando la carta. Volvé a mirar en un rato."
             />
           ) : (
-            <div className="pt-10">
-              {grupos.map((g) => (
-                <section key={g.departamento} className="mb-10">
-                  {/* Sección: nombre centrado con hilo de oro a los dos
-                      lados, como en una carta impresa. */}
-                  <h2 className="mb-4 flex items-center gap-4">
-                    <span className="h-px flex-1 bg-[#facc15]" />
-                    <span className="text-[13px] font-black uppercase tracking-[0.3em] text-[#0a1e5e]">
-                      {g.departamento}
-                    </span>
-                    <span className="h-px flex-1 bg-[#facc15]" />
-                  </h2>
-
-                  <ul className="space-y-4">
-                    {g.items.map((p, i) => (
-                      <li
-                        key={`${p.nombre}-${i}`}
-                        className="group flex gap-4 rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(10,30,94,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#facc15] hover:shadow-[0_10px_28px_rgba(10,30,94,0.12)]"
+            <div className="pt-6">
+              {/* Pestañas de categoría: se quedan pegadas arriba al
+                  scrollear, para cambiar de sección sin volver al tope.
+                  Sólo botones: la página no tiene campos de edición. */}
+              {hayPestanas ? (
+                <div className="sticky top-0 z-10 -mx-4 border-b border-slate-200 bg-[#f4f6fb]/95 px-4 py-3 backdrop-blur">
+                  <div className="flex gap-2 overflow-x-auto">
+                    {categorias.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setCategoriaActiva(c)}
+                        aria-pressed={c === pestana}
+                        className={`shrink-0 rounded-full px-4 py-2 text-xs font-black uppercase tracking-wider transition-colors ${
+                          c === pestana
+                            ? 'bg-[#facc15] text-[#0a1e5e] shadow-sm'
+                            : 'border border-slate-300 bg-white text-slate-600 hover:border-[#facc15]'
+                        }`}
                       >
-                        <div className="h-28 w-28 shrink-0 overflow-hidden rounded-xl">
-                          {p.foto ? (
-                            <img
-                              src={p.foto}
-                              alt={p.nombre}
-                              loading="lazy"
-                              decoding="async"
-                              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#0a1e5e] to-[#1d3a8f]">
-                              <Package className="h-9 w-9 text-[#facc15]" aria-hidden="true" />
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="min-w-0 flex-1 self-center">
-                          <div className="flex items-start justify-between gap-3">
-                            <p className="min-w-0 text-[15px] font-bold leading-snug text-[#0a1e5e]">
-                              {p.nombre}
-                            </p>
-                            {p.precio != null ? (
-                              <span className="shrink-0 rounded-full bg-gradient-to-b from-[#fde68a] to-[#facc15] px-3 py-1 text-[13px] font-black tabular-nums text-[#0a1e5e] shadow-sm ring-1 ring-[#eab308]/50">
-                                {formatearPrecioBase(p.precio)}
-                              </span>
-                            ) : null}
-                          </div>
-                          {p.descripcion ? (
-                            <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
-                              {p.descripcion}
-                            </p>
-                          ) : null}
-                        </div>
-                      </li>
+                        {c}
+                      </button>
                     ))}
-                  </ul>
-                </section>
-              ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <ul className={`space-y-4 ${hayPestanas ? 'mt-4' : ''}`}>
+                {filtrados.map((p, i) => (
+                  <li
+                    key={`${p.nombre}-${i}`}
+                    className="group flex gap-4 rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(10,30,94,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#facc15] hover:shadow-[0_10px_28px_rgba(10,30,94,0.12)]"
+                  >
+                    <div className="h-28 w-28 shrink-0 overflow-hidden rounded-xl">
+                      {p.foto ? (
+                        <img
+                          src={p.foto}
+                          alt={p.nombre}
+                          loading="lazy"
+                          decoding="async"
+                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#0a1e5e] to-[#1d3a8f]">
+                          <Package className="h-9 w-9 text-[#facc15]" aria-hidden="true" />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1 self-center">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="min-w-0 text-[15px] font-bold leading-snug text-[#0a1e5e]">
+                          {p.nombre}
+                        </p>
+                        {p.precio != null ? (
+                          <span className="shrink-0 rounded-full bg-gradient-to-b from-[#fde68a] to-[#facc15] px-3 py-1 text-[13px] font-black tabular-nums text-[#0a1e5e] shadow-sm ring-1 ring-[#eab308]/50">
+                            {formatearPrecioBase(p.precio)}
+                          </span>
+                        ) : null}
+                      </div>
+                      {p.descripcion ? (
+                        <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
+                          {p.descripcion}
+                        </p>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
           )
         ) : null}

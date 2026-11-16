@@ -434,3 +434,114 @@ describe('menu-sucursal.sql · las fotos', () => {
     })
   })
 })
+
+describe('menu-sucursal.sql · las categorías', () => {
+  it('la categoría viaja en la RPC pública y la escribe sólo su encargado', async () => {
+    await conRol(GERENTE_A, async () => {
+      await db.query(
+        `update public.menu_productos set categoria = 'Entradas' where sku = '7790001'`
+      )
+    })
+
+    await conAnon(async () => {
+      const r = await db.query<{ r: { productos: { categoria: string | null }[] } }>(
+        `select public.ver_menu_publico('${SUC_A}') as r`
+      )
+      expect(r.rows[0].r.productos.some((p) => p.categoria === 'Entradas')).toBe(true)
+      // Las que no se fijaron vienen en null: la página las agrupa en su
+      // propia pestaña sin inventar nada.
+      expect(r.rows[0].r.productos.some((p) => p.categoria === null)).toBe(true)
+    })
+
+    // El encargado de OTRA sucursal no toca mis categorías: el `using` de
+    // la fila lo filtra y el update no toca nada.
+    await conRol(GERENTE_B, async () => {
+      await db.query(`update public.menu_productos set categoria = 'Hack' where sku = '7790001'`)
+    })
+    const categoria = await db.query<{ categoria: string | null }>(
+      `select categoria from public.menu_productos where sku = '7790001'`
+    )
+    expect(categoria.rows[0].categoria).toBe('Entradas')
+  })
+})
+
+describe('menu-sucursal.sql · las visitas', () => {
+  it('anon registra su apertura, pero sólo de sucursales existentes y activas', async () => {
+    const antes = await contar(`select count(*)::int as n from public.menu_visitas`)
+
+    await conAnon(async () => {
+      await db.query(`select public.registrar_visita_menu('${SUC_A}')`)
+    })
+    expect(await contar(`select count(*)::int as n from public.menu_visitas`)).toBe(antes + 1)
+
+    // Una sucursal inactiva y un uuid inventado no dejan fila: la tabla
+    // no se puede poblar con URLs al azar.
+    await conAnon(async () => {
+      await db.query(`select public.registrar_visita_menu('${SUC_CERRADA}')`)
+      await db.query(`select public.registrar_visita_menu('00000000-0000-0000-0000-0000000000ee')`)
+    })
+    expect(await contar(`select count(*)::int as n from public.menu_visitas`)).toBe(antes + 1)
+
+    // Y la tabla sigue cerrada: anon cuenta, pero no lee ni una fila.
+    await conAnon(async () => {
+      await expect(db.query(`select id from public.menu_visitas`)).rejects.toThrow(
+        /permission denied/i
+      )
+    })
+  })
+
+  it('el reporte es de sesión, agrupa por día/hora de Caracas y sólo ve lo suyo', async () => {
+    // Dos aperturas conocidas: 10:30 y 21:00 hora de Caracas (UTC-4).
+    await db.query(
+      `insert into public.menu_visitas (sucursal_id, abierta_en) values
+         ('${SUC_A}', '2026-11-15 10:30:00-04'),
+         ('${SUC_A}', '2026-11-15 21:00:00-04')`
+    )
+
+    // Anon ni siquiera puede invocarlo: es de editor.
+    const anon = await contar(
+      `select case when has_function_privilege('anon', 'public.ver_visitas_menu(uuid, date, date)', 'execute') then 1 else 0 end as n`
+    )
+    expect(anon).toBe(0)
+    await conAnon(async () => {
+      await expect(
+        db.query(`select public.ver_visitas_menu('${SUC_A}', '2026-11-15', '2026-11-15')`)
+      ).rejects.toThrow(/permission denied/i)
+    })
+
+    // El Líder ve de cualquier sucursal: un renglón por día y hora con
+    // sus visitas, ordenado.
+    await conRol(LIDER, async () => {
+      const r = await db.query<{ r: { fecha: string; hora: number; visitas: number }[] }>(
+        `select public.ver_visitas_menu('${SUC_A}', '2026-11-15', '2026-11-15') as r`
+      )
+      expect(r.rows[0].r).toEqual([
+        { fecha: '2026-11-15', hora: 10, visitas: 1 },
+        { fecha: '2026-11-15', hora: 21, visitas: 1 }
+      ])
+    })
+
+    // El encargado de A ve lo suyo…
+    await conRol(GERENTE_A, async () => {
+      const r = await db.query<{ r: unknown[] }>(
+        `select public.ver_visitas_menu('${SUC_A}', '2026-11-15', '2026-11-15') as r`
+      )
+      expect((r.rows[0].r as unknown[]).length).toBe(2)
+    })
+
+    // …y al de B (y al evaluador) la de A le devuelve VACÍO, igual que
+    // si no hubiera visitas: no se puede distinguir "sin permiso".
+    await conRol(GERENTE_B, async () => {
+      const r = await db.query<{ r: unknown[] }>(
+        `select public.ver_visitas_menu('${SUC_A}', '2026-11-15', '2026-11-15') as r`
+      )
+      expect(r.rows[0].r).toEqual([])
+    })
+    await conRol(EVALUADOR, async () => {
+      const r = await db.query<{ r: unknown[] }>(
+        `select public.ver_visitas_menu('${SUC_A}', '2026-11-15', '2026-11-15') as r`
+      )
+      expect(r.rows[0].r).toEqual([])
+    })
+  })
+})

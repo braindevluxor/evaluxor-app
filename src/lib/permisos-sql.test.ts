@@ -250,8 +250,10 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
       'ver_conciliacion_compartida',
       'ver_cargos_compartidos',
       // El menú público de cada sucursal: la pantalla `/menu/:sucursalId`
-      // corre sin cuenta (el QR que escanea el cliente).
-      'ver_menu_publico'
+      // corre sin cuenta (el QR que escanea el cliente) — lee y cuenta su
+      // propia apertura.
+      'ver_menu_publico',
+      'registrar_visita_menu'
     ])
     const rpcs = new Set([...codigoApp.matchAll(/supabase\.rpc\(\s*'(\w+)'/g)].map((m) => m[1]))
     expect(rpcs.size).toBeGreaterThan(0)
@@ -285,10 +287,12 @@ describe('schema.sql · los enlaces públicos', () => {
     expect(abiertas).toEqual([
       'email_por_usuario',
       'intento_login',
+      // El menú público de cada sucursal (QR de clientes, sin sesión):
+      // lee su carta y cuenta la apertura, una vez por hora.
+      'registrar_visita_menu',
       'ver_cargos_compartidos',
       'ver_conciliacion_compartida',
       'ver_contenido_gran_cosecha',
-      // El menú público de cada sucursal (QR de clientes, sin sesión).
       'ver_menu_publico'
     ])
   })

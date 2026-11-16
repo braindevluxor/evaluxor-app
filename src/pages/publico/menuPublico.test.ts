@@ -60,4 +60,19 @@ describe('menú público · la pantalla', () => {
     expect(pagina).toContain('p.descripcion')
     expect(datos).toContain('descripcion: string | null')
   })
+
+  it('las categorías del encargado se pegan como pestañas', () => {
+    // Botones que filtran —sin campos— y la pestaña de los que no tienen
+    // categoría.
+    expect(pagina).toContain('setCategoriaActiva')
+    expect(pagina).toContain("const SIN_CATEGORIA = 'Otros'")
+    expect(pagina).toContain('<button')
+  })
+
+  it('cuenta su apertura para el reporte del editor', () => {
+    expect(pagina).toContain('registrarVisita')
+    expect(datos).toContain("supabase.rpc('registrar_visita_menu'")
+    // Una por hora por navegador: refrescar no infla el contador.
+    expect(datos).toContain('localStorage')
+  })
 })

@@ -90,4 +90,21 @@ describe('editor del menú · la pantalla', () => {
     expect(datos).toContain('activo: true')
     expect(datos).toContain('export async function guardarDescripcion')
   })
+
+  it('la categoría organiza la carta y la escribe el encargado', () => {
+    // El upsert la trae al agregar…
+    expect(datos).toContain('categoria: categoria.trim() || null')
+    // …y se mueve por renglón, como la descripción.
+    expect(datos).toContain('export async function guardarCategoria')
+    expect(pagina).toContain('Categoría de la carta (ej. Entradas)')
+    expect(pagina).toContain('list="categorias-menu"')
+  })
+
+  it('ve las visitas: aperturas por día y por hora de los últimos 7 días', () => {
+    expect(datos).toContain("supabase.rpc('ver_visitas_menu'")
+    expect(pagina).toContain('Visitas al menú')
+    expect(pagina).toContain('Últimos 7 días · hora de Venezuela')
+    // La grilla de 24 horas por día.
+    expect(pagina).toContain('grid-cols-12')
+  })
 })

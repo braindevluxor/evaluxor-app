@@ -37,6 +37,8 @@ export interface ProductoMenu {
   nombre: string
   /** Texto que escribe el encargado para la carta (opcional). */
   descripcion: string | null
+  /** La pestaña de la carta donde cae (ej. "Entradas"); opcional. */
+  categoria: string | null
   /** PVP: finalBase + finalTax (la base ya descontada más el impuesto). */
   precio: number | null
   departamento: string | null
@@ -50,10 +52,20 @@ export interface MenuPublicoDatos {
   productos: {
     nombre: string
     descripcion: string | null
+    categoria: string | null
     precio: number | null
     departamento: string | null
     foto: string | null
   }[]
+}
+
+/** Una hora con visitas, tal como la devuelve `ver_visitas_menu`. */
+export interface VisitaPorHora {
+  /** Día en la zona de la empresa, 'YYYY-MM-DD'. */
+  fecha: string
+  /** 0 a 23, hora de Caracas. */
+  hora: number
+  visitas: number
 }
 
 /** Sucursal del selector del Líder (con el shop ID que pide la API). */
@@ -84,7 +96,7 @@ export async function cargarMenu(sucursalId: string): Promise<ProductoMenu[]> {
   const { data, error } = await supabase
     .from('menu_productos')
     .select(
-      'id, sku, productoId:producto_id, nombre, descripcion, precio, departamento, fotoUrl:foto_url, orden'
+      'id, sku, productoId:producto_id, nombre, descripcion, categoria, precio, departamento, fotoUrl:foto_url, orden'
     )
     .eq('sucursal_id', sucursalId)
     // Los dados de baja quedan fuera: siguen en la base (con su foto) para
@@ -106,7 +118,8 @@ export async function cargarMenu(sucursalId: string): Promise<ProductoMenu[]> {
 export async function agregarProducto(
   sucursalId: string,
   sku: string,
-  r: ResultadoScan
+  r: ResultadoScan,
+  categoria: string
 ): Promise<void> {
   if (!r.nombre) {
     throw new Error(r.mensaje ?? 'El producto no se encontró en la API de precios.')
@@ -126,6 +139,9 @@ export async function agregarProducto(
       sku,
       producto_id: r.id !== undefined ? String(r.id) : null,
       nombre: r.nombre,
+      // Sin `descripcion` acá a propósito: en una fila NUEVA nace en null y
+      // en una EXISTENTE (re-selección) conserva lo que ya se escribió.
+      categoria: categoria.trim() || null,
       precio: precioDeMenu(r),
       departamento: r.departamento ?? null,
       activo: true,
@@ -154,6 +170,55 @@ export async function guardarDescripcion(id: string, descripcion: string): Promi
     .update({ descripcion: descripcion.trim() || null })
     .eq('id', id)
   if (error) throw error
+}
+
+/** La categoría (pestaña) a la que mueve el encargado el producto. */
+export async function guardarCategoria(id: string, categoria: string): Promise<void> {
+  const { error } = await supabase
+    .from('menu_productos')
+    .update({ categoria: categoria.trim() || null })
+    .eq('id', id)
+  if (error) throw error
+}
+
+/**
+ * Cuenta la apertura de la página pública: UNA por hora por navegador
+ * (localStorage), así que un refresco no infla el contador. Se registra
+ * DESPUÉS de contar bien, así que si falla la próxima visita reintenta.
+ * Lo que mide la base son aperturas, no usuarios únicos — y si falla, la
+ * carta no se cae: el contador nunca es motivo de error para el cliente.
+ */
+export async function registrarVisita(sucursalId: string): Promise<void> {
+  const ahora = new Date()
+  const hora = `${ahora.getFullYear()}-${ahora.getMonth() + 1}-${ahora.getDate()}-${ahora.getHours()}`
+  const clave = `evaluxor:menu-visita:${sucursalId}:${hora}`
+  try {
+    if (localStorage.getItem(clave)) return
+    const { error } = await supabase.rpc('registrar_visita_menu', { p_sucursal: sucursalId })
+    if (error) return
+    localStorage.setItem(clave, '1')
+  } catch {
+    // Sin storage o sin red: el contador se saltea, la carta sigue.
+  }
+}
+
+/**
+ * Las aperturas por día y por hora (hora de Caracas) entre dos fechas
+ * 'YYYY-MM-DD'. Sólo con sesión y sólo del encargado de esa sucursal o el
+ * Líder — sin permiso la RPC devuelve lista vacía.
+ */
+export async function visitasMenu(
+  sucursalId: string,
+  desde: string,
+  hasta: string
+): Promise<VisitaPorHora[]> {
+  const { data, error } = await supabase.rpc('ver_visitas_menu', {
+    p_sucursal: sucursalId,
+    p_desde: desde,
+    p_hasta: hasta
+  })
+  if (error) throw error
+  return (data ?? []) as VisitaPorHora[]
 }
 
 /**
