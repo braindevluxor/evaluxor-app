@@ -150,7 +150,12 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
         // Los originales de marca son la fuente con la que se generaron los
         // webp: la app no los usa y no tienen que ocupar el caché offline.
-        globIgnores: ['**/isotipo.png', '**/completo.png', '**/logo.png'],
+        // `evidencia/` son fotos de varios MB (hasta ~7): workbox TIRA ERROR
+        // de build si un archivo pasa su límite de precaché (2 MiB), y
+        // subir el límite tampoco sería la solución — precachear ~50 MB de
+        // fotos obligaría a descargarlos a todos al instalar el SW. Se van
+        // igual al caché de runtime como cualquier imagen.
+        globIgnores: ['**/isotipo.png', '**/completo.png', '**/logo.png', '**/evidencia/**'],
         navigateFallback: '/index.html',
         // El handler de push. `generateSW` no acepta handlers propios, así que
         // en vez de migrar a `injectManifest` (lo que obligaría a reescribir el

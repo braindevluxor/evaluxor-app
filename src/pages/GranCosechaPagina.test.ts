@@ -232,11 +232,20 @@ describe('gran cosecha · la landing', () => {
     // El texto va en blanco: navy sobre rojo no pasa AA en el párrafo.
     expect(landing).toMatch(/<h2 class="font-display glitch-title[^"]*text-white/)
     // Se fueron los tres lockups con el nombre de la marca (navbar,
-    // este bloque y footer) y el rótulo que los presentaba.
+    // este bloque y footer). La etiqueta "PRESENTADO POR" volvió después,
+    // con el logo real de la marca en su propio test.
     expect(landing).not.toContain('>SUPERMERCADOS<')
-    expect(landing).not.toContain('PRESENTADO POR')
     // El navbar queda sólo con links, alineados a la derecha.
     expect(landing).toContain('items-center justify-end px-4 py-2.5')
+  })
+
+  it('la sección ¿QUÉ ES? presenta la marca: etiqueta arriba y logo debajo', () => {
+    // La etiqueta sobre el logo, y ambos ANTES del título.
+    expect(landing).toMatch(/PRESENTADO POR[\s\S]{0,400}supermercados-luxor\.png[\s\S]{0,400}¿QUÉ ES/)
+    expect(landing).toContain('alt="Supermercados Luxor"')
+    // El logo va sobre chip blanco: el PNG trae letras rojas que sobre
+    // el vinotinto de la sección se perderían.
+    expect(landing).toMatch(/rounded-2xl bg-white[\s\S]{0,160}supermercados-luxor\.png/)
   })
 
   it('los separadores entre segmentos son una onda de dos curvas, sin cuadros', () => {
