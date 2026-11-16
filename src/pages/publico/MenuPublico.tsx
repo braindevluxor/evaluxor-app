@@ -17,8 +17,10 @@ import { formatearPrecioBase } from '../../lib/scoring'
  * trae NADA de edición: los productos los carga el encargado desde la
  * consola (`/menu-editor`).
  *
- * Identidad: los colores corporativos de Supermercados Luxor —navy, amarillo
- * y rojo— con el logo real en la cabecera.
+ * Presentación: identidad corporativa de Supermercados Luxor —navy,
+ * amarillo y rojo— con aire de carta gourmet: la tapa navy con el nombre
+ * de la sucursal y su rombo, secciones con hilo de oro a los costados y
+ * tarjetas con foto grande, precio en chip dorado y hover suave.
  */
 
 type Estado = 'cargando' | 'listo' | 'no-existe' | 'fallo'
@@ -34,8 +36,8 @@ function Aviso({
   onReintentar?: () => void
 }) {
   return (
-    <div className="mx-auto mt-14 max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-      <h1 className="text-lg font-extrabold text-[#0a1e5e]">{titulo}</h1>
+    <div className="mx-auto mt-14 max-w-md rounded-2xl border border-slate-200 border-t-4 border-t-[#facc15] bg-white p-8 text-center shadow-sm">
+      <h2 className="text-lg font-extrabold text-[#0a1e5e]">{titulo}</h2>
       <p className="mt-2 text-sm leading-relaxed text-slate-500">{detalle}</p>
       {onReintentar ? (
         <button
@@ -48,6 +50,17 @@ function Aviso({
         </button>
       ) : null}
     </div>
+  )
+}
+
+/** El rombo entre hilos de oro: el detalle que separa título y secciones. */
+function Rombo({ className = '' }: { className?: string }) {
+  return (
+    <span className={`flex items-center justify-center gap-3 ${className}`} aria-hidden="true">
+      <span className="h-px w-16 bg-gradient-to-r from-transparent to-[#facc15] sm:w-24" />
+      <span className="block h-2.5 w-2.5 rotate-45 bg-[#dc2626] shadow-[0_0_10px_rgba(220,38,38,0.7)]" />
+      <span className="h-px w-16 bg-gradient-to-l from-transparent to-[#facc15] sm:w-24" />
+    </span>
   )
 }
 
@@ -97,27 +110,41 @@ export function MenuPublico() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f4f6fb] text-[#0a1e5e]">
-      {/* Cabecera corporativa: navy con el logo real sobre blanco y el
-          chip amarillo de la marca. */}
-      <header className="border-b-4 border-[#facc15] bg-[#0a1e5e]">
+    <div className="flex min-h-screen flex-col bg-[#f4f6fb] font-sans text-[#0a1e5e]">
+      {/* TAPA: la banda navy con la marca y el nombre de la sucursal —
+          el mismo bookend arriba y abajo que se ve en las cartas de
+          restaurante. */}
+      <header className="border-b-4 border-[#facc15] bg-gradient-to-b from-[#0a1e5e] to-[#081a47]">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
           <img
             src="/supermercados-luxor.png"
             alt="Supermercados Luxor"
             className="h-10 w-auto rounded-lg bg-white px-2 py-1 shadow-sm"
           />
-          <span className="rounded-full bg-[#facc15] px-3 py-1 text-[11px] font-black uppercase tracking-widest text-[#0a1e5e]">
+          <span className="rounded-full border border-[#facc15]/50 bg-[#facc15]/15 px-3 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-[#facc15]">
             Menú
           </span>
         </div>
+
+        <div className="mx-auto max-w-3xl px-4 pb-9 pt-5 text-center">
+          <p className="text-[11px] font-black uppercase tracking-[0.4em] text-[#facc15]/90">
+            Supermercados Luxor
+          </p>
+          <h1 className="mt-2.5 text-4xl font-black uppercase leading-none tracking-tight text-white sm:text-5xl">
+            {estado === 'listo' && menu?.sucursal ? menu.sucursal.nombre : 'Menú'}
+          </h1>
+          <Rombo className="mt-4 justify-center" />
+        </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 pb-20">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-20">
         {estado === 'cargando' ? (
-          <div className="space-y-3 py-14">
+          <div className="space-y-3 py-12" aria-hidden="true">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="h-24 animate-pulse rounded-2xl bg-white shadow-sm" />
+              <div
+                key={i}
+                className="h-32 animate-pulse rounded-2xl border border-slate-200/70 bg-white shadow-sm"
+              />
             ))}
           </div>
         ) : null}
@@ -138,71 +165,78 @@ export function MenuPublico() {
         ) : null}
 
         {estado === 'listo' && menu?.sucursal ? (
-          <>
-            <div className="pb-6 pt-9 text-center">
-              <h1 className="text-3xl font-black uppercase leading-tight tracking-tight">
-                {menu.sucursal.nombre}
-              </h1>
-              <p className="mt-1.5 text-xs font-black uppercase tracking-[0.2em] text-[#dc2626]">
-                Supermercados Luxor
-              </p>
-            </div>
-
-            {menu.productos.length === 0 ? (
-              <Aviso
-                titulo="Este menú todavía no tiene productos"
-                detalle="El encargado de la sucursal está cargando la carta. Volvé a mirar en un rato."
-              />
-            ) : (
-              grupos.map((g) => (
-                <section key={g.departamento} className="mb-9">
-                  <h2 className="mb-3 inline-block rounded-full bg-[#0a1e5e] px-4 py-1.5 text-xs font-black uppercase tracking-widest text-[#facc15]">
-                    {g.departamento}
+          menu.productos.length === 0 ? (
+            <Aviso
+              titulo="Este menú todavía no tiene productos"
+              detalle="El encargado de la sucursal está cargando la carta. Volvé a mirar en un rato."
+            />
+          ) : (
+            <div className="pt-10">
+              {grupos.map((g) => (
+                <section key={g.departamento} className="mb-10">
+                  {/* Sección: nombre centrado con hilo de oro a los dos
+                      lados, como en una carta impresa. */}
+                  <h2 className="mb-4 flex items-center gap-4">
+                    <span className="h-px flex-1 bg-[#facc15]" />
+                    <span className="text-[13px] font-black uppercase tracking-[0.3em] text-[#0a1e5e]">
+                      {g.departamento}
+                    </span>
+                    <span className="h-px flex-1 bg-[#facc15]" />
                   </h2>
-                  <ul className="space-y-3">
+
+                  <ul className="space-y-4">
                     {g.items.map((p, i) => (
                       <li
                         key={`${p.nombre}-${i}`}
-                        className="flex gap-4 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"
+                        className="group flex gap-4 rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(10,30,94,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#facc15] hover:shadow-[0_10px_28px_rgba(10,30,94,0.12)]"
                       >
-                        <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#0a1e5e]/5">
+                        <div className="h-28 w-28 shrink-0 overflow-hidden rounded-xl">
                           {p.foto ? (
                             <img
                               src={p.foto}
                               alt={p.nombre}
                               loading="lazy"
                               decoding="async"
-                              className="h-full w-full object-cover"
+                              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                             />
                           ) : (
-                            <Package className="h-8 w-8 text-[#0a1e5e]/30" aria-hidden="true" />
+                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#0a1e5e] to-[#1d3a8f]">
+                              <Package className="h-9 w-9 text-[#facc15]" aria-hidden="true" />
+                            </div>
                           )}
                         </div>
+
                         <div className="min-w-0 flex-1 self-center">
-                          <p className="font-bold leading-snug">{p.nombre}</p>
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="min-w-0 text-[15px] font-bold leading-snug text-[#0a1e5e]">
+                              {p.nombre}
+                            </p>
+                            {p.precio != null ? (
+                              <span className="shrink-0 rounded-full bg-gradient-to-b from-[#fde68a] to-[#facc15] px-3 py-1 text-[13px] font-black tabular-nums text-[#0a1e5e] shadow-sm ring-1 ring-[#eab308]/50">
+                                {formatearPrecioBase(p.precio)}
+                              </span>
+                            ) : null}
+                          </div>
                           {p.descripcion ? (
-                            <p className="mt-1 text-sm leading-snug text-slate-500">
+                            <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
                               {p.descripcion}
                             </p>
-                          ) : null}
-                          {p.precio != null ? (
-                            <span className="mt-2 inline-block rounded-full bg-[#facc15] px-3 py-1 text-sm font-black tabular-nums text-[#0a1e5e]">
-                              {formatearPrecioBase(p.precio)}
-                            </span>
                           ) : null}
                         </div>
                       </li>
                     ))}
                   </ul>
                 </section>
-              ))
-            )}
-          </>
+              ))}
+            </div>
+          )
         ) : null}
       </main>
 
-      <footer className="border-t border-slate-200 bg-white py-5 text-center text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">
-        Supermercados Luxor
+      <footer className="border-t-4 border-[#facc15] bg-[#0a1e5e] py-6 text-center">
+        <p className="text-[11px] font-black uppercase tracking-[0.3em] text-white/70">
+          Supermercados Luxor
+        </p>
       </footer>
     </div>
   )
