@@ -176,6 +176,22 @@ describe('gran cosecha · la landing', () => {
     expect(hero).toContain('min-h-[60vh]')
   })
 
+  it('el formulario de inscripción es un modal que se abre con :target', () => {
+    // Los enlaces de la página apuntan a #inscripcion: con CSS puro el
+    // modal se abre sin JavaScript y el botón "atrás" lo cierra.
+    expect(landing).toContain('href="#inscripcion"')
+    expect(landing).toContain('#inscripcion:target')
+    // Ya no es una sección en el flujo de la página.
+    expect(landing).not.toMatch(/<section id="inscripcion"/)
+    // Diálogo con su nombre para lectores de pantalla, su cierre con la X
+    // y Escape (primero el modal de información si está encima).
+    expect(landing).toMatch(/id="inscripcion"[^>]*role="dialog"/)
+    expect(landing).toContain('id="cerrarInscripcion"')
+    expect(landing).toContain("e.key !== 'Escape'")
+    // Y con el modal abierto el fondo no se desplaza detrás.
+    expect(landing).toContain('body:has(#inscripcion:target)')
+  })
+
   it('lee el contenido por la RPC pública, con la config del build', () => {
     expect(landing).toContain('ver_contenido_gran_cosecha')
     expect(landing).toContain('__SUPABASE_URL__')
