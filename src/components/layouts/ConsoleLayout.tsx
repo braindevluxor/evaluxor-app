@@ -1,4 +1,4 @@
-import { Star, Sprout, Gauge, Globe, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
+import { Star, Sprout, Gauge, Globe, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -74,6 +74,10 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/gran-cosecha/contenido': {
     titulo: 'Página de la Gran Cosecha',
     subtitulo: 'Contenido que se publica en /gran-cosecha.html'
+  },
+  '/menu-editor': {
+    titulo: 'Menú de la sucursal',
+    subtitulo: 'Productos que se muestran en el menú público de clientes'
   }
 }
 
@@ -118,7 +122,10 @@ function ConsoleLayoutContenido() {
         { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> },
         // Bonos por desempeño: acá entra también el Gerente de Talento Humano
         // (la ruta lo permite y `puede_bonos` es la misma cerradura en RLS).
-        { to: '/config/bonos', label: 'Bonos', icon: <Star className="h-5 w-5" /> }
+        { to: '/config/bonos', label: 'Bonos', icon: <Star className="h-5 w-5" /> },
+        // El menú público de las sucursales: el Líder lo edita desde
+        // cualquier tienda (la misma cerradura de RLS, `es_encargado_menu`).
+        { to: '/menu-editor', label: 'Menús', icon: <BookOpen className="h-5 w-5" /> }
       ]
     }
   ] : profile && profile.rol === 'GERENTE_TH' ? [
@@ -139,6 +146,16 @@ function ConsoleLayoutContenido() {
       seccion: 'Consulta',
       items: [
         { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> }
+      ]
+    }
+  ] : profile && profile.rol === 'GERENTE_S' ? [
+    // El Gerente de Sucursal no configura evaluaciones: su consola es el
+    // menú de SU tienda —la misma sucursal que le asigna la invitación y
+    // la misma que RLS le defiende fila por fila.
+    {
+      seccion: 'Mi sucursal',
+      items: [
+        { to: '/menu-editor', label: 'Menú', icon: <BookOpen className="h-5 w-5" /> }
       ]
     }
   ] : []

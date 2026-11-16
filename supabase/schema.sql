@@ -3990,6 +3990,25 @@ revoke execute on function public.mergear_conciliacion(jsonb, jsonb, text) from 
 grant  execute on function public.mergear_conciliacion(jsonb, jsonb, text) to authenticated;
 
 -- ----------------------------------------------------------------------------
+-- 9) Menu publico por sucursal: `anon` SI, a proposito
+-- ----------------------------------------------------------------------------
+-- La pantalla publica `/menu/:sucursalId` muestra el menu de UNA sucursal a
+-- cualquiera sin cuenta (el QR que escanea el cliente), y la app la llama por
+-- RPC desde src/lib/data/menuSucursal.ts. Mismo patron que los enlaces:
+-- SECURITY DEFINER con search_path fijo y devolucion acotada.
+--
+-- El `do` es a proposito: este bloque corre ANTES de que el bloque
+-- `menu-sucursal.sql` (al final del archivo) cree la funcion, y un grant
+-- plano a una funcion inexistente tiraria el pegado entero. En la segunda
+-- corrida —o corriendo este bloque solo— la funcion existe y el grant sale.
+-- Siempre acompana al revoke+grant que vive junto a la definicion.
+do $$
+begin
+  execute 'grant execute on function public.ver_menu_publico(uuid) to anon, authenticated';
+exception when undefined_function then null;
+end $$;
+
+-- ----------------------------------------------------------------------------
 -- Verificacion
 -- ----------------------------------------------------------------------------
 -- Correr `diagnostico-permisos.sql` despues de esto: la columna `estado` deberia
@@ -4246,10 +4265,10 @@ create policy departamentos_centralizados_select on public.departamentos_central
 drop policy if exists "departamentos_centralizados_lider" on public.departamentos_centralizados;
 create policy departamentos_centralizados_lider on public.departamentos_centralizados for all using (public.es_lider()) with check (public.es_lider());
 
--- storage.objects (24 políticas: 11 distintas de fotos, cada una re-declarada
+-- storage.objects (26 políticas: 11 distintas de fotos, cada una re-declarada
 -- por el bloque que la trae y por `reactivar-politicas.sql` —7 de evidencias
--- e incidencias + 4 de la pre-entrega—, y 2 de la página de la Gran Cosecha,
--- que sólo se declaran en su propio bloque)
+-- e incidencias + 4 de la pre-entrega—, y 4 que sólo se declaran en su
+-- propio bloque: 2 de la página de la Gran Cosecha y 2 del menú)
 -- (storage.objects ya tiene RLS; solo se reponen sus polÃ­ticas)
 drop policy if exists "evidencias_select" on storage.objects;
 create policy "evidencias_select" on storage.objects for select to authenticated using (bucket_id = 'evidencias');
@@ -4774,7 +4793,7 @@ order by c.relrowsecurity, n.nspname || '.' || c.relname;
 -- ----------------------------------------------------------------------------
 -- 2) Las politicas del repo, una por fila
 -- ----------------------------------------------------------------------------
--- Si esta consulta NO devuelve filas, estan las 65. Cada fila que aparezca es
+-- Si esta consulta NO devuelve filas, estan las 68. Cada fila que aparezca es
 -- una politica que falta: se creo la tabla pero no su regla, y queda abierta o
 -- inaccesible segun el caso.
 with esperadas (politica, tabla) as (
@@ -4843,7 +4862,10 @@ with esperadas (politica, tabla) as (
     ('gran_cosecha_pagina_select', 'public.gran_cosecha_pagina'),
     ('gran_cosecha_pagina_lider', 'public.gran_cosecha_pagina'),
     ('gran_cosecha_pagina_fotos_select', 'storage.objects'),
-    ('gran_cosecha_pagina_fotos_lider', 'storage.objects')
+    ('gran_cosecha_pagina_fotos_lider', 'storage.objects'),
+    ('menu_productos_encargado', 'public.menu_productos'),
+    ('menu_fotos_select', 'storage.objects'),
+    ('menu_fotos_encargado', 'storage.objects')
 )
 select
   e.tabla,
@@ -4906,7 +4928,8 @@ select
   has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede,
   case
     when p.proname in ('intento_login', 'email_por_usuario', 'ver_conciliacion_compartida',
-                       'ver_cargos_compartidos', 'ver_contenido_gran_cosecha')
+                       'ver_cargos_compartidos', 'ver_contenido_gran_cosecha',
+                       'ver_menu_publico')
       then 'permitido sin sesion'
     when has_function_privilege('anon', p.oid, 'EXECUTE')
       then 'ABIERTA A ANON: correr reactivar-politicas.sql'
@@ -4921,6 +4944,7 @@ where n.nspname = 'public'
     'desbloquear_usuario', 'registrar_sync',
     'intento_login', 'email_por_usuario', 'ver_conciliacion_compartida',
     'ver_cargos_compartidos', 'ver_contenido_gran_cosecha',
+    'ver_menu_publico',
     'mergear_conciliacion', 'puede_usar_revision_pre_entrega',
     'previsualizar_departamentos', 'aplicar_departamentos'
   )
@@ -6088,3 +6112,143 @@ create policy gran_cosecha_pagina_fotos_lider on storage.objects
   for all to authenticated
   using (bucket_id = 'gran-cosecha' and public.es_lider())
   with check (bucket_id = 'gran-cosecha' and public.es_lider());
+
+-- ###########################################################################
+-- Archivo consolidado: menu-sucursal.sql
+-- ###########################################################################
+-- EL MENÚ DE CADA SUCURSAL
+--
+-- Cada sucursal tiene su menú: la lista de productos que carga SU encargado
+-- —el Gerente de Sucursal, para el que `profiles.sucursal_id` ES su sucursal:
+-- la misma invitación que le da el rol ya le asigna la tienda— buscándolos
+-- por ID o código de barra contra la API de precios, con una foto del
+-- producto. La página del menú es PÚBLICA: el cliente la abre sin sesión
+-- desde el QR de su sucursal, así que la lectura anónima va por una función
+-- `security definer` con `search_path` fijo —mismo criterio que
+-- `ver_contenido_gran_cosecha`: exponer la tabla a `anon` sería dejar la
+-- escritura a merced de una política mal puesta—. Escribir es RLS normal,
+-- sólo del encargado de ESA sucursal (y del Líder, que en todo el repo
+-- puede con todo).
+
+create table if not exists public.menu_productos (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales (id) on delete cascade,
+  sku text not null,
+  producto_id text,
+  nombre text not null,
+  precio numeric(12,2),
+  departamento text,
+  foto_url text,
+  orden integer not null default 0,
+  activo boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (sucursal_id, sku)
+);
+
+-- Quién puede con esta sucursal: su encargado (Gerente de Sucursal con esa
+-- sucursal en el perfil) o el Líder. `security definer` para leer `profiles`
+-- sin que sus políticas se interpongan, igual que `es_lider` y `puede_bonos`.
+create or replace function public.es_encargado_menu(p_sucursal uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.es_lider() or exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.activo and p.rol = 'GERENTE_S'
+       and p.sucursal_id = p_sucursal
+  );
+$$;
+
+-- El mismo cierre que el resto de los ayudantes: sólo quien tiene sesión
+-- (las políticas se evalúan con el privilegio de quien consulta, y anon no
+-- llega a la tabla igual).
+revoke execute on function public.es_encargado_menu(uuid) from public, anon;
+grant execute on function public.es_encargado_menu(uuid) to authenticated;
+
+alter table public.menu_productos enable row level security;
+
+-- Una sola política `for all`: leer, escribir y borrar responden a la misma
+-- pregunta (¿es de mi sucursal?) y con el mismo `using`/`with check`.
+drop policy if exists menu_productos_encargado on public.menu_productos;
+create policy menu_productos_encargado on public.menu_productos
+  for all to authenticated
+  using (public.es_encargado_menu(sucursal_id))
+  with check (public.es_encargado_menu(sucursal_id));
+
+-- La tabla nace con el `alter default privileges ... revoke from anon` de
+-- `cerrar-permisos-anon.sql`, y el revoke explícito no deja nada al azar
+-- (es el mismo cierre que hace gran-cosecha).
+do $$
+begin
+  execute 'revoke all on public.menu_productos from anon';
+end $$;
+
+-- Lo que lee la página pública: la sucursal y sus productos activos, en una
+-- sola llamada. Sucursal inexistente o inactiva → `sucursal: null`
+-- (indistinguible de "no existe", no se puede enumerar sucursales a ciegas).
+create or replace function public.ver_menu_publico(p_sucursal uuid)
+returns jsonb
+language sql stable security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'sucursal', (
+      select jsonb_build_object('nombre', s.nombre)
+        from public.sucursales s
+       where s.id = p_sucursal and s.activa
+    ),
+    'productos', coalesce((
+      select jsonb_agg(
+               jsonb_build_object(
+                 'nombre', m.nombre,
+                 'precio', m.precio,
+                 'departamento', m.departamento,
+                 'foto', m.foto_url
+               )
+               order by m.orden, m.created_at
+             )
+        from public.menu_productos m
+       where m.sucursal_id = p_sucursal and m.activo
+    ), '[]'::jsonb)
+  );
+$$;
+
+revoke execute on function public.ver_menu_publico(uuid) from public, anon;
+grant execute on function public.ver_menu_publico(uuid) to anon, authenticated;
+
+-- Las FOTOS del menú: bucket PÚBLICO (la página las ve con URL directa,
+-- igual que la landing de la Gran Cosecha). Sólo sube quien puede editar
+-- ese menú, y la ruta ES la sucursal (`menu/<sucursal>/<sku>.webp`): un
+-- encargado no mete manos en la carpeta de otra tienda.
+insert into storage.buckets (id, name, public)
+values ('menu-fotos', 'menu-fotos', true)
+on conflict (id) do update set public = excluded.public;
+
+drop policy if exists menu_fotos_select on storage.objects;
+create policy menu_fotos_select on storage.objects
+  for select to public
+  using (bucket_id = 'menu-fotos');
+
+drop policy if exists menu_fotos_encargado on storage.objects;
+create policy menu_fotos_encargado on storage.objects
+  for all to authenticated
+  using (
+    bucket_id = 'menu-fotos'
+    and (
+      public.es_lider()
+      or exists (
+        select 1 from public.profiles p
+         where p.id = auth.uid() and p.activo and p.rol = 'GERENTE_S'
+           and p.sucursal_id::text = split_part(name, '/', 2)
+      )
+    )
+  )
+  with check (
+    bucket_id = 'menu-fotos'
+    and (
+      public.es_lider()
+      or exists (
+        select 1 from public.profiles p
+         where p.id = auth.uid() and p.activo and p.rol = 'GERENTE_S'
+           and p.sucursal_id::text = split_part(name, '/', 2)
+      )
+    )
+  );

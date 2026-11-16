@@ -52,6 +52,15 @@ const ConciliacionPublica = lazy(() =>
 const CargosPublicos = lazy(() =>
   import('./pages/publico/CargosPublicos').then((m) => ({ default: m.CargosPublicos }))
 )
+// El menú de cada sucursal: pantalla de CLIENTES que se abre sin sesión
+// (el QR de la tienda), igual que los enlaces de invitado.
+const MenuPublico = lazy(() =>
+  import('./pages/publico/MenuPublico').then((m) => ({ default: m.MenuPublico }))
+)
+// Su editor: lo usa el encargado (Gerente de Sucursal) o el Líder.
+const MenuEditor = lazy(() =>
+  import('./pages/MenuEditor').then((m) => ({ default: m.MenuEditorPage }))
+)
 // Inspección de vehículo (estética + mecánica + gas vehicular): herramienta
 // fuera de la evaluación, con fotos, registro local y PDF.
 const InspeccionVehiculo = lazy(() =>
@@ -93,6 +102,11 @@ function Rutas() {
                         propia ruta para no pisar el de conciliación. */}
                     <Route path="/compartir/cargos/:token" element={<CargosPublicos />} />
                     <Route path="/compartir/:token" element={<ConciliacionPublica />} />
+                    {/* El menú de UNA sucursal: la carta que ve el cliente
+                        desde su QR. Sin `RequireAuth` a propósito — la
+                        autorización es la RPC (`ver_menu_publico`), que
+                        devuelve una sucursal o nada. */}
+                    <Route path="/menu/:sucursalId" element={<MenuPublico />} />
                     <Route
                       path="/evaluaciones/:evaluacionId"
                       element={
@@ -311,6 +325,18 @@ function Rutas() {
                           <SoloLider>
                             <GranCosechaPagina />
                           </SoloLider>
+                        }
+                      />
+                      {/* El menú de la sucursal: lo llena su encargado
+                          (Gerente de Sucursal) o el Líder de cualquier
+                          tienda; la RLS (`es_encargado_menu`) vuelve a pedir
+                          lo mismo fila por fila. */}
+                      <Route
+                        path="/menu-editor"
+                        element={
+                          <RequireRol roles={['LIDER', 'GERENTE_S']}>
+                            <MenuEditor />
+                          </RequireRol>
                         }
                       />
                     </Route>
