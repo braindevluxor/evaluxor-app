@@ -244,6 +244,17 @@ describe('gran cosecha · la landing', () => {
     expect(landing).not.toContain('stroke="#facc15"')
   })
 
+  it('se fueron los botones flotantes de guía operativa y soporte', () => {
+    expect(landing).not.toContain('data-modal="itch"')
+    expect(landing).not.toContain('data-modal="discord"')
+    // Y sus contenidos, que ya no tienen botón que los abra (términos
+    // y privacidad siguen, desde el menú, el footer y el formulario).
+    expect(landing).not.toContain('Guía operativa')
+    expect(landing).not.toContain('Soporte y Coordinación')
+    expect(landing).toContain("data-modal=\"terms\"")
+    expect(landing).toContain("data-modal=\"privacy\"")
+  })
+
   it('la sección de dinámica se eliminó, con sus enlaces y acordeones', () => {
     expect(landing).not.toContain('id="dinamica"')
     expect(landing).not.toContain('href="#dinamica"')

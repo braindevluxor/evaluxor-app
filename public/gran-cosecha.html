@@ -606,30 +606,6 @@
     </div>
   </footer>
 
-  <!-- FLOATING ACTION BUTTONS (Bottom Right) -->
-  <div class="fixed bottom-5 right-5 z-40 flex flex-col gap-3">
-    <button
-      type="button"
-      data-modal="itch"
-      aria-label="Bases del concurso"
-      class="flex h-12 w-12 items-center justify-center rounded-full bg-[#dc2626] text-white shadow-lg hover:scale-105 transition-transform cursor-pointer border-2 border-[#facc15]"
-    >
-      <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-      </svg>
-    </button>
-    <button
-      type="button"
-      data-modal="discord"
-      aria-label="Soporte y coordinación"
-      class="flex h-12 w-12 items-center justify-center rounded-full bg-[#facc15] text-[#0a1e5e] border-2 border-[#0a1e5e] shadow-lg hover:scale-105 transition-transform cursor-pointer"
-    >
-      <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-      </svg>
-    </button>
-  </div>
-
   <!-- MODAL -->
   <div id="infoModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 px-4">
     <div class="w-full max-w-lg rounded-2xl bg-white p-6 text-left shadow-2xl border-t-8 border-[#dc2626]">
@@ -737,14 +713,6 @@
         privacy: {
           title: 'Política de privacidad',
           body: '<p>Supermercados Luxor, C.A. utiliza los datos suministrados en este formulario exclusivamente para la coordinación logística y seguimiento de los equipos participantes en GRAN COSECHA LUXOR.</p>'
-        },
-        itch: {
-          title: 'Guía operativa GRAN COSECHA LUXOR',
-          body: '<p>Recuerda mantener tus áreas ordenadas, señalización de precios vigente y exhibición de productos frescos al día antes de cada visita de evaluación.</p>'
-        },
-        discord: {
-          title: 'Soporte y Coordinación',
-          body: '<p>¿Tienes dudas sobre los criterios de evaluación o el registro de tu sucursal? Contacta a tu coordinador de Evaluaciones o escribe a <strong>evaluaciones@supermercadosluxor.com</strong>.</p>'
         }
       };
 
