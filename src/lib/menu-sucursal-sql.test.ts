@@ -544,4 +544,25 @@ describe('menu-sucursal.sql · las visitas', () => {
       expect(r.rows[0].r).toEqual([])
     })
   })
+
+  it('el selector público lista sólo las sucursales activas, sin sesión', async () => {
+    const anon = await contar(
+      `select case when has_function_privilege('anon', 'public.ver_sucursales_menu()', 'execute') then 1 else 0 end as n`
+    )
+    expect(anon).toBe(1)
+    const publico = await contar(
+      `select case when has_function_privilege('public', 'public.ver_sucursales_menu()', 'execute') then 1 else 0 end as n`
+    )
+    expect(publico).toBe(0)
+
+    await conAnon(async () => {
+      const r = await db.query<{ r: { id: string; nombre: string }[] }>(
+        `select public.ver_sucursales_menu() as r`
+      )
+      // En orden alfabético y sin la sucursal cerrada: sólo lo que un
+      // cliente necesita para poder elegir.
+      expect(r.rows[0].r.map((s) => s.nombre)).toEqual(['Luxor Central', 'Luxor Norte'])
+      expect(r.rows[0].r.some((s) => s.id === SUC_CERRADA)).toBe(false)
+    })
+  })
 })

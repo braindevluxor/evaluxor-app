@@ -75,4 +75,15 @@ describe('menú público · la pantalla', () => {
     // Una por hora por navegador: refrescar no infla el contador.
     expect(datos).toContain('localStorage')
   })
+
+  it('la cabecera es mínima: logo y botón para elegir sucursal', () => {
+    // El botón abre el selector, que navega a /menu/:id…
+    expect(pagina).toContain('Seleccionar sucursal')
+    expect(pagina).toContain('sucursalesPublicas')
+    expect(datos).toContain("supabase.rpc('ver_sucursales_menu'")
+    // …la tapa vieja (antetillo, nombre grande y rombo) se fue…
+    expect(pagina).not.toContain('function Rombo')
+    // …y el h1 sigue existiendo invisible, para el lector de pantalla.
+    expect(pagina).toContain('sr-only')
+  })
 })

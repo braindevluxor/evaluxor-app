@@ -222,6 +222,17 @@ export async function visitasMenu(
 }
 
 /**
+ * Las sucursales activas (id + nombre) para el selector de la cabecera
+ * pública: cambiar de tienda sin un QR nuevo. RPC sin sesión — la lista
+ * sólo expone lo que un cliente necesita para elegir.
+ */
+export async function sucursalesPublicas(): Promise<{ id: string; nombre: string }[]> {
+  const { data, error } = await supabase.rpc('ver_sucursales_menu')
+  if (error) throw error
+  return (data ?? []) as { id: string; nombre: string }[]
+}
+
+/**
  * Reordena todo el menú con UNA llamada: sólo toca `orden`, así que un
  * upsert parcial por id no pisa ningún otro campo.
  */

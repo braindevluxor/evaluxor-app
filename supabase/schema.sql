@@ -4009,9 +4009,9 @@ exception when undefined_function then null;
 end $$;
 
 -- ----------------------------------------------------------------------------
--- 10) Menú: registrar visita y su reporte
+-- 10) Menú: registrar visita, su reporte y el selector de sucursales
 -- ----------------------------------------------------------------------------
--- Las dos funciones del menú que faltan, llamadas por RPC desde la app:
+-- Las tres funciones del menú que faltan, llamadas por RPC desde la app:
 --
 -- - `registrar_visita_menu`: la página pública cuenta SU apertura sin
 --   sesión (el cliente sólo llama una vez por hora). Va para `anon` a
@@ -4020,8 +4020,10 @@ end $$;
 --   si la sucursal existe y está activa.
 -- - `ver_visitas_menu`: el reporte por día/hora del editor: sólo con
 --   sesión, y el cuerpo además exige ser encargado de esa sucursal o Líder.
+-- - `ver_sucursales_menu`: el selector de la cabecera pública: id y nombre
+--   de las activas, para poder cambiar de tienda sin QR nuevo.
 --
--- El `do` con la misma razón que en el punto 9: este bloque corre ANTES
+-- Los `do` con la misma razón que en el punto 9: este bloque corre ANTES
 -- de que el bloque `menu-sucursal.sql` (al final del archivo) cree las
 -- funciones, y un grant plano a una función inexistente tiraría el pegado.
 do $$
@@ -4033,6 +4035,12 @@ end $$;
 do $$
 begin
   execute 'grant execute on function public.ver_visitas_menu(uuid, date, date) to authenticated';
+exception when undefined_function then null;
+end $$;
+
+do $$
+begin
+  execute 'grant execute on function public.ver_sucursales_menu() to anon, authenticated';
 exception when undefined_function then null;
 end $$;
 
@@ -4957,7 +4965,7 @@ select
   case
     when p.proname in ('intento_login', 'email_por_usuario', 'ver_conciliacion_compartida',
                        'ver_cargos_compartidos', 'ver_contenido_gran_cosecha',
-                       'registrar_visita_menu', 'ver_menu_publico')
+                       'registrar_visita_menu', 'ver_menu_publico', 'ver_sucursales_menu')
       then 'permitido sin sesion'
     when has_function_privilege('anon', p.oid, 'EXECUTE')
       then 'ABIERTA A ANON: correr reactivar-politicas.sql'
@@ -4973,6 +4981,7 @@ where n.nspname = 'public'
     'intento_login', 'email_por_usuario', 'ver_conciliacion_compartida',
     'ver_cargos_compartidos', 'ver_contenido_gran_cosecha',
     'ver_menu_publico', 'registrar_visita_menu', 'ver_visitas_menu',
+    'ver_sucursales_menu',
     'mergear_conciliacion', 'puede_usar_revision_pre_entrega',
     'previsualizar_departamentos', 'aplicar_departamentos'
   )
@@ -6377,3 +6386,22 @@ $$;
 
 revoke execute on function public.ver_visitas_menu(uuid, date, date) from public, anon;
 grant execute on function public.ver_visitas_menu(uuid, date, date) to authenticated;
+
+-- La lista que ofrece el selector de sucursales de la página pública
+-- (cambiar de tienda sin un QR nuevo): sólo activas y sólo id + nombre —
+-- ni direcciones ni teléfonos, lo justo para poder elegir.
+create or replace function public.ver_sucursales_menu()
+returns jsonb
+language sql stable security definer
+set search_path = public
+as $$
+  select coalesce(
+    jsonb_agg(jsonb_build_object('id', s.id, 'nombre', s.nombre) order by s.nombre),
+    '[]'::jsonb
+  )
+  from public.sucursales s
+  where s.activa
+$$;
+
+revoke execute on function public.ver_sucursales_menu() from public, anon;
+grant execute on function public.ver_sucursales_menu() to anon, authenticated;

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { Package, RefreshCw } from 'lucide-react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Check, ChevronDown, Package, RefreshCw, Store } from 'lucide-react'
 import {
   cargarMenuPublico,
   esUuid,
   registrarVisita,
+  sucursalesPublicas,
   type MenuPublicoDatos
 } from '../../lib/data/menuSucursal'
 import { formatearPrecioBase } from '../../lib/scoring'
@@ -60,17 +61,6 @@ function Aviso({
   )
 }
 
-/** El rombo entre hilos de oro: el detalle que separa título y secciones. */
-function Rombo({ className = '' }: { className?: string }) {
-  return (
-    <span className={`flex items-center justify-center gap-3 ${className}`} aria-hidden="true">
-      <span className="h-px w-16 bg-gradient-to-r from-transparent to-[#facc15] sm:w-24" />
-      <span className="block h-2.5 w-2.5 rotate-45 bg-[#dc2626] shadow-[0_0_10px_rgba(220,38,38,0.7)]" />
-      <span className="h-px w-16 bg-gradient-to-l from-transparent to-[#facc15] sm:w-24" />
-    </span>
-  )
-}
-
 /** La categoría de un producto sin categoría: su propia pestaña. */
 const SIN_CATEGORIA = 'Otros'
 
@@ -80,6 +70,9 @@ export function MenuPublico() {
   const [menu, setMenu] = useState<MenuPublicoDatos | null>(null)
   const [intento, setIntento] = useState(0)
   const [categoriaActiva, setCategoriaActiva] = useState<string | null>(null)
+  const [sucursales, setSucursales] = useState<{ id: string; nombre: string }[]>([])
+  const [selectorAbierto, setSelectorAbierto] = useState(false)
+  const navegar = useNavigate()
 
   useEffect(() => {
     let vivo = true
@@ -112,6 +105,34 @@ export function MenuPublico() {
   }, [sucursalId, intento])
 
   const productos = (estado === 'listo' && menu?.productos) || []
+  const sucursalActual = estado === 'listo' && menu?.sucursal ? menu.sucursal.nombre : ''
+
+  // El selector de la cabecera: la lista de las sucursales activas, una
+  // sola vez por visita.
+  useEffect(() => {
+    let vivo = true
+    sucursalesPublicas()
+      .then((l) => {
+        if (vivo) setSucursales(l)
+      })
+      .catch(() => {
+        // Sin lista el botón se abre igual y lo dice: la carta no depende
+        // del selector.
+      })
+    return () => {
+      vivo = false
+    }
+  }, [])
+
+  // Escape cierra el selector (el mismo pacto que el resto de la app).
+  useEffect(() => {
+    if (!selectorAbierto) return
+    const manejar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectorAbierto(false)
+    }
+    window.addEventListener('keydown', manejar)
+    return () => window.removeEventListener('keydown', manejar)
+  }, [selectorAbierto])
 
   // Las pestañas salen de las categorías que armó el encargado, en el
   // orden en que aparecen los productos (la RPC ya los manda por `orden`);
@@ -130,27 +151,78 @@ export function MenuPublico() {
       {/* TAPA: la banda navy con la marca y el nombre de la sucursal —
           el mismo bookend arriba y abajo que se ve en las cartas de
           restaurante. */}
-      <header className="border-b-4 border-[#facc15] bg-gradient-to-b from-[#0a1e5e] to-[#081a47]">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
+      {/* Cabecera mínima: sólo el logo y el botón para elegir sucursal
+          (cambia de tienda sin un QR nuevo). El nombre de la tienda vive
+          en el botón y, para el lector de pantalla, en un h1 invisible. */}
+      <header className="relative z-30 border-b-4 border-[#facc15] bg-gradient-to-b from-[#0a1e5e] to-[#081a47]">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
           <img
             src="/supermercados-luxor.png"
             alt="Supermercados Luxor"
             className="h-10 w-auto rounded-lg bg-white px-2 py-1 shadow-sm"
           />
-          <span className="rounded-full border border-[#facc15]/50 bg-[#facc15]/15 px-3 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-[#facc15]">
-            Menú
-          </span>
+          <button
+            type="button"
+            onClick={() => setSelectorAbierto((a) => !a)}
+            aria-expanded={selectorAbierto}
+            aria-label="Seleccionar sucursal"
+            className="flex max-w-[62%] items-center gap-2 rounded-full bg-[#facc15] px-3.5 py-2 text-[#0a1e5e] shadow-sm transition-colors hover:bg-yellow-300"
+          >
+            <Store className="h-4 w-4 shrink-0 text-[#dc2626]" aria-hidden="true" />
+            <span className="truncate text-sm font-black">
+              {sucursalActual || 'Elegí tu sucursal'}
+            </span>
+            <ChevronDown
+              className={`h-4 w-4 shrink-0 transition-transform ${selectorAbierto ? 'rotate-180' : ''}`}
+              aria-hidden="true"
+            />
+          </button>
         </div>
 
-        <div className="mx-auto max-w-3xl px-4 pb-9 pt-5 text-center">
-          <p className="text-[11px] font-black uppercase tracking-[0.4em] text-[#facc15]/90">
-            Supermercados Luxor
-          </p>
-          <h1 className="mt-2.5 text-4xl font-black uppercase leading-none tracking-tight text-white sm:text-5xl">
-            {estado === 'listo' && menu?.sucursal ? menu.sucursal.nombre : 'Menú'}
-          </h1>
-          <Rombo className="mt-4 justify-center" />
-        </div>
+        <h1 className="sr-only">
+          Menú{sucursalActual ? ` de ${sucursalActual}` : ''} — Supermercados Luxor
+        </h1>
+
+        {selectorAbierto ? (
+          <>
+            {/* El fondo cierra con cualquier clic; el panel va aparte para
+                que sus propios clicks no burbujeen al cierre. */}
+            <div
+              className="fixed inset-0 z-20 bg-black/40"
+              onClick={() => setSelectorAbierto(false)}
+              aria-hidden="true"
+            />
+            <div
+              className="absolute right-4 top-full z-30 mt-2 w-64 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {sucursales.length === 0 ? (
+                <p className="px-3 py-2.5 text-xs text-slate-500">
+                  No se pudieron cargar las sucursales.
+                </p>
+              ) : (
+                sucursales.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectorAbierto(false)
+                      if (s.id !== sucursalId) navegar(`/menu/${s.id}`)
+                    }}
+                    className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-bold transition-colors hover:bg-slate-50 ${
+                      s.id === sucursalId ? 'text-[#0a1e5e]' : 'text-slate-600'
+                    }`}
+                  >
+                    <span className="truncate">{s.nombre}</span>
+                    {s.id === sucursalId ? (
+                      <Check className="h-4 w-4 shrink-0 text-[#dc2626]" aria-hidden="true" />
+                    ) : null}
+                  </button>
+                ))
+              )}
+            </div>
+          </>
+        ) : null}
       </header>
 
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-20">
