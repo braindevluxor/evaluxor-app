@@ -195,9 +195,10 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain('body:has(#inscripcion:target)')
   })
 
-  it('el bloque «¿QUÉ ES?» va sobre fondo rojo liso y la página ya no tiene logos', () => {
-    // Rojo de marca, liso — sin textura.
-    expect(landing).toContain('bg-[#dc2626] py-12 sm:py-16')
+  it('el bloque «¿QUÉ ES?» va sobre fondo vinotinto y sin logos', () => {
+    // Vinotinto liso — sin textura (el tono salió de la imagen de
+    // referencia: crimson, más oscuro y frío que el rojo de marca).
+    expect(landing).toContain('bg-[#a81e3e] py-12 sm:py-16')
     // El texto va en blanco: navy sobre rojo no pasa AA en el párrafo.
     expect(landing).toMatch(/<h2 class="font-display glitch-title[^"]*text-white/)
     // Se fueron los tres lockups con el nombre de la marca (navbar,
