@@ -188,8 +188,13 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toMatch(/id="inscripcion"[^>]*role="dialog"/)
     expect(landing).toContain('id="cerrarInscripcion"')
     expect(landing).toContain("e.key !== 'Escape'")
-    // Y con el modal abierto el fondo no se desplaza detrás.
-    expect(landing).toContain('body:has(#inscripcion:target)')
+    // El cierre apaga el modal con display inline: medido en Chrome,
+    // replaceState vacía el hash pero NO recalcula `:target`, y con un
+    // id en la regla ninguna clase le gana. El bloqueo del fondo va
+    // por el mismo JS (sin :has, que habría quedado trabado igual).
+    expect(landing).toContain("inscripcion.style.display = 'none'")
+    expect(landing).toContain("document.body.style.overflow = bloqueado ? 'hidden' : ''")
+    expect(landing).not.toContain('body:has(')
   })
 
   it('los regalos de premios se abren al pasar el mouse', () => {

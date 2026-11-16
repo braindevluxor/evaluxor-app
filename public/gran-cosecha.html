@@ -100,15 +100,12 @@
        secciones y footer). Con `:target` el modal se abre SIN JavaScript
        y el botón "atrás" del navegador lo cierra; `#inscripcion:target`
        tiene más especificidad que la clase `hidden` de Tailwind, así que
-       puede levantarla. */
+       puede levantarla. OJO al cerrar: vaciar el hash con replaceState
+       NO vuelve a evaluar `:target` en Chrome (medido), así que el
+       cierre apaga el modal con un display inline desde el script —le
+       gana a cualquier selector sin !important—. */
     #inscripcion:target {
       display: flex;
-    }
-
-    /* Con el modal abierto, el fondo no se desplaza detrás. `:has` sólo
-       sirve para esto: sin soporte, el fondo se desplaza y nada más. */
-    body:has(#inscripcion:target) {
-      overflow: hidden;
     }
   </style>
 </head>
@@ -747,15 +744,46 @@
 
       // MODAL DE INSCRIPCIÓN — se ABRE con el hash (#inscripcion) y CSS
       // (`:target`), así que acá sólo se cierra: con la X, con Escape y
-      // con el clic en el fondo. Quitar el hash con replaceState no mueve
-      // el scroll y el botón "atrás" del navegador ya lo hacía por su
-      // cuenta desde el principio.
+      // con el clic en el fondo.
+      //
+      // OJO CON replaceState: medido en Chrome, vaciar el hash NO vuelve
+      // a evaluar `:target` (500 ms después la regla sigue aplicando, y
+      // como la regla lleva un id ninguna clase le gana) — por eso el
+      // botón cerrar no cerraba. El cierre apaga el modal con un
+      // display INLINE (un estilo inline vence a cualquier selector sin
+      // !important) y maneja el bloqueo del fondo desde acá, sin depender
+      // del :has que habría quedado trabado igual. Al abrir se quitan
+      // esos estilos manuales y vuelve a mandar el CSS.
       const inscripcion = document.getElementById('inscripcion');
       const cerrarInscripcion = document.getElementById('cerrarInscripcion');
+      const bloquearFondo = (bloqueado) => {
+        document.body.style.overflow = bloqueado ? 'hidden' : '';
+      };
+      const abrirModalInscripcion = () => {
+        if (!inscripcion) return;
+        inscripcion.style.display = '';
+        bloquearFondo(true);
+        // El foco entra al diálogo: si no, queda en el enlace que lo
+        // abrió, por fuera del modal (para un lector de pantalla, un
+        // diálogo con el foco afuera).
+        const primero = inscripcion.querySelector('button, input');
+        if (primero) primero.focus({ preventScroll: true });
+      };
       const cerrarModalInscripcion = () => {
+        // Saca el hash —el "atrás" y los enlaces siguen iguales—…
         if (location.hash === '#inscripcion') {
-          history.replaceState(null, '', location.pathname + location.search);
+          try {
+            history.replaceState(null, '', location.pathname + location.search);
+          } catch (err) {
+            // Sin history API (file:// en algunos navegadores): la
+            // navegación por fragmento hace el mismo trabajo.
+            location.replace(location.pathname + location.search);
+          }
         }
+        // …y apaga el modal con estilo inline: es lo único que le gana
+        // a `#inscripcion:target` cuando el navegador no la recalcula.
+        if (inscripcion) inscripcion.style.display = 'none';
+        bloquearFondo(false);
       };
       if (cerrarInscripcion) cerrarInscripcion.addEventListener('click', cerrarModalInscripcion);
       if (inscripcion) {
@@ -763,14 +791,17 @@
           if (e.target === inscripcion) cerrarModalInscripcion();
         });
       }
-      // Al abrir, el foco entra al diálogo: si no, queda en el enlace que
-      // lo abrió, por fuera del modal (para un lector de pantalla, un
-      // diálogo con el foco afuera).
       window.addEventListener('hashchange', () => {
-        if (location.hash !== '#inscripcion' || !inscripcion) return;
-        const primero = inscripcion.querySelector('button, input');
-        if (primero) primero.focus({ preventScroll: true });
+        if (location.hash === '#inscripcion') {
+          abrirModalInscripcion();
+        } else {
+          // Cualquier otro hash (o el "atrás"): el modal ya no está y el
+          // CSS manda — una navegación por fragmento sí recalcula :target.
+          bloquearFondo(false);
+        }
       });
+      // Carga directa con el hash: `hashchange` no se dispara al cargar.
+      if (location.hash === '#inscripcion') abrirModalInscripcion();
       // Escape cierra el modal de ENCIMA: si el de información (términos,
       // desde el propio formulario) está abierto, va primero ese.
       document.addEventListener('keydown', (e) => {
