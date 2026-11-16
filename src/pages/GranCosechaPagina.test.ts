@@ -206,7 +206,23 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain("addEventListener('mouseover'")
     expect(landing).toContain("'open-' + img.dataset.regalo + '.png'")
     expect(landing).toContain("'regalo-' + img.dataset.regalo + '.png'")
+    // Pequeño zoom al pasar el mouse: en las tres imágenes estáticas y
+    // en las que pinta pintarPremios (misma clase en las cuatro).
+    expect((landing.match(/transition-transform duration-300 hover:scale-110/g) || []).length).toBeGreaterThanOrEqual(4)
     expect(landing).toContain(`data-regalo="' + (i + 1) + '"`)
+  })
+
+  it('el CTA dice INSCRÍBETE AHORA y late de forma constante', () => {
+    expect(landing).not.toContain('INICIAR INSCRIPCIÓN')
+    // Dos botones con el texto, pero el pulso sólo en el de «cómo
+    // participar», que es el que pide la animación.
+    expect((landing.match(/INSCRÍBETE AHORA/g) || []).length).toBe(2)
+    expect(landing).toMatch(/<a href="#inscripcion"[^>]*cta-inscripcion[^>]*>[\s\S]{0,40}INSCRÍBETE AHORA/)
+    expect(landing).toContain('@keyframes pulsoCta')
+    // Sin hover:scale en el animado —la animación lo pisa— y respetando
+    // a quien pidió menos movimiento en el sistema.
+    expect(landing).not.toMatch(/cta-inscripcion[^"]*hover:scale/)
+    expect(landing).toContain('prefers-reduced-motion')
   })
 
   it('el bloque «¿QUÉ ES?» va sobre fondo vinotinto y sin logos', () => {
