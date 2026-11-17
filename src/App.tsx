@@ -37,6 +37,11 @@ const BonosPage = lazy(() => import('./pages/config/Bonos').then((m) => ({ defau
 // crean los trabajadores y lo siguen los jueces— pero con lazy, porque es la
 // única pantalla que no entra nadie si no entra a la consola.
 const GranCosechaPage = lazy(() => import('./pages/GranCosecha').then((m) => ({ default: m.GranCosechaPage })))
+// La página pública (/gran-cosecha.html) vista desde la consola: sólo el
+// Líder la abre —la misma cerradura que su item de menú y su RLS—.
+const GranCosechaPagina = lazy(() =>
+  import('./pages/GranCosechaPagina').then((m) => ({ default: m.GranCosechaPaginaPage }))
+)
 // El editor del contenido que publica la landing (bases, calendario, premios,
 // jurado, FAQ y ganadores): sólo JUEZ y LÍDER, la misma cerradura que la RLS
 // de `gran_cosecha_contenido`.
@@ -56,6 +61,15 @@ const ConcursoPublico = lazy(() =>
 // trabajador), también con lazy.
 const CargosPublicos = lazy(() =>
   import('./pages/publico/CargosPublicos').then((m) => ({ default: m.CargosPublicos }))
+)
+// El menú de cada sucursal: pantalla de CLIENTES que se abre sin sesión
+// (el QR de la tienda), igual que los enlaces de invitado.
+const MenuPublico = lazy(() =>
+  import('./pages/publico/MenuPublico').then((m) => ({ default: m.MenuPublico }))
+)
+// Su editor: lo usa el encargado (Gerente de Sucursal) o el Líder.
+const MenuEditor = lazy(() =>
+  import('./pages/MenuEditor').then((m) => ({ default: m.MenuEditorPage }))
 )
 // Inspección de vehículo (estética + mecánica + gas vehicular): herramienta
 // fuera de la evaluación, con fotos, registro local y PDF.
@@ -102,6 +116,11 @@ function Rutas() {
                     <Route path="/concurso" element={<ConcursoPublico />} />
                     <Route path="/compartir/cargos/:token" element={<CargosPublicos />} />
                     <Route path="/compartir/:token" element={<ConciliacionPublica />} />
+                    {/* El menú de UNA sucursal: la carta que ve el cliente
+                        desde su QR. Sin `RequireAuth` a propósito — la
+                        autorización es la RPC (`ver_menu_publico`), que
+                        devuelve una sucursal o nada. */}
+                    <Route path="/menu/:sucursalId" element={<MenuPublico />} />
                     <Route
                       path="/evaluaciones/:evaluacionId"
                       element={
@@ -311,6 +330,30 @@ function Rutas() {
                           seguimiento lo dan los jueces, que entra por el mismo
                           RLS (`puede_gran_cosecha`) que pide el menú. */}
                       <Route path="/gran-cosecha" element={<GranCosechaPage />} />
+                      {/* El contenido de /gran-cosecha.html: lo edita sólo
+                          el Líder. Ruta propia (/gran-cosecha/pagina) porque
+                          la del editor del concurso ya vive en
+                          /gran-cosecha/contenido. */}
+                      <Route
+                        path="/gran-cosecha/pagina"
+                        element={
+                          <SoloLider>
+                            <GranCosechaPagina />
+                          </SoloLider>
+                        }
+                      />
+                      {/* El menú de la sucursal: lo llena su encargado
+                          (Gerente de Sucursal) o el Líder de cualquier
+                          tienda; la RLS (`es_encargado_menu`) vuelve a pedir
+                          lo mismo fila por fila. */}
+                      <Route
+                        path="/menu-editor"
+                        element={
+                          <RequireRol roles={['LIDER', 'GERENTE_S']}>
+                            <MenuEditor />
+                          </RequireRol>
+                        }
+                      />
                       {/* Lo que se PUBLICA en la landing pública: el mismo
                           contenido que se ve en /concurso, editado sin tocar
                           SQL. `RequireRol` con JUEZ y LÍDER, igual que la

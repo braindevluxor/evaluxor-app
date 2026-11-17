@@ -367,6 +367,67 @@ describe('bonos.sql · los excluidos de un cargo', () => {
   })
 })
 
+describe('bonos.sql · los ocupantes por excepción', () => {
+  it('la identidad es (cargo, nacionalidad, DNI), con nombre y sucursal, y se borran con el cargo', async () => {
+    const bono = await insertarCargo({ cargo: 'Subgerente', clave: 'subgerente' })
+    const insertar = (dni: number) =>
+      db.query(
+        `insert into public.bonos_cargo_ocupante (bono_cargo_id, nacionalidad, dni, nombre, sucursal_id)
+         values ($1, 'V', $2, 'Luis Apoyo', $3)`,
+        [bono, dni, SUCURSAL]
+      )
+    await expect(insertar(909090)).resolves.toBeTruthy()
+    // La misma persona no se agrega dos veces al mismo cargo.
+    await expect(insertar(909090)).rejects.toThrow(/duplicate|unique|única/i)
+    // Otra persona sí cabe, y en otra sucursal también.
+    await expect(
+      db.query(
+        `insert into public.bonos_cargo_ocupante (bono_cargo_id, nacionalidad, dni, nombre, sucursal_id)
+         values ($1, 'V', 909091, 'Rosa Apoyo', $2)`,
+        [bono, SUCURSAL_B]
+      )
+    ).resolves.toBeTruthy()
+    // Borrar el cargo se lleva sus excepciones: no quedan huérfanas.
+    await db.query(`delete from public.bonos_cargo where id = $1`, [bono])
+    expect(await contar(`select count(*) as n from public.bonos_cargo_ocupante where dni = 909090`)).toBe(0)
+  })
+
+  it('no se apunta a una sucursal que no existe', async () => {
+    const bono = await insertarCargo({ cargo: 'Capataz', clave: 'capataz' })
+    await expect(
+      db.query(
+        `insert into public.bonos_cargo_ocupante (bono_cargo_id, nacionalidad, dni, nombre, sucursal_id)
+         values ($1, 'V', 1, 'Alguien', $2)`,
+        [bono, '00000000-0000-0000-0000-00000000dead']
+      )
+    ).rejects.toThrow()
+  })
+
+  it('el Líder agrega y quita, y el Evaluador ni ve ni toca', async () => {
+    const bono = await insertarCargo({ cargo: 'Auditor', clave: 'auditor' })
+    await conRol(LIDER, async () => {
+      await db.query(
+        `insert into public.bonos_cargo_ocupante (bono_cargo_id, nacionalidad, dni, nombre, sucursal_id)
+         values ($1, 'V', 777123, 'Luis Apoyo', $2)`,
+        [bono, SUCURSAL]
+      )
+      expect(await contar(`select count(*) as n from public.bonos_cargo_ocupante where dni = 777123`)).toBe(1)
+      await db.query(`delete from public.bonos_cargo_ocupante where bono_cargo_id = $1 and dni = 777123`, [bono])
+      expect(await contar(`select count(*) as n from public.bonos_cargo_ocupante where dni = 777123`)).toBe(0)
+    })
+    await conRol(EVALUADOR, async () => {
+      expect(await contar(`select count(*) as n from public.bonos_cargo_ocupante`)).toBe(0)
+      await expect(
+        db.query(
+          `insert into public.bonos_cargo_ocupante (bono_cargo_id, nacionalidad, dni, nombre, sucursal_id)
+           values ($1, 'V', 888, 'Nadie', $2)`,
+          [bono, SUCURSAL]
+        )
+      ).rejects.toThrow(/row-level security/i)
+    })
+  })
+})
+
 describe('bonos.sql · quién entra', () => {
   it('puede_bonos deja pasar al Líder y al Gerente de Talento Humano, y a nadie más', async () => {
     await como(LIDER)
@@ -429,6 +490,11 @@ describe('bonos.sql · quién entra', () => {
     expect(
       await contar(
         `select case when has_table_privilege('anon', 'public.bonos_pago', 'select') then 1 else 0 end as n`
+      )
+    ).toBe(0)
+    expect(
+      await contar(
+        `select case when has_table_privilege('anon', 'public.bonos_cargo_ocupante', 'select') then 1 else 0 end as n`
       )
     ).toBe(0)
   })

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  alcanceDesdeTextos,
   clasificarSucursalesParaNomina,
   etiquetaPeriodo,
   etiquetaFrescura,
@@ -46,6 +47,8 @@ function cargo(parcial: Partial<BonoCargo> = {}): BonoCargo {
     sucursales: [],
     // Nadie excluido por defecto.
     excluidos: [],
+    // Nadie agregado por excepción por defecto.
+    excepciones: [],
     created_at: '2026-11-01T00:00:00Z',
     updated_at: '2026-11-01T00:00:00Z',
     ...parcial
@@ -109,6 +112,37 @@ describe('montoParaSucursal · el alcance y el monto de cada sucursal', () => {
     })
     expect(montoParaSucursal(cfg, 's1')).toBe(150)
     expect(montoParaSucursal(cfg, 's2')).toBe(100)
+  })
+})
+
+describe('alcanceDesdeTextos · el campo vacío es el monto base, no un cero', () => {
+  it('vacío (o sólo espacios) queda como «sin monto propio»: null, no 0', () => {
+    // La trampa que motivó la función: Number('') === 0, y un 0 guardado hace
+    // que el gasto proyectado dé 0 con ocupantes de sobra (15 × 0).
+    expect(alcanceDesdeTextos([['s1', ''], ['s2', '   ']])).toEqual([
+      { sucursal_id: 's1', monto: null },
+      { sucursal_id: 's2', monto: null }
+    ])
+  })
+
+  it('el 0 escrito a mano SÍ se guarda como 0: esa tienda no paga', () => {
+    expect(alcanceDesdeTextos([['s1', '0']])).toEqual([{ sucursal_id: 's1', monto: 0 }])
+  })
+
+  it('un número escrito queda como monto propio de esa sucursal', () => {
+    expect(alcanceDesdeTextos([['s1', '414'], ['s2', ' 120.5 ']])).toEqual([
+      { sucursal_id: 's1', monto: 414 },
+      { sucursal_id: 's2', monto: 120.5 }
+    ])
+  })
+
+  it('rechaza negativos y textos no numéricos, con un mensaje que explica el vacío', () => {
+    expect(() => alcanceDesdeTextos([['s1', '-5']])).toThrow(/vacío/)
+    expect(() => alcanceDesdeTextos([['s1', 'abc']])).toThrow(/vacío/)
+  })
+
+  it('una sucursal repetida se queda con la primera (el primary key la rechazaría)', () => {
+    expect(alcanceDesdeTextos([['s1', '10'], ['s1', '99']])).toEqual([{ sucursal_id: 's1', monto: 10 }])
   })
 })
 
@@ -437,7 +471,8 @@ describe('ocupantesDeCargo · quiénes son, con cruce exacto y una vez por perso
         cargo_nomina: 'Cajera Integral',
         departamento_nomina: '',
         monto: 150,
-        excluido: false
+        excluido: false,
+        excepcion: false
       }
     ])
   })
@@ -603,6 +638,93 @@ describe('excluidos · «hay 5, pero sólo 3 cobran»', () => {
 
   it('sin excluidos sigue contando a todos', () => {
     expect(gastoDeCargo(cargo(), nomina)).toEqual({ ocupantes: 5, gasto: 500 })
+  })
+})
+
+describe('excepciones · «se está preparando para ocupar este cargo»', () => {
+  // La nómina: Ana SÍ tiene el cargo del bono; Beto es Subgerente en otra
+  // tienda, así que el cruce exacto no lo encontraría nunca.
+  const nomina = new Map([
+    ['s1', [gente({ name: 'Ana', dni: 1, role_name: 'Cajero integral' })]],
+    ['s2', [gente({ name: 'Beto', dni: 2, role_name: 'Subgerente' })]]
+  ])
+  const excepcion = (dni: number, sucursal_id: string, nombre = 'Beto Pérez') => ({
+    nacionalidad: 'V',
+    dni,
+    nombre,
+    sucursal_id
+  })
+
+  it('cuenta aunque su cargo en la nómina sea otro, y muestra ESE cargo', () => {
+    const cfg = cargo({ excepciones: [excepcion(2, 's2')] })
+    const lista = ocupantesDeCargo(cfg, nomina)
+    expect(lista.map((o) => o.dni)).toEqual([1, 2])
+    // La diferencia de la excepción es justamente su cargo real: ese chip es
+    // lo que explica por qué está cobrando un cargo que no figura para él.
+    expect(lista.find((o) => o.excepcion)).toMatchObject({
+      dni: 2,
+      nombre: 'Beto Pérez',
+      cargo_nomina: 'Subgerente',
+      monto: 100,
+      excluido: false,
+      excepcion: true
+    })
+    expect(gastoDeCargo(cfg, nomina)).toEqual({ ocupantes: 2, gasto: 200 })
+  })
+
+  it('no se duplica si el cruce exacto ya lo encontró', () => {
+    const cfg = cargo({ excepciones: [excepcion(1, 's1', 'Ana Pérez')] })
+    expect(ocupantesDeCargo(cfg, nomina)).toHaveLength(1)
+    expect(gastoDeCargo(cfg, nomina)).toEqual({ ocupantes: 1, gasto: 100 })
+    // Ni en la generación: la clave sigue siendo (cargo, persona).
+    expect(filasDeGeneracion([cfg], nomina, '2026-11')).toHaveLength(1)
+  })
+
+  it('la generación le arma fila en LA SUCURSAL ELEGIDA, con el monto de esa tienda', () => {
+    const cfg = cargo({
+      monto: 100,
+      sucursales: [
+        { sucursal_id: 's1', monto: null },
+        { sucursal_id: 's2', monto: 150 }
+      ],
+      excepciones: [excepcion(2, 's2')]
+    })
+    const filas = filasDeGeneracion([cfg], nomina, '2026-11')
+    expect(filas).toHaveLength(2)
+    expect(filas.find((f) => f.dni === 2)).toMatchObject({
+      sucursal_id: 's2',
+      nombre: 'Beto Pérez',
+      monto_base: 150,
+      cargo: 'Cajero integral',
+      nota_minima: 70
+    })
+  })
+
+  it('fuera del alcance no cuenta ni genera fila', () => {
+    const cfg = cargo({
+      sucursales: [{ sucursal_id: 's1', monto: null }],
+      excepciones: [excepcion(2, 's2')]
+    })
+    expect(ocupantesDeCargo(cfg, nomina).map((o) => o.dni)).toEqual([1])
+    expect(gastoDeCargo(cfg, nomina)).toEqual({ ocupantes: 1, gasto: 100 })
+    expect(filasDeGeneracion([cfg], nomina, '2026-11').map((f) => f.dni)).toEqual([1])
+  })
+
+  it('la exclusión manda: un excluido no cobra aunque sea excepción', () => {
+    const cfg = cargo({
+      excluidos: [{ nacionalidad: 'V', dni: 2 }],
+      excepciones: [excepcion(2, 's2')]
+    })
+    expect(ocupantesDeCargo(cfg, nomina).find((o) => o.dni === 2)?.excluido).toBe(true)
+    expect(gastoDeCargo(cfg, nomina)).toEqual({ ocupantes: 1, gasto: 100 })
+    expect(filasDeGeneracion([cfg], nomina, '2026-11').map((f) => f.dni)).toEqual([1])
+  })
+
+  it('un cargo INACTIVO no genera filas, ni de nómina ni de excepción', () => {
+    const cfg = cargo({ activo: false, excepciones: [excepcion(2, 's2')] })
+    expect(filasDeGeneracion([cfg], nomina, '2026-11')).toEqual([])
+    // El conteo proyectado, en cambio, no depende de si está activo.
+    expect(gastoDeCargo(cfg, nomina)).toEqual({ ocupantes: 2, gasto: 200 })
   })
 })
 

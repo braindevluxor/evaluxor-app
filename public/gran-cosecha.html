@@ -1,0 +1,1247 @@
+<!DOCTYPE html>
+<html lang="es" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GRAN COSECHA LUXOR | Supermercados Luxor</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800;900&family=Poppins:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --luxor-yellow: #facc15;
+      --luxor-amber: #f59e0b;
+      --luxor-red: #dc2626;
+      --luxor-red-dark: #b91c1c;
+      --luxor-navy: #0a1e5e;
+      --luxor-navy-deep: #061238;
+      --luxor-white: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Poppins', 'Inter', sans-serif;
+      overflow-x: hidden;
+      background-color: #ffffff;
+      color: #0a1e5e;
+    }
+
+    .font-display {
+      font-family: 'Anton', 'Poppins', sans-serif;
+      letter-spacing: 0.03em;
+    }
+
+    /* Hero Vibrant Red & Yellow Bokeh Background */
+    .hero-bg {
+      background:
+        radial-gradient(circle at 15% 25%, rgba(250, 204, 21, 0.32) 0%, transparent 30%),
+        radial-gradient(circle at 82% 20%, rgba(255, 255, 255, 0.20) 0%, transparent 28%),
+        radial-gradient(circle at 50% 50%, rgba(220, 38, 38, 0.85) 0%, transparent 65%),
+        radial-gradient(circle at 20% 80%, rgba(250, 204, 21, 0.25) 0%, transparent 32%),
+        linear-gradient(160deg, #b91c1c 0%, #dc2626 50%, #991b1b 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Luxor Navy Display Title on Light/Yellow Badge */
+    .luxor-title-shadow {
+      color: #0a1e5e;
+      text-shadow:
+        -3px 0 0 #facc15,
+        3px 0 0 #ffffff;
+    }
+
+    .glitch-title {
+      text-shadow:
+        -3px 0 0 #facc15,
+        3px 0 0 #dc2626;
+    }
+
+    .glitch-step-num {
+      text-shadow:
+        -3px 2px 0 #ffffff,
+        3px -2px 0 #dc2626;
+    }
+
+    /* CTA «Inscríbete ahora»: late de forma constante —estira y
+       encoja— para llamar la atención sobre el botón de inscripción. */
+    @keyframes pulsoCta {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.06); }
+    }
+
+    .cta-inscripcion {
+      animation: pulsoCta 1.5s ease-in-out infinite;
+    }
+
+    /* Quien pidió menos movimiento en el sistema no lleva el pulso. */
+    @media (prefers-reduced-motion: reduce) {
+      .cta-inscripcion { animation: none; }
+    }
+
+    /* TARJETAS DE EQUIPOS PARTICIPANTES
+       Cada equipo tiene DOS caras: la imagen del proyecto —o su inicial,
+       si no trae— se ve siempre; la FOTO del equipo se revela al pasar el
+       mouse, al enfocar la tarjeta con el teclado o al tocarla. La
+       revelación es el único momento de la sección: la foto entra
+       desenfocada y un punto más grande y se asienta nítida, con easing
+       exponencial desde el estado ya visible. */
+    .tarjeta-equipo {
+      position: relative;
+      display: block;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      padding: 0;
+      border: 2px solid var(--luxor-yellow);
+      border-radius: 1rem;
+      overflow: hidden;
+      background: var(--luxor-navy-deep);
+      text-align: left;
+      cursor: default;
+    }
+
+    /* Sólo con foto la tarjeta ofrece algo que activar. */
+    .tarjeta-equipo.con-foto { cursor: pointer; }
+
+    .tarjeta-equipo:focus-visible {
+      outline: 3px solid var(--luxor-white);
+      outline-offset: 3px;
+    }
+
+    .tarjeta-equipo .cara,
+    .tarjeta-equipo .foto-equipo {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* Respaldo pintado SIEMPRE debajo de la imagen: si la URL no carga,
+       la tarjeta se queda con la inicial en vez de un hueco navy. */
+    .tarjeta-equipo .inicial {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-family: 'Anton', 'Poppins', sans-serif;
+      font-size: clamp(4.5rem, 14vw, 7rem);
+      line-height: 1;
+      color: var(--luxor-yellow);
+      background:
+        radial-gradient(circle at 28% 20%, rgba(250, 204, 21, 0.18), transparent 55%),
+        var(--luxor-navy-deep);
+    }
+
+    /* La foto revelada: entra grande y desenfocada y se asienta. */
+    .tarjeta-equipo .foto-equipo {
+      opacity: 0;
+      transform: scale(1.12);
+      filter: blur(10px);
+      transition:
+        opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+        transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+        filter 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .tarjeta-equipo:hover .foto-equipo,
+    .tarjeta-equipo:focus-visible .foto-equipo,
+    .tarjeta-equipo.esta-activa .foto-equipo {
+      opacity: 1;
+      transform: scale(1);
+      filter: blur(0);
+    }
+
+    /* El rótulo del equipo va SIEMPRE encima, con su velo navy para que el
+       amarillo y el gris se lean sobre cualquier foto. */
+    .tarjeta-equipo .rotulo {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 2.75rem 1rem 1rem;
+      background: linear-gradient(
+        to top,
+        rgba(6, 18, 56, 0.96) 0%,
+        rgba(6, 18, 56, 0.78) 55%,
+        rgba(6, 18, 56, 0) 100%
+      );
+    }
+
+    /* La pista invita al gesto y se aparta cuando la foto ya está encima. */
+    .tarjeta-equipo .pista {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      padding: 0.3rem 0.65rem;
+      border-radius: 9999px;
+      background: var(--luxor-yellow);
+      color: var(--luxor-navy);
+      font-size: 0.65rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    .tarjeta-equipo:hover .pista,
+    .tarjeta-equipo:focus-visible .pista,
+    .tarjeta-equipo.esta-activa .pista {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+
+    /* Quien pidió menos movimiento: sólo opacidad, sin escala ni desenfoque. */
+    @media (prefers-reduced-motion: reduce) {
+      .tarjeta-equipo .foto-equipo {
+        transition: opacity 0.2s linear;
+        transform: none;
+        filter: none;
+      }
+      .tarjeta-equipo .pista { transition: none; }
+    }
+
+    /* TEXTURA DEL BLOQUE ¿QUÉ ES? — la retícula de cruces del sitio
+       corporativo (public/fondo.svg, grises al 8 %), con el MISMO
+       tratamiento que allá: cover sin repetir y attachment fixed, para
+       que la retícula quede quieta mientras la sección pasa. Va con
+       background-image y NO con el shorthand `background`, que borraría
+       el background-color: el vinotinto de Tailwind sigue de base y la
+       textura pinta encima. */
+    .textura-cruces {
+      background-image: url('fondo.svg');
+      background-size: cover;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      background-position: center;
+    }
+
+    /* MODAL DE INSCRIPCIÓN — se abre con el hash de la página
+       (#inscripcion), que es donde apuntan los cinco enlaces (menú,
+       secciones y footer). Con `:target` el modal se abre SIN JavaScript
+       y el botón "atrás" del navegador lo cierra; `#inscripcion:target`
+       tiene más especificidad que la clase `hidden` de Tailwind, así que
+       puede levantarla. OJO al cerrar: vaciar el hash con replaceState
+       NO vuelve a evaluar `:target` en Chrome (medido), así que el
+       cierre apaga el modal con un display inline desde el script —le
+       gana a cualquier selector sin !important—. */
+    #inscripcion:target {
+      display: flex;
+    }
+  </style>
+</head>
+<body class="antialiased">
+
+  <!-- HEADER / NAVBAR -->
+  <header class="sticky top-0 z-50 w-full bg-white text-[#0a1e5e] shadow-md border-b-4 border-[#facc15]">
+    <div class="mx-auto flex max-w-6xl items-center justify-end px-4 py-2.5 sm:px-6">
+      <!-- Desktop Two-Row Navigation: sin logo — el lockup con el nombre
+           de la marca se quitó de la página entera; los links quedan a
+           la derecha (justify-end), como estaban con el logo. -->
+      <nav class="hidden md:flex flex-col items-center gap-1 text-xs lg:text-sm font-semibold">
+        <div class="flex items-center gap-6">
+          <a href="#inscripcion" class="hover:text-[#dc2626] transition-colors">Inscripción</a>
+          <a href="#como-participar" class="hover:text-[#dc2626] transition-colors">Cómo participar</a>
+          <a href="#premios" class="hover:text-[#dc2626] transition-colors">Premios</a>
+        </div>
+        <div class="flex items-center gap-6 text-[11px] lg:text-xs font-medium text-[#0a1e5e]/70">
+          <a href="#contacto" class="hover:text-[#dc2626] transition-colors">Contacto</a>
+          <button type="button" data-modal="privacy" class="hover:text-[#dc2626] transition-colors cursor-pointer">Política de privacidad</button>
+          <button type="button" data-modal="terms" class="hover:text-[#dc2626] transition-colors cursor-pointer">Términos y condiciones</button>
+        </div>
+      </nav>
+
+      <!-- Mobile Menu Button -->
+      <button id="mobileMenuBtn" type="button" aria-label="Abrir menú" class="md:hidden rounded-lg p-2 text-[#0a1e5e] hover:bg-slate-100 focus:outline-none">
+        <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Mobile Dropdown -->
+    <div id="mobileMenu" class="hidden md:hidden border-t border-slate-200 bg-white px-4 py-3">
+      <div class="flex flex-col gap-2 text-sm font-semibold">
+        <a href="#inscripcion" class="mobile-nav-link py-1 hover:text-[#dc2626]">Inscripción</a>
+        <a href="#como-participar" class="mobile-nav-link py-1 hover:text-[#dc2626]">Cómo participar</a>
+        <a href="#premios" class="mobile-nav-link py-1 hover:text-[#dc2626]">Premios</a>
+        <a href="#contacto" class="mobile-nav-link py-1 hover:text-[#dc2626]">Contacto</a>
+        <button type="button" data-modal="privacy" class="mobile-nav-link text-left py-1 hover:text-[#dc2626]">Política de privacidad</button>
+        <button type="button" data-modal="terms" class="mobile-nav-link text-left py-1 hover:text-[#dc2626]">Términos y condiciones</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- HERO BANNER -->
+  <section id="top" class="hero-bg text-white pt-14 pb-0 min-h-[60vh] relative">
+    <!-- CARRUSEL DEL HERO: lo publica la consola (imágenes/videos con velo
+         navy encima). Nace oculto: sin carrusel publicado queda el fondo
+         estático de abajo y el degradado del CSS. -->
+    <div id="heroCarrusel" class="hidden absolute inset-0 overflow-hidden"></div>
+
+    <div class="relative z-10 mx-auto max-w-4xl px-4 text-center pb-14">
+      <!-- HERO EN CERO: se quitó TODO el texto (título, lema, fechas y
+           botón) para rediseñarlo desde cero. Quedan sólo los huecos de
+           lema y bajada, SIN contenido en el HTML: los llena la consola al
+           Guardar, así que sin sesión y sin JS el hero sale vacío a
+           propósito. El min-height de la sección evita que el hero se
+           colapse mientras no hay nada adentro. -->
+      <div class="mt-7 space-y-1">
+        <p id="heroLema" class="text-sm sm:text-base md:text-lg font-extrabold uppercase tracking-widest text-[#facc15]"></p>
+        <p id="heroBajada" class="text-xs sm:text-sm md:text-base font-bold uppercase tracking-wider text-white/95"></p>
+      </div>
+    </div>
+
+    <!-- Divisor rojo→vinotinto: path cerrado con relleno del color de
+         la sección de abajo y la línea blanca sólo sobre la curva, el
+         mismo patrón del divisor rojo→navy. Absoluto al fondo del hero
+         con -1px (contra subpíxeles); su overflow:hidden recorta ese
+         1px, da igual: el relleno es del mismo color que la sección
+         siguiente. w-full es indispensable: el svg es un elemento
+         REEMPLAZADO y con sólo inset-x-0 no estira —usa su tamaño
+         intrínseco—, por eso la línea no llegaba de lado a lado. -->
+    <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="pointer-events-none absolute inset-x-0 -bottom-px h-10 w-full">
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#a81e3e" />
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#ffffff" stroke-width="4" vector-effect="non-scaling-stroke" />
+    </svg>
+  </section>
+
+  <!-- ¿QUÉ ES GRAN COSECHA LUXOR?: fondo vinotinto tomado de la imagen de
+       referencia, con encima la textura de cruces del sitio corporativo
+       (public/fondo.svg) —clase .textura-cruces en el <style> de arriba.
+       El lockup con el nombre de la marca se quitó de toda la página
+       (navbar, este bloque y footer). -->
+  <section class="bg-[#a81e3e] py-12 sm:py-16 px-4 text-center relative textura-cruces">
+    <div class="mx-auto max-w-3xl">
+      <!-- Presenta la marca: la etiqueta arriba y el logo real
+           (public/supermercados-luxor.png) debajo de ella, todo sobre
+           el título de la sección. El chip blanco es adrede: el PNG
+           trae las letras rojas de "SUPERMERCADOS" y sobre el
+           vinotinto se perderían. -->
+      <div class="mb-10">
+        <p class="text-xs sm:text-sm font-extrabold uppercase tracking-[0.22em] text-[#facc15]">
+          PRESENTADO POR
+        </p>
+        <div class="mt-4 inline-block rounded-2xl bg-white px-6 py-4 shadow-lg">
+          <img src="supermercados-luxor.png" alt="Supermercados Luxor" loading="lazy" decoding="async" class="h-16 sm:h-20 w-auto object-contain" />
+        </div>
+      </div>
+
+      <!-- ¿Qué es Gran Cosecha Luxor? -->
+      <div>
+        <h2 class="font-display glitch-title text-3xl sm:text-5xl uppercase text-white leading-tight">
+          ¿QUÉ ES
+          <span class="inline-block rounded-full bg-[#facc15] border-2 border-[#dc2626] px-5 py-1 text-[#0a1e5e]">
+            GRAN COSECHA LUXOR
+          </span>
+          ?
+        </h2>
+        <p class="mt-6 text-sm sm:text-base md:text-lg font-medium leading-relaxed text-white max-w-2xl mx-auto">
+          Una iniciativa corporativa de integración y excelencia operativa para las sucursales de Supermercados Luxor. En tres emocionantes rounds, nuestros equipos demuestran frescura, exhibición comercial, atención al cliente y trabajo en equipo para alcanzar los grandes premios de la temporada.
+        </p>
+      </div>
+    </div>
+
+    <!-- Divisor rojo→amarillo: con la dinámica fuera, la que sigue es
+         «cómo participar» (amarillo), así que el path se CIERRA hasta
+         las esquinas inferiores (L1200,40 L0,40 Z) y se rellena con SU
+         color; la línea blanca va en un segundo path, sólo con trazo.
+         Va absoluto al fondo de la sección roja con -bottom-px: el rojo
+         llega hasta la línea blanca por arriba y el amarillo empieza
+         desde ella hacia abajo, sin costura de subpíxel y sin márgenes
+         que rompan la continuidad. -->
+    <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="pointer-events-none absolute inset-x-0 -bottom-px h-10 w-full">
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#facc15" />
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#ffffff" stroke-width="4" vector-effect="non-scaling-stroke" />
+    </svg>
+  </section>
+
+  <!-- FORMULARIO DE INSCRIPCIÓN — MODAL
+       Era una sección y ahora es un modal que se abre con el hash
+       #inscripcion (los cinco enlaces de la página ya apuntan ahí): con
+       CSS puro (`:target`, ver el <style>) se abre sin JavaScript y el
+       botón "atrás" lo cierra; el script agrega la X, Escape y el clic
+       en el fondo. El panel va con `my-auto` y no con `items-center`:
+       centrado con flex, un formulario más alto que la pantalla se corta
+       arriba y no se puede bajar; con margen auto, cuando no entra queda
+       arriba y el overlay hace el scroll. -->
+  <div
+    id="inscripcion"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="inscripcionTitulo"
+    class="fixed inset-0 z-50 hidden justify-center overflow-y-auto bg-black/70 px-4 py-8"
+  >
+    <div class="my-auto w-full max-w-xl rounded-2xl border-t-8 border-[#dc2626] bg-white p-6 text-left shadow-2xl">
+      <div class="flex items-center justify-between border-b border-gray-200 pb-3">
+        <h2 id="inscripcionTitulo" class="font-display text-2xl uppercase tracking-wide text-[#0a1e5e]">
+          FORMULARIO DE INSCRIPCIÓN
+        </h2>
+        <button id="cerrarInscripcion" type="button" aria-label="Cerrar" class="cursor-pointer rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-black">
+          <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <p class="mt-3 text-center text-sm font-medium text-[#dc2626]">
+        Participa con tu sucursal, destaca en piso de venta y gana increíbles premios.
+      </p>
+
+      <form id="registrationForm" class="mt-6 space-y-4 text-left" novalidate>
+        <div>
+          <input
+            type="text"
+            id="teamName"
+            placeholder="Nombre del equipo o sucursal *"
+            required
+            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+          />
+        </div>
+
+        <div>
+          <input
+            type="text"
+            id="gameName"
+            placeholder="Nombre de la propuesta o área *"
+            required
+            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+          />
+        </div>
+
+        <div>
+          <input
+            type="email"
+            id="email"
+            placeholder="Email corporativo o personal *"
+            required
+            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+          />
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <select
+              id="prefix"
+              aria-label="Prefijo telefónico"
+              class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-4 py-3 text-sm font-medium text-[#0a1e5e] focus:border-[#dc2626] focus:outline-none"
+            >
+              <option value="+58" selected>VE +58</option>
+              <option value="+57">CO +57</option>
+              <option value="+52">MX +52</option>
+              <option value="+54">AR +54</option>
+              <option value="+56">CL +56</option>
+              <option value="+51">PE +51</option>
+              <option value="+34">ES +34</option>
+              <option value="+1">US +1</option>
+            </select>
+          </div>
+          <div class="sm:col-span-2">
+            <input
+              type="tel"
+              id="phone"
+              placeholder="Teléfono *"
+              required
+              class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div class="relative">
+          <label for="birthDate" class="sr-only">Fecha de nacimiento</label>
+          <input
+            type="date"
+            id="birthDate"
+            required
+            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] focus:border-[#dc2626] focus:outline-none"
+          />
+          <span class="block mt-1 pl-5 text-[11px] font-medium text-[#0a1e5e]/70">Fecha de nacimiento * obligatorio</span>
+        </div>
+
+        <div>
+          <input
+            type="text"
+            id="discordUser"
+            placeholder="Departamento o Cargo (Ej. Fruver, Cajas, Pasillos)"
+            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+          />
+        </div>
+
+        <div class="flex items-center gap-3 pl-2 pt-1">
+          <input
+            type="checkbox"
+            id="acceptTerms"
+            class="h-5 w-5 rounded-full border-2 border-[#0a1e5e] text-[#dc2626] focus:ring-[#dc2626]"
+          />
+          <label for="acceptTerms" class="text-xs sm:text-sm font-semibold text-[#0a1e5e]">
+            1. <button type="button" data-modal="terms" class="underline hover:text-[#dc2626] cursor-pointer">Acepto los términos y condiciones</button>
+          </label>
+        </div>
+
+        <div class="pt-4 text-center">
+          <button
+            type="submit"
+            class="rounded-full bg-[#dc2626] hover:bg-[#b91c1c] px-10 py-3.5 text-sm sm:text-base font-black uppercase tracking-wider text-white shadow-[0_6px_0_#facc15] transition-transform active:translate-y-0.5 cursor-pointer"
+          >
+            ENVIAR INSCRIPCIÓN
+          </button>
+        </div>
+      </form>
+
+      <!-- Feedback Box -->
+      <div id="formFeedback" class="hidden mt-6 rounded-2xl border-2 border-[#facc15] bg-yellow-50 p-4 text-sm text-[#0a1e5e]">
+        <p id="formFeedbackTitle" class="font-bold">¡Registro recibido para GRAN COSECHA LUXOR!</p>
+        <p id="formFeedbackText" class="mt-1 text-xs">
+          Tu equipo ha sido preinscrito. Un coordinador de Talento Humano confirmará los detalles de tu sucursal.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ¿CÓMO PARTICIPAR? -->
+  <section id="como-participar" class="bg-[#facc15] text-[#0a1e5e] py-16 px-4 relative">
+    <div class="mx-auto max-w-6xl text-center">
+      <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#0a1e5e] tracking-wide">
+        ¿CÓMO PARTICIPAR?
+      </h2>
+
+      <div class="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+        <!-- Paso 1 -->
+        <div class="flex flex-col items-center">
+          <span class="font-display glitch-step-num text-5xl text-[#0a1e5e] mb-3">1</span>
+          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#dc2626]">
+            <svg class="h-12 w-12 text-[#dc2626]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </div>
+          <p class="mt-4 text-sm font-semibold leading-relaxed max-w-[220px]">
+            Inscribe a tu equipo o sucursal en el formulario oficial.
+          </p>
+        </div>
+
+        <!-- Paso 2 -->
+        <div class="flex flex-col items-center">
+          <span class="font-display glitch-step-num text-5xl text-[#0a1e5e] mb-3">2</span>
+          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#0a1e5e]">
+            <svg class="h-12 w-12 text-[#0a1e5e]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+          </div>
+          <p class="mt-4 text-sm font-semibold leading-relaxed max-w-[220px]">
+            Prepara tu área, exhibiciones y estándares de frescura y servicio.
+          </p>
+        </div>
+
+        <!-- Paso 3 -->
+        <div class="flex flex-col items-center">
+          <span class="font-display glitch-step-num text-5xl text-[#0a1e5e] mb-3">3</span>
+          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#dc2626]">
+            <svg class="h-12 w-12 text-[#dc2626]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p class="mt-4 text-sm font-semibold leading-relaxed max-w-[220px]">
+            Supera las auditorías de los tres rounds junto a tu equipo.
+          </p>
+        </div>
+
+        <!-- Paso 4 -->
+        <div class="flex flex-col items-center">
+          <span class="font-display glitch-step-num text-5xl text-[#0a1e5e] mb-3">4</span>
+          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#0a1e5e]">
+            <svg class="h-12 w-12 text-[#0a1e5e]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+            </svg>
+          </div>
+          <p class="mt-4 text-sm font-semibold leading-relaxed max-w-[220px]">
+            Recibe la confirmación del equipo evaluador y celebra los resultados.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-12">
+        <a href="#inscripcion" class="cta-inscripcion inline-block rounded-full bg-[#dc2626] hover:bg-[#b91c1c] px-8 py-3.5 text-sm sm:text-base font-extrabold uppercase tracking-wider text-white shadow-lg">
+          INSCRÍBETE AHORA
+        </a>
+      </div>
+    </div>
+
+    <!-- Divisor amarillo→blanco: relleno con el blanco de la sección
+         de abajo y línea navy sobre la curva —navy se lee tanto sobre
+         el amarillo de arriba como sobre el relleno blanco. -->
+    <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="pointer-events-none absolute inset-x-0 -bottom-px h-10 w-full">
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#ffffff" />
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#0a1e5e" stroke-width="4" vector-effect="non-scaling-stroke" />
+    </svg>
+  </section>
+
+  <!-- PREMIOS -->
+  <section id="premios" class="bg-white py-16 px-4 relative overflow-hidden">
+    <!-- Carrusel de premios: las seis gráficas 13…18 de public/evidencia
+         reemplazan al marquee de "PREMIOS". Gira sola con fundido cada
+         4 s; va en aspect-video para verlas COMPLETAS —son flyers con
+         texto y recortarlos en una franja larga los arruinaría—. Las
+         imágenes van convertidas a WebP a resolución natural (39,4 MB
+         de PNG → 2,7 MB). -->
+    <div id="premiosCarrusel" class="relative z-10 mx-auto mb-12 aspect-video w-full max-w-3xl overflow-hidden rounded-2xl border-4 border-[#facc15] shadow-xl bg-white">
+      <img src="evidencia/premios-13.webp" alt="Gráfica de premios 13" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-100" />
+      <img src="evidencia/premios-14.webp" alt="Gráfica de premios 14" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
+      <img src="evidencia/premios-15.webp" alt="Gráfica de premios 15" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
+      <img src="evidencia/premios-16.webp" alt="Gráfica de premios 16" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
+      <img src="evidencia/premios-17.webp" alt="Gráfica de premios 17" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
+      <img src="evidencia/premios-18.webp" alt="Gráfica de premios 18" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
+    </div>
+
+    <div class="relative z-10 mx-auto max-w-5xl text-center">
+      <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#dc2626] tracking-wide">
+        PREMIOS
+      </h2>
+      <p class="mt-4 text-sm sm:text-base font-medium leading-relaxed text-[#0a1e5e] max-w-2xl mx-auto">
+        En GRAN COSECHA LUXOR, reconocemos la dedicación, el compromiso y la calidad de servicio de nuestros colaboradores con premios pensados para celebrar el esfuerzo de cada equipo.
+      </p>
+
+      <div id="premiosLista" class="mt-12 grid grid-cols-1 md:grid-cols-3 gap-10">
+        <!-- 1° PUESTO: la caja de regalo (public/regalo-1.png), que se
+             funde con la sección blanca. El script la repite al rehacer
+             la lista desde la base. -->
+        <div class="flex flex-col items-center">
+          <img src="regalo-1.png" data-regalo="1" alt="Regalo del 1° PUESTO" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain transition-transform duration-300 hover:scale-110" />
+          <span class="font-display text-3xl text-[#dc2626]">1° PUESTO</span>
+          <p class="mt-2 text-base font-bold text-[#0a1e5e]">Gran Premio Corporativo y Trofeo Luxor</p>
+        </div>
+
+        <!-- 2° PUESTO -->
+        <div class="flex flex-col items-center">
+          <img src="regalo-2.png" data-regalo="2" alt="Regalo del 2° PUESTO" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain transition-transform duration-300 hover:scale-110" />
+          <span class="font-display text-3xl text-[#dc2626]">2° PUESTO</span>
+          <p class="mt-2 text-base font-bold text-[#0a1e5e]">Incentivo Especial para Todo el Equipo</p>
+        </div>
+
+        <!-- 3° PUESTO -->
+        <div class="flex flex-col items-center">
+          <img src="regalo-3.png" data-regalo="3" alt="Regalo del 3° PUESTO" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain transition-transform duration-300 hover:scale-110" />
+          <span class="font-display text-3xl text-[#dc2626]">3° PUESTO</span>
+          <p class="mt-2 text-base font-bold text-[#0a1e5e]">Reconocimiento Destacado y Cesta Luxor</p>
+        </div>
+      </div>
+
+      <div class="mt-12">
+        <a href="#inscripcion" class="inline-block rounded-full bg-[#0a1e5e] hover:bg-blue-900 px-8 py-3.5 text-sm sm:text-base font-extrabold uppercase tracking-wider text-white shadow-lg transition-transform hover:scale-105">
+          INSCRÍBETE AHORA
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- EQUIPOS PARTICIPANTES: la consola la publica (sección oculta por
+       defecto; el script de abajo la muestra si hay equipos cargados).
+       Cada tarjeta monta la imagen del proyecto; si el equipo trae foto,
+       la tarjeta se enfoca o se toca y la foto se revela encima. -->
+  <section id="equipos" class="bg-[#0a1e5e] text-white py-16 px-4 hidden">
+    <div class="mx-auto max-w-6xl text-center">
+      <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#facc15] tracking-wide">
+        EQUIPOS PARTICIPANTES
+      </h2>
+      <p class="mt-4 text-sm sm:text-base text-gray-200 max-w-2xl mx-auto">
+        Los equipos que ya están compitiendo en GRAN COSECHA LUXOR.
+      </p>
+      <!-- La invitación a revelar la foto sólo se muestra si AL MENOS un
+           equipo la trae: sin fotos, prometería un gesto que no existe. -->
+      <p id="equiposPista" class="hidden mt-3 text-xs sm:text-sm font-semibold uppercase tracking-wide text-[#facc15]">
+        Pasá el mouse o tocá una tarjeta para conocer al equipo
+      </p>
+      <div id="equiposLista" class="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer id="contacto" class="bg-white border-t-4 border-[#facc15] pt-14 pb-8 px-4 text-center">
+    <div class="mx-auto max-w-5xl">
+      <p class="mt-4 text-sm sm:text-base font-medium text-[#0a1e5e]">
+        Frescura, calidad y compromiso en cada una de nuestras sucursales.
+      </p>
+
+      <!-- Social Links -->
+      <div class="mt-5 flex items-center justify-center gap-5 text-[#0a1e5e]">
+        <a href="#contacto" aria-label="Instagram" class="hover:text-[#dc2626] transition-colors font-bold text-xs">Instagram</a>
+        <a href="#contacto" aria-label="Facebook" class="hover:text-[#dc2626] transition-colors font-bold text-xs">Facebook</a>
+        <a href="#contacto" aria-label="LinkedIn" class="hover:text-[#dc2626] transition-colors font-bold text-xs">LinkedIn</a>
+        <a href="#contacto" aria-label="YouTube" class="hover:text-[#dc2626] transition-colors font-bold text-xs">YouTube</a>
+        <a href="#contacto" aria-label="TikTok" class="hover:text-[#dc2626] transition-colors font-bold text-xs">TikTok</a>
+      </div>
+
+      <!-- Footer Links -->
+      <div class="mt-6 space-y-1.5 text-xs sm:text-sm font-semibold text-[#0a1e5e]">
+        <div class="flex flex-wrap justify-center gap-5">
+          <a href="#inscripcion" class="hover:text-[#dc2626] hover:underline">Inscripción</a>
+          <a href="#como-participar" class="hover:text-[#dc2626] hover:underline">Cómo participar</a>
+          <a href="#premios" class="hover:text-[#dc2626] hover:underline">Premios</a>
+        </div>
+        <div class="flex flex-wrap justify-center gap-5">
+          <a href="#contacto" class="hover:text-[#dc2626] hover:underline">Contacto</a>
+          <button type="button" data-modal="privacy" class="hover:text-[#dc2626] hover:underline cursor-pointer">Política de privacidad</button>
+          <button type="button" data-modal="terms" class="hover:text-[#dc2626] hover:underline cursor-pointer">Términos y condiciones</button>
+        </div>
+      </div>
+
+      <!-- 3 Columns: Dirección, Email, Suscríbete -->
+      <div class="mt-12 grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
+        <!-- Dirección -->
+        <div class="flex flex-col items-center">
+          <svg class="h-6 w-6 text-[#dc2626] mb-1.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <h3 class="text-xs font-extrabold uppercase tracking-widest text-[#dc2626]">COBERTURA</h3>
+          <p class="mt-2 text-xs sm:text-sm text-[#0a1e5e] font-medium">
+            Sucursales Supermercados Luxor<br />Aragua, Venezuela
+          </p>
+        </div>
+
+        <!-- Email -->
+        <div class="flex flex-col items-center">
+          <svg class="h-6 w-6 text-[#dc2626] mb-1.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+          <h3 class="text-xs font-extrabold uppercase tracking-widest text-[#dc2626]">CONTACTO</h3>
+          <a href="mailto:evaluaciones@supermercadosluxor.com" class="mt-2 text-xs sm:text-sm text-[#0a1e5e] font-medium hover:underline">
+            evaluaciones@supermercadosluxor.com
+          </a>
+          <div class="mt-4 flex flex-wrap justify-center gap-2">
+            <span class="rounded-lg bg-[#0a1e5e] px-3 py-1.5 text-[11px] font-bold text-white shadow">Programa Interno Luxor</span>
+            <span class="rounded-lg bg-[#facc15] px-3 py-1.5 text-[11px] font-bold text-[#0a1e5e] shadow">Edición 2026</span>
+          </div>
+        </div>
+
+        <!-- Suscríbete -->
+        <div class="flex flex-col items-center">
+          <svg class="h-6 w-6 text-[#dc2626] mb-1.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+          </svg>
+          <h3 class="text-xs font-extrabold uppercase tracking-widest text-[#dc2626]">ACTUALIZACIONES</h3>
+          <form id="newsletterForm" class="mt-3 flex w-full max-w-xs flex-col gap-2">
+            <input
+              type="email"
+              id="newsletterEmail"
+              placeholder="Escribe tu email aquí"
+              required
+              class="w-full rounded-full border-2 border-[#0a1e5e] px-4 py-2 text-xs text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:outline-none"
+            />
+            <button
+              type="submit"
+              class="rounded-full bg-[#dc2626] hover:bg-[#b91c1c] px-6 py-2 text-xs font-bold text-white transition-colors cursor-pointer"
+            >
+              Unirse
+            </button>
+          </form>
+          <p id="newsletterFeedback" class="hidden mt-2 text-xs font-bold text-emerald-600">
+            Gracias por suscribirte
+          </p>
+        </div>
+      </div>
+
+      <!-- Bottom Copyright -->
+      <div class="mt-12 pt-5 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[#0a1e5e] font-medium">
+        <span>2026 © Todos los Derechos reservados.</span>
+        <span>Supermercados Luxor, C.A. — GRAN COSECHA LUXOR</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- MODAL -->
+  <div id="infoModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 px-4">
+    <div class="w-full max-w-lg rounded-2xl bg-white p-6 text-left shadow-2xl border-t-8 border-[#dc2626]">
+      <div class="flex items-center justify-between border-b border-gray-200 pb-3">
+        <h3 id="modalTitle" class="font-display text-2xl uppercase text-[#0a1e5e]">Información</h3>
+        <button id="closeModalBtn" type="button" aria-label="Cerrar" class="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-black cursor-pointer">
+          <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div id="modalBody" class="mt-4 text-sm text-gray-700 space-y-3 max-h-[60vh] overflow-y-auto"></div>
+      <div class="mt-6 text-right">
+        <button id="modalConfirmBtn" type="button" class="rounded-full bg-[#0a1e5e] px-6 py-2 text-xs font-bold uppercase text-white hover:bg-blue-900 cursor-pointer">
+          Entendido
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Mobile menu toggle
+      const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+      const mobileMenu = document.getElementById('mobileMenu');
+      if (mobileMenuBtn && mobileMenu) {
+        mobileMenuBtn.addEventListener('click', () => {
+          mobileMenu.classList.toggle('hidden');
+        });
+        document.querySelectorAll('.mobile-nav-link').forEach((el) => {
+          el.addEventListener('click', () => mobileMenu.classList.add('hidden'));
+        });
+      }
+
+      // Registration form feedback
+      const regForm = document.getElementById('registrationForm');
+      const formFeedback = document.getElementById('formFeedback');
+      const formFeedbackTitle = document.getElementById('formFeedbackTitle');
+      const formFeedbackText = document.getElementById('formFeedbackText');
+      if (regForm && formFeedback) {
+        regForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const team = document.getElementById('teamName').value.trim();
+          const area = document.getElementById('gameName').value.trim();
+          const email = document.getElementById('email').value.trim();
+          const terms = document.getElementById('acceptTerms').checked;
+
+          if (!team || !area || !email || !terms) {
+            formFeedbackTitle.textContent = 'Completa los campos obligatorios';
+            formFeedbackText.textContent = 'Por favor ingresa el nombre del equipo/sucursal, propuesta, email y acepta los términos y condiciones.';
+          } else {
+            formFeedbackTitle.textContent = `¡Inscripción registrada para ${team}!`;
+            formFeedbackText.textContent = `Propuesta "${area}" recibida correctamente. El equipo de coordinación de GRAN COSECHA LUXOR se comunicará a ${email}.`;
+          }
+          formFeedback.classList.remove('hidden');
+          formFeedback.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+      }
+
+      // Newsletter form
+      const newsletterForm = document.getElementById('newsletterForm');
+      const newsletterFeedback = document.getElementById('newsletterFeedback');
+      const newsletterEmail = document.getElementById('newsletterEmail');
+      if (newsletterForm && newsletterFeedback && newsletterEmail) {
+        newsletterForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          if (newsletterEmail.value.trim()) {
+            newsletterFeedback.classList.remove('hidden');
+            newsletterEmail.value = '';
+          }
+        });
+      }
+
+      // Carrusel de premios: las seis gráficas giran solas con fundido
+      // cada 4 s. El cambio es por CLASE de opacidad (no por src): así
+      // las seis se cargan con lazy cuando la sección se acerca y el
+      // slide activo nunca queda en blanco esperando descarga.
+      const premiosCarrusel = document.getElementById('premiosCarrusel');
+      if (premiosCarrusel) {
+        const slides = Array.from(premiosCarrusel.querySelectorAll('img'));
+        let slideActual = 0;
+        if (slides.length > 1) {
+          setInterval(() => {
+            slides[slideActual].classList.replace('opacity-100', 'opacity-0');
+            slideActual = (slideActual + 1) % slides.length;
+            slides[slideActual].classList.replace('opacity-0', 'opacity-100');
+          }, 4000);
+        }
+      }
+
+      // Los regalos de premios se ABREN al pasar el mouse: la caja
+      // cerrada (regalo-N.png) cambia por su caja abierta (open-N.png)
+      // mientras el puntero está encima. Va con DELEGACIÓN en la lista
+      // y por el número de la imagen, así que también aplica a los
+      // premios que pintarPremios rehace desde la base (con el listener
+      // en cada img, al guardar desde la consola se perdería). Al salir,
+      // el navegador deja la cerrada mientras carga si hace falta.
+      const premiosLista = document.getElementById('premiosLista');
+      if (premiosLista) {
+        premiosLista.addEventListener('mouseover', (e) => {
+          const img = e.target.closest('img[data-regalo]');
+          if (img) img.src = 'open-' + img.dataset.regalo + '.png';
+        });
+        premiosLista.addEventListener('mouseout', (e) => {
+          const img = e.target.closest('img[data-regalo]');
+          if (img) img.src = 'regalo-' + img.dataset.regalo + '.png';
+        });
+      }
+
+      // Las tarjetas de equipo se ABREN al tocarlas: en el celular no hay
+      // hover, así que el clic alterna la clase que revela la foto (en
+      // escritorio la revela el CSS del :hover, y el clic la deja fija).
+      // Va con delegación en la lista, como los premios, para que
+      // sobreviva al repintado de pintarEquipos al Guardar.
+      const equiposLista = document.getElementById('equiposLista');
+      if (equiposLista) {
+        equiposLista.addEventListener('click', (e) => {
+          const tarjeta = e.target.closest('.tarjeta-equipo.con-foto');
+          if (!tarjeta) return;
+          // Una sola abierta por vez: tocar otra cierra la anterior.
+          const abierta = tarjeta.classList.contains('esta-activa');
+          equiposLista
+            .querySelectorAll('.tarjeta-equipo.esta-activa')
+            .forEach((t) => t.classList.remove('esta-activa'));
+          if (!abierta) tarjeta.classList.add('esta-activa');
+        });
+      }
+
+      // Modals
+      const modal = document.getElementById('infoModal');
+      const modalTitle = document.getElementById('modalTitle');
+      const modalBody = document.getElementById('modalBody');
+      const closeModalBtn = document.getElementById('closeModalBtn');
+      const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+
+      const modalContent = {
+        terms: {
+          title: 'Términos y condiciones - GRAN COSECHA LUXOR',
+          body: '<p><strong>Descripción del Programa:</strong> GRAN COSECHA LUXOR es una competencia interna organizada por Supermercados Luxor, C.A. para fortalecer la excelencia operativa, la frescura en piso de venta y la atención al cliente.</p><p><strong>Participación:</strong> Abierta a colaboradores y equipos de todas las sucursales de Supermercados Luxor.</p><p><strong>Evaluación:</strong> Los equipos serán evaluados en tres rondas sucesivas conforme a los criterios publicados en la dinámica del concurso.</p>'
+        },
+        privacy: {
+          title: 'Política de privacidad',
+          body: '<p>Supermercados Luxor, C.A. utiliza los datos suministrados en este formulario exclusivamente para la coordinación logística y seguimiento de los equipos participantes en GRAN COSECHA LUXOR.</p>'
+        }
+      };
+
+      const openModal = (key) => {
+        const data = modalContent[key];
+        if (!data || !modal || !modalTitle || !modalBody) return;
+        modalTitle.textContent = data.title;
+        modalBody.innerHTML = data.body;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      };
+
+      const closeModal = () => {
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      };
+
+      document.querySelectorAll('[data-modal]').forEach((trigger) => {
+        trigger.addEventListener('click', () => {
+          openModal(trigger.getAttribute('data-modal'));
+        });
+      });
+
+      if (closeModalBtn) closeModalBtn.addEventListener('click', closeModal);
+      if (modalConfirmBtn) modalConfirmBtn.addEventListener('click', closeModal);
+      if (modal) {
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) closeModal();
+        });
+      }
+
+      // MODAL DE INSCRIPCIÓN — se ABRE con el hash (#inscripcion) y CSS
+      // (`:target`), así que acá sólo se cierra: con la X, con Escape y
+      // con el clic en el fondo.
+      //
+      // OJO CON replaceState: medido en Chrome, vaciar el hash NO vuelve
+      // a evaluar `:target` (500 ms después la regla sigue aplicando, y
+      // como la regla lleva un id ninguna clase le gana) — por eso el
+      // botón cerrar no cerraba. El cierre apaga el modal con un
+      // display INLINE (un estilo inline vence a cualquier selector sin
+      // !important) y maneja el bloqueo del fondo desde acá, sin depender
+      // del :has que habría quedado trabado igual. Al abrir se quitan
+      // esos estilos manuales y vuelve a mandar el CSS.
+      const inscripcion = document.getElementById('inscripcion');
+      const cerrarInscripcion = document.getElementById('cerrarInscripcion');
+      const bloquearFondo = (bloqueado) => {
+        document.body.style.overflow = bloqueado ? 'hidden' : '';
+      };
+      const abrirModalInscripcion = () => {
+        if (!inscripcion) return;
+        inscripcion.style.display = '';
+        bloquearFondo(true);
+        // El foco entra al diálogo: si no, queda en el enlace que lo
+        // abrió, por fuera del modal (para un lector de pantalla, un
+        // diálogo con el foco afuera).
+        const primero = inscripcion.querySelector('button, input');
+        if (primero) primero.focus({ preventScroll: true });
+      };
+      const cerrarModalInscripcion = () => {
+        // Saca el hash —el "atrás" y los enlaces siguen iguales—…
+        if (location.hash === '#inscripcion') {
+          try {
+            history.replaceState(null, '', location.pathname + location.search);
+          } catch (err) {
+            // Sin history API (file:// en algunos navegadores): la
+            // navegación por fragmento hace el mismo trabajo.
+            location.replace(location.pathname + location.search);
+          }
+        }
+        // …y apaga el modal con estilo inline: es lo único que le gana
+        // a `#inscripcion:target` cuando el navegador no la recalcula.
+        if (inscripcion) inscripcion.style.display = 'none';
+        bloquearFondo(false);
+      };
+      if (cerrarInscripcion) cerrarInscripcion.addEventListener('click', cerrarModalInscripcion);
+      if (inscripcion) {
+        inscripcion.addEventListener('click', (e) => {
+          if (e.target === inscripcion) cerrarModalInscripcion();
+        });
+      }
+      window.addEventListener('hashchange', () => {
+        if (location.hash === '#inscripcion') {
+          abrirModalInscripcion();
+        } else {
+          // Cualquier otro hash (o el "atrás"): el modal ya no está y el
+          // CSS manda — una navegación por fragmento sí recalcula :target.
+          bloquearFondo(false);
+        }
+      });
+      // Carga directa con el hash: `hashchange` no se dispara al cargar.
+      if (location.hash === '#inscripcion') abrirModalInscripcion();
+      // Escape cierra el modal de ENCIMA: si el de información (términos,
+      // desde el propio formulario) está abierto, va primero ese.
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (modal && !modal.classList.contains('hidden')) {
+          closeModal();
+          return;
+        }
+        cerrarModalInscripcion();
+      });
+    });
+  </script>
+
+  <!-- CONTENIDO EDITABLE DESDE LA CONSOLA
+       La consola (sólo el Líder) guarda en la tabla `gran_cosecha_pagina` y
+       acá se lee con `ver_contenido_gran_cosecha`, la función abierta a anon
+       —el mismo camino de los enlaces públicos de la app—. Los marcadores
+       __SUPABASE_URL__ / __SUPABASE_ANON_KEY__ los reemplaza el build (ver
+       vite.config.ts): la anon key es pública por diseño, igual que en el
+       bundle de la app.
+       Si algo falla —sin red, sin config, tabla todavía vacía— la página se
+       queda con los valores que trae el HTML: la landing funciona aunque
+       Supabase esté caído. Todo lo que este script toca está ARRIBA en el
+       archivo, así que el DOM ya existe cuando corre. -->
+  <script>
+    (function () {
+      var URL_BASE = '__SUPABASE_URL__';
+      var ANON_KEY = '__SUPABASE_ANON_KEY__';
+
+      // Sin config (build sin .env, archivo abierto a mano) no se pide nada:
+      // los marcadores siguen ahí y arrancan con "_".
+      if (URL_BASE.charAt(0) === '_' || ANON_KEY.charAt(0) === '_') return;
+
+      function texto(id, valor) {
+        var el = document.getElementById(id);
+        if (el && typeof valor === 'string' && valor.trim()) el.textContent = valor.trim();
+      }
+
+      // Lo que viene de la base se escapa antes de meterlo en innerHTML.
+      function esc(valor) {
+        return String(valor).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+
+      // Un trofeo por premio, con los tres colores de la página girando por
+      // posición: es el mismo SVG de los premios estáticos del HTML.
+      var PALETAS = [
+        { cuerpo: '#facc15', tope: '#fde047', franja: '#dc2626', asa: '#dc2626' },
+        { cuerpo: '#dc2626', tope: '#ef4444', franja: '#facc15', asa: '#facc15' },
+        { cuerpo: '#0a1e5e', tope: '#1e3a8a', franja: '#facc15', asa: '#dc2626' }
+      ];
+
+      function trofeo(i) {
+        var p = PALETAS[i % PALETAS.length];
+        return '<svg viewBox="0 0 100 100" class="h-full w-full" aria-hidden="true">'
+          + '<rect x="18" y="40" width="64" height="46" rx="8" fill="' + p.cuerpo + '" />'
+          + '<rect x="14" y="28" width="72" height="16" rx="5" fill="' + p.tope + '" />'
+          + '<rect x="44" y="28" width="12" height="58" fill="' + p.franja + '" />'
+          + '<rect x="14" y="33" width="72" height="6" fill="' + p.franja + '" />'
+          + '<path d="M50 28c-8-12-22-10-18 0h18zm0 0c8-12 22-10 18 0H50z" fill="' + p.asa + '" />'
+          + '</svg>';
+      }
+
+      function pintarPremios(premios) {
+        var cont = document.getElementById('premiosLista');
+        if (!cont || !Array.isArray(premios)) return;
+        var html = '';
+        premios.forEach(function (p, i) {
+          var puesto = p && typeof p.puesto === 'string' ? p.puesto.trim() : '';
+          var descripcion = p && typeof p.descripcion === 'string' ? p.descripcion.trim() : '';
+          if (!puesto || !descripcion) return;
+          // Los tres primeros puestos muestran su caja de regalo, las
+          // mismas del HTML: sin esto, al rehacer la lista desde la base
+          // las imágenes volverían a trofeos. Un premio 4° en adelante
+          // se queda con el trofeo, que es el respaldo que no se queda
+          // sin imagen.
+          var media = i < 3
+            ? '<img src="regalo-' + (i + 1) + '.png" data-regalo="' + (i + 1) + '" alt="Regalo del ' + esc(puesto) + '" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain transition-transform duration-300 hover:scale-110" />'
+            : '<div class="mb-4 flex h-28 w-28 items-center justify-center drop-shadow-xl">' + trofeo(i) + '</div>';
+          html += '<div class="flex flex-col items-center">'
+            + media
+            + '<span class="font-display text-3xl text-[#dc2626]">' + esc(puesto) + '</span>'
+            + '<p class="mt-2 text-base font-bold text-[#0a1e5e]">' + esc(descripcion) + '</p>'
+            + '</div>';
+        });
+        // Una lista vacía o ilegible no tapa los premios del HTML.
+        if (html) cont.innerHTML = html;
+      }
+
+      function pintarEquipos(equipos) {
+        var seccion = document.getElementById('equipos');
+        var cont = document.getElementById('equiposLista');
+        var pistaSeccion = document.getElementById('equiposPista');
+        if (!seccion || !cont || !Array.isArray(equipos)) return;
+        var html = '';
+        var algunaConFoto = false;
+        equipos.forEach(function (e) {
+          var nombre = e && typeof e.nombre === 'string' ? e.nombre.trim() : '';
+          if (!nombre) return;
+          var sucursal = e && typeof e.sucursal === 'string' ? e.sucursal.trim() : '';
+          var imagen = e && typeof e.imagen === 'string' ? e.imagen.trim() : '';
+          var foto = e && typeof e.foto === 'string' ? e.foto.trim() : '';
+          if (foto) algunaConFoto = true;
+          // La inicial va PINTADA debajo de la imagen del proyecto en todas
+          // las tarjetas: si la URL no carga, la cara se queda con la
+          // inicial en vez de un hueco navy.
+          var inicial = '<span class="inicial" aria-hidden="true">'
+            + esc(nombre.charAt(0).toUpperCase()) + '</span>';
+          var cara = inicial
+            + (imagen
+              ? '<img src="' + esc(imagen) + '" alt="" loading="lazy" decoding="async" class="cara" />'
+              : '');
+          var revelado = foto
+            ? '<img src="' + esc(foto) + '" alt="Foto del equipo ' + esc(nombre) + '" loading="lazy" decoding="async" class="foto-equipo" />'
+            : '';
+          var rotulo = '<span class="rotulo">'
+            + '<span class="block font-display text-lg uppercase text-[#facc15]">' + esc(nombre) + '</span>'
+            + (sucursal ? '<span class="mt-1 block text-sm text-gray-200">' + esc(sucursal) + '</span>' : '')
+            + '</span>';
+          // Sólo con foto la tarjeta es un botón: sin nada que revelar no
+          // hay acción que ofrecer al teclado ni al toque.
+          html += foto
+            ? '<button type="button" class="tarjeta-equipo con-foto">'
+              + cara + revelado + rotulo + '<span class="pista">Ver foto</span></button>'
+            : '<div class="tarjeta-equipo">' + cara + rotulo + '</div>';
+        });
+        // Sin equipos publicados la sección sigue oculta.
+        if (html) {
+          cont.innerHTML = html;
+          seccion.classList.remove('hidden');
+          // La invitación a pasar el mouse sólo aparece si AL MENOS un
+          // equipo trae foto: sin fotos, prometería un gesto inútil.
+          if (pistaSeccion) pistaSeccion.classList.toggle('hidden', !algunaConFoto);
+        }
+      }
+
+      function pintarFondo(url) {
+        var hero = document.getElementById('top');
+        if (!hero) return;
+        if (typeof url !== 'string' || !url) {
+          // Sin foto propia se limpia lo inline y vuelve el degradado del CSS.
+          hero.style.backgroundImage = '';
+          hero.style.backgroundSize = '';
+          hero.style.backgroundPosition = '';
+          hero.style.backgroundRepeat = '';
+          hero.style.backgroundColor = '';
+          return;
+        }
+        // La foto tapa el degradado, con un velo navy encima para que el
+        // texto blanco siga leyéndose sobre cualquier imagen.
+        var velo = 'linear-gradient(rgba(6, 18, 56, 0.55), rgba(6, 18, 56, 0.55))';
+        hero.style.backgroundImage = velo + ', url("' + url.replace(/["\\]/g, '') + '")';
+        hero.style.backgroundSize = 'cover, cover';
+        hero.style.backgroundPosition = 'center, center';
+        hero.style.backgroundRepeat = 'no-repeat, no-repeat';
+        hero.style.backgroundColor = '#b91c1c';
+      }
+
+      function pintarImagenes(imagenes) {
+        if (!imagenes || typeof imagenes !== 'object') return;
+        ['round1', 'round2', 'round3'].forEach(function (clave) {
+          var el = document.getElementById(clave);
+          var url = imagenes[clave];
+          if (el && typeof url === 'string' && url) el.src = url;
+        });
+      }
+
+      // El carrusel del hero: capas absolutas que se rotan con un fundido,
+      // cada una con el mismo velo navy del fondo estático para que el texto
+      // blanco siga leyéndose sobre cualquier medio. Nace oculto: sin
+      // carrusel publicado, el hero se queda con su fondo.
+      function pintarCarrusel(carrusel) {
+        var cont = document.getElementById('heroCarrusel');
+        if (!cont || !Array.isArray(carrusel)) return;
+        var items = carrusel.filter(function (s) {
+          return s && (s.tipo === 'imagen' || s.tipo === 'video') && typeof s.url === 'string' && s.url;
+        });
+        if (!items.length) return;
+        var html = '';
+        items.forEach(function (s, i) {
+          var url = esc(s.url);
+          // El primero va con preload completo (es lo primero que se ve); el
+          // resto sólo pide metadata hasta que le toca girar.
+          var medio = s.tipo === 'video'
+            ? '<video src="' + url + '" muted loop playsinline preload="' + (i === 0 ? 'auto' : 'metadata') + '" class="h-full w-full object-cover"></video>'
+            : '<img src="' + url + '" alt="" decoding="async" class="h-full w-full object-cover" />';
+          html += '<div class="absolute inset-0 transition-opacity duration-700' + (i === 0 ? ' opacity-100' : ' opacity-0') + '">'
+            + medio
+            + '<div class="absolute inset-0" style="background:linear-gradient(rgba(6,18,56,0.55),rgba(6,18,56,0.55))"></div>'
+            + '</div>';
+        });
+        cont.innerHTML = html;
+        cont.classList.remove('hidden');
+        girarCarrusel(cont);
+      }
+
+      function girarCarrusel(cont) {
+        var pasos = Array.prototype.slice.call(cont.children);
+        // Un medio que el navegador no sabe reproducir se oculta: no queda un
+        // cuadro negro girando en el hero, y sigue el que sí se pueda ver.
+        pasos.forEach(function (paso) {
+          var medio = paso.querySelector('img, video');
+          if (medio) medio.addEventListener('error', function () { paso.classList.add('hidden'); });
+        });
+        var actual = pasos[0];
+        var primero = actual.querySelector('video');
+        if (primero) primero.play().catch(function () {});
+        if (pasos.length < 2) return;
+        var reloj = setInterval(function () {
+          actual.classList.replace('opacity-100', 'opacity-0');
+          var saliente = actual.querySelector('video');
+          if (saliente) saliente.pause();
+          var desde = pasos.indexOf(actual);
+          var hacia = desde;
+          do {
+            hacia = (hacia + 1) % pasos.length;
+          } while (pasos[hacia].classList.contains('hidden') && hacia !== desde);
+          // Si se dio toda la vuelta es que no queda ningún slide visible.
+          if (pasos[hacia].classList.contains('hidden')) { clearInterval(reloj); return; }
+          actual = pasos[hacia];
+          actual.classList.replace('opacity-0', 'opacity-100');
+          var entrante = actual.querySelector('video');
+          if (entrante) entrante.play().catch(function () {});
+        }, 5000);
+      }
+
+      function aplicar(contenido) {
+        if (!contenido || typeof contenido !== 'object') return;
+        var hero = contenido.hero;
+        if (hero && typeof hero === 'object') {
+          texto('heroLema', hero.lema);
+          texto('heroBajada', hero.bajada);
+          pintarFondo(hero.fondo);
+          pintarCarrusel(hero.carrusel);
+        }
+        pintarPremios(contenido.premios);
+        pintarEquipos(contenido.equipos);
+        pintarImagenes(contenido.imagenes);
+      }
+
+      fetch(URL_BASE + '/rest/v1/rpc/ver_contenido_gran_cosecha', {
+        method: 'POST',
+        headers: {
+          apikey: ANON_KEY,
+          Authorization: 'Bearer ' + ANON_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: '{}',
+        cache: 'no-store'
+      })
+        .then(function (respuesta) { return respuesta.ok ? respuesta.json() : null; })
+        .then(aplicar)
+        .catch(function () { /* sin conexión, la página se queda con sus valores */ });
+    })();
+  </script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Pencil, Plus, Power, RefreshCw, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Power, Printer, RefreshCw, Trash2 } from 'lucide-react'
 import { avisar } from '../../lib/aviso'
 import {
   Badge,
@@ -17,6 +17,8 @@ import {
 import { PortalCabecera } from '../../components/PortalCabecera'
 import {
   actualizarNominaAhora,
+  agregarOcupanteExcepcion,
+  alcanceDesdeTextos,
   alternarExclusion,
   cargarNomina,
   departamentosSePisan,
@@ -36,6 +38,7 @@ import {
   ocupantesDeCargo,
   periodoDe,
   periodosRecientes,
+  quitarOcupanteExcepcion,
   sucursalesTomadas,
   volverAPendiente,
   cedulaDe,
@@ -43,11 +46,13 @@ import {
   type BonoCargoSucursal,
   type BonoPago,
   type DetalleOcupante,
+  type OcupanteExcepcion,
   type Periodicidad
 } from '../../lib/data/bonos'
-import type { ColaboradorAPI } from '../../lib/data/colaboradores'
+import { cedula, esActivo, nombreCompleto, type ColaboradorAPI } from '../../lib/data/colaboradores'
 import { claveNormalizada, listarResponsables, type ResponsableCatalogo } from '../../lib/data/responsables'
 import { BRANCH_CENTRAL } from '../../lib/data/responsablesIncidencia'
+import { descargarAutorizacionExcepcion, descargarRelacionCargoMonto, filasRelacionCargoMonto } from '../../lib/pdf/bonos'
 import { listarSucursalesAdmin, type SucursalVista } from '../../lib/data/catalog'
 
 /**
@@ -102,6 +107,26 @@ const FORM_VACIO = {
   departamento: ''
 }
 
+/**
+ * Un trabajador de la nómina que coincide con la búsqueda: el candidato a
+ * ocupante POR EXCEPCIÓN. Trae las sucursales donde aparece para poder
+ * preferir la suya al elegir dónde cobra este bono.
+ */
+type CandidatoExcepcion = {
+  /** `nacionalidad|dni`, la identidad de la persona en todo el módulo. */
+  clave: string
+  nacionalidad: string
+  dni: number
+  nombre: string
+  /** Su cargo REAL en la nómina: el que lo deja afuera del cruce exacto. */
+  cargo: string
+  /** Ids de sucursales donde figura en la nómina. */
+  sucursales: string[]
+}
+
+/** Cuántos candidatos se listan por búsqueda: el resto se afina escribiendo. */
+const TOPE_CANDIDATOS = 8
+
 export function BonosPage() {
   const [pestana, setPestana] = useState<Pestana>('cargos')
 
@@ -150,6 +175,19 @@ export function BonosPage() {
   const [actualizando, setActualizando] = useState(false)
   /** La persona que se está excluyendo/incluyendo, para apagar su botón. */
   const [excluyendo, setExcluyendo] = useState<string | null>(null)
+  /** La cédula o el nombre con el que se busca un ocupante POR EXCEPCIÓN. */
+  const [busquedaExcepcion, setBusquedaExcepcion] = useState('')
+  /** La sucursal elegida por candidato (`nacionalidad|dni` → sucursal_id). */
+  const [sucursalExcepcion, setSucursalExcepcion] = useState<Record<string, string>>({})
+  /** El candidato que se está agregando, para apagar su botón. */
+  const [agregando, setAgregando] = useState<string | null>(null)
+  /**
+   * Qué pestaña del modal de ocupantes se mira: los que COBRAN (incluidos)
+   * o los que están FUERA del bono (excluidos). Antes era una sola lista con
+   * los excluidos mezclados en rojo; separarlos hace visible de un vistazo
+   * a quién hay que reincorporar.
+   */
+  const [pestanaOcupantes, setPestanaOcupantes] = useState<'incluidos' | 'excluidos'>('incluidos')
 
   // --- Pagos (gestión) ---
   const [periodicidad, setPeriodicidad] = useState<Periodicidad>('MENSUAL')
@@ -287,8 +325,11 @@ export function BonosPage() {
     })
     // El alcance guardado manda: hay filas = «sólo estas»; sin filas = «todas».
     setEspecifico(c.sucursales.length > 0)
+    // `monto null` = sin monto propio: en el formulario va VACÍO, con el monto
+    // base como placeholder. Si se tradujera al número del base, al guardar
+    // la tienda perdería el `null` y quedaría congelada al monto de ese día.
     setPorSucursal(
-      Object.fromEntries(c.sucursales.map((s) => [s.sucursal_id, s.monto != null ? String(s.monto) : String(c.monto)]))
+      Object.fromEntries(c.sucursales.map((s) => [s.sucursal_id, s.monto != null ? String(s.monto) : '']))
     )
     setModalAbierto(true)
   }
@@ -309,21 +350,21 @@ export function BonosPage() {
       return
     }
     // El alcance: sin marcas el bono es «todas»; marcadas, sólo esas y cada
-    // una con su monto (vacío o no numérico no pasa: se avisa y no se guarda).
-    const alcance: { sucursal_id: string; monto: number }[] = []
+    // una con su monto. Vacío = sin monto propio (usa el monto base); el 0
+    // escrito a mano sí significa 0, «esta tienda no paga». `alcanceDesdeTextos`
+    // es el que decide eso y avisa si el texto no es un número.
+    let alcance: BonoCargoSucursal[] = []
     if (especifico) {
       const entradas = Object.entries(porSucursal)
       if (!entradas.length) {
         avisar('Marcá al menos una sucursal, o dejá el alcance en «todas».', 'aviso')
         return
       }
-      for (const [sucursal_id, bruto] of entradas) {
-        const montoSucursal = Number(bruto)
-        if (!Number.isFinite(montoSucursal) || montoSucursal < 0) {
-          avisar('El monto por sucursal no puede ser negativo.', 'aviso')
-          return
-        }
-        alcance.push({ sucursal_id, monto: montoSucursal })
+      try {
+        alcance = alcanceDesdeTextos(entradas)
+      } catch (e) {
+        avisar(e instanceof Error ? e.message : 'Revisá el monto por sucursal.', 'aviso')
+        return
       }
     }
     // La regla de NO SOLAPE, con nombres de sucursal para que el aviso se
@@ -437,22 +478,130 @@ export function BonosPage() {
     }
   }
 
+  /**
+   * Agrega a una persona como ocupante POR EXCEPCIÓN del cargo que se está
+   * mirando: cuenta, se proyecta en el gasto y genera su fila de pago aunque
+   * su cargo en la nómina sea otro («se está preparando para ocuparlo»).
+   *
+   * Se actualiza en el listado Y en el cargo abierto, igual que con la
+   * exclusión, para que el conteo y el gasto de la tabla se recalculen solos.
+   */
+  async function agregarExcepcionDe(c: CandidatoExcepcion) {
+    if (!detalleCargos) return
+    const sucursalId = sucursalElegida(c)
+    if (!sucursalId) {
+      avisar('Este cargo no tiene sucursales disponibles para pagar.', 'aviso')
+      return
+    }
+    // Ya cuenta por el cruce exacto: agregarlo lo duplicaría en el listado
+    // (la regla lo deduplica, pero el aviso es mejor que el silencio). Se
+    // recalcula acá en vez de leer `detalleLista`: esa constante se arma más
+    // abajo y el compilador de React la trata como modificable después.
+    const yaCuenta = ocupantesDeCargo(detalleCargos, nomina ?? new Map()).some(
+      (o) => o.nacionalidad === c.nacionalidad && o.dni === c.dni
+    )
+    if (yaCuenta) {
+      avisar(`${c.nombre} ya es ocupante de este cargo por la nómina: no hace falta agregarlo.`, 'aviso')
+      return
+    }
+    setAgregando(c.clave)
+    try {
+      await agregarOcupanteExcepcion({
+        bono_cargo_id: detalleCargos.id,
+        nacionalidad: c.nacionalidad,
+        dni: c.dni,
+        nombre: c.nombre,
+        sucursal_id: sucursalId
+      })
+      const nueva: OcupanteExcepcion = {
+        nacionalidad: c.nacionalidad,
+        dni: c.dni,
+        nombre: c.nombre,
+        sucursal_id: sucursalId
+      }
+      const actualizar = (b: BonoCargo): BonoCargo =>
+        b.id !== detalleCargos.id ? b : { ...b, excepciones: [...b.excepciones, nueva] }
+      setCargos((prev) => prev.map(actualizar))
+      setDetalleCargos((prev) => (prev ? actualizar(prev) : prev))
+      setBusquedaExcepcion('')
+      setSucursalExcepcion((prev) => {
+        const next = { ...prev }
+        delete next[c.clave]
+        return next
+      })
+      avisar(`${c.nombre} quedó como ocupante de «${nombreDeCargo(detalleCargos)}»: cuenta y cobra en este cargo.`)
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo agregar al ocupante.', 'error')
+    } finally {
+      setAgregando(null)
+    }
+  }
+
+  /**
+   * Quita la excepción: esa persona deja de ser ocupante de este cargo.
+   * Sus pagos pendientes se limpian en la capa de datos; los pagados son
+   * historia y no se tocan.
+   */
+  async function quitarExcepcionDe(o: DetalleOcupante) {
+    if (!detalleCargos) return
+    const clave = `${o.nacionalidad}-${o.dni}`
+    setExcluyendo(clave)
+    try {
+      await quitarOcupanteExcepcion(detalleCargos.id, o.nacionalidad, o.dni)
+      const actualizar = (b: BonoCargo): BonoCargo =>
+        b.id !== detalleCargos.id
+          ? b
+          : {
+              ...b,
+              excepciones: b.excepciones.filter(
+                (x) => !(x.nacionalidad === o.nacionalidad && x.dni === o.dni)
+              )
+            }
+      setCargos((prev) => prev.map(actualizar))
+      setDetalleCargos((prev) => (prev ? actualizar(prev) : prev))
+      avisar(`${o.nombre} dejó de ser ocupante excepcional de este cargo.`)
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo quitar al ocupante.', 'error')
+    } finally {
+      setExcluyendo(null)
+    }
+  }
+
+  /**
+   * Imprime el soporte de la AUTORIZACIÓN de una excepción: el papel con la
+   * persona, el cargo, la tienda y el monto, para que quede firmado que está
+   * autorizada a ocupar ese cargo por excepción.
+   */
+  function imprimirExcepcionDe(o: DetalleOcupante) {
+    if (!detalleCargos) return
+    descargarAutorizacionExcepcion({
+      cargo: nombreDeCargo(detalleCargos),
+      departamento: detalleCargos.departamento,
+      cargoNomina: o.cargo_nomina,
+      trabajador: { nombre: o.nombre, nacionalidad: o.nacionalidad, dni: o.dni },
+      sucursal: nombreSucursal(o.sucursal_id),
+      monto: o.monto
+    })
+  }
+
   function alternarSucursal(sucursalId: string) {
     setPorSucursal((prev) => {
       const next = { ...prev }
       if (sucursalId in next) {
         delete next[sucursalId]
       } else {
-        // Arranca con el monto base del cargo: es lo que casi siempre se
-        // quiere cuando se arma el conjunto, y se cambia de una en una.
-        next[sucursalId] = form.monto.trim() || '0'
+        // Arranca con el monto base del cargo, tal cual como está hoy en el
+        // campo (vacío mientras no se haya escrito uno: vacío = monto base).
+        // Antes el vacío se sembraba con «0» y esa tienda quedaba congelada
+        // en 0, sin seguir nunca más al monto base.
+        next[sucursalId] = form.monto
       }
       return next
     })
   }
 
   function marcarTodas() {
-    setPorSucursal(Object.fromEntries(sucursalesActivas.map((s) => [s.id, form.monto.trim() || '0'])))
+    setPorSucursal(Object.fromEntries(sucursalesActivas.map((s) => [s.id, form.monto])))
   }
 
   async function alternarActivo(c: BonoCargo) {
@@ -611,8 +760,10 @@ export function BonosPage() {
         monto: Number(form.monto) || 0,
         departamento: form.departamento.trim() || null,
         sucursales: alcance,
-        // Los excluidos del cargo que se edita también pesan en la estimación.
-        excluidos: editando?.excluidos ?? []
+        // Los excluidos y las excepciones del cargo que se edita también
+        // pesan en la estimación.
+        excluidos: editando?.excluidos ?? [],
+        excepciones: editando?.excepciones ?? []
       },
       nomina ?? new Map()
     )
@@ -620,6 +771,84 @@ export function BonosPage() {
 
   /** El listado exacto del cargo cuyo número de ocupantes se tocó. */
   const detalleLista = detalleCargos && nomina ? ocupantesDeCargo(detalleCargos, nomina) : null
+  /** Cuántos cobran de ese listado y cuántos entraron por excepción. */
+  const cobranOcupantes = detalleLista ? detalleLista.filter((o) => !o.excluido).length : 0
+  const excepcionesOcupantes = detalleLista ? detalleLista.filter((o) => o.excepcion).length : 0
+
+  /* --- Ocupantes por excepción (el «agregar a mano» del modal) -------------- */
+
+  /**
+   * Las sucursales donde ESTE cargo se puede pagar: las de su alcance, o
+   * todas las activas si no lo tiene acotado. Son las únicas opciones
+   * válidas para la sucursal de una excepción: fuera de ahí
+   * `montoParaSucursal` devuelve NULL y la persona no contaría ni cobraría.
+   */
+  const sucursalesExcepcion = useMemo(() => {
+    if (!detalleCargos) return []
+    if (!detalleCargos.sucursales.length) return sucursalesActivas
+    const porId = new Map(sucursales.map((s) => [s.id, s]))
+    return detalleCargos.sucursales
+      .map((f) => porId.get(f.sucursal_id))
+      .filter((s): s is SucursalVista => Boolean(s?.activa))
+  }, [detalleCargos, sucursales, sucursalesActivas])
+
+  /**
+   * Los trabajadores que coinciden con lo escrito, entre los de la nómina ya
+   * cargada: por cédula (parcial, como en el resto de la app) o por nombre.
+   *
+   * Sólo ACTIVOS —una excepción es para alguien que está trabajando— y de a
+   * lo sumo `TOPE_CANDIDATOS`: con una cédula a medias aparecen decenas, y
+   * afinar es escribir más. Una persona que figura en dos sucursales sale
+   * UNA vez, con las dos.
+   */
+  const candidatosExcepcion = useMemo(() => {
+    const q = busquedaExcepcion.trim().toLowerCase()
+    if (q.length < 2 || !nomina) return []
+    const porClave = new Map<string, CandidatoExcepcion>()
+    for (const [sucursalId, gente] of nomina) {
+      for (const c of gente) {
+        if (c.dni == null || !esActivo(c)) continue
+        const nacionalidad = (c.nationality ?? 'V').trim() || 'V'
+        const clave = `${nacionalidad}|${c.dni}`
+        const nombre = nombreCompleto(c) || `DNI ${c.dni}`
+        const documento = cedula({ nationality: nacionalidad, dni: c.dni }).toLowerCase()
+        const coincide =
+          String(c.dni).includes(q) || documento.includes(q) || nombre.toLowerCase().includes(q)
+        if (!coincide) continue
+        const ya = porClave.get(clave)
+        if (ya) {
+          if (!ya.sucursales.includes(sucursalId)) {
+            // Se reemplaza la fila en vez de mutarla: adentro de un `useMemo`
+            // ninguna estructura se toca, así el compilador puede confiar en el
+            // resultado.
+            porClave.set(clave, { ...ya, sucursales: [...ya.sucursales, sucursalId] })
+          }
+          continue
+        }
+        porClave.set(clave, {
+          clave,
+          nacionalidad,
+          dni: c.dni,
+          nombre,
+          cargo: c.role_name ?? '',
+          sucursales: [sucursalId]
+        })
+      }
+    }
+    return [...porClave.values()].slice(0, TOPE_CANDIDATOS)
+  }, [busquedaExcepcion, nomina])
+
+  /**
+   * La sucursal con la que se agregaría un candidato: la de SU tienda si es
+   * válida para este cargo (que es lo que casi siempre se quiere), y si no,
+   * la primera del alcance.
+   */
+  function sucursalElegida(c: CandidatoExcepcion): string {
+    const guardada = sucursalExcepcion[c.clave]
+    if (guardada && sucursalesExcepcion.some((s) => s.id === guardada)) return guardada
+    const suya = c.sucursales.find((id) => sucursalesExcepcion.some((s) => s.id === id))
+    return suya ?? sucursalesExcepcion[0]?.id ?? ''
+  }
 
   /**
    * Los carteles de la nómina incompleta, cada uno con su motivo. Sin esto,
@@ -706,6 +935,27 @@ export function BonosPage() {
     return sucursales.find((s) => s.id === id)?.nombre ?? id
   }
 
+  /**
+   * Las dos pestañas del modal de ocupantes: quiénes cobran (incluidos) y
+   * quiénes están fuera (excluidos), y cuál de las dos se muestra.
+   *
+   * Van declaradas DESPUÉS del `useMemo` de `detalleTiendas`: si se ponen
+   * antes, React Compiler no puede preservar la memoización de ese `useMemo`
+   * y `npm run lint` falla con `react-hooks/preserve-manual-memoization`.
+   */
+  const incluidosLista = detalleLista ? detalleLista.filter((o) => !o.excluido) : []
+  const excluidosLista = detalleLista ? detalleLista.filter((o) => o.excluido) : []
+  const listaPestana = pestanaOcupantes === 'incluidos' ? incluidosLista : excluidosLista
+
+  /**
+   * La relación Cargo · Sucursal · Monto que se descarga para la firma de
+   * Presidencia: sólo cargos activos, una fila por tienda (o una sola por
+   * «todas»), con el mismo monto que muestra la tabla. Va declarada acá
+   * —después del `useMemo` de `detalleTiendas`— como las listas de arriba:
+   * antes de él, React Compiler no puede preservar su memoización.
+   */
+  const filasRelacion = useMemo(() => filasRelacionCargoMonto(cargos, sucursales), [cargos, sucursales])
+
   /** Cargos que existen en la nómina: sugerencias del campo «Cargo». */
   const cargoSugerido = useMemo(() => [...new Set(catalogo.map((x) => x.cargo).filter(Boolean))], [catalogo])
 
@@ -787,10 +1037,26 @@ export function BonosPage() {
           </Button>
         </div>
         {pestana === 'cargos' ? (
-          <Button className="min-h-[34px] px-3 py-1.5 text-xs" onClick={abrirNuevo} title="Nuevo cargo con bono">
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Nuevo cargo</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              className="min-h-[34px] px-3 py-1.5 text-xs"
+              onClick={() => descargarRelacionCargoMonto(filasRelacion)}
+              disabled={!filasRelacion.length}
+              title={
+                filasRelacion.length
+                  ? 'Descargar la relación Cargo · Sucursal · Monto para la firma de Presidencia'
+                  : 'Primero cargá al menos un cargo activo'
+              }
+            >
+              <Printer className="h-4 w-4" />
+              <span className="hidden sm:inline">Relación para firmar</span>
+            </Button>
+            <Button className="min-h-[34px] px-3 py-1.5 text-xs" onClick={abrirNuevo} title="Nuevo cargo con bono">
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Nuevo cargo</span>
+            </Button>
+          </div>
         ) : (
           <Button
             className="min-h-[34px] px-3 py-1.5 text-xs"
@@ -930,7 +1196,12 @@ export function BonosPage() {
                               lo esperado («¿por qué 9 si hay 4 tiendas?»). */}
                           <button
                             type="button"
-                            onClick={() => setDetalleCargos(c)}
+                            onClick={() => {
+                              // Se arranca siempre en la pestaña de los que
+                              // cobran: la de excluidos es la excepción.
+                              setPestanaOcupantes('incluidos')
+                              setDetalleCargos(c)
+                            }}
                             disabled={nominaCargando || !nomina}
                             title="Ver quiénes son"
                             className="tabular-nums underline decoration-dotted underline-offset-2 hover:text-primary disabled:no-underline disabled:text-slate-400"
@@ -1319,7 +1590,8 @@ export function BonosPage() {
             </label>
             <p className="text-xs text-slate-500">
               Sin marcarlo, el bono aplica a todas las sucursales con el monto base. Marcado, sólo a las de abajo,
-              cada una con su monto.
+              cada una con su monto: <b>vacío = monto base del cargo</b> (va a seguir al base aunque lo cambies) y{' '}
+              <b>0 escrito = esa tienda no paga</b>.
             </p>
             {especifico ? (
               <div className="max-h-60 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
@@ -1375,6 +1647,9 @@ export function BonosPage() {
                             disabled={!marcada}
                             onChange={(e) => setPorSucursal((prev) => ({ ...prev, [s.id]: e.target.value }))}
                             aria-label={`Monto en ${s.nombre}`}
+                            // Vacío = monto base: el placeholder muestra cuál es.
+                            placeholder={form.monto || 'monto base'}
+                            title="Vacío = usa el monto base del cargo; 0 = esta tienda no paga"
                             className="w-24 text-right"
                           />
                         </div>
@@ -1460,79 +1735,282 @@ export function BonosPage() {
       >
         {detalleLista === null ? (
           <p className="text-sm text-slate-500">Consultando la nómina…</p>
-        ) : !detalleLista.length ? (
-          <p className="text-sm text-slate-500">
-            No hay trabajadores <b>activos</b> con ese cargo exacto en las sucursales de su alcance. Si esperabas
-            ver gente, revisá cómo está escrito el cargo en la nómina.
-          </p>
         ) : (
-          <div className="space-y-3">
-            <p className="text-xs text-slate-500">
-              <b>{detalleLista.filter((o) => !o.excluido).length}</b> de {detalleLista.length} cobran —los excluidos
-              no cuentan ni generan pago—, cada uno con el monto de su sucursal. Sólo personas activas —«Nuevo
-              ingreso» cuenta— y con el cargo exacto.
-            </p>
-            <ul className="space-y-2">
-              {detalleLista.map((o) => (
-                <li
-                  key={`${o.nacionalidad}-${o.dni}`}
-                  className={cn(
-                    'rounded-xl border p-3 transition-colors',
-                    o.excluido ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white hover:border-slate-300'
+          <div className="space-y-4">
+            {/* AGREGAR POR EXCEPCIÓN: la puerta de entrada para quien está
+                apoyando o preparándose para ocupar este cargo y todavía no
+                figura con ese cargo en la nómina. Se busca por cédula entre
+                los trabajadores ya cargados y se elige dónde cobra. */}
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                Agregar ocupante por excepción
+              </p>
+              <p className="text-xs text-slate-500">
+                Para quien está apoyando o preparándose para ocupar este cargo: su cargo en la nómina es otro,
+                así que el cruce exacto no lo encuentra. Buscalo por cédula entre los trabajadores —cuenta y
+                cobra como los demás— y elegí en qué sucursal de este cargo lo hace.
+              </p>
+              <Input
+                value={busquedaExcepcion}
+                onChange={(e) => setBusquedaExcepcion(e.target.value)}
+                placeholder="Cédula o nombre del trabajador"
+                aria-label="Buscar trabajador por cédula o nombre"
+              />
+              {busquedaExcepcion.trim().length === 1 ? (
+                <p className="text-xs text-slate-500">Seguí escribiendo: hacen falta al menos dos caracteres.</p>
+              ) : null}
+              {busquedaExcepcion.trim().length >= 2 ? (
+                candidatosExcepcion.length ? (
+                  <ul className="space-y-2">
+                    {candidatosExcepcion.map((c) => {
+                      const yaCuenta = detalleLista.some(
+                        (o) => o.nacionalidad === c.nacionalidad && o.dni === c.dni
+                      )
+                      const enVuelo = agregando === c.clave
+                      return (
+                        <li
+                          key={c.clave}
+                          className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                        >
+                          <div className="min-w-[10rem] flex-1">
+                            <p className="truncate text-sm font-semibold text-slate-800">{c.nombre}</p>
+                            <p className="truncate text-xs text-slate-500">
+                              {cedula({ nationality: c.nacionalidad, dni: c.dni })}
+                              {c.cargo ? ` · ${c.cargo}` : ''}
+                            </p>
+                          </div>
+                          {yaCuenta ? (
+                            <Badge color={2}>Ya cuenta</Badge>
+                          ) : (
+                            <>
+                              <Select
+                                value={sucursalElegida(c)}
+                                onChange={(e) =>
+                                  setSucursalExcepcion((prev) => ({ ...prev, [c.clave]: e.target.value }))
+                                }
+                                aria-label={`Sucursal donde cobra ${c.nombre}`}
+                                className="w-52 text-xs"
+                              >
+                                {sucursalesExcepcion.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.nombre}
+                                    {c.sucursales.includes(s.id) ? ' (su tienda)' : ''}
+                                  </option>
+                                ))}
+                              </Select>
+                              <Button
+                                className="min-h-[30px] px-3 py-1 text-xs"
+                                disabled={enVuelo || !sucursalesExcepcion.length}
+                                title={`Agregar a ${c.nombre} como ocupante de este cargo`}
+                                onClick={() => void agregarExcepcionDe(c)}
+                              >
+                                {enVuelo ? 'Agregando…' : 'Agregar'}
+                              </Button>
+                            </>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-slate-500">
+                    No se encontró a nadie <b>activo</b> con esa cédula o nombre entre los trabajadores de la
+                    nómina cargada.
+                  </p>
+                )
+              ) : null}
+            </div>
+
+            {/* Pestañas: los que COBRAN (incluidos) y los que están FUERA
+                (excluidos), con el mismo dibujo que las pestañas de la
+                barra superior. Antes era una sola lista con los excluidos
+                mezclados en rojo: separarlos hace de un vistazo visible a
+                quién hay que reincorporar. */}
+            <div
+              role="group"
+              aria-label="Ocupantes incluidos y excluidos"
+              className="flex p-1 bg-slate-100 rounded-xl"
+            >
+              <Button
+                variant="ghost"
+                aria-pressed={pestanaOcupantes === 'incluidos'}
+                title="Ocupantes que cuentan y cobran"
+                className={cn(
+                  'rounded-lg px-4 py-1.5 text-xs transition-all',
+                  pestanaOcupantes === 'incluidos'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                )}
+                onClick={() => setPestanaOcupantes('incluidos')}
+              >
+                Incluidos ({incluidosLista.length})
+              </Button>
+              <Button
+                variant="ghost"
+                aria-pressed={pestanaOcupantes === 'excluidos'}
+                title="Excluidos de este bono: no cuentan ni cobran"
+                className={cn(
+                  'rounded-lg px-4 py-1.5 text-xs transition-all',
+                  pestanaOcupantes === 'excluidos'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                )}
+                onClick={() => setPestanaOcupantes('excluidos')}
+              >
+                Excluidos ({excluidosLista.length})
+              </Button>
+            </div>
+
+            {/* El listado de la pestaña activa: quiénes son y quién cobra. */}
+            {!listaPestana.length ? (
+              <p className="text-sm text-slate-500">
+                {pestanaOcupantes === 'incluidos' ? (
+                  <>
+                    No hay ocupantes <b>incluidos</b>: nadie activo tiene ese cargo exacto en las sucursales de su
+                    alcance.{' '}
+                    {excluidosLista.length
+                      ? 'Los que hay están en la pestaña Excluidos.'
+                      : 'Si esperabas ver gente, revisá cómo está escrito el cargo en la nómina —o agregá a alguien por excepción arriba—.'}
+                  </>
+                ) : (
+                  <>
+                    Nadie está excluido de este bono: todos los ocupantes cuentan y cobran. Para sacar a alguien,
+                    usá «Excluir» en la pestaña Incluidos.
+                  </>
+                )}
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-slate-500">
+                  {pestanaOcupantes === 'incluidos' ? (
+                    <>
+                      <b>{cobranOcupantes}</b> de {detalleLista.length} cobran, cada uno con el monto de su
+                      sucursal.{' '}
+                      {excepcionesOcupantes ? (
+                        <>
+                          <b>{excepcionesOcupantes}</b> {excepcionesOcupantes === 1 ? 'entró' : 'entraron'} por
+                          excepción.
+                        </>
+                      ) : null}{' '}
+                      Sólo personas activas —«Nuevo ingreso» cuenta— y con el cargo exacto.{' '}
+                      {excluidosLista.length ? (
+                        <>
+                          <b>{excluidosLista.length}</b>{' '}
+                          {excluidosLista.length === 1 ? 'está excluido' : 'están excluidos'} en la otra pestaña:
+                          no cuentan ni generan pago.
+                        </>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <b>{excluidosLista.length}</b>{' '}
+                      {excluidosLista.length === 1 ? 'persona quedó excluida' : 'personas quedaron excluidas'} de
+                      este bono: no cuentan en el conteo, no proyectan gasto y no generan fila de pago. Tocá
+                      «Incluir» para que vuelvan a contar.
+                    </>
                   )}
-                >
-                  {/* Fila 1: quién es y cuánto cobra. */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-800">
-                        {o.nombre}
-                        {o.excluido ? (
-                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700">
-                            Excluido
-                          </span>
-                        ) : null}
-                      </p>
-                      <p className="mt-0.5 text-xs tabular-nums text-slate-500">{cedulaDe(o)}</p>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      <span
+                </p>
+                <ul className="space-y-2">
+                  {listaPestana.map((o) => {
+                    // En la pestaña de excluidos la única acción es
+                    // reincorporar; en la de incluidos, excluir —o quitar la
+                    // excepción si entró por ese camino—.
+                    const fuera = pestanaOcupantes === 'excluidos'
+                    return (
+                      <li
+                        key={`${o.nacionalidad}-${o.dni}`}
                         className={cn(
-                          'text-base font-extrabold tabular-nums text-primary-900',
-                          o.excluido && 'text-slate-400 line-through'
+                          'rounded-xl border p-3 transition-colors',
+                          o.excluido
+                            ? 'border-red-200 bg-red-50'
+                            : 'border-slate-200 bg-white hover:border-slate-300'
                         )}
                       >
-                        {o.monto.toLocaleString('es-VE', { maximumFractionDigits: 2 })}
-                      </span>
-                      <Button
-                        variant={o.excluido ? 'success' : 'ghost'}
-                        className="min-h-[28px] px-2.5 py-1 text-[11px]"
-                        disabled={excluyendo === `${o.nacionalidad}-${o.dni}`}
-                        title={
-                          o.excluido
-                            ? `Volver a contar a ${o.nombre}`
-                            : `Excluir a ${o.nombre} de este bono: no cuenta ni cobra`
-                        }
-                        onClick={() => void alternarExclusionDe(o)}
-                      >
-                        {excluyendo === `${o.nacionalidad}-${o.dni}` ? '…' : o.excluido ? 'Incluir' : 'Excluir'}
-                      </Button>
-                    </div>
-                  </div>
-                  {/* Fila 2: de qué cargo, de qué área y de qué tienda. */}
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
-                      {o.cargo_nomina || 'sin cargo en la nómina'}
-                    </span>
-                    <span className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] text-primary-700">
-                      {o.departamento_nomina || 'sin departamento en la nómina'}
-                    </span>
-                    <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] text-indigo-700">
-                      {nombreSucursal(o.sucursal_id)}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                        {/* Fila 1: quién es y cuánto cobra. El badge «Excluido»
+                            no hace falta: la pestaña ya lo dice. */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-800">
+                              {o.nombre}
+                              {o.excepcion ? (
+                                <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                                  Excepción
+                                </span>
+                              ) : null}
+                            </p>
+                            <p className="mt-0.5 text-xs tabular-nums text-slate-500">{cedulaDe(o)}</p>
+                          </div>
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            <span
+                              className={cn(
+                                'text-base font-extrabold tabular-nums text-primary-900',
+                                o.excluido && 'text-slate-400 line-through'
+                              )}
+                            >
+                              {o.monto.toLocaleString('es-VE', { maximumFractionDigits: 2 })}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {/* Sólo las excepciones tienen papel propio: el
+                                  soporte de la autorización, para firmar. */}
+                              {o.excepcion ? (
+                                <ButtonIcon
+                                  variant="ghost"
+                                  title={`Imprimir la autorización de ${o.nombre}`}
+                                  aria-label={`Imprimir la autorización de ${o.nombre}`}
+                                  onClick={() => imprimirExcepcionDe(o)}
+                                >
+                                  <Printer className="h-4 w-4" />
+                                </ButtonIcon>
+                              ) : null}
+                              <Button
+                                variant={fuera ? 'success' : 'ghost'}
+                                className="min-h-[28px] px-2.5 py-1 text-[11px]"
+                                disabled={excluyendo === `${o.nacionalidad}-${o.dni}`}
+                                title={
+                                  fuera
+                                    ? `Volver a contar a ${o.nombre}`
+                                    : o.excepcion
+                                      ? `Quitar la excepción de ${o.nombre}: deja de ser ocupante de este cargo`
+                                      : `Excluir a ${o.nombre} de este bono: no cuenta ni cobra`
+                                }
+                                onClick={() =>
+                                  void (fuera || !o.excepcion ? alternarExclusionDe(o) : quitarExcepcionDe(o))
+                                }
+                              >
+                                {excluyendo === `${o.nacionalidad}-${o.dni}`
+                                  ? '…'
+                                  : fuera
+                                    ? 'Incluir'
+                                    : o.excepcion
+                                      ? 'Quitar'
+                                      : 'Excluir'}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Fila 2: de qué cargo, de qué área y de qué tienda. */}
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+                            {o.excepcion
+                              ? o.cargo_nomina
+                                ? `En la nómina: ${o.cargo_nomina}`
+                                : 'sin cargo en la nómina'
+                              : o.cargo_nomina || 'sin cargo en la nómina'}
+                          </span>
+                          <span className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] text-primary-700">
+                            {o.departamento_nomina || 'sin departamento en la nómina'}
+                          </span>
+                          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] text-indigo-700">
+                            {nombreSucursal(o.sucursal_id)}
+                          </span>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </>
+            )}
+
             {/* Cada tienda del alcance con SU número y, si es 0, el motivo:
                 es lo que contesta «me trae de dos de cuatro». */}
             {detalleTiendas?.length ? (
@@ -1589,6 +2067,16 @@ export function BonosPage() {
                 ? `${detalleSucursales.length} sucursal(es) en el alcance. Las que llevan monto propio lo muestran; las demás, el monto base del cargo.`
                 : 'Sin alcance marcado: el cargo aplica a TODAS las sucursales con el monto base.'}
             </p>
+            {/* La cara visible de la trampa del cero: con «monto propio 0» la
+                tienda no paga, y si TODAS están en 0 el gasto proyectado da 0
+                con ocupantes de sobra (15 × 0) —se lee como «no multiplica». */}
+            {detalleSucursales.some((s) => s.propia && s.monto === 0) ? (
+              <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+                Hay tiendas con <b>monto propio 0</b>: ahí este bono no se paga. Si TODAS las del alcance están
+                en 0, el gasto proyectado de la tabla da 0 aunque haya ocupantes. Para que sigan al monto base,
+                editá el cargo y dejá esos campos <b>vacíos</b>.
+              </p>
+            ) : null}
             <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
               {detalleSucursales.map((s) => (
                 <li key={s.nombre} className="flex items-center gap-3 px-3 py-2 text-sm">

@@ -1,4 +1,4 @@
-import { Star, Sprout, Gauge, FolderOpen, FileText, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck } from 'lucide-react'
+import { Star, Sprout, Gauge, Globe, FileText, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -14,6 +14,8 @@ interface EnlaceMenu {
   label: string
   icon: ReactNode
   end?: boolean
+  /** Sólo para el Líder: la misma cerradura que su guard y su RLS. */
+  soloLider?: boolean
   /**
    * A quién se le muestra: si va, sólo para esos roles. Sirve para no poner en
    * el menú un enlace que el `RequireRol` de la ruta rebotaría —el editor del
@@ -33,6 +35,10 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
   // los jueces), no una pantalla de indicadores.
   { seccion: 'Gran Cosecha', items: [
     { to: '/gran-cosecha', label: 'Proyectos', icon: <Sprout className="h-5 w-5" /> },
+    // La landing /gran-cosecha.html: su contenido lo escribe sólo el Líder,
+    // así que el item tampoco se muestra a nadie más (no es un guard, es
+    // sólo el menú: la ruta y la RLS siguen pidiendo lo mismo).
+    { to: '/gran-cosecha/pagina', label: 'Página', icon: <Globe className="h-5 w-5" />, soloLider: true },
     // Lo que se PUBLICA en la landing /concurso: bases, fechas, premios,
     // jurado y FAQ. Sólo JUEZ y LÍDER, que es quien los carga.
     { to: '/gran-cosecha/contenido', label: 'Contenido', roles: ['JUEZ', 'LIDER'], icon: <FileText className="h-5 w-5" /> }
@@ -51,9 +57,16 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
  * el menú.
  */
 function seccionesDe(rol: string | undefined): { seccion: string; items: EnlaceMenu[] }[] {
+  // Los dos filtros conviven: primero `roles` (el de Contenido sólo es de
+  // JUEZ/LÍDER) y después `soloLider` (la página de la landing la edita sólo
+  // el Líder). Una sección que queda sin items no se pinta.
   const visibles = enlaces
-    .map((s) => ({ ...s, items: s.items.filter((i) => !i.roles || i.roles.includes(rol ?? '')) }))
+    .map((s) => ({
+      ...s,
+      items: s.items.filter((i) => !i.roles || i.roles.includes(rol ?? '')).filter((i) => !i.soloLider || rol === 'LIDER')
+    }))
     .filter((s) => s.items.length > 0)
+  // El JUEZ no ve Resultados: sólo la sección del concurso.
   if (rol === 'JUEZ') return visibles.filter((s) => s.seccion === 'Gran Cosecha')
   return visibles
 }
@@ -73,6 +86,14 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/gran-cosecha': {
     titulo: 'Gran Cosecha',
     subtitulo: 'Concurso trimestral de proyectos: equipos, propuestas y avances'
+  },
+  '/gran-cosecha/pagina': {
+    titulo: 'Página de la Gran Cosecha',
+    subtitulo: 'Contenido que se publica en /gran-cosecha.html'
+  },
+  '/menu-editor': {
+    titulo: 'Menú de la sucursal',
+    subtitulo: 'Productos que se muestran en el menú público de clientes'
   },
   // Lo que publica la landing pública (/concurso): sin título propio la
   // cabecera se quedaría sin rótulo en esta vista.
@@ -123,7 +144,10 @@ function ConsoleLayoutContenido() {
         { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> },
         // Bonos por desempeño: acá entra también el Gerente de Talento Humano
         // (la ruta lo permite y `puede_bonos` es la misma cerradura en RLS).
-        { to: '/config/bonos', label: 'Bonos', icon: <Star className="h-5 w-5" /> }
+        { to: '/config/bonos', label: 'Bonos', icon: <Star className="h-5 w-5" /> },
+        // El menú público de las sucursales: el Líder lo edita desde
+        // cualquier tienda (la misma cerradura de RLS, `es_encargado_menu`).
+        { to: '/menu-editor', label: 'Menús', icon: <BookOpen className="h-5 w-5" /> }
       ]
     }
   ] : profile && profile.rol === 'GERENTE_TH' ? [
@@ -144,6 +168,16 @@ function ConsoleLayoutContenido() {
       seccion: 'Consulta',
       items: [
         { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> }
+      ]
+    }
+  ] : profile && profile.rol === 'GERENTE_S' ? [
+    // El Gerente de Sucursal no configura evaluaciones: su consola es el
+    // menú de SU tienda —la misma sucursal que le asigna la invitación y
+    // la misma que RLS le defiende fila por fila.
+    {
+      seccion: 'Mi sucursal',
+      items: [
+        { to: '/menu-editor', label: 'Menú', icon: <BookOpen className="h-5 w-5" /> }
       ]
     }
   ] : []

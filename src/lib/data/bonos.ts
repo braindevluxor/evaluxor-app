@@ -47,6 +47,24 @@ export interface ExcluidoCargo {
   dni: number
 }
 
+/**
+ * Una persona agregada a ESTE cargo POR EXCEPCIÓN: cuenta y cobra aunque su
+ * figura en la nómina sea otro cargo.
+ *
+ * Es el caso de quien está apoyando o preparándose para ocupar el puesto: el
+ * cruce exacto con la nómina no lo encontraría y quedaría afuera del bono.
+ * Se agrega a mano desde el modal de ocupantes, buscándolo por cédula entre
+ * los trabajadores, y se guarda con su `nombre` congelado (la nómina es una
+ * foto que cambia) y con la `sucursal_id` donde cobra ESTE bono, que tiene
+ * que estar dentro del alcance del cargo.
+ */
+export interface OcupanteExcepcion {
+  nacionalidad: string
+  dni: number
+  nombre: string
+  sucursal_id: string
+}
+
 export interface BonoCargo {
   id: string
   cargo: string
@@ -83,6 +101,12 @@ export interface BonoCargo {
    * filas de `bonos_cargo_excluido`, leídas con la plantilla.
    */
   excluidos: ExcluidoCargo[]
+  /**
+   * Personas agregadas POR EXCEPCIÓN: cuentan y cobran aunque su cargo en la
+   * nómina sea otro («está preparándose para ocuparlo»). Son filas de
+   * `bonos_cargo_ocupante`, leídas con la plantilla.
+   */
+  excepciones: OcupanteExcepcion[]
   created_at: string
   updated_at: string
 }
@@ -189,6 +213,12 @@ export interface DetalleOcupante {
   monto: number
   /** Excluida de ESTE cargo: no cuenta ni cobra (se puede deshacer). */
   excluido: boolean
+  /**
+   * Agregada POR EXCEPCIÓN: no llegó por el cruce exacto con la nómina sino
+   * a mano, porque está apoyando o preparándose para ocupar este cargo. Se
+   * lista con su etiqueta y se quita desde la misma lista.
+   */
+  excepcion: boolean
 }
 
 /**
@@ -208,7 +238,7 @@ export interface DetalleOcupante {
  *     orden es estable para que el número no cambie de una corrida a otra.
  */
 export function ocupantesDeCargo(
-  cfg: Pick<BonoCargo, 'cargo' | 'monto' | 'departamento' | 'sucursales' | 'excluidos'>,
+  cfg: Pick<BonoCargo, 'cargo' | 'monto' | 'departamento' | 'sucursales' | 'excluidos' | 'excepciones'>,
   porSucursal: ReadonlyMap<string, readonly ColaboradorAPI[]>
 ): DetalleOcupante[] {
   const vistos = new Set<string>()
@@ -233,11 +263,60 @@ export function ocupantesDeCargo(
         cargo_nomina: c.role_name ?? '',
         departamento_nomina: departamentoDeColaborador(c),
         monto,
-        excluido: excluidos.has(clave)
+        excluido: excluidos.has(clave),
+        excepcion: false
       })
     }
   }
+
+  // Las excepciones: ocupantes agregados a mano desde el modal, porque están
+  // apoyando o preparándose para ocupar este cargo. Van DESPUÉS de la nómina
+  // y con la misma guarda de una vez por persona: si el cruce exacto ya los
+  // encontró, agregarlos no los cuenta dos veces. Sucursal fuera del alcance
+  // tampoco aporta, igual que en el cruce por nómina.
+  for (const e of cfg.excepciones) {
+    const clave = `${e.nacionalidad}|${e.dni}`
+    if (vistos.has(clave)) continue
+    const monto = montoParaSucursal(cfg, e.sucursal_id)
+    if (monto == null) continue
+    vistos.add(clave)
+    const enNomina = buscarEnNomina(porSucursal, clave)
+    salida.push({
+      sucursal_id: e.sucursal_id,
+      nacionalidad: e.nacionalidad,
+      dni: e.dni,
+      nombre: e.nombre,
+      // El cargo REAL de la persona en la nómina: es la diferencia que hace
+      // que esto sea una excepción. Si ya no figura, se deja vacío.
+      cargo_nomina: enNomina?.role_name ?? '',
+      departamento_nomina: enNomina ? departamentoDeColaborador(enNomina) : '',
+      monto,
+      excluido: excluidos.has(clave),
+      excepcion: true
+    })
+  }
   return salida
+}
+
+/**
+ * La persona con esa identidad (`nacionalidad|dni`) en cualquier sucursal de
+ * la nómina, o null si ya no figura.
+ *
+ * Sólo se usa para mostrar SU cargo real junto a una excepción: el cruce que
+ * cuenta y paga no se toca, sigue siendo por cargo exacto.
+ */
+function buscarEnNomina(
+  porSucursal: ReadonlyMap<string, readonly ColaboradorAPI[]>,
+  clave: string
+): ColaboradorAPI | null {
+  for (const gente of porSucursal.values()) {
+    for (const c of gente) {
+      if (c.dni == null) continue
+      const nacionalidad = (c.nationality ?? 'V').trim() || 'V'
+      if (`${nacionalidad}|${c.dni}` === clave) return c
+    }
+  }
+  return null
 }
 
 /**
@@ -252,7 +331,7 @@ export function ocupantesDeCargo(
  * pantalla lo pinta como «—» con su aviso, no como un gasto de cero.
  */
 export function gastoDeCargo(
-  cfg: Pick<BonoCargo, 'cargo' | 'monto' | 'departamento' | 'sucursales' | 'excluidos'>,
+  cfg: Pick<BonoCargo, 'cargo' | 'monto' | 'departamento' | 'sucursales' | 'excluidos' | 'excepciones'>,
   porSucursal: ReadonlyMap<string, readonly ColaboradorAPI[]>
 ): { ocupantes: number; gasto: number } {
   // Los excluidos no cuentan: el gasto es de los que cobran.
@@ -409,6 +488,11 @@ export interface BonoPagoNuevo {
  * (cargo, sucursal, persona) —un cargo único por tienda no se cobra dos
  * veces—. Si eso pasa, manda la primera sucursal en orden de id, que es un
  * orden estable: la fila no cambia de una corrida a otra.
+ *
+ * Las EXCEPCIONES (`cfg.excepciones`) también generan fila: son ocupantes
+ * agregados a mano que el cruce por nómina no encuentra. Entran después de la
+ * nómina con la MISMA clave, así que ni se duplican ni se salvan del corte
+ * por exclusión.
  */
 export function filasDeGeneracion(
   configs: readonly BonoCargo[],
@@ -455,6 +539,38 @@ export function filasDeGeneracion(
       }
     }
   }
+
+  // Las excepciones: ocupantes agregados a mano («se está preparando para
+  // ocupar este cargo»). Entran DESPUÉS de la nómina y con la misma clave
+  // `cargo|persona`, así que ni se duplica la fila de alguien que el cruce
+  // exacto ya encontró, ni se salva del corte por exclusión.
+  for (const cfg of configs) {
+    if (!cfg.activo) continue
+    const excluidos = new Set(cfg.excluidos.map((x) => `${x.nacionalidad}|${x.dni}`))
+    for (const e of cfg.excepciones) {
+      const persona = `${e.nacionalidad}|${e.dni}`
+      if (excluidos.has(persona)) continue
+      const monto = montoParaSucursal(cfg, e.sucursal_id)
+      // Fuera del alcance este cargo no se paga: no hay fila que armar.
+      if (monto == null) continue
+      const clave = `${cfg.clave}|${persona}`
+      if (vistos.has(clave)) continue
+      vistos.add(clave)
+      filas.push({
+        bono_cargo_id: cfg.id,
+        periodo,
+        sucursal_id: e.sucursal_id,
+        nacionalidad: e.nacionalidad,
+        dni: e.dni,
+        nombre: e.nombre,
+        cargo: cfg.cargo,
+        alias: cfg.alias,
+        departamento: cfg.departamento,
+        monto_base: monto,
+        nota_minima: cfg.nota_minima
+      })
+    }
+  }
   return filas
 }
 
@@ -464,17 +580,24 @@ export async function listarBonosCargo(): Promise<BonoCargo[]> {
   const { data, error } = await supabase
     .from('bonos_cargo')
     .select(
-      '*, sucursales:bonos_cargo_sucursal(sucursal_id, monto), excluidos:bonos_cargo_excluido(nacionalidad, dni)'
+      '*, sucursales:bonos_cargo_sucursal(sucursal_id, monto), excluidos:bonos_cargo_excluido(nacionalidad, dni), excepciones:bonos_cargo_ocupante(nacionalidad, dni, nombre, sucursal_id)'
     )
     .order('cargo')
   if (error) throw new Error(error.message)
-  const filas = (data ?? []) as (Omit<BonoCargo, 'sucursales' | 'excluidos'> & {
+  const filas = (data ?? []) as (Omit<BonoCargo, 'sucursales' | 'excluidos' | 'excepciones'> & {
     sucursales: BonoCargoSucursal[] | null
     excluidos: ExcluidoCargo[] | null
+    excepciones: OcupanteExcepcion[] | null
   })[]
   // Sin filas hijas viene `null`: eso ES «aplica a todas» (alcance) y
-  // «nadie excluido», así que se normaliza a lista vacía y no a null.
-  return filas.map((c) => ({ ...c, sucursales: c.sucursales ?? [], excluidos: c.excluidos ?? [] }))
+  // «nadie excluido / nadie por excepción», así que se normaliza a lista
+  // vacía y no a null.
+  return filas.map((c) => ({
+    ...c,
+    sucursales: c.sucursales ?? [],
+    excluidos: c.excluidos ?? [],
+    excepciones: c.excepciones ?? []
+  }))
 }
 
 export async function guardarBonoCargo(entrada: BonoCargoEntrada): Promise<void> {
@@ -564,6 +687,38 @@ function normalizarAlcance(entradas: readonly BonoCargoSucursal[]): BonoCargoSuc
   return salida
 }
 
+/**
+ * El alcance escrito en el formulario (`sucursal_id → texto del input`), ya
+ * sanado para guardarlo.
+ *
+ * LA REGLA QUE CIERRA LA TRAMPA DEL CERO: el campo **vacío** significa «sin
+ * monto propio» y la tienda usa el monto base del cargo (`null` en la base,
+ * que `montoParaSucursal` traduce al monto del cargo). Un `0` escrito a mano
+ * SÍ significa cero: es «esta tienda no paga este bono».
+ *
+ * Antes el vacío se convertía en `0` sin aviso (`Number('') === 0`), y el
+ * resultado era un gasto proyectado de 0 con ocupantes de sobra —15 × 0—,
+ * que se leía como «no multiplica el monto». Tildear una sucursal antes de
+ * escribir el monto base también la sembraba con «0» explícito, con el mismo
+ * efecto: dejaba de seguir al monto base.
+ *
+ * Lanza con un mensaje claro si el texto no es un número o es negativo.
+ */
+export function alcanceDesdeTextos(entradas: Iterable<readonly [string, string]>): BonoCargoSucursal[] {
+  const sucursales: BonoCargoSucursal[] = []
+  for (const [sucursal_id, bruto] of entradas) {
+    const texto = bruto.trim()
+    const monto = texto === '' ? null : Number(texto)
+    if (monto !== null && (!Number.isFinite(monto) || monto < 0)) {
+      throw new Error(
+        `El monto de esa sucursal no es válido (${bruto}): escribí un número, o dejalo vacío para que use el monto base del cargo.`
+      )
+    }
+    sucursales.push({ sucursal_id, monto })
+  }
+  return normalizarAlcance(sucursales)
+}
+
 export async function eliminarBonoCargo(id: string): Promise<void> {
   // Borrar el cargo borra sus pagos en cascada (FK `on delete cascade`): por
   // eso la pantalla lo avisa antes de ofrecerlo.
@@ -604,10 +759,70 @@ export async function alternarExclusion(
   }
 
   const { error } = await supabase
-    .from('bonos_cargo_excluido')
+    .from('bonos_cargo_ocupante')
     .insert({ bono_cargo_id: bonoCargoId, nacionalidad, dni })
   if (error) throw new Error(mensajeDeError(error, 'No se pudo excluir al trabajador.'))
   return true
+}
+
+/**
+ * Agrega a una persona como ocupante POR EXCEPCIÓN de este cargo: cuenta,
+ * se proyecta en el gasto y genera su fila de pago aunque su cargo en la
+ * nómina sea otro («está preparándose para ocuparlo»).
+ *
+ * La sucursal es donde cobra ESTE bono y tiene que estar dentro del alcance
+ * del cargo: fuera de él `montoParaSucursal` devuelve NULL y la persona no
+ * contaría ni cobraría, así que se valida acá en vez de dejar una fila muda.
+ */
+export async function agregarOcupanteExcepcion(entrada: {
+  bono_cargo_id: string
+  nacionalidad: string
+  dni: number
+  nombre: string
+  sucursal_id: string
+}): Promise<void> {
+  const nombre = entrada.nombre.trim()
+  if (!nombre) throw new Error('Falta el nombre del trabajador.')
+  if (!entrada.sucursal_id) throw new Error('Elegí la sucursal donde cobra este bono.')
+  const { error } = await supabase.from('bonos_cargo_ocupante').insert({ ...entrada, nombre })
+  if (error) {
+    // El choque de la PK es la persona que ya era excepción: se traduce a
+    // mano porque el mensaje genérico del unique no le dice nada a nadie.
+    if (error.code === '23505') throw new Error('Esa persona ya es ocupante excepcional de este cargo.')
+    throw new Error(mensajeDeError(error, 'No se pudo agregar al ocupante.'))
+  }
+}
+
+/**
+ * Quita la excepción: esa persona deja de ser ocupante de ESTE cargo.
+ *
+ * No toca a nadie de la nómina, y sus pagos PENDIENTES de este cargo se
+ * limpian acá —una fila esperando pago para alguien que ya no cobra no tiene
+ * dónde aterrizar—; los PAGADOS son historia y no se tocan. Si con todo eso
+ * el cruce exacto la sigue encontrando (cambió de cargo en la nómina), la
+ * próxima generación le vuelve a armar la fila.
+ */
+export async function quitarOcupanteExcepcion(
+  bonoCargoId: string,
+  nacionalidad: string,
+  dni: number
+): Promise<void> {
+  const { error } = await supabase
+    .from('bonos_cargo_ocupante')
+    .delete()
+    .eq('bono_cargo_id', bonoCargoId)
+    .eq('nacionalidad', nacionalidad)
+    .eq('dni', dni)
+  if (error) throw new Error(mensajeDeError(error, 'No se pudo quitar al ocupante.'))
+
+  const { error: errorPagos } = await supabase
+    .from('bonos_pago')
+    .delete()
+    .eq('bono_cargo_id', bonoCargoId)
+    .eq('nacionalidad', nacionalidad)
+    .eq('dni', dni)
+    .eq('estado', 'PENDIENTE')
+  if (errorPagos) throw new Error(mensajeDeError(errorPagos, 'No se pudieron limpiar sus pagos pendientes.'))
 }
 
 export async function listarPagos(periodo: string): Promise<BonoPago[]> {

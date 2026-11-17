@@ -38,6 +38,68 @@ function pluginVersion(info: ReturnType<typeof identidadBuild>): Plugin {
   }
 }
 
+/** El valor de una clave del entorno: `process.env` (Vercel) o el `.env` de siempre. */
+function valorEntorno(clave: string): string {
+  const enProceso = process.env[clave]
+  if (enProceso) return enProceso
+  try {
+    for (const linea of readFileSync(resolve(process.cwd(), '.env'), 'utf8').split(/\r?\n/)) {
+      const i = linea.indexOf('=')
+      if (i > 0 && linea.slice(0, i).trim() === clave) {
+        return linea.slice(i + 1).trim().replace(/^["']|["']$/g, '')
+      }
+    }
+  } catch {
+    // Sin .env: la landing queda con sus marcadores y pinta sus valores por defecto.
+  }
+  return ''
+}
+
+/**
+ * La config de Supabase de la landing `/gran-cosecha.html`.
+ *
+ * Ese archivo vive en `public/`, así que Vite lo COPIA tal cual: ni `define`
+ * ni `transformIndexHtml` le llegan. Los marcadores `__SUPABASE_URL__` /
+ * `__SUPABASE_ANON_KEY__` se reemplazan acá, en los dos caminos en que se
+ * sirve:
+ *
+ *  - dev, con un middleware antes del servidor estático;
+ *  - build, emitiendo el asset ya transformado. La copia de `public/` corre
+ *    en `renderStart` —ANTES de escribir el bundle—, así que éste es el que
+ *    queda en `dist/` y el que el service worker precachea.
+ *
+ * Si falta el entorno no se reemplaza nada: el marcador arranca con "_" y
+ * el script de la página ni siquiera intenta conectar. La anon key es
+ * pública por diseño —es la misma que viaja en el bundle de la app—.
+ */
+function pluginLandingGranCosecha(): Plugin {
+  const origen = resolve(process.cwd(), 'public/gran-cosecha.html')
+  const transformar = (): string => {
+    let html = readFileSync(origen, 'utf8')
+    const pares: [string, string][] = [
+      ['__SUPABASE_URL__', valorEntorno('VITE_SUPABASE_URL')],
+      ['__SUPABASE_ANON_KEY__', valorEntorno('VITE_SUPABASE_ANON_KEY')]
+    ]
+    for (const [marcador, valor] of pares) {
+      if (valor) html = html.split(marcador).join(valor)
+    }
+    return html
+  }
+  return {
+    name: 'evaluxor-landing-gran-cosecha',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url || !req.url.startsWith('/gran-cosecha.html')) return next()
+        res.setHeader('Content-Type', 'text/html; charset=utf-8')
+        res.end(transformar())
+      })
+    },
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'gran-cosecha.html', source: transformar() })
+    }
+  }
+}
+
 const build = identidadBuild()
 
 export default defineConfig({
@@ -48,6 +110,7 @@ export default defineConfig({
   },
   plugins: [
     pluginVersion(build),
+    pluginLandingGranCosecha(),
     react(),
     tailwindcss(),
     VitePWA({
@@ -87,7 +150,12 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
         // Los originales de marca son la fuente con la que se generaron los
         // webp: la app no los usa y no tienen que ocupar el caché offline.
-        globIgnores: ['**/isotipo.png', '**/completo.png', '**/logo.png'],
+        // `evidencia/` son fotos de varios MB (hasta ~7): workbox TIRA ERROR
+        // de build si un archivo pasa su límite de precaché (2 MiB), y
+        // subir el límite tampoco sería la solución — precachear ~50 MB de
+        // fotos obligaría a descargarlos a todos al instalar el SW. Se van
+        // igual al caché de runtime como cualquier imagen.
+        globIgnores: ['**/isotipo.png', '**/completo.png', '**/logo.png', '**/evidencia/**'],
         navigateFallback: '/index.html',
         // El handler de push. `generateSW` no acepta handlers propios, así que
         // en vez de migrar a `injectManifest` (lo que obligaría a reescribir el

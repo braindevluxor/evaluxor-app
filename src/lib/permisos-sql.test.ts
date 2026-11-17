@@ -249,6 +249,12 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
       'email_por_usuario',
       'ver_conciliacion_compartida',
       'ver_cargos_compartidos',
+      // El menú público de cada sucursal: la pantalla `/menu/:sucursalId`
+      // corre sin cuenta (el QR que escanea el cliente) — lee, cuenta su
+      // propia apertura y ofrece el selector de sucursales.
+      'ver_menu_publico',
+      'registrar_visita_menu',
+      'ver_sucursales_menu',
       // La landing /concurso se abre sin cuenta: lee por esta RPC.
       'ver_concurso_publico'
     ])
@@ -278,19 +284,25 @@ describe('schema.sql · los enlaces públicos', () => {
    */
   it('las únicas funciones abiertas a anon, además de las del login, son las pantallas públicas', () => {
     // Se mira el ARCHIVO ENTERO y no sólo `permisos-funcion.sql`: los grants
-    // de los bloques que van después de ese (la de la landing pública) no
-    // pueden repetirse ahí sin tumbar la instalación.
+    // de los bloques que van después de ese (la landing de la Gran Cosecha,
+    // el menú público) no pueden recibir su grant ahí, porque el grant a una
+    // función inexistente tumba la instalación. El invariante es de todas
+    // formas global: cada nombre de abajo tiene que venir con su motivo.
     const abiertas = [...new Set([...schemaCompleto.matchAll(
       /grant\s+execute\s+on\s+function\s+public\.(\w+)\([^)]*\)\s+to\s+([^;]*\banon\b[^;]*);/gi
-    )]
-      .map((m) => m[1]))]
-      .sort()
+    )].map((m) => m[1]))].sort()
     expect(abiertas).toEqual([
       'email_por_usuario',
       'intento_login',
+      // El menú público de cada sucursal (QR de clientes, sin sesión):
+      // lee su carta y cuenta la apertura, una vez por hora.
+      'registrar_visita_menu',
       'ver_cargos_compartidos',
       'ver_conciliacion_compartida',
-      'ver_concurso_publico'
+      'ver_concurso_publico',
+      'ver_contenido_gran_cosecha',
+      'ver_menu_publico',
+      'ver_sucursales_menu'
     ])
   })
 
