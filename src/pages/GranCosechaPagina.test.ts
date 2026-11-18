@@ -30,10 +30,14 @@ describe('gran cosecha · la página en la consola', () => {
     expect(consola).toContain("titulo: 'Página de la Gran Cosecha'")
   })
 
-  it('la página toca las cuatro secciones de la landing', () => {
-    for (const bloque of ['Hero', 'Premios', 'Equipos participantes', 'Imágenes']) {
+  it('la página toca las secciones de la landing que todavía se editan', () => {
+    for (const bloque of ['Hero', 'Carrusel del hero', 'Premios']) {
       expect(pagina, bloque).toContain(bloque)
     }
+    // Los equipos los carga el módulo de proyectos y las fotos de rounds ya
+    // no se publican: la consola no ofrece esos bloques.
+    expect(pagina).not.toContain('Equipos participantes')
+    expect(pagina).not.toContain('titulo="Imágenes"')
     expect(pagina).toContain('cargarContenidoPagina')
     expect(pagina).toContain('guardarContenidoPagina')
     expect(pagina).toContain('subirFotoPagina')
@@ -168,20 +172,6 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain('.tarjeta-equipo .foto-equipo {\n        transition: opacity 0.2s linear;')
     // El rótulo del equipo va con velo navy: se lee sobre cualquier foto.
     expect(landing).toContain('rgba(6, 18, 56, 0.96)')
-  })
-
-  it('cada equipo se edita con sus dos fotos, con su subida propia', () => {
-    expect(pagina).toContain('Imagen del proyecto')
-    expect(pagina).toContain('Foto del equipo')
-    expect(pagina).toContain('subirFotoDeEquipo')
-    expect(pagina).toContain('quitarFotoDeEquipo')
-    // Las claves de subida por fila distinguen los dos campos.
-    expect(pagina).toContain('`equipo-${i}-${campo}`')
-    // La ruta de subida lleva uuid: los equipos no tienen cupos fijos.
-    expect(datos).toContain('pagina/equipos/${crypto.randomUUID()}')
-    // Una fila guardada antes de las fotos no rompe la consola.
-    expect(datos).toContain("imagen: e?.imagen ?? ''")
-    expect(datos).toContain("foto: e?.foto ?? ''")
   })
 
   it('el hero tiene su carrusel, con velo y videos en mudo', () => {

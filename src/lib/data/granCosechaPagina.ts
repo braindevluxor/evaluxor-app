@@ -256,34 +256,6 @@ export async function subirFotoPagina(slot: FotoPagina, archivo: File, urlActual
 }
 
 /**
- * Sube una de las fotos de un equipo (la del proyecto o la del equipo) y
- * devuelve su URL pública.
- *
- * La ruta lleva un uuid y no el nombre del equipo: los equipos no tienen
- * cupos fijos —se agregan y se quitan desde la consola— y dos equipos pueden
- * llamarse igual, así que el nombre del archivo no puede salir de ellos
- * (mismo criterio que el carrusel). La foto ANTERIOR del mismo campo sí se
- * borra: si era nuestra, queda huérfana en el bucket como en los slots
- * fijos, y un fallo acá no deshace la subida.
- */
-export async function subirFotoEquipo(archivo: File, urlActual: string): Promise<string> {
-  const webp = await convertirImagenAWebP(archivo)
-  const ruta = `pagina/equipos/${crypto.randomUUID()}.webp`
-  const { error } = await supabase.storage.from(BUCKET).upload(ruta, webp, {
-    contentType: 'image/webp',
-    upsert: true
-  })
-  if (error) throw error
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
-  const url = `${data.publicUrl}?v=${Date.now()}`
-  const anterior = rutaDeUrlPublica(urlActual)
-  if (anterior && anterior !== ruta) {
-    await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
-  }
-  return url
-}
-
-/**
  * Sube un item del carrusel YA CONVERTIDO (WebP o WebM) y devuelve el item
  * listo para guardar en el hero.
  *

@@ -6,12 +6,10 @@ import { PortalCabecera } from '../components/PortalCabecera'
 import {
   cargarContenidoPagina,
   guardarContenidoPagina,
-  subirFotoEquipo,
   subirFotoPagina,
   subirMediaCarrusel,
   validarContenido,
   type ContenidoPagina,
-  type EquipoPagina,
   type FotoPagina,
   type HeroPagina,
   type PremioPagina
@@ -155,53 +153,6 @@ export function GranCosechaPaginaPage() {
     setContenido((c) => (c ? { ...c, premios: [...c.premios, { puesto: '', descripcion: '' }] } : c))
   const quitarPremio = (i: number) =>
     setContenido((c) => (c ? { ...c, premios: c.premios.filter((_, j) => j !== i) } : c))
-
-  const cambiarEquipo = (i: number, campo: keyof EquipoPagina, valor: string) =>
-    setContenido((c) =>
-      c ? { ...c, equipos: c.equipos.map((e, j) => (j === i ? { ...e, [campo]: valor } : e)) } : c
-    )
-  const agregarEquipo = () =>
-    setContenido((c) =>
-      c ? { ...c, equipos: [...c.equipos, { nombre: '', sucursal: '', imagen: '', foto: '' }] } : c
-    )
-  const quitarEquipo = (i: number) =>
-    setContenido((c) => (c ? { ...c, equipos: c.equipos.filter((_, j) => j !== i) } : c))
-
-  /**
-   * Sube una de las dos fotos de un equipo: la del PROYECTO (la cara de la
-   * tarjeta) o la del EQUIPO (la que la landing revela al pasar el mouse).
-   *
-   * Va con la clave `equipo-N-campo` en `subiendo` porque los slots fijos
-   * (`FotoPagina`) no cubren estos archivos: cada equipo tiene dos rutas
-   * propias y sólo una subida puede estar en curso por fila.
-   */
-  const subirFotoDeEquipo = async (
-    i: number,
-    campo: 'imagen' | 'foto',
-    archivo: File | undefined,
-    urlActual: string
-  ) => {
-    if (!archivo) return
-    const clave = `equipo-${i}-${campo}`
-    setSubiendo(clave)
-    try {
-      const url = await subirFotoEquipo(archivo, urlActual)
-      setContenido((c) =>
-        c ? { ...c, equipos: c.equipos.map((e, j) => (j === i ? { ...e, [campo]: url } : e)) } : c
-      )
-      avisar('Foto subida. Tocá «Guardar» para publicarla.')
-    } catch (e) {
-      avisar(e instanceof Error ? e.message : 'No se pudo subir la foto.', 'error')
-    } finally {
-      setSubiendo(null)
-    }
-  }
-
-  /** Vuelve el campo de foto del equipo a vacío: la tarjeta usa su respaldo. */
-  const quitarFotoDeEquipo = (i: number, campo: 'imagen' | 'foto') =>
-    setContenido((c) =>
-      c ? { ...c, equipos: c.equipos.map((e, j) => (j === i ? { ...e, [campo]: '' } : e)) } : c
-    )
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -455,101 +406,6 @@ export function GranCosechaPaginaPage() {
               ))}
             </ul>
           </Tarjeta>
-
-          <Tarjeta
-            titulo="Equipos participantes"
-            descripcion="Cada equipo lleva su imagen del proyecto (la cara de la tarjeta) y su foto, que la página revela al pasar el mouse. Si la lista queda vacía, la sección entera no aparece."
-          >
-            <div className="flex justify-end">
-              <Button
-                variant="secondary"
-                className="min-h-[34px] px-3 py-1.5 text-xs"
-                onClick={agregarEquipo}
-              >
-                <Plus className="h-4 w-4" />
-                Agregar equipo
-              </Button>
-            </div>
-            {!contenido.equipos.length ? (
-              <p className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                Ningún equipo publicado: la sección no aparece en la página.
-              </p>
-            ) : (
-              <ul className="mt-3 space-y-3">
-                {contenido.equipos.map((e, i) => (
-                  <li key={i} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                    <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-                      <Field label="Equipo">
-                        <Input
-                          value={e.nombre}
-                          onChange={(ev) => cambiarEquipo(i, 'nombre', ev.target.value)}
-                          placeholder="Equipo Frescura"
-                        />
-                      </Field>
-                      <Field label="Sucursal">
-                        <Input
-                          value={e.sucursal}
-                          onChange={(ev) => cambiarEquipo(i, 'sucursal', ev.target.value)}
-                          placeholder="Luxor Central"
-                        />
-                      </Field>
-                      <div className="flex items-end">
-                        <ButtonIcon
-                          variant="danger"
-                          onClick={() => quitarEquipo(i)}
-                          title="Quitar equipo"
-                          aria-label={`Quitar equipo ${i + 1}`}
-                        >
-                          <Trash2 className="h-5 w-5" />
-                        </ButtonIcon>
-                      </div>
-                    </div>
-                    {/* Las dos caras de la tarjeta de la landing: la imagen
-                        del proyecto se ve siempre, la foto del equipo se
-                        revela al pasar el mouse. */}
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <CampoFoto
-                        etiqueta="Imagen del proyecto"
-                        url={e.imagen}
-                        vacio="Sin imagen: la tarjeta usa la inicial del equipo"
-                        ocupado={subiendo === `equipo-${i}-imagen`}
-                        onArchivo={(archivo) =>
-                          void subirFotoDeEquipo(i, 'imagen', archivo, e.imagen)
-                        }
-                        onQuitar={() => quitarFotoDeEquipo(i, 'imagen')}
-                      />
-                      <CampoFoto
-                        etiqueta="Foto del equipo"
-                        url={e.foto}
-                        vacio="Sin foto: la tarjeta no tiene nada que revelar"
-                        ocupado={subiendo === `equipo-${i}-foto`}
-                        onArchivo={(archivo) => void subirFotoDeEquipo(i, 'foto', archivo, e.foto)}
-                        onQuitar={() => quitarFotoDeEquipo(i, 'foto')}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Tarjeta>
-
-          <Tarjeta
-            titulo="Imágenes"
-            descripcion="Las tres fotos de los rounds. Sin foto propia, la página usa las que ya trae."
-          >
-            <div className="grid gap-4 sm:grid-cols-3">
-              {(['round1', 'round2', 'round3'] as const).map((slot) => (
-                <CampoFoto
-                  key={slot}
-                  etiqueta={`Round ${slot.slice(-1)}`}
-                  url={contenido.imagenes[slot]}
-                  ocupado={subiendo === slot}
-                  onArchivo={(archivo) => void subir(slot, archivo, contenido.imagenes[slot])}
-                  onQuitar={() => quitarFoto(slot)}
-                />
-              ))}
-            </div>
-          </Tarjeta>
         </>
       ) : null}
     </div>
@@ -585,15 +441,12 @@ function Tarjeta({
 function CampoFoto({
   etiqueta,
   url,
-  vacio = 'La que ya trae la página',
   ocupado,
   onArchivo,
   onQuitar
 }: {
   etiqueta: string
   url: string
-  /** Qué dice el hueco cuando NO hay foto propia. */
-  vacio?: string
   ocupado: boolean
   onArchivo: (archivo: File | undefined) => void
   onQuitar: () => void
@@ -611,7 +464,7 @@ function CampoFoto({
         />
       ) : (
         <div className="grid h-28 place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 text-center text-xs text-slate-400">
-          {vacio}
+          La que ya trae la página
         </div>
       )}
       <div className="flex items-center gap-2">
