@@ -254,9 +254,7 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
       // propia apertura y ofrece el selector de sucursales.
       'ver_menu_publico',
       'registrar_visita_menu',
-      'ver_sucursales_menu',
-      // La landing /concurso se abre sin cuenta: lee por esta RPC.
-      'ver_concurso_publico'
+      'ver_sucursales_menu'
     ])
     const rpcs = new Set([...codigoApp.matchAll(/supabase\.rpc\(\s*'(\w+)'/g)].map((m) => m[1]))
     expect(rpcs.size).toBeGreaterThan(0)
@@ -264,8 +262,9 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
       const rol = sinSesion.has(fn) ? 'anon' : 'authenticated'
       // Se busca en el ARCHIVO ENTERO y no en `permisos-funcion.sql`: esa
       // corre a mitad de archivo y las funciones de los bloques posteriores
-      // (la de la landing pública, por ejemplo) no pueden recibir su grant
-      // ahí, porque el grant a una función inexistente tumba la instalación.
+      // (la de la página de la Gran Cosecha, por ejemplo) no pueden recibir
+      // su grant ahí, porque el grant a una función inexistente tumba la
+      // instalación.
       expect(
         schemaCompleto,
         `${fn}: la app la llama por RPC pero ningún archivo le da permiso a ${rol}`
@@ -278,9 +277,9 @@ describe('schema.sql · los enlaces públicos', () => {
   /**
    * Son las únicas aperturas a `anon` que existen después del login, y son
    * deliberadas: hay pantallas públicas (`/compartir/:token`,
-   * `/compartir/cargos/:token` y la landing `/concurso`) para quien quiere
-   * ver algo sin tener cuenta. Estos tests existen para que la próxima
-   * apertura tenga que venir con su motivo.
+   * `/compartir/cargos/:token`) para quien quiere ver algo sin tener cuenta.
+   * Estos tests existen para que la próxima apertura tenga que venir con su
+   * motivo.
    */
   it('las únicas funciones abiertas a anon, además de las del login, son las pantallas públicas', () => {
     // Se mira el ARCHIVO ENTERO y no sólo `permisos-funcion.sql`: los grants
@@ -299,7 +298,6 @@ describe('schema.sql · los enlaces públicos', () => {
       'registrar_visita_menu',
       'ver_cargos_compartidos',
       'ver_conciliacion_compartida',
-      'ver_concurso_publico',
       'ver_contenido_gran_cosecha',
       'ver_menu_publico',
       'ver_sucursales_menu'

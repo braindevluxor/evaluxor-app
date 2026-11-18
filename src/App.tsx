@@ -42,20 +42,10 @@ const GranCosechaPage = lazy(() => import('./pages/GranCosecha').then((m) => ({ 
 const GranCosechaPagina = lazy(() =>
   import('./pages/GranCosechaPagina').then((m) => ({ default: m.GranCosechaPaginaPage }))
 )
-// El editor del contenido que publica la landing (bases, calendario, premios,
-// jurado, FAQ y ganadores): sólo JUEZ y LÍDER, la misma cerradura que la RLS
-// de `gran_cosecha_contenido`.
-const GranCosechaContenido = lazy(() =>
-  import('./pages/GranCosechaContenido').then((m) => ({ default: m.GranCosechaContenido }))
-)
 // Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
 // cuenta. Va con lazy porque sólo se descarga quien abre el enlace.
 const ConciliacionPublica = lazy(() =>
   import('./pages/publico/ConciliacionPublica').then((m) => ({ default: m.ConciliacionPublica }))
-)
-// La landing del concurso trimestral: pública como las de arriba.
-const ConcursoPublico = lazy(() =>
-  import('./pages/publico/ConcursoPublico').then((m) => ({ default: m.ConcursoPublico }))
 )
 // La otra de invitado: las fallas por cargo (la bitácora de atención del
 // trabajador), también con lazy.
@@ -110,10 +100,6 @@ function Rutas() {
                         token, y sólo da lectura — ver `supabase/compartir-evaluacion.sql`. */}
                     {/* Enlace de INVITADO: la otra pantalla pública, con su
                         propia ruta para no pisar el de conciliación. */}
-                    {/* Landing pública del concurso: se comparte por WhatsApp y
-                        se abre SIN cuenta — lee por ver_concurso_publico, que es
-                        SECURITY DEFINER y no toca permisos de tabla de anon. */}
-                    <Route path="/concurso" element={<ConcursoPublico />} />
                     <Route path="/compartir/cargos/:token" element={<CargosPublicos />} />
                     <Route path="/compartir/:token" element={<ConciliacionPublica />} />
                     {/* El menú de UNA sucursal: la carta que ve el cliente
@@ -331,9 +317,7 @@ function Rutas() {
                           RLS (`puede_gran_cosecha`) que pide el menú. */}
                       <Route path="/gran-cosecha" element={<GranCosechaPage />} />
                       {/* El contenido de /gran-cosecha.html: lo edita sólo
-                          el Líder. Ruta propia (/gran-cosecha/pagina) porque
-                          la del editor del concurso ya vive en
-                          /gran-cosecha/contenido. */}
+                          el Líder (ruta propia /gran-cosecha/pagina). */}
                       <Route
                         path="/gran-cosecha/pagina"
                         element={
@@ -351,18 +335,6 @@ function Rutas() {
                         element={
                           <RequireRol roles={['LIDER', 'GERENTE_S']}>
                             <MenuEditor />
-                          </RequireRol>
-                        }
-                      />
-                      {/* Lo que se PUBLICA en la landing pública: el mismo
-                          contenido que se ve en /concurso, editado sin tocar
-                          SQL. `RequireRol` con JUEZ y LÍDER, igual que la
-                          política de la tabla. */}
-                      <Route
-                        path="/gran-cosecha/contenido"
-                        element={
-                          <RequireRol roles={['JUEZ', 'LIDER']}>
-                            <GranCosechaContenido />
                           </RequireRol>
                         }
                       />
