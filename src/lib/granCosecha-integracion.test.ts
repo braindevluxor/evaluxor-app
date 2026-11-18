@@ -23,14 +23,25 @@ describe('gran cosecha · el módulo está en el menú', () => {
   it('la consola ofrece «Proyectos» a todos los que entran', () => {
     // Va en su propia sección y no dentro de «Resultados»: es un concurso al
     // que entra toda la empresa, no una pantalla de indicadores.
-    expect(menu).toContain("to: '/gran-cosecha'")
+    expect(menu).toContain("to: '/gran-cosecha/proyectos'")
     expect(menu).toContain("{ seccion: 'Gran Cosecha'")
     expect(menu).toContain('label: \'Proyectos\'')
 
     // Y con su título en la cabecera, igual que el resto de las vistas.
-    expect(menu).toContain("'/gran-cosecha'")
+    expect(menu).toContain("'/gran-cosecha/proyectos'")
     expect(menu).toContain('Gran Cosecha')
     expect(menu).toContain('Concurso trimestral de proyectos')
+  })
+
+  it('la dirección /gran-cosecha (sin .html) manda a la LANDING pública', () => {
+    // Ésa era la confusión entre las dos rutas de la cosecha: la dirección
+    // obvia tiene que terminar en la página pública estática, y la consola
+    // del concurso vive en /gran-cosecha/proyectos, junto a sus editors.
+    expect(app).toContain('<Route path="/gran-cosecha" element={<IrALandingGranCosecha />} />')
+    expect(app).toContain("window.location.replace('/gran-cosecha.html')")
+    // Navegación REAL: el HTML estático está fuera del router de React, así
+    // que un <Navigate> dejaría la SPA pintando en una URL que no le toca.
+    expect(app).not.toContain('<Navigate to="/gran-cosecha.html"')
   })
 
   it('al JUEZ sólo se le ofrece Gran Cosecha: las demás vistas lo rebotarían', () => {
@@ -45,14 +56,32 @@ describe('gran cosecha · el módulo está en el menú', () => {
   it('la ruta está adentro del grupo de la consola y sin RequireRol', () => {
     // Sin `RequireRol`: la crean los trabajadores y la siguen los jueces. El
     // grupo ya trae `RequireAuth`, que es quien manda al SIN_ROL a /pendiente.
-    expect(app).toContain('<Route path="/gran-cosecha" element={<GranCosechaPage />} />')
+    expect(app).toContain('<Route path="/gran-cosecha/proyectos" element={<GranCosechaPage />} />')
 
     const grupo = app.indexOf('<ConsoleLayout />')
-    const ruta = app.indexOf('path="/gran-cosecha"')
+    const ruta = app.indexOf('path="/gran-cosecha/proyectos"')
     expect(grupo).toBeGreaterThan(-1)
     expect(ruta).toBeGreaterThan(grupo)
     // Y con lazy, como el resto de las pantallas de la consola.
     expect(app).toContain("import('./pages/GranCosecha')")
+  })
+
+  it('el riego se ofrece en la tarjeta Y en el detalle, por el data layer', () => {
+    const pagina = fuente('../pages/GranCosecha.tsx')
+    const datos = fuente('./data/granCosecha.ts')
+
+    // La pantalla usa las DOS piezas del riego: el conteo y el botón…
+    expect(pagina).toContain('riegosDeLaCosecha')
+    expect(pagina).toContain('regarProyecto')
+    // …en los DOS lugares pedidos: la tarjeta de cada proyecto y su detalle.
+    expect(pagina).toContain('function RiegoProyecto')
+    expect(pagina).toContain('<RiegoProyecto')
+    expect(pagina).toContain('onRegar={onRegar}')
+
+    // El dato pasa por el data layer: la pantalla no arma llamadas sueltas.
+    expect(datos).toContain("supabase.rpc('regar_proyecto'")
+    expect(datos).toContain("supabase.rpc('riegos_de_la_cosecha'")
+    expect(pagina).not.toContain('supabase.rpc(')
   })
 })
 
@@ -70,6 +99,6 @@ describe('gran cosecha · el rol que lo sostiene', () => {
     expect(roles).toMatch(/ROLES_EDITABLES[\s\S]*?'JUEZ'/)
     // Y al entrar, su casa es el concurso: `RequireAuth` lo manda al home
     // de su rol, que para un juez no puede ser el dashboard.
-    expect(roles).toMatch(/case 'JUEZ':[\s\S]{0,300}?return '\/gran-cosecha'/)
+    expect(roles).toMatch(/case 'JUEZ':[\s\S]{0,300}?return '\/gran-cosecha\/proyectos'/)
   })
 })

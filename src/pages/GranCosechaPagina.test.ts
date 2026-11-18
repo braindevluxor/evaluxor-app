@@ -111,9 +111,16 @@ describe('gran cosecha · el módulo de datos', () => {
     premioRoto.premios[1].descripcion = ''
     expect(validarContenido(premioRoto)).toMatch(/premio 2/)
 
-    const equipoSinNombre = structuredClone(CONTENIDO_BASE)
-    equipoSinNombre.equipos = [{ nombre: ' ', sucursal: 'Luxor Central', imagen: '', foto: '' }]
-    expect(validarContenido(equipoSinNombre)).toMatch(/equipo 1/)
+    const tarjetaSinProyecto = structuredClone(CONTENIDO_BASE)
+    tarjetaSinProyecto.equipos = [{ proyecto_id: '', imagen: '', foto: '' }]
+    expect(validarContenido(tarjetaSinProyecto)).toMatch(/tarjeta 1/)
+
+    const dosTarjetasDelMismo = structuredClone(CONTENIDO_BASE)
+    dosTarjetasDelMismo.equipos = [
+      { proyecto_id: 'p1', imagen: '', foto: '' },
+      { proyecto_id: 'p1', imagen: '', foto: '' }
+    ]
+    expect(validarContenido(dosTarjetasDelMismo)).toMatch(/tarjeta 2/)
 
     const sinFecha = structuredClone(CONTENIDO_BASE)
     sinFecha.hero.fechaHastaMes = ''
@@ -138,10 +145,23 @@ describe('gran cosecha · la landing', () => {
     }
   })
 
-  it('la sección de equipos nace oculta: sin equipos publicados no aparece', () => {
+  it('la sección de participantes nace oculta: sin proyectos registrados no aparece', () => {
     expect(landing).toMatch(/<section id="equipos" class="[^"]*\bhidden\b/)
-    // Y el script la muestra sólo si hay equipos con nombre.
+    // La lista sale de los proyectos REGISTRADOS en la consola, no de nada
+    // escrito a mano en la landing.
+    expect(landing).toContain('pintarParticipantes(contenido.participantes)')
     expect(landing).toContain("seccion.classList.remove('hidden')")
+  })
+
+  it('cada participante lleva su avance y sus RIEGOS con regadera', () => {
+    // El "like" de jardín: el conteo que mandan Academia/Desarrollo Luxor,
+    // pintado en el proyecto que se registró en /gran-cosecha/proyectos.
+    expect(landing).toContain('function pintarParticipantes(participantes)')
+    expect(landing).toContain('class="chip-riegos"')
+    expect(landing).toContain('class="chip-avance"')
+    expect(landing).toContain('class="riego-ico"')
+    // Sólo el NÚMERO cruza: quién regó vive en una tabla cerrada.
+    expect(landing).toContain("riegos === 1 ? 'riego' : 'riegos'")
   })
 
   it('la tarjeta del equipo monta la imagen del proyecto y revela su foto', () => {
@@ -159,27 +179,34 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain("querySelectorAll('.tarjeta-equipo.esta-activa')")
     expect(landing).toContain("classList.remove('esta-activa')")
     // Sólo con foto la tarjeta es un botón: sin nada que revelar no hay
-    // acción que ofrecer.
-    expect(landing).toContain("foto\n            ? '<button type=\"button\" class=\"tarjeta-equipo con-foto\">'")
+    // acción que ofrecer. Con `\r?\n` porque el fin de línea del HTML
+    // depende del checkout (autocrlf en Windows) y no del contenido.
+    expect(landing).toMatch(/foto\r?\n {12}\? '<button type="button" class="tarjeta-equipo con-foto">'/)
     // La invitación a pasar el mouse sólo aparece si algún equipo trae foto.
     expect(landing).toContain('id="equiposPista"')
     expect(landing).toContain('pistaSeccion.classList.toggle')
     // Quien pidió menos movimiento ve sólo el cambio de opacidad.
-    expect(landing).toContain('.tarjeta-equipo .foto-equipo {\n        transition: opacity 0.2s linear;')
+    expect(landing).toMatch(/\.tarjeta-equipo \.foto-equipo \{\r?\n {8}transition: opacity 0\.2s linear;/)
     // El rótulo del equipo va con velo navy: se lee sobre cualquier foto.
     expect(landing).toContain('rgba(6, 18, 56, 0.96)')
   })
 
-  it('cada equipo se edita con sus dos fotos, con su subida propia', () => {
+  it('cada tarjeta se edita con su proyecto y sus dos fotos', () => {
+    // El vínculo: cada tarjeta lleva el proyecto REGISTRADO al que pertenecen
+    // sus fotos; sin él la tarjeta no se publica.
+    expect(pagina).toContain('Elegí el proyecto de esta tarjeta')
+    expect(pagina).toContain('listarProyectos')
     expect(pagina).toContain('Imagen del proyecto')
     expect(pagina).toContain('Foto del equipo')
     expect(pagina).toContain('subirFotoDeEquipo')
     expect(pagina).toContain('quitarFotoDeEquipo')
     // Las claves de subida por fila distinguen los dos campos.
     expect(pagina).toContain('`equipo-${i}-${campo}`')
-    // La ruta de subida lleva uuid: los equipos no tienen cupos fijos.
+    // La ruta de subida lleva uuid: las tarjetas no tienen cupos fijos.
     expect(datos).toContain('pagina/equipos/${crypto.randomUUID()}')
-    // Una fila guardada antes de las fotos no rompe la consola.
+    // Una fila guardada con la versión vieja (nombre/sucursal, sin proyecto)
+    // se normaliza a la forma actual en vez de romper la consola.
+    expect(datos).toContain("proyecto_id: e?.proyecto_id ?? ''")
     expect(datos).toContain("imagen: e?.imagen ?? ''")
     expect(datos).toContain("foto: e?.foto ?? ''")
   })

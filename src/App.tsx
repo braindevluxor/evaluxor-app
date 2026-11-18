@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { Rol } from './lib/types'
 import { AuthProvider } from './context/AuthContext'
@@ -42,20 +42,10 @@ const GranCosechaPage = lazy(() => import('./pages/GranCosecha').then((m) => ({ 
 const GranCosechaPagina = lazy(() =>
   import('./pages/GranCosechaPagina').then((m) => ({ default: m.GranCosechaPaginaPage }))
 )
-// El editor del contenido que publica la landing (bases, calendario, premios,
-// jurado, FAQ y ganadores): sólo JUEZ y LÍDER, la misma cerradura que la RLS
-// de `gran_cosecha_contenido`.
-const GranCosechaContenido = lazy(() =>
-  import('./pages/GranCosechaContenido').then((m) => ({ default: m.GranCosechaContenido }))
-)
 // Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
 // cuenta. Va con lazy porque sólo se descarga quien abre el enlace.
 const ConciliacionPublica = lazy(() =>
   import('./pages/publico/ConciliacionPublica').then((m) => ({ default: m.ConciliacionPublica }))
-)
-// La landing del concurso trimestral: pública como las de arriba.
-const ConcursoPublico = lazy(() =>
-  import('./pages/publico/ConcursoPublico').then((m) => ({ default: m.ConcursoPublico }))
 )
 // La otra de invitado: las fallas por cargo (la bitácora de atención del
 // trabajador), también con lazy.
@@ -92,6 +82,23 @@ function Susp() {
   return <CargadorPantalla completa />
 }
 
+/**
+ * `/gran-cosecha` SIN `.html`: la dirección obvia de la cosecha.
+ *
+ * Quien la tipea espera la PÁGINA PÚBLICA, no la consola — ésa era la
+ * confusión entre las dos rutas. El HTML estático vive FUERA del router de
+ * React, así que la redirección es una navegación real (`location.replace`):
+ * un `<Navigate>` cambiaría sólo el historial y dejaría la SPA pintando en una
+ * URL que no le pertenece. La consola del concurso pasó a
+ * `/gran-cosecha/proyectos`, junto a sus editors.
+ */
+function IrALandingGranCosecha() {
+  useEffect(() => {
+    window.location.replace('/gran-cosecha.html')
+  }, [])
+  return <Susp />
+}
+
 /** Envuelve las rutas en un error boundary que se limpia al navegar: si algo
  *  lanza durante el render de una pantalla, se muestra el fallback en vez de
  *  dejar la app en blanco, y cambiar de ruta reintenta solo. */
@@ -110,12 +117,12 @@ function Rutas() {
                         token, y sólo da lectura — ver `supabase/compartir-evaluacion.sql`. */}
                     {/* Enlace de INVITADO: la otra pantalla pública, con su
                         propia ruta para no pisar el de conciliación. */}
-                    {/* Landing pública del concurso: se comparte por WhatsApp y
-                        se abre SIN cuenta — lee por ver_concurso_publico, que es
-                        SECURITY DEFINER y no toca permisos de tabla de anon. */}
-                    <Route path="/concurso" element={<ConcursoPublico />} />
                     <Route path="/compartir/cargos/:token" element={<CargosPublicos />} />
                     <Route path="/compartir/:token" element={<ConciliacionPublica />} />
+                    {/* La dirección obvia de la cosecha: manda a la landing
+                        pública estática. La consola está adentro del grupo de
+                        sesión, en /gran-cosecha/proyectos. */}
+                    <Route path="/gran-cosecha" element={<IrALandingGranCosecha />} />
                     {/* El menú de UNA sucursal: la carta que ve el cliente
                         desde su QR. Sin `RequireAuth` a propósito — la
                         autorización es la RPC (`ver_menu_publico`), que
@@ -329,11 +336,11 @@ function Rutas() {
                           sesión presenta su proyecto y cualquiera lo mira; el
                           seguimiento lo dan los jueces, que entra por el mismo
                           RLS (`puede_gran_cosecha`) que pide el menú. */}
-                      <Route path="/gran-cosecha" element={<GranCosechaPage />} />
-                      {/* El contenido de /gran-cosecha.html: lo edita sólo
-                          el Líder. Ruta propia (/gran-cosecha/pagina) porque
-                          la del editor del concurso ya vive en
-                          /gran-cosecha/contenido. */}
+                      <Route path="/gran-cosecha/proyectos" element={<GranCosechaPage />} />
+                      {/* Todo lo que publica /gran-cosecha.html —hero,
+                          premios, fotos y las tarjetas de los participantes—:
+                          lo edita sólo el Líder (`SoloLider` en la ruta, el
+                          item `soloLider` en el menú y la RLS `es_lider()`). */}
                       <Route
                         path="/gran-cosecha/pagina"
                         element={
@@ -351,18 +358,6 @@ function Rutas() {
                         element={
                           <RequireRol roles={['LIDER', 'GERENTE_S']}>
                             <MenuEditor />
-                          </RequireRol>
-                        }
-                      />
-                      {/* Lo que se PUBLICA en la landing pública: el mismo
-                          contenido que se ve en /concurso, editado sin tocar
-                          SQL. `RequireRol` con JUEZ y LÍDER, igual que la
-                          política de la tabla. */}
-                      <Route
-                        path="/gran-cosecha/contenido"
-                        element={
-                          <RequireRol roles={['JUEZ', 'LIDER']}>
-                            <GranCosechaContenido />
                           </RequireRol>
                         }
                       />

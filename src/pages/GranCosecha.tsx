@@ -27,12 +27,15 @@ import {
   listarBitacora,
   listarProyectos,
   periodosRecientes,
+  regarProyecto,
+  riegosDeLaCosecha,
   validarEquipo,
   type CambiosProyecto,
   type EstadoProyecto,
   type FilaBitacora,
   type MiembroEquipo,
-  type ProyectoGranCosecha
+  type ProyectoGranCosecha,
+  type RiegosProyecto
 } from '../lib/data/granCosecha'
 import type { ProfileVista } from '../lib/data/usuarios'
 
@@ -69,6 +72,68 @@ function fechaCorta(iso: string): string {
   return `${p(f.getDate())}/${p(f.getMonth() + 1)}/${f.getFullYear()} ${p(f.getHours())}:${p(f.getMinutes())}`
 }
 
+/** La regadera del "regar": el like de jardín, con la temática de la cosecha. */
+function Regadera({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden="true" focusable="false">
+      <path d="M12 13h11a2 2 0 0 1 2 2v7a4 4 0 0 1-4 4h-7a4 4 0 0 1-4-4v-9z" fill="currentColor" />
+      <path
+        d="M15 13a4.5 4.5 0 0 1 9 0"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path d="M12 15 6 11.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+      <circle cx="4.5" cy="10.5" r="3" fill="currentColor" />
+      <circle cx="5" cy="18" r="1.4" fill="currentColor" />
+      <circle cx="8" cy="21.5" r="1.1" fill="currentColor" />
+    </svg>
+  )
+}
+
+/**
+ * El conteo de RIEGOS y su botón — el mismo bloque en la tarjeta y en el
+ * detalle: cuántas veces se regó el proyecto y si YO ya lo regué.
+ *
+ * `datos` en `null` es "la RPC de conteo no está disponible" (bloque de
+ * riegos sin aplicar): no se pinta nada — un cero inventado sería peor que
+ * el silencio.
+ */
+function RiegoProyecto({
+  datos,
+  ocupado,
+  onRegar
+}: {
+  datos: { riegos: number; mio: boolean } | null
+  ocupado: boolean
+  onRegar: () => void
+}) {
+  if (!datos) return null
+  const n = datos.riegos
+  return (
+    <span className="flex items-center gap-2">
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1 text-xs font-bold text-sky-900"
+        title="Veces que regaron este proyecto"
+      >
+        <Regadera className="h-3.5 w-3.5" />
+        <span className="tabular-nums">{n}</span>
+        {n === 1 ? 'riego' : 'riegos'}
+      </span>
+      <Button
+        className="min-h-[30px] px-2.5 py-1 text-xs"
+        disabled={ocupado || datos.mio}
+        onClick={onRegar}
+        title={datos.mio ? 'Ya regaste este proyecto' : 'Regar este proyecto'}
+      >
+        <Regadera className="h-3.5 w-3.5" />
+        {ocupado ? 'Regando…' : datos.mio ? 'Ya regaste' : 'Regar'}
+      </Button>
+    </span>
+  )
+}
+
 export function GranCosechaPage() {
   const { profile } = useAuth()
 
@@ -76,6 +141,15 @@ export function GranCosechaPage() {
   const [error, setError] = useState<string | null>(null)
   const [recargar, setRecargar] = useState(0)
   const [periodo, setPeriodo] = useState(() => periodoDeHoy())
+
+  /**
+   * Los riegos por proyecto (conteo + si YO ya regué). `null` mientras la
+   * RPC no responda —bloque de riegos sin aplicar—: sin dato no se pinta
+   * chip alguno, no un cero inventado.
+   */
+  const [riegos, setRiegos] = useState<Record<string, RiegosProyecto> | null>(null)
+  /** El proyecto que se está regando ahora: no se mandan dos en paralelo. */
+  const [regando, setRegando] = useState<string | null>(null)
 
   /** El proyecto cuyo detalle está abierto. */
   const [abierto, setAbierto] = useState<string | null>(null)
@@ -94,7 +168,11 @@ export function GranCosechaPage() {
   const cargar = useCallback(async () => {
     setError(null)
     try {
-      setProyectos(await listarProyectos(periodo))
+      // Los riegos viajan con la lista pero NO la mandan a fallar: si su RPC
+      // no existe, la pantalla sirve igual y sólo quedan sin chip.
+      const [lista, mapa] = await Promise.all([listarProyectos(periodo), riegosDeLaCosecha()])
+      setProyectos(lista)
+      setRiegos(mapa)
     } catch (e) {
       // Sin proyectos no se juran: `null` es "no sé", `[]` es "no hay".
       setProyectos(null)
@@ -162,6 +240,31 @@ export function GranCosechaPage() {
     }
   }
 
+  /**
+   * Regar un proyecto: la base guarda el `usuario` de QUIEN aprieta (la
+   * misma clave que mandan los portales), así que no hay forma de regar por
+   * otro. Idempotente: si ya estaba regado, la respuesta lo dice y el
+   * conteo no se mueve.
+   */
+  const regar = async (id: string) => {
+    if (regando) return
+    setRegando(id)
+    try {
+      const r = await regarProyecto(id)
+      setRiegos((prev) => ({ ...(prev ?? {}), [id]: { riegos: r.riegos, mio: true } }))
+      avisar(
+        r.ya_regado
+          ? 'Ya habías regado este proyecto: el conteo sigue igual.'
+          : '¡Regado! Tu riego ya cuenta en el proyecto.',
+        'aviso'
+      )
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo regar el proyecto.', 'error')
+    } finally {
+      setRegando(null)
+    }
+  }
+
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       {/* El trimestre del concurso y el alta viven en la barra, igual que en
@@ -224,7 +327,14 @@ export function GranCosechaPage() {
                     {p.miembros.length} en el equipo · presentado el {fechaCorta(p.created_at)}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* El riego vive en la tarjeta: chip con el conteo y su
+                      botón, el mismo que despliega el detalle. */}
+                  <RiegoProyecto
+                    datos={riegos ? (riegos[p.id] ?? { riegos: 0, mio: false }) : null}
+                    ocupado={regando === p.id}
+                    onRegar={() => void regar(p.id)}
+                  />
                   {puedeEditar(p) ? (
                     <Button
                       variant="ghost"
@@ -268,6 +378,9 @@ export function GranCosechaPage() {
                   proyecto={p}
                   bitacora={bitacora[p.id] ?? null}
                   puedeEditar={puedeEditar(p)}
+                  riegos={riegos ? (riegos[p.id] ?? { riegos: 0, mio: false }) : null}
+                  ocupado={regando === p.id}
+                  onRegar={() => void regar(p.id)}
                   onEstado={(estado) => void guardar({ estado }, p.id)}
                   onAvance={() => setAvanceDe(p)}
                   onEditar={() => setEditando(p)}
@@ -320,6 +433,9 @@ function DetalleProyecto({
   proyecto,
   bitacora,
   puedeEditar,
+  riegos,
+  ocupado,
+  onRegar,
   onEstado,
   onAvance,
   onEditar
@@ -327,6 +443,11 @@ function DetalleProyecto({
   proyecto: ProyectoGranCosecha
   bitacora: FilaBitacora[] | null
   puedeEditar: boolean
+  /** El conteo del riego de ESTE proyecto, o `null` si no hay RPC. */
+  riegos: { riegos: number; mio: boolean } | null
+  /** Si el riego de este proyecto está en vuelo. */
+  ocupado: boolean
+  onRegar: () => void
   onEstado: (estado: EstadoProyecto) => void
   onAvance: () => void
   onEditar: () => void
@@ -340,6 +461,9 @@ function DetalleProyecto({
       ) : (
         <p className="text-sm text-slate-500">Sin descripción.</p>
       )}
+
+      {/* El riego también desde el detalle: mismo chip, mismo botón. */}
+      <RiegoProyecto datos={riegos} ocupado={ocupado} onRegar={onRegar} />
 
       <div>
         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Equipo</span>

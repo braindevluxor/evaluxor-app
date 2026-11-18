@@ -5842,7 +5842,7 @@ end $$;
 -- MÍNIMO 3 personas y presentan una propuesta de proyecto con 3 meses de
 -- desarrollo. Tres JUECES le dan seguimiento y la empresa ve los avances.
 --
--- DOS TABLAS Y UNA REGLA DE ACCESO
+-- TRES TABLAS Y UNA REGLA DE ACCESO
 --
 --  * `gran_cosecha_proyecto` es la ficha: el trimestre en que participa
 --    (`2026-T1`…`2026-T4`), el título, la descripción, el equipo y cómo va.
@@ -5860,6 +5860,18 @@ end $$;
 --    con su `porcentaje`, así el "cómo fue avanzando" sale de la misma
 --    tabla que el "quién cambió qué" —una sola fuente, no dos historiales
 --    que se pueden contradecir.
+--
+--  * `gran_cosecha_riego` es el riego de jardín: el "me gusta" del concurso,
+--    con regadera en vez de pulgar. Lo mandan los portales hermanos (Academia
+--    Luxor y Desarrollo Luxor), donde un usuario riega UNA VEZ cada proyecto
+--    participante —igual que un post de Facebook—. La PRIMARY KEY es
+--    (proyecto_id, usuario): la unicidad la garantiza la base, no la app, y
+--    un riego repetido simplemente no se duplica. `usuario` es la clave
+--    ESTABLE del usuario en SU portal (cédula, id o email): es opaca y no
+--    cruza contra `profiles`, porque esos usuarios no tienen cuenta acá.
+--    Ni la app ni la sesión la tocan: la escribe la edge function
+--    `registrar-riego` con la service_role, y el conteo que muestra la
+--    landing (/gran-cosecha.html) lo publica `ver_contenido_gran_cosecha`.
 --
 -- QUIÉN PUEDE QUÉ  (la misma cerradura en el menú, en la ruta y acá)
 --
@@ -6088,6 +6100,146 @@ end $$;
 revoke execute on function public.puede_gran_cosecha() from public, anon;
 grant execute on function public.puede_gran_cosecha() to authenticated;
 
+-- ----------------------------------------------------------------------------
+-- Los riegos: un "me gusta" con regadera, uno por usuario y proyecto
+-- ----------------------------------------------------------------------------
+-- La idea viene de fuera: desde los portales hermanos (Academia Luxor y
+-- Desarrollo Luxor) un usuario riega un proyecto participante y la landing
+-- /concurso muestra cuántas veces se regó cada uno.
+--
+-- QUIÉN ESCRIBE: DOS puertas, y NINGUNA por tabla directa — la tabla sigue
+-- cerrada para `anon` y para `authenticated` (sin privilegio y sin política):
+--  * La edge function `supabase/functions/registrar-riego`, con service_role
+--    y después de validar su API key (`RIEGO_API_KEY`): la llaman los
+--    portales hermanos (Academia/Desarrollo Luxor).
+--  * `regar_proyecto(uuid)` CON SESIÓN, para regar desde la consola de
+--    EvaLuxor: la clave no es un parámetro, la arma la función con
+--    `profiles.usuario` de quien aprieta — la MISMA clave que mandan los
+--    portales, así que un mismo humano cuenta UNA vez entre los tres lados.
+--
+-- UNA VEZ POR USUARIO: la restricción NO es un índice aparte, es la PRIMARY
+-- KEY. El segundo insert del mismo par choca con 23505 (o el `on conflict`
+-- de la función lo salta) y no queda fila doble — la invariante vive donde
+-- se guarda el dato, no en el código que la manda.
+--
+-- UNA VEZ POR USUARIO: la restricción NO es un índice aparte, es la PRIMARY
+-- KEY. El segundo insert del mismo par choca con 23505, la función lo
+-- traduce a `ya_regado: true` y no queda fila doble — la invariante vive
+-- donde se guarda el dato, no en el código que la manda.
+create table if not exists public.gran_cosecha_riego (
+  proyecto_id uuid not null references public.gran_cosecha_proyecto(id) on delete cascade,
+  -- La clave del usuario EN SU PORTAL: opaca (cédula, id o email) y sin
+  -- espacios de más, que un usuario con y sin espacios es el mismo riego.
+  usuario text not null
+    check (length(trim(usuario)) > 0 and length(usuario) <= 120 and usuario = trim(usuario)),
+  regado_en timestamptz not null default now(),
+  primary key (proyecto_id, usuario)
+);
+
+-- Cerrada por DOS capas, en este orden: el revoke es la primera (RLS sólo se
+-- evalúa si antes hay privilegio de tabla) y la segunda es el RLS sin ninguna
+-- política — sin política no pasa nadie, por más rol que se traiga.
+alter table public.gran_cosecha_riego enable row level security;
+
+do $$
+begin
+  execute 'revoke all on public.gran_cosecha_riego from anon';
+  execute 'revoke all on public.gran_cosecha_riego from authenticated';
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- Las DOS puertas de la escritura: siguen sin tocar la tabla desde afuera
+-- ----------------------------------------------------------------------------
+
+-- 1) Regar DESDE EvaLuxor, con sesión. El `usuario` que se guarda NO es un
+--    parámetro —la función lo arma con la sesión—, así que nadie puede regar
+--    "por otro": es el `profiles.usuario` de quien aprieta. Es LA MISMA clave
+--    que los portales hermanos mandan en el campo `usuario` del endpoint: si
+--    un portal mandara otra cosa, ese humano contaría dos veces.
+create or replace function public.regar_proyecto(p_proyecto_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_clave text;
+  v_estado text;
+  v_filas integer;
+  v_riegos integer;
+begin
+  -- Quién riega: el usuario ACTIVO de la sesión, normalizado.
+  select u.usuario into v_clave
+    from public.profiles u
+   where u.id = auth.uid() and u.activo;
+  v_clave := coalesce(trim(v_clave), '');
+  if v_clave = '' then
+    raise exception 'Tu perfil no tiene usuario de EvaLuxor: no se puede regar.';
+  end if;
+  if length(v_clave) > 120 then
+    raise exception 'El usuario de tu perfil es demasiado largo para regar.';
+  end if;
+
+  select pr.estado into v_estado
+    from public.gran_cosecha_proyecto pr
+   where pr.id = p_proyecto_id;
+  if v_estado is null then
+    raise exception 'No existe ese proyecto.';
+  end if;
+  if v_estado = 'CANCELADO' then
+    raise exception 'Ese proyecto ya no participa en el concurso.';
+  end if;
+
+  -- El riego: `on conflict do nothing` NO toca la fila vieja (conserva su
+  -- fecha) y el row_count dice si éste fue el primero de este usuario.
+  insert into public.gran_cosecha_riego (proyecto_id, usuario)
+  values (p_proyecto_id, v_clave)
+  on conflict (proyecto_id, usuario) do nothing;
+  get diagnostics v_filas = row_count;
+
+  select count(*) into v_riegos
+    from public.gran_cosecha_riego
+   where proyecto_id = p_proyecto_id;
+
+  return jsonb_build_object('ya_regado', v_filas = 0, 'riegos', v_riegos);
+end;
+$$;
+
+revoke execute on function public.regar_proyecto(uuid) from public, anon;
+grant  execute on function public.regar_proyecto(uuid) to authenticated;
+
+-- 2) El conteo para la consola: por proyecto, cuántas veces se regó y si YO
+--    ya lo regué (`mio`), para pintar el botón. Saliendo de acá sólo el
+--    número y el booleano mío: NINGÚN `usuario` se expone, ni con sesión.
+create or replace function public.riegos_de_la_cosecha()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  with mi as (
+    select coalesce((select u.usuario from public.profiles u where u.id = auth.uid()), '') as clave
+  )
+  select coalesce(
+    jsonb_object_agg(
+      d.proyecto_id,
+      jsonb_build_object('riegos', d.riegos, 'mio', d.mio)
+    ),
+    '{}'::jsonb
+  )
+  from (
+    select r.proyecto_id,
+           count(*)::int as riegos,
+           bool_or(r.usuario = (select clave from mi)) as mio
+      from public.gran_cosecha_riego r
+     group by r.proyecto_id
+  ) d;
+$$;
+
+revoke execute on function public.riegos_de_la_cosecha() from public, anon;
+grant  execute on function public.riegos_de_la_cosecha() to authenticated;
+
 -- ###########################################################################
 -- Archivo consolidado: gran-cosecha-pagina.sql
 -- ###########################################################################
@@ -6097,11 +6249,18 @@ grant execute on function public.puede_gran_cosecha() to authenticated;
 -- `public/gran-cosecha.html` es una landing estática: se sirve desde `dist/`
 -- y queda FUERA del router de React, así que no puede usar el cliente de la
 -- app ni la sesión de nadie. Lo que cambia en esa página —el hero, los
--- premios, los equipos y las fotos— vive acá, en UNA sola fila, y la página
--- lo lee con `ver_contenido_gran_cosecha`: una función `security definer`
--- con `grant ... to anon`, el mismo camino de lo público que usan
--- `ver_conciliacion_compartida` y `ver_cargos_compartidos`. En este repo
--- ningún dato llega a `anon` por tabla, y ésta no es la excepción.
+-- premios, las tarjetas de participantes y las fotos— vive acá, en UNA sola
+-- fila, y la página lo lee con `ver_contenido_gran_cosecha`: una función
+-- `security definer` con `grant ... to anon`, el mismo camino de lo público
+-- que usan `ver_conciliacion_compartida` y `ver_cargos_compartidos`. En este
+-- repo ningún dato llega a `anon` por tabla, y ésta no es la excepción.
+--
+-- QUIÉN APARECE EN LA SECCIÓN DE PARTICIPANTES: los proyectos REGISTRADOS en
+-- la consola (`gran_cosecha_proyecto`), NO lo que se escriba a mano — la
+-- función los arma abajo con su conteo de riegos. Esta fila sólo aporta las
+-- FOTOS: cada tarjeta de `equipos` lleva `proyecto_id` para decir cuáles fotos
+-- van en cada proyecto; sin tarjeta vinculada, el proyecto se publica igual,
+-- sin foto.
 --
 -- Escribe sólo el LÍDER (`es_lider()`), la misma cerradura del menú de
 -- consola (`SoloLider`), y cada sección nace con un `check` de forma: ni una
@@ -6124,6 +6283,9 @@ create table if not exists public.gran_cosecha_pagina (
     constraint gran_cosecha_pagina_hero check (jsonb_typeof(hero) = 'object'),
   premios jsonb not null default '[]'::jsonb
     constraint gran_cosecha_pagina_premios check (jsonb_typeof(premios) = 'array'),
+  -- Las FOTOS de un participante: `proyecto_id` (el proyecto registrado al
+  -- que pertenecen) + la imagen del proyecto + la foto del equipo. El nombre
+  -- y los datos no se guardan acá: los manda el proyecto.
   equipos jsonb not null default '[]'::jsonb
     constraint gran_cosecha_pagina_equipos check (jsonb_typeof(equipos) = 'array'),
   imagenes jsonb not null default '{}'::jsonb
@@ -6161,13 +6323,52 @@ language sql stable security definer
 set search_path = public
 as $$
   select jsonb_build_object(
-    'hero', hero,
-    'premios', premios,
-    'equipos', equipos,
-    'imagenes', imagenes
+    'hero', g.hero,
+    'premios', g.premios,
+    'imagenes', g.imagenes,
+    -- LOS PARTICIPANTES: los proyectos REGISTRADOS en la consola, del
+    -- trimestre en curso y sin cancelados («los que ya están compitiendo»).
+    -- Cada uno trae SU conteo de riegos —sólo el número, la tabla está
+    -- cerrada— y, si el Líder le vinculó una tarjeta en «Página», las dos
+    -- fotos de esa tarjeta (null si no hay: la página usa su respaldo).
+    'participantes', (
+      select coalesce(jsonb_agg(
+        jsonb_build_object(
+          -- El `id` viaja para que los portales hermanos puedan descubrir de
+          -- qué proyecto regar (leen esta misma RPC pública): un uuid de
+          -- concurso no da ningún permiso — la tabla de riegos está cerrada.
+          'id', pr.id,
+          'titulo', pr.titulo,
+          'avance', pr.avance,
+          -- Sólo NOMBRES: los usuario_id no son contenido público.
+          'miembros', (
+            select coalesce(jsonb_agg(m -> 'nombre'), '[]'::jsonb)
+            from jsonb_array_elements(pr.miembros) m
+          ),
+          'riegos', (
+            select count(*)
+            from public.gran_cosecha_riego r
+            where r.proyecto_id = pr.id
+          ),
+          'imagen', c.tarjeta ->> 'imagen',
+          'foto', c.tarjeta ->> 'foto'
+        )
+        order by pr.avance desc, pr.created_at
+      ), '[]'::jsonb)
+      from public.gran_cosecha_proyecto pr
+      -- La tarjeta de FOTOS vinculada a ESTE proyecto (si hay), o null.
+      left join lateral (
+        select t.tarjeta
+          from jsonb_array_elements(coalesce(g.equipos, '[]'::jsonb)) as t (tarjeta)
+         where t.tarjeta ->> 'proyecto_id' = pr.id::text
+         limit 1
+      ) c on true
+      where pr.periodo = to_char(now(), 'YYYY') || '-T' || to_char(now(), 'Q')
+        and pr.estado <> 'CANCELADO'
+    )
   )
-  from public.gran_cosecha_pagina
-  where id;
+  from public.gran_cosecha_pagina g
+  where g.id;
 $$;
 
 -- Igual que las funciones de los enlaces compartidos: sin el revoke, el
@@ -6458,145 +6659,36 @@ grant execute on function public.ver_sucursales_menu() to anon, authenticated;
 -- Archivo consolidado: gran-cosecha-publico.sql
 -- ###########################################################################
 -- ============================================================================
--- GRAN COSECHA PÚBLICO: la landing /concurso, sin sesión
+-- GRAN COSECHA PÚBLICO — RETIRADO: lo que fue la landing /concurso
 --
--- QUIÉN LO LEE Y POR QUÉ UNA FUNCIÓN
--- ----------------------------------
--- La página del concurso se comparte por WhatsApp y se abre SIN cuenta, así
--- que no puede pasar por la RLS de sesión: `anon` no tiene privilegio de tabla
--- sobre nada (cierre de `cerrar-permisos-anon.sql`). Mismo patrón que los
--- enlaces de conciliación: una función SECURITY DEFINER con search_path fijo
--- que devuelve exactamente lo que la página pinta y nada más.
+-- POR QUÉ SE FUE
+-- -------------
+-- La Gran Cosecha quedó con UNA sola página pública:
+--  * `/gran-cosecha.html` — la landing, con su editor «Página».
+--  * `/concurso` y su editor `/gran-cosecha/contenido` quedaron HUÉRFANOS:
+--    nadie enlazaba esa landing y lo que se cargaba ahí no se veía en la
+--    web. Se retiró entera: ruta, pantalla, editor y esta función.
 --
--- Lo que devuelve:
---  * `proyectos` del período, SIN `creador_id`, SIN `autor_id` y sin los
---    `usuario_id` del equipo (sólo los nombres): lo que la landing muestra
---    como ficha. Los CANCELADOS quedan afuera — ya no son participantes.
---  * Los AVANCES de la bitácora de cada proyecto (porcentaje y nota), que es
---    el «cómo fue avanzando» de la ficha. Sólo `tipo = 'AVANCE'`: cambios de
---    estado o de equipo no son contenido público.
---  * El `contenido` editorial del período + lo GLOBAL (bases, faq y ganadores
---    viven en GLOBAL; calendario, premios y jurado se cargan por trimestre).
+-- QUÉ HACE ESTE BLOQUE AHORA
+-- --------------------------
+-- Cierra la boca que esa funcionalidad dejó en bases YA instaladas: sin los
+-- `drop`, una base con la landing vieja seguiría exponiendo
+-- `ver_concurso_publico` —una RPC abierta a `anon`— y su tabla de contenido.
+-- Idempotente: en una base nueva no hay nada que borrar.
 --
--- QUIÉN ESCRIBE EL CONTENIDO
--- ---------------------------
--- `gran_cosecha_contenido` es una fila por (periodo, clave): sin DELETE (el
--- contenido se REESCRIBE, no se borra — mismo criterio que los proyectos) y
--- con la MISMA cerradura `puede_gran_cosecha()` que el resto del concurso:
--- sólo JUEZ y LÍDER cargan bases, fechas, premios y jurado desde la pantalla
--- de Contenido. `anon` no tiene privilegio de tabla: la página pública lee
--- por la función de arriba.
+-- (Los RIEGOS NO se tocan: `gran_cosecha_riego` vive en `gran-cosecha.sql`,
+-- la escribe la edge function `registrar-riego` y el conteo lo publica
+-- `ver_contenido_gran_cosecha`, en `gran-cosecha-pagina.sql`.)
 --
 -- Aplicar en el SQL Editor de Supabase. Es idempotente.
 -- ============================================================================
 
--- ----------------------------------------------------------------------------
--- 1) La tabla de contenido editorial
--- ----------------------------------------------------------------------------
-create table if not exists public.gran_cosecha_contenido (
-  -- 'GLOBAL' para lo que no cambia por trimestre (bases, faq, ganadores);
-  -- si no, el mismo formato de trimestre que los proyectos.
-  periodo text not null default 'GLOBAL'
-    check (periodo = 'GLOBAL' or periodo ~ '^\d{4}-T[1-4]$'),
-  clave text not null
-    check (clave in ('bases', 'calendario', 'premios', 'jurado', 'faq', 'ganadores')),
-  -- La forma depende de la clave y vive en la app (ver concursoPublico.ts):
-  -- texto, lista de hitos, lista de premios, lista de jurados, etc.
-  valor jsonb not null default '{}'::jsonb,
-  actualizado_at timestamptz not null default now(),
-  actualizado_por uuid references public.profiles(id) on delete set null,
-  primary key (periodo, clave)
-);
+-- Los DOS objetos de la landing retirada, en orden: primero la función (su
+-- cuerpo lee la tabla) y después la tabla.
+drop function if exists public.ver_concurso_publico(text);
 
-alter table public.gran_cosecha_contenido enable row level security;
+-- Única baja de datos de este archivo: la tabla guardaba bases, calendario,
+-- premios, jurado, FAQ y ganadores de una landing que ya no existe.
+drop table if exists public.gran_cosecha_contenido;
 
--- Lectura: cualquier sesión. No es una apertura — el contenido de todas formas
--- es PÚBLICO (la landing lo muestra sin cuenta); acá sólo se evita que la
--- pantalla de Contenido dependa de la función para precargar lo que ya existe.
-drop policy if exists gran_cosecha_contenido_select on public.gran_cosecha_contenido;
-create policy gran_cosecha_contenido_select on public.gran_cosecha_contenido
-  for select to authenticated using (true);
 
--- Escritura: JUEZ y LÍDER, la misma cerradura que los proyectos.
-drop policy if exists gran_cosecha_contenido_insert on public.gran_cosecha_contenido;
-create policy gran_cosecha_contenido_insert on public.gran_cosecha_contenido
-  for insert to authenticated with check (public.puede_gran_cosecha());
-
-drop policy if exists gran_cosecha_contenido_update on public.gran_cosecha_contenido;
-create policy gran_cosecha_contenido_update on public.gran_cosecha_contenido
-  for update to authenticated
-  using (public.puede_gran_cosecha())
-  with check (public.puede_gran_cosecha());
-
--- Sin política de delete: nadie borra contenido, se reescribe (como todo el
--- concurso). Y anon sin privilegio de tabla, por las dos capas.
-do $$
-begin
-  execute 'revoke all on public.gran_cosecha_contenido from anon';
-end $$;
-
--- ----------------------------------------------------------------------------
--- 2) La función que lee la landing
--- ----------------------------------------------------------------------------
--- SECURITY DEFINER porque corre SIN sesión y anon no tiene permiso de tabla.
--- `stable`: no escribe nada y PostgREST puede cachearla por petición.
-create or replace function public.ver_concurso_publico(p_periodo text)
-returns jsonb
-language sql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-  select jsonb_build_object(
-    'periodo', p_periodo,
-    'contenido', (
-      select coalesce(jsonb_agg(
-        jsonb_build_object('clave', c.clave, 'periodo', c.periodo, 'valor', c.valor)
-        order by c.clave
-      ), '[]'::jsonb)
-      from public.gran_cosecha_contenido c
-      where c.periodo = p_periodo or c.periodo = 'GLOBAL'
-    ),
-    'proyectos', (
-      select coalesce(jsonb_agg(
-        jsonb_build_object(
-          'id', pr.id,
-          'titulo', pr.titulo,
-          'descripcion', pr.descripcion,
-          -- Sólo los NOMBRES del equipo: el usuario_id no es contenido público.
-          'miembros', (
-            select coalesce(jsonb_agg(m -> 'nombre'), '[]'::jsonb)
-            from jsonb_array_elements(pr.miembros) m
-          ),
-          'avance', pr.avance,
-          'avance_nota', pr.avance_nota,
-          'estado', pr.estado,
-          'created_at', pr.created_at,
-          'avances', coalesce((
-            select jsonb_agg(
-              jsonb_build_object(
-                'porcentaje', b.porcentaje,
-                'detalle', b.detalle,
-                'created_at', b.created_at
-              )
-              order by b.created_at
-            )
-            from public.gran_cosecha_bitacora b
-            where b.proyecto_id = pr.id and b.tipo = 'AVANCE'
-          ), '[]'::jsonb)
-        )
-        order by pr.avance desc, pr.created_at
-      ), '[]'::jsonb)
-      from public.gran_cosecha_proyecto pr
-      where pr.periodo = p_periodo
-        and pr.estado <> 'CANCELADO'
-    )
-  );
-$$;
-
--- Permisos: la página llama por RPC SIN sesión, así que `anon` sí. El revoke
--- va DESPUÉS de la definición (el archivo se aplica de arriba abajo: un revoke
--- a una función que todavía no existe frena la instalación) y quita PUBLIC
--- porque los permisos en Postgres son aditivos.
-revoke execute on function public.ver_concurso_publico(text) from public, anon;
-grant  execute on function public.ver_concurso_publico(text) to anon, authenticated;

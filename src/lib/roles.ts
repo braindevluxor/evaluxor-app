@@ -65,7 +65,7 @@ export function homePorRol(rol: Rol): string {
     case 'JUEZ':
       // El juez no entra a Resultados (la ruta lo rebotaría acá), así que su
       // casa es directamente el concurso que juzga.
-      return '/gran-cosecha'
+      return '/gran-cosecha/proyectos'
     default:
       return '/pendiente'
   }

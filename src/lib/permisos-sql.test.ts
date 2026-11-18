@@ -254,9 +254,7 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
       // propia apertura y ofrece el selector de sucursales.
       'ver_menu_publico',
       'registrar_visita_menu',
-      'ver_sucursales_menu',
-      // La landing /concurso se abre sin cuenta: lee por esta RPC.
-      'ver_concurso_publico'
+      'ver_sucursales_menu'
     ])
     const rpcs = new Set([...codigoApp.matchAll(/supabase\.rpc\(\s*'(\w+)'/g)].map((m) => m[1]))
     expect(rpcs.size).toBeGreaterThan(0)
@@ -278,7 +276,7 @@ describe('schema.sql · los enlaces públicos', () => {
   /**
    * Son las únicas aperturas a `anon` que existen después del login, y son
    * deliberadas: hay pantallas públicas (`/compartir/:token`,
-   * `/compartir/cargos/:token` y la landing `/concurso`) para quien quiere
+   * `/compartir/cargos/:token` y la landing `/gran-cosecha.html`) para quien
    * ver algo sin tener cuenta. Estos tests existen para que la próxima
    * apertura tenga que venir con su motivo.
    */
@@ -299,7 +297,6 @@ describe('schema.sql · los enlaces públicos', () => {
       'registrar_visita_menu',
       'ver_cargos_compartidos',
       'ver_conciliacion_compartida',
-      'ver_concurso_publico',
       'ver_contenido_gran_cosecha',
       'ver_menu_publico',
       'ver_sucursales_menu'

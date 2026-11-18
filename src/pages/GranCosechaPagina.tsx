@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp, Eye, Plus, Trash2 } from 'lucide-react'
 import { avisar } from '../lib/aviso'
-import { Button, ButtonIcon, EmptyState, Field, Input, SkeletonFilas, Spinner } from '../components/ui'
+import { Button, ButtonIcon, EmptyState, Field, Input, Select, SkeletonFilas, Spinner } from '../components/ui'
 import { PortalCabecera } from '../components/PortalCabecera'
+import { listarProyectos, periodoDe, type ProyectoGranCosecha } from '../lib/data/granCosecha'
 import {
   cargarContenidoPagina,
   guardarContenidoPagina,
@@ -37,6 +38,8 @@ export function GranCosechaPaginaPage() {
   const [error, setError] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
   const [subiendo, setSubiendo] = useState<string | null>(null)
+  /** Los proyectos REGISTRADOS del trimestre: con los que se vinculan las fotos. */
+  const [proyectos, setProyectos] = useState<ProyectoGranCosecha[]>([])
   /** Avance (0 a 1) de la conversión del carrusel en curso, o `null`. */
   const [convirtiendo, setConvirtiendo] = useState<number | null>(null)
 
@@ -44,7 +47,20 @@ export function GranCosechaPaginaPage() {
     setCargando(true)
     setError(null)
     try {
-      setContenido(await cargarContenidoPagina())
+      // Van juntos: la pantalla se abre cuando están las DOS cosas, así el
+      // selector de proyectos no aparece vacío y se llena un instante después.
+      // Si los proyectos no se pueden leer, la página igual se abre — la
+      // lista queda vacía y el selector lo dice—: no es el contenido de la
+      // página lo que falló.
+      const [contenidoCargado, proyectosDelPeriodo] = await Promise.all([
+        cargarContenidoPagina(),
+        listarProyectos(periodoDe()).catch(() => {
+          avisar('No se pudieron cargar los proyectos del trimestre para vincular las fotos.', 'aviso')
+          return [] as ProyectoGranCosecha[]
+        })
+      ])
+      setContenido(contenidoCargado)
+      setProyectos(proyectosDelPeriodo)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo cargar el contenido de la página.')
     } finally {
@@ -162,7 +178,7 @@ export function GranCosechaPaginaPage() {
     )
   const agregarEquipo = () =>
     setContenido((c) =>
-      c ? { ...c, equipos: [...c.equipos, { nombre: '', sucursal: '', imagen: '', foto: '' }] } : c
+      c ? { ...c, equipos: [...c.equipos, { proyecto_id: '', imagen: '', foto: '' }] } : c
     )
   const quitarEquipo = (i: number) =>
     setContenido((c) => (c ? { ...c, equipos: c.equipos.filter((_, j) => j !== i) } : c))
@@ -458,7 +474,7 @@ export function GranCosechaPaginaPage() {
 
           <Tarjeta
             titulo="Equipos participantes"
-            descripcion="Cada equipo lleva su imagen del proyecto (la cara de la tarjeta) y su foto, que la página revela al pasar el mouse. Si la lista queda vacía, la sección entera no aparece."
+            descripcion="La sección de la landing publica los proyectos REGISTRADOS en Gran Cosecha, con su equipo, su avance y sus riegos. Acá sólo se atan las FOTOS: cada tarjeta lleva el proyecto al que pertenece (imagen del proyecto y foto del equipo, que la página revela al pasar el mouse). Un proyecto sin tarjeta se publica igual, sin foto; una tarjeta sin proyecto no se publica."
           >
             <div className="flex justify-end">
               <Button
@@ -467,38 +483,44 @@ export function GranCosechaPaginaPage() {
                 onClick={agregarEquipo}
               >
                 <Plus className="h-4 w-4" />
-                Agregar equipo
+                Agregar tarjeta
               </Button>
             </div>
             {!contenido.equipos.length ? (
               <p className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                Ningún equipo publicado: la sección no aparece en la página.
+                Ninguna tarjeta vinculada: los proyectos se publican sin foto.
               </p>
             ) : (
               <ul className="mt-3 space-y-3">
                 {contenido.equipos.map((e, i) => (
                   <li key={i} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                    <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-                      <Field label="Equipo">
-                        <Input
-                          value={e.nombre}
-                          onChange={(ev) => cambiarEquipo(i, 'nombre', ev.target.value)}
-                          placeholder="Equipo Frescura"
-                        />
-                      </Field>
-                      <Field label="Sucursal">
-                        <Input
-                          value={e.sucursal}
-                          onChange={(ev) => cambiarEquipo(i, 'sucursal', ev.target.value)}
-                          placeholder="Luxor Central"
-                        />
+                    <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                      <Field
+                        label="Proyecto"
+                        hint={
+                          proyectos.length
+                            ? undefined
+                            : 'No hay proyectos registrados en este trimestre todavía.'
+                        }
+                      >
+                        <Select
+                          value={e.proyecto_id}
+                          onChange={(ev) => cambiarEquipo(i, 'proyecto_id', ev.target.value)}
+                        >
+                          <option value="">Elegí el proyecto de esta tarjeta…</option>
+                          {proyectos.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.titulo}
+                            </option>
+                          ))}
+                        </Select>
                       </Field>
                       <div className="flex items-end">
                         <ButtonIcon
                           variant="danger"
                           onClick={() => quitarEquipo(i)}
-                          title="Quitar equipo"
-                          aria-label={`Quitar equipo ${i + 1}`}
+                          title="Quitar tarjeta"
+                          aria-label={`Quitar tarjeta ${i + 1}`}
                         >
                           <Trash2 className="h-5 w-5" />
                         </ButtonIcon>
@@ -511,7 +533,7 @@ export function GranCosechaPaginaPage() {
                       <CampoFoto
                         etiqueta="Imagen del proyecto"
                         url={e.imagen}
-                        vacio="Sin imagen: la tarjeta usa la inicial del equipo"
+                        vacio="Sin imagen: la tarjeta usa la inicial del título"
                         ocupado={subiendo === `equipo-${i}-imagen`}
                         onArchivo={(archivo) =>
                           void subirFotoDeEquipo(i, 'imagen', archivo, e.imagen)

@@ -1,4 +1,4 @@
-import { Star, Sprout, Gauge, Globe, FileText, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen } from 'lucide-react'
+import { Star, Sprout, Gauge, Globe, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -34,14 +34,11 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
   // al que entra toda la empresa (presentan los trabajadores, dan seguimiento
   // los jueces), no una pantalla de indicadores.
   { seccion: 'Gran Cosecha', items: [
-    { to: '/gran-cosecha', label: 'Proyectos', icon: <Sprout className="h-5 w-5" /> },
+    { to: '/gran-cosecha/proyectos', label: 'Proyectos', icon: <Sprout className="h-5 w-5" /> },
     // La landing /gran-cosecha.html: su contenido lo escribe sólo el Líder,
     // así que el item tampoco se muestra a nadie más (no es un guard, es
     // sólo el menú: la ruta y la RLS siguen pidiendo lo mismo).
-    { to: '/gran-cosecha/pagina', label: 'Página', icon: <Globe className="h-5 w-5" />, soloLider: true },
-    // Lo que se PUBLICA en la landing /concurso: bases, fechas, premios,
-    // jurado y FAQ. Sólo JUEZ y LÍDER, que es quien los carga.
-    { to: '/gran-cosecha/contenido', label: 'Contenido', roles: ['JUEZ', 'LIDER'], icon: <FileText className="h-5 w-5" /> }
+    { to: '/gran-cosecha/pagina', label: 'Página', icon: <Globe className="h-5 w-5" />, soloLider: true }
   ]}
 ]
 
@@ -83,7 +80,9 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   // La cuenta se configura DESDE la consola, con su barra y su menú: salirse
   // de la barra para cambiar la contraseña se sentía como otra app.
   '/perfil': { titulo: 'Configuración', subtitulo: 'Administra tus datos personales y la seguridad de tu cuenta' },
-  '/gran-cosecha': {
+  // OJO con la barra: `/gran-cosecha` (sin más) YA NO es la consola — es la
+  // redirección a la landing pública. El concurso vive en `/gran-cosecha/proyectos`.
+  '/gran-cosecha/proyectos': {
     titulo: 'Gran Cosecha',
     subtitulo: 'Concurso trimestral de proyectos: equipos, propuestas y avances'
   },
@@ -94,24 +93,18 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/menu-editor': {
     titulo: 'Menú de la sucursal',
     subtitulo: 'Productos que se muestran en el menú público de clientes'
-  },
-  // Lo que publica la landing pública (/concurso): sin título propio la
-  // cabecera se quedaría sin rótulo en esta vista.
-  '/gran-cosecha/contenido': {
-    titulo: 'Contenido del concurso',
-    subtitulo: 'Bases, fechas, premios, jurado y FAQ que se publican en la página pública'
   }
 }
 
 export function ConsoleLayout() {
   return (
     <DashboardFiltersProvider>
-      <ConsoleLayoutContenido />
+      <ConsoleLayoutInterna />
     </DashboardFiltersProvider>
   )
 }
 
-function ConsoleLayoutContenido() {
+function ConsoleLayoutInterna() {
   const { profile, signOut } = useAuth()
   const { abierto: filtrosAbiertos, alternar: alternarFiltros } = useDashboardFilters()
   const { pathname } = useLocation()

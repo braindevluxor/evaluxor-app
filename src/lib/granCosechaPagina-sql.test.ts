@@ -15,7 +15,8 @@ import { bloqueSql } from './supabaseSql'
  *  2. RLS: sólo el LÍDER escribe (`es_lider()`, la misma cerradura del menú
  *     y del guard), cualquiera con sesión lee, y anon no llega ni a la tabla.
  *  3. La función pública: anon la ejecuta, `PUBLIC` no (queda revocada), y
- *     devuelve el contenido entero sin abrirle la tabla.
+ *     devuelve el contenido entero —con los proyectos REGISTRADOS del
+ *     trimestre y su conteo de RIEGOS— sin abrirle la tabla a nadie.
  *  4. El bucket de fotos: público para VER, y sólo el Líder para SUBIR.
  *
  * Acá se corre el bloque TAL CÓMO está en `supabase/schema.sql`, dos veces
@@ -70,6 +71,29 @@ const DDL = `
   returns boolean language sql stable security definer set search_path = public as $$
     select exists (select 1 from public.profiles p where p.id = auth.uid() and p.rol = 'LIDER' and p.activo);
   $$;
+
+  -- Espejo mínimo de las DOS tablas de OTRA parte de Gran Cosecha que la
+  -- función pública de este bloque consulta (las crea el bloque
+  -- gran-cosecha.sql). Sólo las columnas que la función lee —en la real hay
+  -- más—; la forma del riego es exactamente la real, con su PRIMARY KEY
+  -- (proyecto, usuario): esa clave ES la regla de «una vez por usuario».
+  create table public.gran_cosecha_proyecto (
+    id uuid primary key default gen_random_uuid(),
+    periodo text not null check (periodo ~ '^\\d{4}-T[1-4]$'),
+    titulo text not null check (length(trim(titulo)) > 0),
+    miembros jsonb not null check (jsonb_array_length(miembros) >= 3),
+    avance integer not null default 0 check (avance >= 0 and avance <= 100),
+    estado text not null default 'PROPUESTA'
+      check (estado in ('PROPUESTA','EN_CURSO','COMPLETADO','CANCELADO')),
+    created_at timestamptz not null default now()
+  );
+
+  create table public.gran_cosecha_riego (
+    proyecto_id uuid not null references public.gran_cosecha_proyecto(id) on delete cascade,
+    usuario text not null,
+    regado_en timestamptz not null default now(),
+    primary key (proyecto_id, usuario)
+  );
 `
 
 const LIDER = '00000000-0000-0000-0000-000000000002'
@@ -86,8 +110,57 @@ const CONTENIDO = {
     fondo: ''
   },
   premios: [{ puesto: '1° PUESTO', descripcion: 'Trofeo' }],
-  equipos: [{ nombre: 'Equipo Frescura', sucursal: 'Luxor Central' }],
+  // La tarjeta de FOTOS: su `proyecto_id` se completa en el `beforeAll`,
+  // cuando ya existe el proyecto registrado al que se vincula.
+  equipos: [
+    {
+      proyecto_id: '',
+      imagen: 'https://supabase.test/gran-cosecha/cara.webp',
+      foto: 'https://supabase.test/gran-cosecha/equipo.webp'
+    }
+  ],
   imagenes: { round1: '', round2: '', round3: '' }
+}
+
+/** El trimestre en curso, igual que lo calcula la app y que el SQL. */
+const PERIODO_ACTUAL = (() => {
+  const hoy = new Date()
+  return `${hoy.getFullYear()}-T${Math.floor(hoy.getMonth() / 3) + 1}`
+})()
+
+/** El proyecto creado con tarjeta de fotos, para los tests de riegos. */
+let idConFoto = ''
+
+/** Registra un proyecto como lo hace la consola y devuelve su id. */
+async function registrarProyecto(titulo: string, extras: Record<string, unknown> = {}): Promise<string> {
+  const fila: Record<string, unknown> = {
+    periodo: PERIODO_ACTUAL,
+    titulo,
+    miembros: [
+      { usuario_id: LIDER, nombre: 'Ana Líder' },
+      { usuario_id: EVALUADOR, nombre: 'Juan Trabajador' },
+      { usuario_id: '00000000-0000-0000-0000-000000000009', nombre: 'Tercera Persona' }
+    ],
+    avance: 50,
+    estado: 'EN_CURSO',
+    ...extras
+  }
+  const columnas = Object.keys(fila)
+  const r = await db.query(
+    `insert into public.gran_cosecha_proyecto (${columnas.join(', ')})
+     values (${columnas.map((_, i) => `$${i + 1}`).join(', ')})
+     returning id`,
+    columnas.map((c) => fila[c])
+  )
+  return (r.rows[0] as { id: string }).id
+}
+
+/** Un riego, como lo escribe la edge function con la service_role. */
+async function regar(proyectoId: string, usuario: string): Promise<void> {
+  await db.query(
+    `insert into public.gran_cosecha_riego (proyecto_id, usuario) values ($1, $2)`,
+    [proyectoId, usuario]
+  )
 }
 
 const INSERT_CONTENIDO = `
@@ -117,6 +190,21 @@ beforeAll(async () => {
        ('gran-cosecha', 'pagina/round1.jpg'),
        ('evidencias', 'ev/abc/foto.jpg')`
   )
+
+  // Cuatro proyectos registrados: el que se vincula con su tarjeta de fotos
+  // (avance más alto, así va primero), otro del mismo trimestre SIN tarjeta,
+  // uno CANCELADO y uno de OTRO trimestre — éstos tres no pueden aparecer.
+  idConFoto = await registrarProyecto('Huerto vertical', { avance: 80 })
+  await registrarProyecto('Caja cero espera', { avance: 40 })
+  await registrarProyecto('El que no siguió', { estado: 'CANCELADO' })
+  await registrarProyecto('De otro trimestre', { periodo: '1999-T1' })
+
+  // Dos riegos al primero (dos "usuarios" distintos) y ninguno al resto.
+  await regar(idConFoto, 'academia:1')
+  await regar(idConFoto, 'desarrollo:2')
+
+  // La tarjeta de FOTOS queda atada al proyecto que sí tiene fotos.
+  CONTENIDO.equipos[0].proyecto_id = idConFoto
 
   // El Líder publica el primer contenido —con sesión y RLS de verdad, que es
   // como lo hace la consola—: el resto de los tests se apoya en esta fila.
@@ -285,7 +373,7 @@ describe('gran-cosecha-pagina.sql · la función pública', () => {
       )
       const contenido = r.rows[0].r
       expect(contenido).not.toBeNull()
-      expect(Object.keys(contenido ?? {}).sort()).toEqual(['equipos', 'hero', 'imagenes', 'premios'])
+      expect(Object.keys(contenido ?? {}).sort()).toEqual(['hero', 'imagenes', 'participantes', 'premios'])
       expect((contenido?.hero as { lema: string }).lema).toBe('LEMA NUEVO')
 
       // La función no es una puerta atrás a la tabla.
@@ -293,6 +381,57 @@ describe('gran-cosecha-pagina.sql · la función pública', () => {
         /permission denied/i
       )
     })
+  })
+
+  it('publica los proyectos REGISTRADOS del trimestre, con sus riegos y nada más', async () => {
+    await conAnon(async () => {
+      const r = await db.query<{ r: Record<string, unknown> | null }>(
+        `select public.ver_contenido_gran_cosecha() as r`
+      )
+      const participantes = (r.rows[0].r?.participantes ?? []) as Record<string, unknown>[]
+
+      // Sólo los del trimestre en curso y sin cancelados, del que más avanza
+      // al que menos: ni el CANCELADO ni el de 1999 se cuelan.
+      expect(participantes.map((p) => p.titulo)).toEqual(['Huerto vertical', 'Caja cero espera'])
+
+      // El conteo de riegos: número por proyecto, cero si nadie lo regó.
+      expect(participantes[0].riegos).toBe(2)
+      expect(participantes[1].riegos).toBe(0)
+
+      // El equipo sale como NOMBRES, y quién riego nunca es contenido
+      // público. El `id` SÍ viaja: es por donde los portales hermanos
+      // descubren de qué proyecto regar (un uuid de concurso no da ningún
+      // permiso: la tabla de riegos está cerrada).
+      expect(participantes[0].miembros).toEqual(['Ana Líder', 'Juan Trabajador', 'Tercera Persona'])
+      expect(typeof participantes[0].id).toBe('string')
+      expect(participantes[0].usuario).toBeUndefined()
+    })
+  })
+
+  it('las fotos salen de la tarjeta vinculada; sin tarjeta salen null', async () => {
+    await conAnon(async () => {
+      const r = await db.query<{ r: Record<string, unknown> | null }>(
+        `select public.ver_contenido_gran_cosecha() as r`
+      )
+      const participantes = (r.rows[0].r?.participantes ?? []) as Record<string, unknown>[]
+      const conFoto = participantes.find((p) => p.titulo === 'Huerto vertical') as Record<string, unknown>
+      const sinFoto = participantes.find((p) => p.titulo === 'Caja cero espera') as Record<string, unknown>
+      expect(conFoto.imagen).toBe('https://supabase.test/gran-cosecha/cara.webp')
+      expect(conFoto.foto).toBe('https://supabase.test/gran-cosecha/equipo.webp')
+      // El proyecto sin tarjeta se publica igual —es la regla—, sin foto.
+      expect(sinFoto.imagen).toBeNull()
+      expect(sinFoto.foto).toBeNull()
+    })
+  })
+
+  it('un riego de más no cambia el conteo: la unicidad es la PK del riego', async () => {
+    // El mismo par (proyecto, usuario) no puede entrar dos veces; el conteo
+    // público sigue siendo el de las filas ÚNICAS.
+    await expect(regar(idConFoto, 'academia:1')).rejects.toThrow(/duplicate key/i)
+    const n = await contar(
+      `select count(*) as n from public.gran_cosecha_riego where proyecto_id = '${idConFoto}'`
+    )
+    expect(n).toBe(2)
   })
 
   it('es security definer con search_path fijo', async () => {

@@ -4,9 +4,9 @@ import { listarUsuarios, type ProfileVista } from './usuarios'
 /**
  * GRAN COSECHA: EL CONCURSO INTERNO DE PROYECTOS
  * ---------------------------------------------
- * Dos tablas (`gran_cosecha_proyecto` y `gran_cosecha_bitacora`) y una
- * escritura: la app toca SÓLO el proyecto. La bitácora la escribe un trigger
- * en la misma transacción (`gran_cosecha_registrar_cambio` en
+ * Tres tablas: `gran_cosecha_proyecto`, `gran_cosecha_bitacora` y
+ * `gran_cosecha_riego`. La app toca SÓLO el proyecto: la bitácora la escribe
+ * un trigger en la misma transacción (`gran_cosecha_registrar_cambio` en
  * `supabase/schema.sql`), así "todo cambio queda registrado" no depende de
  * que este archivo se acuerde de escribirlo — no hay forma de cambiar un
  * proyecto sin dejar registro, y si la bitácora no se puede escribir, el
@@ -14,6 +14,14 @@ import { listarUsuarios, type ProfileVista } from './usuarios'
  *
  * Por eso `actualizarProyecto` es una sola llamada y no un par: no hay dos
  * statements que puedan quedar a medias.
+ *
+ * Los RIEGOS (el "like" de jardín) son la excepción que confirma la regla:
+ * su tabla está CERRADA — ni `anon` ni la sesión tienen privilegio — y se
+ * entra por DOS puertas: la edge function `registrar-riego` (la llaman los
+ * portales hermanos) y `regar_proyecto` (acá, con sesión). Las dos guardan
+ * la MISMA clave (`profiles.usuario` de la sesión / el `usuario` que manda el
+ * portal), así que un mismo humano cuenta UNA vez entre los tres lados — y
+ * esa unicidad vive en la PRIMARY KEY, no acá.
  *
  * La RLS hace el resto: cualquiera con sesión lee, cualquiera crea el SUYO
  * (`creador_id = auth.uid()`), y sólo JUEZ y LÍDER editan el de otro. Nadie
@@ -302,4 +310,60 @@ export async function actualizarProyecto(id: string, cambios: CambiosProyecto): 
  */
 export async function candidatosDeEquipoAsync(): Promise<ProfileVista[]> {
   return candidatosDeEquipo(await listarUsuarios())
+}
+
+/* -------------------------------------------------------------------------
+ * LOS RIEGOS: el "like" de jardín del concurso
+ *
+ * Dos RPC y NI UNA lectura de tabla: `gran_cosecha_riego` está cerrada, así
+ * que lo único que sale de ella es el NÚMERO y si yo ya regué — nunca quién.
+ * ------------------------------------------------------------------------- */
+
+/** El estado del riego de UN proyecto: cuántas veces y si YO ya lo regué. */
+export interface RiegosProyecto {
+  riegos: number
+  /** `true` si la sesión de hoy ya regó ése (el botón queda puesto). */
+  mio: boolean
+}
+
+/**
+ * El conteo de riegos de TODOS los proyectos, por id.
+ *
+ * `null` = la RPC todavía no existe en la base (bloque de riegos sin
+ * aplicar): la pantalla no pinta NINGÚN chip en vez de enseñar un cero que
+ * sería mentira.
+ */
+export async function riegosDeLaCosecha(): Promise<Record<string, RiegosProyecto> | null> {
+  try {
+    const { data, error } = await supabase.rpc('riegos_de_la_cosecha')
+    if (error) return null
+    return (data ?? {}) as Record<string, RiegosProyecto>
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Regar un proyecto desde EvaLuxor.
+ *
+ * Una vez por usuario y proyecto (la PRIMARY KEY manda): el segundo llamado
+ * no agrega fila y devuelve `ya_regado: true`. La clave que se guarda es el
+ * `usuario` de ESTA sesión — la misma que mandan los portales hermanos—, y
+ * la función ni siquiera acepta un identificador de terceros: no hay forma
+ * de regar "por otro".
+ */
+export async function regarProyecto(
+  proyectoId: string
+): Promise<{ ya_regado: boolean; riegos: number }> {
+  const { data, error } = await supabase.rpc('regar_proyecto', { p_proyecto_id: proyectoId })
+  if (error) {
+    if (error.code === '42883' || /regar_proyecto/.test(error.message)) {
+      throw new Error(
+        'El SQL de riegos todavía no está aplicado en la base: pegá el bloque en el SQL Editor de Supabase y recargá esta pantalla.'
+      )
+    }
+    throw new Error(error.message)
+  }
+  const r = data as { ya_regado?: boolean; riegos?: number } | null
+  return { ya_regado: Boolean(r?.ya_regado), riegos: Number(r?.riegos ?? 0) }
 }

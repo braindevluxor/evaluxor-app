@@ -70,17 +70,20 @@ export interface PremioPagina {
 }
 
 /**
- * Un equipo que aparece en la sección «EQUIPOS PARTICIPANTES».
+ * Las FOTOS de un participante de la sección «EQUIPOS PARTICIPANTES».
  *
- * La tarjeta de la landing tiene DOS caras: `imagen` es la del PROYECTO —lo
- * que se ve siempre— y `foto` es la del EQUIPO, que se revela al pasar el
- * mouse (o al tocarla o enfocarla con el teclado). Las dos son opcionales:
- * sin imagen la tarjeta se respalda con la inicial del equipo, y sin foto
- * simplemente no hay nada que revelar.
+ * Quien APARECE en la sección son los proyectos registrados en la consola
+ * (`gran_cosecha_proyecto`): esta tarjeta sólo dice QUÉ fotos van en cada uno.
+ * `proyecto_id` es ese vínculo —sin él la tarjeta no se publica, aunque el
+ * proyecto aparezca igual, sin foto—. Las dos caras de la tarjeta: `imagen` es
+ * la del PROYECTO (lo que se ve siempre) y `foto` es la del equipo, que se
+ * revela al pasar el mouse (o al tocarla o enfocarla con el teclado). Las dos
+ * son opcionales: sin imagen la tarjeta se respalda con la inicial del título,
+ * y sin foto simplemente no hay nada que revelar.
  */
 export interface EquipoPagina {
-  nombre: string
-  sucursal: string
+  /** El proyecto registrado al que pertenecen las fotos ('' = sin vincular). */
+  proyecto_id: string
   /** Imagen del proyecto: la cara frontal de la tarjeta. */
   imagen: string
   /** Foto del equipo, revelada al interactuar con la tarjeta. */
@@ -149,13 +152,13 @@ export async function cargarContenidoPagina(): Promise<ContenidoPagina> {
   return {
     hero,
     premios: Array.isArray(data.premios) ? (data.premios as PremioPagina[]) : [],
-    // Una fila guardada antes de las fotos de equipo no trae `imagen` ni
-    // `foto`: se normaliza a vacío para que la consola no pinte `undefined`
-    // y la landing sepa distinguir «sin foto» de «con foto».
+    // Una fila guardada con la versión vieja de las tarjetas traía `nombre` y
+    // `sucursal` (ya no: el nombre del participante lo manda su proyecto) y no
+    // traía `proyecto_id`. Se normaliza a la forma actual para que la consola
+    // no pinte `undefined` y la validación pueda decir qué falta vincular.
     equipos: Array.isArray(data.equipos)
       ? (data.equipos as Partial<EquipoPagina>[]).map((e) => ({
-          nombre: e?.nombre ?? '',
-          sucursal: e?.sucursal ?? '',
+          proyecto_id: e?.proyecto_id ?? '',
           imagen: e?.imagen ?? '',
           foto: e?.foto ?? ''
         }))
@@ -200,8 +203,17 @@ export function validarContenido(contenido: ContenidoPagina): string | null {
       return `El premio ${i + 1} necesita su puesto y su descripción.`
     }
   }
+  const vinculados = new Set<string>()
   for (const [i, equipo] of contenido.equipos.entries()) {
-    if (!equipo.nombre.trim()) return `El equipo ${i + 1} necesita su nombre.`
+    if (!equipo.proyecto_id.trim()) {
+      return `La tarjeta ${i + 1} no está vinculada a un proyecto: elegí cuál proyecto publica o quitá la tarjeta.`
+    }
+    // Dos tarjetas del mismo proyecto: la página sólo puede usar la primera
+    // (la función toma una sola), así que la segunda se ignoraría en silencio.
+    if (vinculados.has(equipo.proyecto_id)) {
+      return `El proyecto de la tarjeta ${i + 1} ya está en otra tarjeta: cada proyecto lleva una sola.`
+    }
+    vinculados.add(equipo.proyecto_id)
   }
   return null
 }
