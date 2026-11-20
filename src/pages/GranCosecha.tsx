@@ -885,7 +885,7 @@ function DetalleProyecto({
  * `problema`: acá sólo se muestra, para que el mensaje quede junto a lo que
  * falla.
  */
-function SelectorEquipo({
+export function SelectorEquipo({
   elegidos,
   candidatos,
   onElegidos,
@@ -936,6 +936,15 @@ function SelectorEquipo({
   }, [busqueda])
 
   const q = busqueda.trim().toLowerCase()
+
+  /**
+   * El texto de apoyo de una fila: la cédula si la trae, y si no, la
+   * identidad que sí tiene la fila (mismo criterio que la tabla del
+   * detalle). La cédula sólo la guardan los que NO tienen cuenta en EvaLuxor.
+   */
+  const subDe = (m: MiembroEquipo): string =>
+    m.dni != null ? cedula({ nationality: m.nacionalidad ?? 'V', dni: m.dni }) : 'Cuenta en EvaLuxor'
+
   /** Una fila del selector: un usuario de la app o un trabajador de la nómina. */
   type Opcion = {
     clave: string
@@ -960,7 +969,29 @@ function SelectorEquipo({
       trabajador: t
     }))
   ]
-  const visibles = opciones.filter((o) => !q || `${o.nombre} ${o.sub}`.toLowerCase().includes(q))
+  /**
+   * Las filas que la lista ofrece AUNQUE no salgan de la candidatura.
+   *
+   * Dos casos: los ELEGIDOS que son trabajadores de la nómina (sólo entran
+   * a la lista cuando se los busca, porque son miles y la búsqueda va al
+   * servidor) y los que se deseleccionaron con este panel abierto. Sin
+   * esto el equipo era invisible —el contador decía «Equipo (3)» y la
+   * lista mostraba sólo a los usuarios del sistema—, y destildar a alguien
+   * hacía desaparecer su fila, con ella la forma de volver a marcarlo.
+   *
+   * Van PRIMEROS, así no hay que buscarlos para verlos.
+   */
+  const [extras, setExtras] = useState<Record<string, { nombre: string; sub: string }>>(() =>
+    Object.fromEntries(elegidos.map((m) => [claveDeMiembro(m), { nombre: m.nombre, sub: subDe(m) }]))
+  )
+
+  const filasExtras: Opcion[] = Object.entries(extras)
+    .filter(([clave]) => !opciones.some((o) => o.clave === clave))
+    .map(([clave, datos]) => ({ clave, ...datos }))
+
+  const visibles = [...filasExtras, ...opciones].filter(
+    (o) => !q || `${o.nombre} ${o.sub}`.toLowerCase().includes(q)
+  )
 
   const alternar = (o: Opcion) => {
     const esta = (m: MiembroEquipo) => claveDeMiembro(m) === o.clave
@@ -976,6 +1007,12 @@ function SelectorEquipo({
           nacionalidad: o.trabajador?.nacionalidad,
           dni: o.trabajador?.dni
         }
+    // Su fila queda registrada: si es un trabajador de la nómina, al limpiar
+    // la búsqueda dejaría de salir de `opciones` y se escondería estando
+    // elegido.
+    setExtras((prev) =>
+      prev[o.clave] ? prev : { ...prev, [o.clave]: { nombre: o.nombre, sub: o.sub } }
+    )
     onElegidos([...elegidos, nuevo])
   }
 
@@ -993,13 +1030,10 @@ function SelectorEquipo({
         />
       </Field>
 
-      {candidatos === null ? (
-        <p className="flex items-center gap-2 text-sm text-slate-500">
-          <Spinner size={16} /> Cargando usuarios…
-        </p>
-      ) : !visibles.length ? (
-        <p className="text-sm text-slate-500">Nadie coincide con «{busqueda}».</p>
-      ) : (
+      {/* La lista PRIMERO: si hay algo que mostrar —incluidos los ya
+          elegidos— se pinta aunque `candidatos` todavía esté cargando, así
+          el equipo seleccionado nunca queda oculto detrás de un spinner. */}
+      {visibles.length ? (
         <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
           {visibles.map((o) => {
             const marcado = elegidos.some((m) => claveDeMiembro(m) === o.clave)
@@ -1028,6 +1062,12 @@ function SelectorEquipo({
             )
           })}
         </ul>
+      ) : candidatos === null ? (
+        <p className="flex items-center gap-2 text-sm text-slate-500">
+          <Spinner size={16} /> Cargando usuarios…
+        </p>
+      ) : (
+        <p className="text-sm text-slate-500">Nadie coincide con «{busqueda}».</p>
       )}
       {errorNomina ? (
         <p className="mt-2 text-xs font-semibold text-amber-700">
