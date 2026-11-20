@@ -61,6 +61,27 @@ describe('módulos · el evaluador entra a consultar y a descargar la explicaci�
     expect(pagina).toContain('Aún no hay módulos configurados.')
   })
 
+  it('la vista es de FILAS en escritorio y de TARJETAS en el móvil', () => {
+    const pagina = fuente('./Modulos.tsx')
+
+    // Escritorio: una tabla, una fila por módulo —lo que se escanea de
+    // arriba abajo— con sus cuatro columnas…
+    expect(pagina).toContain('<table className="w-full text-sm">')
+    expect(pagina).toContain('bg-white lg:block')
+    expect(pagina).toContain('>Ítems</th>')
+    // …y móvil: las tarjetas de siempre, en una columna.
+    expect(pagina).toContain('grid gap-3 lg:hidden')
+
+    // Los botones están en UN componente compartido por las dos vistas:
+    // si cada una tuviera los suyos, un día se actualizaría una sola.
+    expect(pagina).toContain('function AccionesModulo(')
+    expect(pagina.match(/<AccionesModulo/g) ?? []).toHaveLength(2)
+
+    // Cada vista con su esqueleto de carga.
+    expect(pagina).toContain('<SkeletonFilas n={6} />')
+    expect(pagina).toContain('<SkeletonTarjetas n={4} cols="sm:grid-cols-2" />')
+  })
+
   it('el servidor deja leer módulos e items y sólo al Líder escribir', () => {
     const schema = fuente('../../../supabase/schema.sql')
     // Sin estas dos lecturas el PDF de explicación saldría vacío para el

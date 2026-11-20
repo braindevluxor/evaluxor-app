@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listarModulosAdmin, guardarModulo, eliminarModulo } from '../../lib/data/catalog'
 import type { Modulo, Item } from '../../lib/types'
-import { Button, ButtonIcon, Field, Input, Modal, Badge, Textarea, SkeletonTarjetas, claseBotonIcono } from '../../components/ui'
+import { Button, ButtonIcon, Field, Input, Modal, Badge, Textarea, SkeletonFilas, SkeletonTarjetas, claseBotonIcono } from '../../components/ui'
 import { FileDown, List, Pencil, Trash2 } from 'lucide-react'
 import { descargarExplicacionModulo } from '../../lib/pdf/explicacionModulo'
 import { IconoModulo } from '../../components/IconoModulo'
@@ -49,61 +49,119 @@ export function ModulosPage() {
       </div>
 
       {cargando ? (
-        <SkeletonTarjetas n={4} cols="sm:grid-cols-2 xl:grid-cols-3" />
+        <>
+          {/* El esqueleto imita la lista real: tarjetas abajo, filas arriba. */}
+          <div className="lg:hidden">
+            <SkeletonTarjetas n={4} cols="sm:grid-cols-2" />
+          </div>
+          <div className="hidden lg:block">
+            <SkeletonFilas n={6} />
+          </div>
+        </>
       ) : !modulos.length ? (
         <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-slate-500">
           {soloLectura ? 'Aún no hay módulos configurados.' : 'Crea el primer módulo.'}
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {modulos.map((m) => (
-            <div key={m.id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="mb-1 flex items-start justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <IconoModulo nombre={m.icono} className="h-5 w-5 shrink-0 text-primary" />
-                  <p className="font-bold text-primary-900">{m.nombre}</p>
+        <>
+          {/* ESCRITORIO: una fila por módulo —tabla, que es lo que se puede
+              escanear de arriba abajo—. Las columnas son las cuatro cosas que
+              se miran: qué es, de qué va, cuántos ítems tiene y en qué estado. */}
+          <div className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white lg:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400">
+                  <th className="px-4 py-3">Módulo</th>
+                  <th className="px-4 py-3">Descripción</th>
+                  <th className="px-4 py-3">Ítems</th>
+                  <th className="px-4 py-3">Estado</th>
+                  <th className="px-4 py-3 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {modulos.map((m) => (
+                  <tr key={m.id} className="border-t border-slate-100 align-top">
+                    <td className="px-4 py-3">
+                      <span className="flex items-center gap-2 font-semibold text-slate-800">
+                        <IconoModulo nombre={m.icono} className="h-5 w-5 shrink-0 text-primary" />
+                        {m.nombre}
+                      </span>
+                    </td>
+                    <td className="max-w-md px-4 py-3 text-slate-500">
+                      <span className="line-clamp-2">{m.descripcion || 'Sin descripción'}</span>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-slate-600">{m._items.length}</td>
+                    <td className="px-4 py-3">
+                      <span className="flex flex-wrap gap-1">
+                        {m.compartido ? <Badge color={1}>Compartido</Badge> : null}
+                        <Badge color={m.activo ? 2 : 4}>{m.activo ? 'Activo' : 'Inactivo'}</Badge>
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <AccionesModulo
+                          modulo={m}
+                          soloLectura={soloLectura}
+                          onDescargar={() =>
+                            void descargarExplicacionModulo({
+                              moduloNombre: m.nombre,
+                              moduloDescripcion: m.descripcion,
+                              items: m._items
+                            })
+                          }
+                          onEditar={() => {
+                            setEditando(m)
+                            setModal(true)
+                          }}
+                          onBorrar={() => setABorrar(m)}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* MÓVIL: las mismas tarjetas de siempre —en una columna, que en
+              una tabla de cinco columnas no cabría nada—. */}
+          <div className="grid gap-3 lg:hidden">
+            {modulos.map((m) => (
+              <div key={m.id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="mb-1 flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <IconoModulo nombre={m.icono} className="h-5 w-5 shrink-0 text-primary" />
+                    <p className="font-bold text-primary-900">{m.nombre}</p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    {m.compartido ? <Badge color={1}>Compartido</Badge> : null}
+                    <Badge color={m.activo ? 2 : 4}>{m.activo ? 'Activo' : 'Inactivo'}</Badge>
+                  </div>
                 </div>
-                <div className="flex shrink-0 gap-1">
-                  {m.compartido ? <Badge color={1}>Compartido</Badge> : null}
-                  <Badge color={m.activo ? 2 : 4}>{m.activo ? 'Activo' : 'Inactivo'}</Badge>
+                <p className="mb-3 line-clamp-2 text-sm text-slate-500">{m.descripcion || 'Sin descripción'}</p>
+                <p className="mb-3 text-xs text-slate-400">{m._items.length} ítem(s) configurados</p>
+                <div className="mt-auto flex items-center justify-end gap-1.5">
+                  <AccionesModulo
+                    modulo={m}
+                    soloLectura={soloLectura}
+                    onDescargar={() =>
+                      void descargarExplicacionModulo({
+                        moduloNombre: m.nombre,
+                        moduloDescripcion: m.descripcion,
+                        items: m._items
+                      })
+                    }
+                    onEditar={() => {
+                      setEditando(m)
+                      setModal(true)
+                    }}
+                    onBorrar={() => setABorrar(m)}
+                  />
                 </div>
               </div>
-              <p className="mb-3 line-clamp-2 text-sm text-slate-500">{m.descripcion || 'Sin descripción'}</p>
-              <p className="mb-3 text-xs text-slate-400">{m._items.length} ítem(s) configurados</p>
-              <div className="mt-auto flex items-center justify-end gap-1.5">
-                {/* La descarga de la explicación es lo único que también hace
-                    el evaluador en modo consulta: siempre visible. */}
-                <ButtonIcon
-                  variant="primary"
-                  onClick={() =>
-                    void descargarExplicacionModulo({
-                      moduloNombre: m.nombre,
-                      moduloDescripcion: m.descripcion,
-                      items: m._items
-                    })
-                  }
-                  title="Descargar explicación del módulo"
-                  aria-label="Descargar explicación del módulo"
-                >
-                  <FileDown className="h-5 w-5" />
-                </ButtonIcon>
-                {!soloLectura ? (
-                  <>
-                    <Link to={`/config/items?modulo=${m.id}`} title="Ver ítems" aria-label="Ver ítems" className={claseBotonIcono('primary')}>
-                      <List className="h-5 w-5" />
-                    </Link>
-                    <ButtonIcon variant="primary" onClick={() => { setEditando(m); setModal(true) }} title="Editar" aria-label="Editar">
-                      <Pencil className="h-5 w-5" />
-                    </ButtonIcon>
-                    <ButtonIcon variant="danger" onClick={() => setABorrar(m)} title="Eliminar" aria-label="Eliminar">
-                      <Trash2 className="h-5 w-5" />
-                    </ButtonIcon>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       )}
 
       <Modal
@@ -153,6 +211,61 @@ export function ModulosPage() {
         ) : null}
       </Modal>
     </div>
+  )
+}
+
+/**
+ * Los botones de UN módulo: descargar la explicación (siempre, también en
+ * modo consulta) y, sólo si se puede escribir, ver ítems, editar y eliminar.
+ *
+ * Vive en un solo lugar porque la vista de escritorio (tabla) y la del
+ * móvil (tarjetas) son dos renderings del mismo dato: si cada una tuviera
+ * los suyos, un día se actualizaría uno y no el otro.
+ */
+function AccionesModulo({
+  modulo,
+  soloLectura,
+  onDescargar,
+  onEditar,
+  onBorrar
+}: {
+  modulo: Modulo & { _items: Item[] }
+  soloLectura: boolean
+  onDescargar: () => void
+  onEditar: () => void
+  onBorrar: () => void
+}) {
+  return (
+    <>
+      {/* La descarga de la explicación es lo único que también hace el
+          evaluador en modo consulta: siempre visible. */}
+      <ButtonIcon
+        variant="primary"
+        onClick={onDescargar}
+        title="Descargar explicación del módulo"
+        aria-label="Descargar explicación del módulo"
+      >
+        <FileDown className="h-5 w-5" />
+      </ButtonIcon>
+      {!soloLectura ? (
+        <>
+          <Link
+            to={`/config/items?modulo=${modulo.id}`}
+            title="Ver ítems"
+            aria-label="Ver ítems"
+            className={claseBotonIcono('primary')}
+          >
+            <List className="h-5 w-5" />
+          </Link>
+          <ButtonIcon variant="primary" onClick={onEditar} title="Editar" aria-label="Editar">
+            <Pencil className="h-5 w-5" />
+          </ButtonIcon>
+          <ButtonIcon variant="danger" onClick={onBorrar} title="Eliminar" aria-label="Eliminar">
+            <Trash2 className="h-5 w-5" />
+          </ButtonIcon>
+        </>
+      ) : null}
+    </>
   )
 }
 
