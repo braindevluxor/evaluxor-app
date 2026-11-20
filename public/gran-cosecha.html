@@ -172,6 +172,46 @@
       );
     }
 
+    /* Los DOS números del proyecto, dentro del rótulo: cómo va (avance) y
+       cuántas veces lo regaron (el "like" de jardín, con regadera). */
+    .tarjeta-equipo .datos-participante {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 0.6rem;
+    }
+
+    .tarjeta-equipo .chip-avance,
+    .tarjeta-equipo .chip-riegos {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0.25rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.66rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      line-height: 1.1;
+    }
+
+    .tarjeta-equipo .chip-avance {
+      background: var(--luxor-yellow);
+      color: var(--luxor-navy);
+    }
+
+    /* Azul de AGUA para que no se confunda con los chips de otra cosa. */
+    .tarjeta-equipo .chip-riegos {
+      background: #ffffff;
+      color: #0a4a75;
+    }
+
+    .tarjeta-equipo .chip-riegos .riego-ico {
+      width: 13px;
+      height: 13px;
+      flex: none;
+    }
+
     /* La pista invita al gesto y se aparta cuando la foto ya está encima. */
     .tarjeta-equipo .pista {
       position: absolute;
@@ -205,13 +245,13 @@
       .tarjeta-equipo .pista { transition: none; }
     }
 
-    /* TEXTURA DEL BLOQUE ¿QUÉ ES? — la retícula de cruces del sitio
-       corporativo (public/fondo.svg, grises al 8 %), con el MISMO
-       tratamiento que allá: cover sin repetir y attachment fixed, para
-       que la retícula quede quieta mientras la sección pasa. Va con
-       background-image y NO con el shorthand `background`, que borraría
-       el background-color: el vinotinto de Tailwind sigue de base y la
-       textura pinta encima. */
+    /* TEXTURA DE FONDO (bloque rojo de «¿QUÉ ES?» y sección de
+       PARTICIPANTES) — la retícula de cruces del sitio corporativo
+       (public/fondo.svg, grises al 8 %), con el MISMO tratamiento en los dos:
+       cover sin repetir y attachment fixed, para que la retícula quede quieta
+       mientras la sección pasa. Va con background-image y NO con el
+       shorthand `background`, que borraría el background-color: el color de
+       Tailwind sigue de base y la textura pinta encima. */
     .textura-cruces {
       background-image: url('fondo.svg');
       background-size: cover;
@@ -637,11 +677,16 @@
     </div>
   </section>
 
-  <!-- EQUIPOS PARTICIPANTES: la consola la publica (sección oculta por
-       defecto; el script de abajo la muestra si hay equipos cargados).
-       Cada tarjeta monta la imagen del proyecto; si el equipo trae foto,
-       la tarjeta se enfoca o se toca y la foto se revela encima. -->
-  <section id="equipos" class="bg-[#0a1e5e] text-white py-16 px-4 hidden">
+  <!-- EQUIPOS PARTICIPANTES: la consola la publica con los proyectos
+       REGISTRADOS en /gran-cosecha (sección oculta por defecto; el script de
+       abajo la muestra si hay proyectos en el trimestre). Cada tarjeta monta
+       la imagen del proyecto; si trae foto, la tarjeta se enfoca o se toca y
+       la foto se revela encima.
+       Va en el AZUL PRIMARIO #28315F —el de los botones de EvaLuxor— y con
+       la MISMA textura de fondo.svg que el bloque rojo de «¿QUÉ ES?»: la
+       retícula va SOBRE el color de fondo (background-image, nunca el
+       shorthand `background`, que lo borraría). -->
+  <section id="equipos" class="bg-[#28315F] textura-cruces text-white py-16 px-4 hidden">
     <div class="mx-auto max-w-6xl text-center">
       <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#facc15] tracking-wide">
         EQUIPOS PARTICIPANTES
@@ -865,7 +910,7 @@
       // hover, así que el clic alterna la clase que revela la foto (en
       // escritorio la revela el CSS del :hover, y el clic la deja fija).
       // Va con delegación en la lista, como los premios, para que
-      // sobreviva al repintado de pintarEquipos al Guardar.
+      // sobreviva al repintado de pintarParticipantes al Guardar.
       const equiposLista = document.getElementById('equiposLista');
       if (equiposLista) {
         equiposLista.addEventListener('click', (e) => {
@@ -1077,35 +1122,68 @@
         if (html) cont.innerHTML = html;
       }
 
-      function pintarEquipos(equipos) {
+      // La regadera del "regar": el like de jardín, con la temática de la
+      // cosecha en vez del pulgar de Facebook. Sólo dibuja —el número lo dice
+      // el chip que la contiene.
+      function regaderaSvg() {
+        return '<svg viewBox="0 0 32 32" class="riego-ico" aria-hidden="true" focusable="false">'
+          + '<path d="M12 13h11a2 2 0 0 1 2 2v7a4 4 0 0 1-4 4h-7a4 4 0 0 1-4-4v-9z" fill="currentColor"/>'
+          + '<path d="M15 13a4.5 4.5 0 0 1 9 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+          + '<path d="M12 15 6 11.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>'
+          + '<circle cx="4.5" cy="10.5" r="3" fill="currentColor"/>'
+          + '<circle cx="5" cy="18" r="1.4" fill="currentColor"/>'
+          + '<circle cx="8" cy="21.5" r="1.1" fill="currentColor"/>'
+          + '</svg>';
+      }
+
+      /**
+       * LOS PARTICIPANTES: los proyectos REGISTRADOS en la consola, del
+       * trimestre en curso, con su equipo, su avance y sus RIEGOS. La foto
+       * (si el Líder vinculó una tarjeta a ese proyecto) va encima, igual
+       * que siempre: sin imagen se respalda con la inicial del título.
+       */
+      function pintarParticipantes(participantes) {
         var seccion = document.getElementById('equipos');
         var cont = document.getElementById('equiposLista');
         var pistaSeccion = document.getElementById('equiposPista');
-        if (!seccion || !cont || !Array.isArray(equipos)) return;
+        if (!seccion || !cont || !Array.isArray(participantes)) return;
         var html = '';
         var algunaConFoto = false;
-        equipos.forEach(function (e) {
-          var nombre = e && typeof e.nombre === 'string' ? e.nombre.trim() : '';
-          if (!nombre) return;
-          var sucursal = e && typeof e.sucursal === 'string' ? e.sucursal.trim() : '';
-          var imagen = e && typeof e.imagen === 'string' ? e.imagen.trim() : '';
-          var foto = e && typeof e.foto === 'string' ? e.foto.trim() : '';
+        participantes.forEach(function (p) {
+          var titulo = p && typeof p.titulo === 'string' ? p.titulo.trim() : '';
+          if (!titulo) return;
+          var imagen = p && typeof p.imagen === 'string' ? p.imagen.trim() : '';
+          var foto = p && typeof p.foto === 'string' ? p.foto.trim() : '';
           if (foto) algunaConFoto = true;
           // La inicial va PINTADA debajo de la imagen del proyecto en todas
           // las tarjetas: si la URL no carga, la cara se queda con la
           // inicial en vez de un hueco navy.
           var inicial = '<span class="inicial" aria-hidden="true">'
-            + esc(nombre.charAt(0).toUpperCase()) + '</span>';
+            + esc(titulo.charAt(0).toUpperCase()) + '</span>';
           var cara = inicial
             + (imagen
               ? '<img src="' + esc(imagen) + '" alt="" loading="lazy" decoding="async" class="cara" />'
               : '');
           var revelado = foto
-            ? '<img src="' + esc(foto) + '" alt="Foto del equipo ' + esc(nombre) + '" loading="lazy" decoding="async" class="foto-equipo" />'
+            ? '<img src="' + esc(foto) + '" alt="Foto del equipo de ' + esc(titulo) + '" loading="lazy" decoding="async" class="foto-equipo" />'
             : '';
+          // El equipo (sólo nombres: los id nunca cruzan la función pública)
+          // y debajo los dos números del proyecto: cómo va y cuántas veces lo
+          // regaron los portales.
+          var miembros = p && Array.isArray(p.miembros)
+            ? p.miembros.filter(function (m) { return typeof m === 'string' && m.trim(); }).join(' · ')
+            : '';
+          var avance = p && typeof p.avance === 'number' ? p.avance : 0;
+          var riegos = p && typeof p.riegos === 'number' ? p.riegos : 0;
+          var datos = '<span class="datos-participante">'
+            + '<span class="chip-avance">Avance ' + avance + '%</span>'
+            + '<span class="chip-riegos" title="Veces que regaron este proyecto">'
+            + regaderaSvg() + '<b>' + riegos + '</b> ' + (riegos === 1 ? 'riego' : 'riegos')
+            + '</span></span>';
           var rotulo = '<span class="rotulo">'
-            + '<span class="block font-display text-lg uppercase text-[#facc15]">' + esc(nombre) + '</span>'
-            + (sucursal ? '<span class="mt-1 block text-sm text-gray-200">' + esc(sucursal) + '</span>' : '')
+            + '<span class="block font-display text-lg uppercase text-[#facc15]">' + esc(titulo) + '</span>'
+            + (miembros ? '<span class="mt-1 block text-sm text-gray-200">' + esc(miembros) + '</span>' : '')
+            + datos
             + '</span>';
           // Sólo con foto la tarjeta es un botón: sin nada que revelar no
           // hay acción que ofrecer al teclado ni al toque.
@@ -1114,12 +1192,12 @@
               + cara + revelado + rotulo + '<span class="pista">Ver foto</span></button>'
             : '<div class="tarjeta-equipo">' + cara + rotulo + '</div>';
         });
-        // Sin equipos publicados la sección sigue oculta.
+        // Sin proyectos registrados en el trimestre, la sección sigue oculta.
         if (html) {
           cont.innerHTML = html;
           seccion.classList.remove('hidden');
-          // La invitación a pasar el mouse sólo aparece si AL MENOS un
-          // equipo trae foto: sin fotos, prometería un gesto inútil.
+          // La invitación a pasar el mouse sólo aparece si AL MENOS una
+          // tarjeta trae foto: sin fotos, prometería un gesto inútil.
           if (pistaSeccion) pistaSeccion.classList.toggle('hidden', !algunaConFoto);
         }
       }
@@ -1144,15 +1222,6 @@
         hero.style.backgroundPosition = 'center, center';
         hero.style.backgroundRepeat = 'no-repeat, no-repeat';
         hero.style.backgroundColor = '#b91c1c';
-      }
-
-      function pintarImagenes(imagenes) {
-        if (!imagenes || typeof imagenes !== 'object') return;
-        ['round1', 'round2', 'round3'].forEach(function (clave) {
-          var el = document.getElementById(clave);
-          var url = imagenes[clave];
-          if (el && typeof url === 'string' && url) el.src = url;
-        });
       }
 
       // El carrusel del hero: capas absolutas que se rotan con un fundido,
@@ -1224,8 +1293,7 @@
           pintarCarrusel(hero.carrusel);
         }
         pintarPremios(contenido.premios);
-        pintarEquipos(contenido.equipos);
-        pintarImagenes(contenido.imagenes);
+        pintarParticipantes(contenido.participantes);
       }
 
       fetch(URL_BASE + '/rest/v1/rpc/ver_contenido_gran_cosecha', {

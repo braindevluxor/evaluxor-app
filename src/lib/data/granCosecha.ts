@@ -1,12 +1,15 @@
 import { supabase } from '../supabase'
+import { convertirImagenAWebP } from '../convertirMedia'
+import { BUCKET } from './granCosechaPagina'
+import type { ColaboradorAPI } from './colaboradores'
 import { listarUsuarios, type ProfileVista } from './usuarios'
 
 /**
  * GRAN COSECHA: EL CONCURSO INTERNO DE PROYECTOS
  * ---------------------------------------------
- * Dos tablas (`gran_cosecha_proyecto` y `gran_cosecha_bitacora`) y una
- * escritura: la app toca SÓLO el proyecto. La bitácora la escribe un trigger
- * en la misma transacción (`gran_cosecha_registrar_cambio` en
+ * Tres tablas: `gran_cosecha_proyecto`, `gran_cosecha_bitacora` y
+ * `gran_cosecha_riego`. La app toca SÓLO el proyecto: la bitácora la escribe
+ * un trigger en la misma transacción (`gran_cosecha_registrar_cambio` en
  * `supabase/schema.sql`), así "todo cambio queda registrado" no depende de
  * que este archivo se acuerde de escribirlo — no hay forma de cambiar un
  * proyecto sin dejar registro, y si la bitácora no se puede escribir, el
@@ -14,6 +17,14 @@ import { listarUsuarios, type ProfileVista } from './usuarios'
  *
  * Por eso `actualizarProyecto` es una sola llamada y no un par: no hay dos
  * statements que puedan quedar a medias.
+ *
+ * Los RIEGOS (el "like" de jardín) son la excepción que confirma la regla:
+ * su tabla está CERRADA — ni `anon` ni la sesión tienen privilegio — y se
+ * entra por DOS puertas: la edge function `registrar-riego` (la llaman los
+ * portales hermanos) y `regar_proyecto` (acá, con sesión). Las dos guardan
+ * la MISMA clave (`profiles.usuario` de la sesión / el `usuario` que manda el
+ * portal), así que un mismo humano cuenta UNA vez entre los tres lados — y
+ * esa unicidad vive en la PRIMARY KEY, no acá.
  *
  * La RLS hace el resto: cualquiera con sesión lee, cualquiera crea el SUYO
  * (`creador_id = auth.uid()`), y sólo JUEZ y LÍDER editan el de otro. Nadie
@@ -27,13 +38,33 @@ export type EstadoProyecto = 'PROPUESTA' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELAD
 export type TipoBitacora = 'ALTA' | 'AVANCE' | 'ESTADO' | 'EDICION' | 'MIEMBROS'
 
 /**
- * Una persona del equipo. Va con el `usuario_id` (para cruzar contra
- * `profiles`) y el `nombre` de la foto: si el usuario algún día no está, la
- * fila se sigue leyendo igual que en `alerta_trabajadores`.
+ * Una persona del equipo: un usuario de EvaLuxor O un trabajador de la
+ * nómina que no tiene cuenta (de cualquier sucursal).
+ *
+ * El usuario va con su `usuario_id` (el que cruza contra `profiles`); el
+ * trabajador sin cuenta va con su CÉDULA (`nacionalidad` + `dni`, la misma
+ * identidad que usan bonos y alertas) y `usuario_id` vacío. En los dos, el
+ * `nombre` es la foto que se lee en pantalla — en la consola y en la
+ * landing—, así que la fila se lee aunque el usuario algún día no esté.
  */
 export interface MiembroEquipo {
+  /** Usuario de EvaLuxor; `''` cuando es un trabajador sin cuenta. */
   usuario_id: string
   nombre: string
+  /** Cédula del trabajador de la nómina (sólo cuando no tiene cuenta). */
+  nacionalidad?: string
+  dni?: number
+}
+
+/**
+ * La identidad de UN integrante, para detectar repetidos: su usuario si
+ * tiene cuenta, su cédula si es un trabajador de la nómina.
+ *
+ * Sin esto, dos trabajadores sin cuenta chocaban en el `usuario_id` vacío y
+ * parecían el mismo integrante repetido.
+ */
+export function claveDeMiembro(m: MiembroEquipo): string {
+  return m.usuario_id ? `u:${m.usuario_id}` : `w:${m.nacionalidad ?? ''}-${m.dni ?? ''}`
 }
 
 export interface ProyectoGranCosecha {
@@ -47,6 +78,14 @@ export interface ProyectoGranCosecha {
   /** La nota del último avance; el historial completo está en la bitácora. */
   avance_nota: string | null
   estado: EstadoProyecto
+  /**
+   * Las DOS fotos del participante en la landing: `imagen` es la del proyecto
+   * (la cara de la tarjeta, siempre visible) y `foto` la del equipo, que la
+   * página revela al pasar el mouse. Vacías = la tarjeta usa la inicial.
+   * Se editan en el propio proyecto (alta o edición).
+   */
+  imagen: string
+  foto: string
   creador_id: string | null
   created_at: string
   updated_at: string
@@ -136,8 +175,17 @@ export function validarEquipo(miembros: readonly MiembroEquipo[]): string | null
   if (miembros.length < 3) return 'El equipo necesita al menos 3 personas.'
   const vistos = new Set<string>()
   for (const m of miembros) {
-    if (vistos.has(m.usuario_id)) return 'Hay integrantes repetidos en el equipo.'
-    vistos.add(m.usuario_id)
+    if (!m.nombre.trim()) return 'Un integrante del equipo no tiene nombre.'
+    // Sin identidad no hay equipo trazable: ni usuario ni cédula.
+    if (!m.usuario_id && m.dni == null) {
+      return 'Un integrante no tiene ni usuario ni cédula.'
+    }
+    // La identidad es el usuario si tiene cuenta, la cédula si es de la
+    // nómina: dos trabajadores sin cuenta antes chocaban en el usuario_id
+    // vacío y parecían repetidos.
+    const identidad = claveDeMiembro(m)
+    if (vistos.has(identidad)) return 'Hay integrantes repetidos en el equipo.'
+    vistos.add(identidad)
   }
   return null
 }
@@ -167,9 +215,15 @@ export function candidatosDeEquipo(perfiles: readonly ProfileVista[]): ProfileVi
  * un "No se pudo cargar" sin pista de qué hacer (mismo criterio que
  * `listarBitacora`).
  */
-function errorDeTabla(error: { code?: string }, mensaje: string): Error {
+function errorDeTabla(error: { code?: string; message?: string }, mensaje: string): Error {
   if (error.code === '42P01' || error.code === '42501') {
     return new Error('Gran Cosecha todavía no está creada en la base. Ejecuta el bloque gran-cosecha.sql en el SQL Editor de Supabase.')
+  }
+  // Columna que todavía no existe en la base (un `alter table` pendiente,
+  // como las fotos del proyecto): el mensaje crudo de PostgREST habla de
+  // "schema cache" y no dice nada útil.
+  if (error.code === 'PGRST204' || /schema cache/i.test(error.message ?? '')) {
+    return new Error('Falta una columna nueva en la base: pegá el bloque de Gran Cosecha en el SQL Editor de Supabase (ver README) y recargá.')
   }
   return new Error(mensaje)
 }
@@ -231,6 +285,9 @@ export interface NuevoProyecto {
   titulo: string
   descripcion: string
   miembros: MiembroEquipo[]
+  /** Las dos fotos de la landing: vacías, la tarjeta usa su inicial. */
+  imagen: string
+  foto: string
 }
 
 /**
@@ -251,6 +308,8 @@ export async function crearProyecto(entrada: NuevoProyecto, creadorId: string): 
       miembros: entrada.miembros,
       avance: 0,
       estado: 'PROPUESTA',
+      imagen: entrada.imagen,
+      foto: entrada.foto,
       creador_id: creadorId
     })
     .select('*')
@@ -261,7 +320,7 @@ export async function crearProyecto(entrada: NuevoProyecto, creadorId: string): 
 }
 
 /**
- * Un cambio en el proyecto: datos, estado, equipo o avance.
+ * Un cambio en el proyecto: datos, estado, equipo, avance o fotos.
  *
  * Sólo se manda lo que cambió. No por el trigger —él compara campo por campo
  * y un valor idéntico no genera fila—, sino para que el `update` no pise una
@@ -275,6 +334,8 @@ export interface CambiosProyecto {
   miembros?: MiembroEquipo[]
   avance?: number
   avance_nota?: string
+  imagen?: string
+  foto?: string
 }
 
 /**
@@ -302,4 +363,130 @@ export async function actualizarProyecto(id: string, cambios: CambiosProyecto): 
  */
 export async function candidatosDeEquipoAsync(): Promise<ProfileVista[]> {
   return candidatosDeEquipo(await listarUsuarios())
+}
+
+/* -------------------------------------------------------------------------
+ * LOS RIEGOS: el "like" de jardín del concurso
+ *
+ * Dos RPC y NI UNA lectura de tabla: `gran_cosecha_riego` está cerrada, así
+ * que lo único que sale de ella es el NÚMERO y si yo ya regué — nunca quién.
+ * ------------------------------------------------------------------------- */
+
+/** El estado del riego de UN proyecto: cuántas veces y si YO ya lo regué. */
+export interface RiegosProyecto {
+  riegos: number
+  /** `true` si la sesión de hoy ya regó ése (el botón queda puesto). */
+  mio: boolean
+}
+
+/**
+ * El conteo de riegos de TODOS los proyectos, por id.
+ *
+ * `null` = la RPC todavía no existe en la base (bloque de riegos sin
+ * aplicar): la pantalla no pinta NINGÚN chip en vez de enseñar un cero que
+ * sería mentira.
+ */
+export async function riegosDeLaCosecha(): Promise<Record<string, RiegosProyecto> | null> {
+  try {
+    const { data, error } = await supabase.rpc('riegos_de_la_cosecha')
+    if (error) return null
+    return (data ?? {}) as Record<string, RiegosProyecto>
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Regar un proyecto desde EvaLuxor.
+ *
+ * Una vez por usuario y proyecto (la PRIMARY KEY manda): el segundo llamado
+ * no agrega fila y devuelve `ya_regado: true`. La clave que se guarda es el
+ * `usuario` de ESTA sesión — la misma que mandan los portales hermanos—, y
+ * la función ni siquiera acepta un identificador de terceros: no hay forma
+ * de regar "por otro".
+ */
+export async function regarProyecto(
+  proyectoId: string
+): Promise<{ ya_regado: boolean; riegos: number }> {
+  const { data, error } = await supabase.rpc('regar_proyecto', { p_proyecto_id: proyectoId })
+  if (error) {
+    if (error.code === '42883' || /regar_proyecto/.test(error.message)) {
+      throw new Error(
+        'El SQL de riegos todavía no está aplicado en la base: pegá el bloque en el SQL Editor de Supabase y recargá esta pantalla.'
+      )
+    }
+    throw new Error(error.message)
+  }
+  const r = data as { ya_regado?: boolean; riegos?: number } | null
+  return { ya_regado: Boolean(r?.ya_regado), riegos: Number(r?.riegos ?? 0) }
+}
+
+/**
+ * Sube una de las DOS fotos del proyecto (la imagen o la del equipo) y
+ * devuelve su URL pública.
+ *
+ * Va al bucket de la landing bajo `proyectos/…` con nombre uuid —dos subidas
+ * nunca comparten ruta, como el carrusel— y la URL anterior del MISMO campo se
+ * borra si era nuestra (queda huérfana sólo si el fallo es de la red). Va
+ * convertida a WebP al vuelo, igual que todo lo que sube la app.
+ *
+ * El prefijo `proyectos/` es el que la política del bucket abre para cualquier
+ * sesión: el que puede editar el proyecto puede cambiar sus fotos.
+ */
+export async function subirFotoProyecto(archivo: File, urlActual: string): Promise<string> {
+  const webp = await convertirImagenAWebP(archivo)
+  const ruta = `proyectos/${crypto.randomUUID()}.webp`
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, webp, {
+    contentType: 'image/webp',
+    upsert: true
+  })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  const url = `${data.publicUrl}?v=${Date.now()}`
+  const marca = `/object/public/${BUCKET}/`
+  const anterior = urlActual.includes(marca) ? urlActual.split(marca)[1]?.split('?')[0] : ''
+  if (anterior && anterior.startsWith('proyectos/')) {
+    await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
+  }
+  return url
+}
+
+/* -------------------------------------------------------------------------
+ * LOS INTEGRANTES SIN CUENTA: trabajadores de la nómina, de cualquier
+ * sucursal — el equipo no es sólo para usuarios de EvaLuxor.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Un trabajador de la nómina, en la forma CRUDA que devuelve la RPC.
+ *
+ * Es un `ColaboradorAPI` (mismo contrato que la API de colaboradores: los
+ * campos de actividad llegan como llegan de la API) más la cédula y la
+ * sucursal tal como se guardan acá. Por eso `nombreCompleto` y `esActivo`
+ * lo interpretan igual que al resto — sin duplicar la normalización, que
+ * vive sólo en el cliente.
+ */
+export interface TrabajadorNomina extends ColaboradorAPI {
+  nacionalidad: string
+  dni: number
+  sucursal: string | null
+}
+
+/**
+ * Trabajadores que coinciden con `texto` —nombre, apellido, sucursal o
+ * cédula—, con cuenta o no: así el equipo acepta a cualquiera, de cualquier
+ * sucursal.
+ *
+ * Va por RPC y no por la tabla: `trabajadores_nomina` sólo la leen LÍDER y
+ * GERENTE_TH por su política, y armar equipo puede cualquiera. La función
+ * devuelve SÓLO lo que el picker necesita (nunca el `datos` completo de la
+ * API) y con límite: la nómina tiene miles de filas, por eso la búsqueda va
+ * en el servidor y el navegador nunca la ve entera.
+ *
+ * `[]` significa «no coincidió nadie» — o texto demasiado corto (menos de
+ * dos letras no busca); el error de red o de permisos lo recibe el llamador.
+ */
+export async function listarTrabajadoresEquipo(texto: string): Promise<TrabajadorNomina[]> {
+  const { data, error } = await supabase.rpc('listar_trabajadores_equipo', { p_texto: texto })
+  if (error) throw errorDeTabla(error, 'No se pudo buscar en la nómina de trabajadores.')
+  return (data ?? []) as TrabajadorNomina[]
 }

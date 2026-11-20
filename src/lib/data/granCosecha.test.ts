@@ -1,12 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }))
+vi.mock('../supabase', () => ({ supabase: { rpc: rpcMock } }))
+
 import {
   ESTADOS,
   TIPOS_BITACORA,
   candidatosDeEquipo,
+  claveDeMiembro,
   etiquetaPeriodo,
   historialAvances,
   periodoDe,
   periodosRecientes,
+  regarProyecto,
+  riegosDeLaCosecha,
   validarEquipo,
   type FilaBitacora,
   type MiembroEquipo
@@ -14,11 +21,13 @@ import {
 import type { ProfileVista } from './usuarios'
 
 /**
- * Gran Cosecha: lo que se puede decir sin tocar la red.
+ * Gran Cosecha: lo del cliente, con supabase mockeado.
  *
  * El SQL cubre las mismas reglas desde el otro lado (`granCosecha-sql.test.ts`);
- * éste cubre la parte que sólo vive en el cliente: el formato del trimestre,
- * el mensaje del equipo incompleto y qué filas de la bitácora son avances.
+ * éste cubre lo que sólo vive acá: el formato del trimestre, el mensaje del
+ * equipo incompleto, qué filas de la bitácora son avances, y CÓMO se piden
+ * los riegos (qué manda la pantalla y qué hace ante una RPC ausente — el
+ * bloque de riegos recién aplicado — sin enseñar ceros inventados).
  */
 
 const equipo = (...ids: string[]): MiembroEquipo[] =>
@@ -125,5 +134,88 @@ describe('la bitácora de avances', () => {
     }
     // El orden importa para el `select` de estado de la pantalla.
     expect(Object.keys(ESTADOS)).toEqual(['PROPUESTA', 'EN_CURSO', 'COMPLETADO', 'CANCELADO'])
+  })
+})
+
+describe('riegos · lo que la pantalla manda y lo que hace sin el bloque', () => {
+  beforeEach(() => rpcMock.mockReset())
+
+  it('el conteo se pide entero, por la RPC y sin tocar la tabla', async () => {
+    rpcMock.mockResolvedValue({ data: { p1: { riegos: 3, mio: true } }, error: null })
+    expect(await riegosDeLaCosecha()).toEqual({ p1: { riegos: 3, mio: true } })
+    expect(rpcMock).toHaveBeenCalledWith('riegos_de_la_cosecha')
+  })
+
+  it('si la RPC no existe devuelve null: la pantalla no pinta ceros', async () => {
+    // Bloque de riegos todavía no aplicado en la base.
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { code: '42883', message: 'function public.riegos_de_la_cosecha() does not exist' }
+    })
+    expect(await riegosDeLaCosecha()).toBeNull()
+
+    // O sin red: supabase-js lo devuelve como `error` (Failed to fetch) y
+    // el resultado es el mismo —null, no un cero—. (El `catch` de la
+    // función es la red de seguridad para un rechazo real de la promesa.)
+    rpcMock.mockResolvedValue({ data: null, error: { message: 'Failed to fetch' } })
+    expect(await riegosDeLaCosecha()).toBeNull()
+  })
+
+  it('regar manda SÓLO el proyecto y devuelve el conteo nuevo', async () => {
+    rpcMock.mockResolvedValue({ data: { ya_regado: false, riegos: 5 }, error: null })
+    expect(await regarProyecto('p1')).toEqual({ ya_regado: false, riegos: 5 })
+    // Sin identidad en el payload: quién riega lo decide la base.
+    expect(rpcMock).toHaveBeenCalledWith('regar_proyecto', { p_proyecto_id: 'p1' })
+  })
+
+  it('la RPC ausente se explica en castellano, no con un 42883', async () => {
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { code: '42883', message: 'function public.regar_proyecto(uuid) does not exist' }
+    })
+    await expect(regarProyecto('p1')).rejects.toThrow(/bloque en el SQL Editor/)
+  })
+
+  it('lo que la base dice (cancelado, sin usuario) se propaga tal cual', async () => {
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { code: 'P0001', message: 'Ese proyecto ya no participa en el concurso.' }
+    })
+    await expect(regarProyecto('p1')).rejects.toThrow(/ya no participa/)
+  })
+})
+
+describe('validarEquipo · integrantes sin cuenta', () => {
+  const trabajador = (dni: number, nombre = `Trabajador ${dni}`): MiembroEquipo => ({
+    usuario_id: '',
+    nombre,
+    nacionalidad: 'V',
+    dni
+  })
+
+  it('dos trabajadores de la nómina NO son «el mismo repetido»', () => {
+    // Antes la identidad era sólo `usuario_id`: los dos sin cuenta chocaban
+    // en la cadena vacía y parecían un integrante repetido.
+    expect(validarEquipo([...equipo('a', 'b'), trabajador(1), trabajador(2)])).toBeNull()
+  })
+
+  it('la misma cédula dos veces SÍ es repetido', () => {
+    expect(validarEquipo([...equipo('a', 'b'), trabajador(1), trabajador(1)])).toMatch(/repetidos/)
+  })
+
+  it('nadie entra sin nombre ni sin identidad', () => {
+    expect(validarEquipo([...equipo('a', 'b'), { usuario_id: '', nombre: '   ' }])).toMatch(/nombre/)
+    expect(validarEquipo([...equipo('a', 'b'), { usuario_id: '', nombre: 'Sin cédula' }])).toMatch(
+      /usuario ni cédula/
+    )
+  })
+})
+
+describe('claveDeMiembro · la identidad de un integrante', () => {
+  it('usa el usuario si tiene cuenta y la cédula si no', () => {
+    expect(claveDeMiembro({ usuario_id: 'u1', nombre: 'Ana Líder' })).toBe('u:u1')
+    expect(claveDeMiembro({ usuario_id: '', nombre: 'José Pérez', nacionalidad: 'V', dni: 12345678 })).toBe(
+      'w:V-12345678'
+    )
   })
 })

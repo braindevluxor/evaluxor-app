@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp, Eye, Plus, Trash2 } from 'lucide-react'
 import { avisar } from '../lib/aviso'
-import { Button, ButtonIcon, EmptyState, Field, Input, SkeletonFilas, Spinner } from '../components/ui'
+import { Button, ButtonIcon, CampoFoto, EmptyState, Field, Input, SkeletonFilas, Spinner } from '../components/ui'
 import { PortalCabecera } from '../components/PortalCabecera'
 import {
   cargarContenidoPagina,
@@ -10,7 +10,6 @@ import {
   subirMediaCarrusel,
   validarContenido,
   type ContenidoPagina,
-  type FotoPagina,
   type HeroPagina,
   type PremioPagina
 } from '../lib/data/granCosechaPagina'
@@ -23,7 +22,7 @@ import {
  * de sólo LÍDER tres veces —el item del menú, el guard de la ruta
  * (`SoloLider`) y la política `for all ... es_lider()` de la tabla—.
  *
- * Cinco tarjetas, un solo botón «Guardar»: todo se publica de una vez, con
+ * Tres tarjetas, un solo botón «Guardar»: todo se publica de una vez, con
  * la validación de `validarContenido` explicando en pantalla lo que el
  * `check` de la base rechazaría. Las fotos y los videos del carrusel se
  * suben solos al bucket público —convertidos a WebP/WebM—, pero su URL
@@ -72,16 +71,16 @@ export function GranCosechaPaginaPage() {
     }
   }
 
-  const subir = async (slot: FotoPagina, archivo: File | undefined, urlActual: string) => {
+  /**
+   * Sube el fondo estático del hero —el único slot fijo que queda: los
+   * rounds se retiraron de la página y con ellos `round1..3`.
+   */
+  const subir = async (archivo: File | undefined, urlActual: string) => {
     if (!archivo) return
-    setSubiendo(slot)
+    setSubiendo('fondo')
     try {
-      const url = await subirFotoPagina(slot, archivo, urlActual)
-      setContenido((c) => {
-        if (!c) return c
-        if (slot === 'fondo') return { ...c, hero: { ...c.hero, fondo: url } }
-        return { ...c, imagenes: { ...c.imagenes, [slot]: url } }
-      })
+      const url = await subirFotoPagina('fondo', archivo, urlActual)
+      setContenido((c) => (c ? { ...c, hero: { ...c.hero, fondo: url } } : c))
       avisar('Foto subida. Tocá «Guardar» para publicarla.')
     } catch (e) {
       avisar(e instanceof Error ? e.message : 'No se pudo subir la foto.', 'error')
@@ -93,13 +92,9 @@ export function GranCosechaPaginaPage() {
   const cambiarHero = (campo: keyof HeroPagina, valor: string) =>
     setContenido((c) => (c ? { ...c, hero: { ...c.hero, [campo]: valor } } : c))
 
-  /** Vuelve la foto a la que trae la página por defecto. */
-  const quitarFoto = (slot: FotoPagina) =>
-    setContenido((c) => {
-      if (!c) return c
-      if (slot === 'fondo') return { ...c, hero: { ...c.hero, fondo: '' } }
-      return { ...c, imagenes: { ...c.imagenes, [slot]: '' } }
-    })
+  /** Vuelve el fondo al que trae la página por defecto. */
+  const quitarFoto = () =>
+    setContenido((c) => (c ? { ...c, hero: { ...c.hero, fondo: '' } } : c))
 
   /**
    * Convierte el archivo (WebP o WebM) y lo agrega al carrusel.
@@ -250,8 +245,8 @@ export function GranCosechaPaginaPage() {
                 etiqueta="Fondo estático (si no hay carrusel)"
                 url={contenido.hero.fondo}
                 ocupado={subiendo === 'fondo'}
-                onArchivo={(archivo) => void subir('fondo', archivo, contenido.hero.fondo)}
-                onQuitar={() => quitarFoto('fondo')}
+                onArchivo={(archivo) => void subir(archivo, contenido.hero.fondo)}
+                onQuitar={() => quitarFoto()}
               />
             </div>
           </Tarjeta>
@@ -431,65 +426,3 @@ function Tarjeta({
   )
 }
 
-/**
- * Una foto con su vista previa y su selector de archivo.
- *
- * El input se limpia después de elegir (`e.target.value = ''`) para poder
- * reelegir el MISMO archivo: sin eso, elegir dos veces la misma foto no
- * dispara `onChange` y el segundo intento no hace nada.
- */
-function CampoFoto({
-  etiqueta,
-  url,
-  ocupado,
-  onArchivo,
-  onQuitar
-}: {
-  etiqueta: string
-  url: string
-  ocupado: boolean
-  onArchivo: (archivo: File | undefined) => void
-  onQuitar: () => void
-}) {
-  return (
-    <div className="space-y-2">
-      <span className="block text-xs font-semibold uppercase tracking-wide text-slate-400">
-        {etiqueta}
-      </span>
-      {url ? (
-        <img
-          src={url}
-          alt={etiqueta}
-          className="h-28 w-full rounded-xl border border-slate-200 bg-slate-50 object-cover"
-        />
-      ) : (
-        <div className="grid h-28 place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 text-center text-xs text-slate-400">
-          La que ya trae la página
-        </div>
-      )}
-      <div className="flex items-center gap-2">
-        <input
-          type="file"
-          accept="image/*"
-          disabled={ocupado}
-          onChange={(e) => {
-            onArchivo(e.target.files?.[0])
-            e.target.value = ''
-          }}
-          className="block min-w-0 flex-1 text-xs text-slate-500 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-primary-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-700"
-        />
-        {url ? (
-          <button
-            type="button"
-            onClick={onQuitar}
-            disabled={ocupado}
-            className="shrink-0 rounded-full px-2 py-1 text-xs font-semibold text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
-          >
-            Quitar
-          </button>
-        ) : null}
-      </div>
-      {ocupado ? <span className="block text-xs text-slate-500">Subiendo foto…</span> : null}
-    </div>
-  )
-}

@@ -4301,10 +4301,11 @@ create policy departamentos_centralizados_select on public.departamentos_central
 drop policy if exists "departamentos_centralizados_lider" on public.departamentos_centralizados;
 create policy departamentos_centralizados_lider on public.departamentos_centralizados for all using (public.es_lider()) with check (public.es_lider());
 
--- storage.objects (26 políticas: 11 distintas de fotos, cada una re-declarada
+-- storage.objects (27 políticas: 11 distintas de fotos, cada una re-declarada
 -- por el bloque que la trae y por `reactivar-politicas.sql` —7 de evidencias
--- e incidencias + 4 de la pre-entrega—, y 4 que sólo se declaran en su
--- propio bloque: 2 de la página de la Gran Cosecha y 2 del menú)
+-- e incidencias + 4 de la pre-entrega—, y 5 que sólo se declaran en su
+-- propio bloque: 3 de la Gran Cosecha (la página y las fotos de proyecto) y
+-- 2 del menú)
 -- (storage.objects ya tiene RLS; solo se reponen sus polÃ­ticas)
 drop policy if exists "evidencias_select" on storage.objects;
 create policy "evidencias_select" on storage.objects for select to authenticated using (bucket_id = 'evidencias');
@@ -4829,7 +4830,7 @@ order by c.relrowsecurity, n.nspname || '.' || c.relname;
 -- ----------------------------------------------------------------------------
 -- 2) Las politicas del repo, una por fila
 -- ----------------------------------------------------------------------------
--- Si esta consulta NO devuelve filas, estan las 68. Cada fila que aparezca es
+-- Si esta consulta NO devuelve filas, estan las 69. Cada fila que aparezca es
 -- una politica que falta: se creo la tabla pero no su regla, y queda abierta o
 -- inaccesible segun el caso.
 with esperadas (politica, tabla) as (
@@ -4899,6 +4900,7 @@ with esperadas (politica, tabla) as (
     ('gran_cosecha_pagina_lider', 'public.gran_cosecha_pagina'),
     ('gran_cosecha_pagina_fotos_select', 'storage.objects'),
     ('gran_cosecha_pagina_fotos_lider', 'storage.objects'),
+    ('gran_cosecha_fotos_proyecto', 'storage.objects'),
     ('menu_productos_encargado', 'public.menu_productos'),
     ('menu_fotos_select', 'storage.objects'),
     ('menu_fotos_encargado', 'storage.objects')
@@ -5842,10 +5844,13 @@ end $$;
 -- MÍNIMO 3 personas y presentan una propuesta de proyecto con 3 meses de
 -- desarrollo. Tres JUECES le dan seguimiento y la empresa ve los avances.
 --
--- DOS TABLAS Y UNA REGLA DE ACCESO
+-- TRES TABLAS Y UNA REGLA DE ACCESO
 --
 --  * `gran_cosecha_proyecto` es la ficha: el trimestre en que participa
---    (`2026-T1`…`2026-T4`), el título, la descripción, el equipo y cómo va.
+--    (`2026-T1`…`2026-T4`), el título, la descripción, el equipo, cómo va y
+--    sus DOS fotos (`imagen` = la cara de la tarjeta en la landing; `foto` =
+--    la del equipo, que la página revela al tocarla). Vacías, la tarjeta usa
+--    la inicial del título.
 --    El equipo va en `miembros` (jsonb) y no en una tabla aparte porque el
 --    "mínimo 3" es una regla del PROYECTO: así entra en un `check` y no se
 --    puede guardar un proyecto sin equipo ni borrarle gente hasta dejarlo en
@@ -5860,6 +5865,18 @@ end $$;
 --    con su `porcentaje`, así el "cómo fue avanzando" sale de la misma
 --    tabla que el "quién cambió qué" —una sola fuente, no dos historiales
 --    que se pueden contradecir.
+--
+--  * `gran_cosecha_riego` es el riego de jardín: el "me gusta" del concurso,
+--    con regadera en vez de pulgar. Lo mandan los portales hermanos (Academia
+--    Luxor y Desarrollo Luxor), donde un usuario riega UNA VEZ cada proyecto
+--    participante —igual que un post de Facebook—. La PRIMARY KEY es
+--    (proyecto_id, usuario): la unicidad la garantiza la base, no la app, y
+--    un riego repetido simplemente no se duplica. `usuario` es la clave
+--    ESTABLE del usuario en SU portal (cédula, id o email): es opaca y no
+--    cruza contra `profiles`, porque esos usuarios no tienen cuenta acá.
+--    Ni la app ni la sesión la tocan: la escribe la edge function
+--    `registrar-riego` con la service_role, y el conteo que muestra la
+--    landing (/gran-cosecha.html) lo publica `ver_contenido_gran_cosecha`.
 --
 -- QUIÉN PUEDE QUÉ  (la misma cerradura en el menú, en la ruta y acá)
 --
@@ -5905,9 +5922,11 @@ create table if not exists public.gran_cosecha_proyecto (
   periodo text not null check (periodo ~ '^\d{4}-T[1-4]$'),
   titulo text not null check (length(trim(titulo)) > 0),
   descripcion text not null default '',
-  -- El equipo, mínimo 3. Jsonb con `{usuario_id, nombre}`: el `usuario_id`
-  -- cruza contra `profiles` y el `nombre` es la foto que se lee en pantalla,
-  -- igual que en `alerta_trabajadores`.
+  -- El equipo, mínimo 3. Jsonb con `{usuario_id, nombre}` —o con la cédula
+  -- del trabajador SIN cuenta (`{nacionalidad, dni, nombre}`): acepta
+  -- usuarios de la app y trabajadores de la nómina de cualquier sucursal.
+  -- `usuario_id` sólo si tiene cuenta (es el que cruza contra `profiles`);
+  -- el `nombre` es la foto que se lee en pantalla, igual que en alertas.
   miembros jsonb not null check (jsonb_array_length(miembros) >= 3),
   -- El estado actual. El historial es la bitácora; esto es para leer rápido.
   avance integer not null default 0 check (avance >= 0 and avance <= 100),
@@ -5926,6 +5945,18 @@ create table if not exists public.gran_cosecha_proyecto (
 
 create index if not exists idx_gran_cosecha_proyecto_periodo
   on public.gran_cosecha_proyecto (periodo, estado);
+
+-- Las DOS FOTOS del participante, ahora en el PROYECTO (antes vivían en la
+-- Página y se migraron acá, porque el dato del participante lo manda la
+-- consola de Proyectos): `imagen` es la del proyecto —la cara de la tarjeta,
+-- siempre visible— y `foto` la del equipo, que la landing revela al pasar el
+-- mouse. Vacías = la tarjeta usa la inicial del título. Las edita el que
+-- puede editar el proyecto (la RLS de UPDATE es por fila, así que cubre estas
+-- columnas sin tocar políticas).
+-- `if not exists` porque la tabla ya existe en bases instaladas.
+alter table public.gran_cosecha_proyecto
+  add column if not exists imagen text not null default '',
+  add column if not exists foto   text not null default '';
 
 create table if not exists public.gran_cosecha_bitacora (
   id uuid primary key default gen_random_uuid(),
@@ -6088,6 +6119,209 @@ end $$;
 revoke execute on function public.puede_gran_cosecha() from public, anon;
 grant execute on function public.puede_gran_cosecha() to authenticated;
 
+-- ----------------------------------------------------------------------------
+-- Elegir INTEGRANTES del equipo: usuarios de la app Y trabajadores de la
+-- nómina, de cualquier sucursal (aunque no tengan cuenta en EvaLuxor)
+-- ----------------------------------------------------------------------------
+-- La nómina (`trabajadores_nomina`) sólo la leen LÍDER y GERENTE_TH por su
+-- política, y armar equipo puede cualquiera: por eso la lectura va por esta
+-- función `security definer`, que devuelve SÓLO lo que el picker necesita —
+-- nacionalidad, cédula, nombre, sucursal y los flags crudos de actividad—
+-- y nunca el resto del `datos` crudo de la API (sueldos, fechas, cargos).
+--
+-- La normalización queda donde siempre estaba, en el cliente: `name` /
+-- `lastname` y los flags viajan tal cual, y `nombreCompleto` / `esActivo` de
+-- `colaboradores.ts` los interpretan —el mismo criterio con el que se paga la
+-- nómina—, porque guardar el crudo es lo que permite que viva en un solo
+-- lugar (así lo dice también la tabla).
+--
+-- La búsqueda va EN EL SERVIDOR: la nómina tiene miles de filas, así que la
+-- RPC filtra por texto (nombre, apellido, sucursal o cédula) con límite, en
+-- vez de tirarla entera al navegador. Y cada persona aparece UNA sola vez:
+-- `distinct on (nacionalidad, dni)` gana del registro más reciente, para que
+-- quien se cambió de sucursal no figure dos veces.
+create or replace function public.listar_trabajadores_equipo(p_texto text)
+returns jsonb
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'nacionalidad', n.nacionalidad,
+        'dni', n.dni,
+        'name', n.datos -> 'name',
+        'lastname', n.datos -> 'lastname',
+        'sucursal', n.datos -> 'branch_name',
+        'status', n.datos -> 'status',
+        'estado', n.datos -> 'estado',
+        'status_display', n.datos -> 'status_display',
+        'estado_display', n.datos -> 'estado_display',
+        'active', n.datos -> 'active',
+        'is_active', n.datos -> 'is_active'
+      )
+      order by n.datos ->> 'lastname', n.datos ->> 'name'
+    ),
+    '[]'::jsonb
+  )
+  from (
+    select distinct on (nacionalidad, dni) nacionalidad, dni, datos
+      from public.trabajadores_nomina
+     where p_texto <> ''
+       and (
+             datos ->> 'name' ilike '%' || p_texto || '%'
+          or datos ->> 'lastname' ilike '%' || p_texto || '%'
+          or datos ->> 'branch_name' ilike '%' || p_texto || '%'
+          or (nacionalidad || '-' || dni) ilike '%' || p_texto || '%'
+       )
+     order by nacionalidad, dni, actualizado_en desc
+     limit 300
+  ) n;
+$$;
+
+revoke execute on function public.listar_trabajadores_equipo(text) from public, anon;
+grant  execute on function public.listar_trabajadores_equipo(text) to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Los riegos: un "me gusta" con regadera, uno por usuario y proyecto
+-- ----------------------------------------------------------------------------
+-- La idea viene de fuera: desde los portales hermanos (Academia Luxor y
+-- Desarrollo Luxor) un usuario riega un proyecto participante y la landing
+-- /concurso muestra cuántas veces se regó cada uno.
+--
+-- QUIÉN ESCRIBE: DOS puertas, y NINGUNA por tabla directa — la tabla sigue
+-- cerrada para `anon` y para `authenticated` (sin privilegio y sin política):
+--  * La edge function `supabase/functions/registrar-riego`, con service_role
+--    y después de validar su API key (`RIEGO_API_KEY`): la llaman los
+--    portales hermanos (Academia/Desarrollo Luxor).
+--  * `regar_proyecto(uuid)` CON SESIÓN, para regar desde la consola de
+--    EvaLuxor: la clave no es un parámetro, la arma la función con
+--    `profiles.usuario` de quien aprieta — la MISMA clave que mandan los
+--    portales, así que un mismo humano cuenta UNA vez entre los tres lados.
+--
+-- UNA VEZ POR USUARIO: la restricción NO es un índice aparte, es la PRIMARY
+-- KEY. El segundo insert del mismo par choca con 23505 (o el `on conflict`
+-- de la función lo salta) y no queda fila doble — la invariante vive donde
+-- se guarda el dato, no en el código que la manda.
+--
+-- UNA VEZ POR USUARIO: la restricción NO es un índice aparte, es la PRIMARY
+-- KEY. El segundo insert del mismo par choca con 23505, la función lo
+-- traduce a `ya_regado: true` y no queda fila doble — la invariante vive
+-- donde se guarda el dato, no en el código que la manda.
+create table if not exists public.gran_cosecha_riego (
+  proyecto_id uuid not null references public.gran_cosecha_proyecto(id) on delete cascade,
+  -- La clave del usuario EN SU PORTAL: opaca (cédula, id o email) y sin
+  -- espacios de más, que un usuario con y sin espacios es el mismo riego.
+  usuario text not null
+    check (length(trim(usuario)) > 0 and length(usuario) <= 120 and usuario = trim(usuario)),
+  regado_en timestamptz not null default now(),
+  primary key (proyecto_id, usuario)
+);
+
+-- Cerrada por DOS capas, en este orden: el revoke es la primera (RLS sólo se
+-- evalúa si antes hay privilegio de tabla) y la segunda es el RLS sin ninguna
+-- política — sin política no pasa nadie, por más rol que se traiga.
+alter table public.gran_cosecha_riego enable row level security;
+
+do $$
+begin
+  execute 'revoke all on public.gran_cosecha_riego from anon';
+  execute 'revoke all on public.gran_cosecha_riego from authenticated';
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- Las DOS puertas de la escritura: siguen sin tocar la tabla desde afuera
+-- ----------------------------------------------------------------------------
+
+-- 1) Regar DESDE EvaLuxor, con sesión. El `usuario` que se guarda NO es un
+--    parámetro —la función lo arma con la sesión—, así que nadie puede regar
+--    "por otro": es el `profiles.usuario` de quien aprieta. Es LA MISMA clave
+--    que los portales hermanos mandan en el campo `usuario` del endpoint: si
+--    un portal mandara otra cosa, ese humano contaría dos veces.
+create or replace function public.regar_proyecto(p_proyecto_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_clave text;
+  v_estado text;
+  v_filas integer;
+  v_riegos integer;
+begin
+  -- Quién riega: el usuario ACTIVO de la sesión, normalizado.
+  select u.usuario into v_clave
+    from public.profiles u
+   where u.id = auth.uid() and u.activo;
+  v_clave := coalesce(trim(v_clave), '');
+  if v_clave = '' then
+    raise exception 'Tu perfil no tiene usuario de EvaLuxor: no se puede regar.';
+  end if;
+  if length(v_clave) > 120 then
+    raise exception 'El usuario de tu perfil es demasiado largo para regar.';
+  end if;
+
+  select pr.estado into v_estado
+    from public.gran_cosecha_proyecto pr
+   where pr.id = p_proyecto_id;
+  if v_estado is null then
+    raise exception 'No existe ese proyecto.';
+  end if;
+  if v_estado = 'CANCELADO' then
+    raise exception 'Ese proyecto ya no participa en el concurso.';
+  end if;
+
+  -- El riego: `on conflict do nothing` NO toca la fila vieja (conserva su
+  -- fecha) y el row_count dice si éste fue el primero de este usuario.
+  insert into public.gran_cosecha_riego (proyecto_id, usuario)
+  values (p_proyecto_id, v_clave)
+  on conflict (proyecto_id, usuario) do nothing;
+  get diagnostics v_filas = row_count;
+
+  select count(*) into v_riegos
+    from public.gran_cosecha_riego
+   where proyecto_id = p_proyecto_id;
+
+  return jsonb_build_object('ya_regado', v_filas = 0, 'riegos', v_riegos);
+end;
+$$;
+
+revoke execute on function public.regar_proyecto(uuid) from public, anon;
+grant  execute on function public.regar_proyecto(uuid) to authenticated;
+
+-- 2) El conteo para la consola: por proyecto, cuántas veces se regó y si YO
+--    ya lo regué (`mio`), para pintar el botón. Saliendo de acá sólo el
+--    número y el booleano mío: NINGÚN `usuario` se expone, ni con sesión.
+create or replace function public.riegos_de_la_cosecha()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  with mi as (
+    select coalesce((select u.usuario from public.profiles u where u.id = auth.uid()), '') as clave
+  )
+  select coalesce(
+    jsonb_object_agg(
+      d.proyecto_id,
+      jsonb_build_object('riegos', d.riegos, 'mio', d.mio)
+    ),
+    '{}'::jsonb
+  )
+  from (
+    select r.proyecto_id,
+           count(*)::int as riegos,
+           bool_or(r.usuario = (select clave from mi)) as mio
+      from public.gran_cosecha_riego r
+     group by r.proyecto_id
+  ) d;
+$$;
+
+revoke execute on function public.riegos_de_la_cosecha() from public, anon;
+grant  execute on function public.riegos_de_la_cosecha() to authenticated;
+
 -- ###########################################################################
 -- Archivo consolidado: gran-cosecha-pagina.sql
 -- ###########################################################################
@@ -6096,12 +6330,17 @@ grant execute on function public.puede_gran_cosecha() to authenticated;
 --
 -- `public/gran-cosecha.html` es una landing estática: se sirve desde `dist/`
 -- y queda FUERA del router de React, así que no puede usar el cliente de la
--- app ni la sesión de nadie. Lo que cambia en esa página —el hero, los
--- premios, los equipos y las fotos— vive acá, en UNA sola fila, y la página
--- lo lee con `ver_contenido_gran_cosecha`: una función `security definer`
--- con `grant ... to anon`, el mismo camino de lo público que usan
--- `ver_conciliacion_compartida` y `ver_cargos_compartidos`. En este repo
--- ningún dato llega a `anon` por tabla, y ésta no es la excepción.
+-- app ni la sesión de nadie. Lo que cambia en esa página —el hero con su
+-- carrusel, los premios y las tarjetas de participantes— vive acá, en UNA sola
+-- fila, y la página lo lee con `ver_contenido_gran_cosecha`: una función
+-- `security definer` con `grant ... to anon`, el mismo camino de lo público
+-- que usan `ver_conciliacion_compartida` y `ver_cargos_compartidos`. En este
+-- repo ningún dato llega a `anon` por tabla, y ésta no es la excepción.
+--
+-- QUIÉN APARECE EN LA SECCIÓN DE PARTICIPANTES: los proyectos REGISTRADOS en
+-- la consola (`gran_cosecha_proyecto`), NO lo que se escriba a mano — la
+-- función los arma abajo con su equipo, su avance y su conteo de riegos. Esta
+-- fila sólo aporta el hero y los premios.
 --
 -- Escribe sólo el LÍDER (`es_lider()`), la misma cerradura del menú de
 -- consola (`SoloLider`), y cada sección nace con un `check` de forma: ni una
@@ -6124,6 +6363,10 @@ create table if not exists public.gran_cosecha_pagina (
     constraint gran_cosecha_pagina_hero check (jsonb_typeof(hero) = 'object'),
   premios jsonb not null default '[]'::jsonb
     constraint gran_cosecha_pagina_premios check (jsonb_typeof(premios) = 'array'),
+  -- LEGACY: las tarjetas de fotos de participantes, retiradas con la sección
+  -- (los datos del participante los manda `gran_cosecha_proyecto`). La
+  -- columna queda con su `check` por si hay filas viejas; no la lee ni la
+  -- escribe nadie.
   equipos jsonb not null default '[]'::jsonb
     constraint gran_cosecha_pagina_equipos check (jsonb_typeof(equipos) = 'array'),
   imagenes jsonb not null default '{}'::jsonb
@@ -6161,13 +6404,45 @@ language sql stable security definer
 set search_path = public
 as $$
   select jsonb_build_object(
-    'hero', hero,
-    'premios', premios,
-    'equipos', equipos,
-    'imagenes', imagenes
+    'hero', g.hero,
+    'premios', g.premios,
+    -- LOS PARTICIPANTES: los proyectos REGISTRADOS en la consola, del
+    -- trimestre en curso y sin cancelados («los que ya están compitiendo»).
+    -- Cada uno trae SU conteo de riegos: sólo el número, la tabla está
+    -- cerrada y quién regó no es contenido público.
+    'participantes', (
+      select coalesce(jsonb_agg(
+        jsonb_build_object(
+          -- El `id` viaja para que los portales hermanos puedan descubrir de
+          -- qué proyecto regar (leen esta misma RPC pública): un uuid de
+          -- concurso no da ningún permiso — la tabla de riegos está cerrada.
+          'id', pr.id,
+          'titulo', pr.titulo,
+          'avance', pr.avance,
+          -- Sólo NOMBRES: los usuario_id no son contenido público.
+          'miembros', (
+            select coalesce(jsonb_agg(m -> 'nombre'), '[]'::jsonb)
+            from jsonb_array_elements(pr.miembros) m
+          ),
+          'riegos', (
+            select count(*)
+            from public.gran_cosecha_riego r
+            where r.proyecto_id = pr.id
+          ),
+          -- Las dos fotos, guardadas EN EL PROYECTO (las edita la consola de
+          -- Proyectos): vacías, la tarjeta usa la inicial del título.
+          'imagen', pr.imagen,
+          'foto', pr.foto
+        )
+        order by pr.avance desc, pr.created_at
+      ), '[]'::jsonb)
+      from public.gran_cosecha_proyecto pr
+      where pr.periodo = to_char(now(), 'YYYY') || '-T' || to_char(now(), 'Q')
+        and pr.estado <> 'CANCELADO'
+    )
   )
-  from public.gran_cosecha_pagina
-  where id;
+  from public.gran_cosecha_pagina g
+  where g.id;
 $$;
 
 -- Igual que las funciones de los enlaces compartidos: sin el revoke, el
@@ -6197,6 +6472,16 @@ create policy gran_cosecha_pagina_fotos_lider on storage.objects
   for all to authenticated
   using (bucket_id = 'gran-cosecha' and public.es_lider())
   with check (bucket_id = 'gran-cosecha' and public.es_lider());
+
+-- …salvo las FOTOS DE UN PROYECTO: el que puede editar el proyecto puede
+-- cambiar sus fotos, y sólo bajo `proyectos/` (rutas con uuid). Las
+-- políticas de `permissive` se UNEN, así que el Líder conserva todo lo de
+-- arriba y cualquier otra sesión queda limitada a ese prefijo.
+drop policy if exists gran_cosecha_fotos_proyecto on storage.objects;
+create policy gran_cosecha_fotos_proyecto on storage.objects
+  for all to authenticated
+  using (bucket_id = 'gran-cosecha' and name like 'proyectos/%')
+  with check (bucket_id = 'gran-cosecha' and name like 'proyectos/%');
 
 -- ###########################################################################
 -- Archivo consolidado: menu-sucursal.sql
@@ -6453,3 +6738,41 @@ $$;
 
 revoke execute on function public.ver_sucursales_menu() from public, anon;
 grant execute on function public.ver_sucursales_menu() to anon, authenticated;
+
+-- ###########################################################################
+-- Archivo consolidado: gran-cosecha-publico.sql
+-- ###########################################################################
+-- ============================================================================
+-- GRAN COSECHA PÚBLICO — RETIRADO: lo que fue la landing /concurso
+--
+-- POR QUÉ SE FUE
+-- -------------
+-- La Gran Cosecha quedó con UNA sola página pública:
+--  * `/gran-cosecha.html` — la landing, con su editor «Página».
+--  * `/concurso` y su editor `/gran-cosecha/contenido` quedaron HUÉRFANOS:
+--    nadie enlazaba esa landing y lo que se cargaba ahí no se veía en la
+--    web. Se retiró entera: ruta, pantalla, editor y esta función.
+--
+-- QUÉ HACE ESTE BLOQUE AHORA
+-- --------------------------
+-- Cierra la boca que esa funcionalidad dejó en bases YA instaladas: sin los
+-- `drop`, una base con la landing vieja seguiría exponiendo
+-- `ver_concurso_publico` —una RPC abierta a `anon`— y su tabla de contenido.
+-- Idempotente: en una base nueva no hay nada que borrar.
+--
+-- (Los RIEGOS NO se tocan: `gran_cosecha_riego` vive en `gran-cosecha.sql`,
+-- la escribe la edge function `registrar-riego` y el conteo lo publica
+-- `ver_contenido_gran_cosecha`, en `gran-cosecha-pagina.sql`.)
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+
+-- Los DOS objetos de la landing retirada, en orden: primero la función (su
+-- cuerpo lee la tabla) y después la tabla.
+drop function if exists public.ver_concurso_publico(text);
+
+-- Única baja de datos de este archivo: la tabla guardaba bases, calendario,
+-- premios, jurado, FAQ y ganadores de una landing que ya no existe.
+drop table if exists public.gran_cosecha_contenido;
+
+

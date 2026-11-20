@@ -7,10 +7,12 @@ import { supabase } from '../supabase'
  * La página de la Gran Cosecha es HTML estático: se sirve desde `dist/` y
  * queda FUERA del router de React, así que no puede usar esta sesión ni el
  * cliente de la app para mostrar algo. Lo que cambia en ella —el hero con su
- * carrusel, los premios, los equipos y las fotos— vive en UNA fila
+ * carrusel y los premios— vive en UNA fila
  * (`public.gran_cosecha_pagina`) y la página lo lee sola, por su cuenta, con
  * `ver_contenido_gran_cosecha` (la única función además de las de los
- * enlaces y el login que está abierta a `anon`).
+ * enlaces y el login que está abierta a `anon`). Lo que se ve de los
+ * PARTICIPANTES viene de otra parte: de `gran_cosecha_proyecto`, con su
+ * conteo de riegos.
  *
  * Todo lo visual se SUBE CONVERTIDO: las imágenes en WebP y los videos en
  * WebM, en el navegador, antes de llegar al bucket (ver `../convertirMedia`)
@@ -69,36 +71,9 @@ export interface PremioPagina {
   descripcion: string
 }
 
-/**
- * Un equipo que aparece en la sección «EQUIPOS PARTICIPANTES».
- *
- * La tarjeta de la landing tiene DOS caras: `imagen` es la del PROYECTO —lo
- * que se ve siempre— y `foto` es la del EQUIPO, que se revela al pasar el
- * mouse (o al tocarla o enfocarla con el teclado). Las dos son opcionales:
- * sin imagen la tarjeta se respalda con la inicial del equipo, y sin foto
- * simplemente no hay nada que revelar.
- */
-export interface EquipoPagina {
-  nombre: string
-  sucursal: string
-  /** Imagen del proyecto: la cara frontal de la tarjeta. */
-  imagen: string
-  /** Foto del equipo, revelada al interactuar con la tarjeta. */
-  foto: string
-}
-
-/** Las tres fotos de los rounds de la página. */
-export interface ImagenesPagina {
-  round1: string
-  round2: string
-  round3: string
-}
-
 export interface ContenidoPagina {
   hero: HeroPagina
   premios: PremioPagina[]
-  equipos: EquipoPagina[]
-  imagenes: ImagenesPagina
 }
 
 /**
@@ -122,22 +97,20 @@ export const CONTENIDO_BASE: ContenidoPagina = {
     { puesto: '1° PUESTO', descripcion: 'Gran Premio Corporativo y Trofeo Luxor' },
     { puesto: '2° PUESTO', descripcion: 'Incentivo Especial para Todo el Equipo' },
     { puesto: '3° PUESTO', descripcion: 'Reconocimiento Destacado y Cesta Luxor' }
-  ],
-  equipos: [],
-  imagenes: { round1: '', round2: '', round3: '' }
+  ]
 }
 
 /**
  * El contenido de la página, o los valores por defecto si todavía no hay.
  *
- * El `hero` y las `imagenes` se mergean con los suyos: una fila guardada en
- * una versión anterior de la consola no puede quedarse sin un campo nuevo
- * que la página necesita pintar.
+ * El `hero` se mergea con el suyo: una fila guardada en una versión anterior
+ * de la consola no puede quedarse sin un campo nuevo que la página necesita
+ * pintar.
  */
 export async function cargarContenidoPagina(): Promise<ContenidoPagina> {
   const { data, error } = await supabase
     .from('gran_cosecha_pagina')
-    .select('hero, premios, equipos, imagenes')
+    .select('hero, premios')
     .eq('id', true)
     .maybeSingle()
   if (error) throw error
@@ -148,19 +121,7 @@ export async function cargarContenidoPagina(): Promise<ContenidoPagina> {
   if (!Array.isArray(hero.carrusel)) hero.carrusel = []
   return {
     hero,
-    premios: Array.isArray(data.premios) ? (data.premios as PremioPagina[]) : [],
-    // Una fila guardada antes de las fotos de equipo no trae `imagen` ni
-    // `foto`: se normaliza a vacío para que la consola no pinte `undefined`
-    // y la landing sepa distinguir «sin foto» de «con foto».
-    equipos: Array.isArray(data.equipos)
-      ? (data.equipos as Partial<EquipoPagina>[]).map((e) => ({
-          nombre: e?.nombre ?? '',
-          sucursal: e?.sucursal ?? '',
-          imagen: e?.imagen ?? '',
-          foto: e?.foto ?? ''
-        }))
-      : [],
-    imagenes: { ...CONTENIDO_BASE.imagenes, ...(data.imagenes as Partial<ImagenesPagina> | null) }
+    premios: Array.isArray(data.premios) ? (data.premios as PremioPagina[]) : []
   }
 }
 
@@ -200,16 +161,16 @@ export function validarContenido(contenido: ContenidoPagina): string | null {
       return `El premio ${i + 1} necesita su puesto y su descripción.`
     }
   }
-  for (const [i, equipo] of contenido.equipos.entries()) {
-    if (!equipo.nombre.trim()) return `El equipo ${i + 1} necesita su nombre.`
-  }
   return null
 }
 
-/** Las fotos que la página puede cambiar: una por slot, con su URL propia. */
-export type FotoPagina = 'fondo' | 'round1' | 'round2' | 'round3'
+/**
+ * La única foto con slot fijo que queda: el fondo del hero. Los rounds se
+ * retiraron de la página, y con ellos `round1..3`.
+ */
+export type FotoPagina = 'fondo'
 
-const BUCKET = 'gran-cosecha'
+export const BUCKET = 'gran-cosecha'
 /** Extensión del archivo ya convertido, según el tipo que salió de la conversión. */
 const EXT_POR_TIPO = { imagen: 'webp', video: 'webm' } as const
 

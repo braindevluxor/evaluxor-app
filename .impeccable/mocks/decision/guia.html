@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Gran Cosecha Luxor — Tres pasos al podio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800;900&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:1440px; height:900px; overflow:hidden; }
+  body { font-family:'Archivo',sans-serif; background:#F8FAFC; color:#0B2545; }
+  .nav { height:76px; display:flex; align-items:center; gap:40px; padding:0 56px; background:#fff; border-bottom:1px solid #E2E8F0; }
+  .mark { font-weight:900; font-size:22px; letter-spacing:-.02em; color:#0B2545; }
+  .mark span { color:#F59E0B; }
+  .links { display:flex; gap:28px; font-size:15px; font-weight:600; color:#64748B; }
+  .links b { color:#0B2545; }
+  .cta-nav { margin-left:auto; background:#0B2545; color:#fff; font-weight:800; font-size:15px; padding:12px 22px; border-radius:8px; }
+  .hero { display:grid; grid-template-columns:1.05fr .95fr; height:596px; }
+  .left { padding:56px 56px 0; position:relative; }
+  .eyebrow { font-size:14px; font-weight:800; letter-spacing:.18em; text-transform:uppercase; color:#D97706; }
+  h1 { font-size:78px; line-height:.95; font-weight:900; letter-spacing:-.035em; margin:16px 0 12px; }
+  h1 em { font-style:normal; color:#16A34A; }
+  .steps { margin-top:34px; display:flex; flex-direction:column; gap:0; }
+  .step { display:flex; gap:22px; align-items:flex-start; padding:20px 0; border-top:2px solid #E2E8F0; }
+  .step:last-child { border-bottom:2px solid #E2E8F0; }
+  .num { flex:none; width:58px; height:58px; border-radius:14px; background:#0B2545; color:#fff; font-size:28px; font-weight:900; display:flex; align-items:center; justify-content:center; }
+  .step.s1 .num { background:#F59E0B; color:#0B2545; }
+  .step h3 { font-size:24px; font-weight:900; letter-spacing:-.01em; }
+  .step p { font-size:15px; color:#475569; margin-top:5px; line-height:1.5; max-width:460px; }
+  .actions { display:flex; gap:16px; margin-top:30px; align-items:center; }
+  .btn { font-size:18px; font-weight:800; padding:18px 34px; border-radius:10px; }
+  .btn-p { background:#16A34A; color:#fff; box-shadow:0 6px 0 #15803D; }
+  .note { font-size:14px; font-weight:700; color:#64748B; }
+  .right { background:#0B2545; color:#fff; padding:52px 48px; display:flex; flex-direction:column; }
+  .board-h { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:24px; }
+  .board-h h2 { font-size:15px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; color:#94A3B8; }
+  .live { font-size:13px; font-weight:800; color:#4ADE80; }
+  .live::before { content:'●'; margin-right:7px; }
+  .card { background:#0F3057; border:1px solid #1E3A63; border-radius:14px; padding:20px 22px; margin-bottom:16px; }
+  .card .top { display:flex; align-items:center; gap:14px; }
+  .rank { font-family:'Archivo',sans-serif; font-size:30px; font-weight:900; color:#F59E0B; width:44px; }
+  .card .name { font-size:19px; font-weight:800; }
+  .card .team { font-size:13px; color:#94A3B8; margin-top:3px; }
+  .card .pct { margin-left:auto; font-size:26px; font-weight:900; }
+  .bar { height:10px; border-radius:5px; background:#081C36; overflow:hidden; margin-top:14px; }
+  .bar i { display:block; height:100%; background:linear-gradient(90deg,#16A34A,#4ADE80); }
+  .card.g1 .pct { color:#4ADE80; }
+  .card .pct.b { color:#FDE68A; }
+  .board-f { margin-top:auto; font-size:13px; color:#64748B; font-weight:600; }
+  .peek { height:74px; background:#fff; border-top:1px solid #E2E8F0; display:flex; align-items:center; padding:0 56px; font-size:24px; font-weight:900; color:#0B2545; }
+  .peek span { color:#D97706; margin-left:10px; }
+</style>
+</head>
+<body>
+  <div class="nav">
+    <div class="mark">Eva<span>Luxor</span></div>
+    <div class="links"><b>Cómo participar</b><span>Bases</span><span>Calendario</span><span>Proyectos</span><span>Premios</span></div>
+    <div class="cta-nav">Iniciar sesión</div>
+  </div>
+  <div class="hero">
+    <div class="left">
+      <div class="eyebrow">Gran Cosecha Luxor · Concurso trimestral</div>
+      <h1>Tres pasos<br>al <em>podio</em>.</h1>
+      <div class="steps">
+        <div class="step s1">
+          <div class="num">1</div>
+          <div><h3>Armá tu equipo</h3><p>Son tres personas mínimo, de cualquier área de la cadena. Elegí un nombre y anotalo.</p></div>
+        </div>
+        <div class="step">
+          <div class="num">2</div>
+          <div><h3>Presentá tu proyecto</h3><p>Describí la idea en una ficha: qué resuelve, cómo se mide y quién lo hace.</p></div>
+        </div>
+        <div class="step">
+          <div class="num">3</div>
+          <div><h3>Avanzá hasta el cierre</h3><p>Reportá tu avance cada semana; los jueces dan seguimiento y la empresa lo ve en vivo.</p></div>
+        </div>
+      </div>
+      <div class="actions">
+        <div class="btn btn-p">Armá tu equipo</div>
+        <div class="note">Inscripciones hasta el 20 de octubre</div>
+      </div>
+    </div>
+    <div class="right">
+      <div class="board-h"><h2>Posiciones en vivo</h2><div class="live">Actualizado hoy</div></div>
+      <div class="card g1">
+        <div class="top"><div class="rank">1</div><div><div class="name">Estantes sin quiebres</div><div class="team">Equipo · Sucursal Centro</div></div><div class="pct">82%</div></div>
+        <div class="bar"><i style="width:82%"></i></div>
+      </div>
+      <div class="card">
+        <div class="top"><div class="rank">2</div><div><div class="name">Caja cero espera</div><div class="team">Equipo · Sucursal Norte</div></div><div class="pct b">67%</div></div>
+        <div class="bar"><i style="width:67%"></i></div>
+      </div>
+      <div class="card">
+        <div class="top"><div class="rank">3</div><div><div class="name">Fruta fresca al día</div><div class="team">Equipo · Sucursal Sur</div></div><div class="pct b">54%</div></div>
+        <div class="bar"><i style="width:54%"></i></div>
+      </div>
+      <div class="board-f">12 proyectos participantes · T4 2026</div>
+    </div>
+  </div>
+  <div class="peek">Premios del trimestre <span>→</span></div>
+</body>
+</html>

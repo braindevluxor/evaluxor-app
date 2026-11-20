@@ -16,6 +16,12 @@ interface EnlaceMenu {
   end?: boolean
   /** Sólo para el Líder: la misma cerradura que su guard y su RLS. */
   soloLider?: boolean
+  /**
+   * A quién se le muestra: si va, sólo para esos roles. Sirve para no poner en
+   * el menú un enlace que el `RequireRol` de la ruta rebotaría —el editor del
+   * contenido es de JUEZ y LÍDER, y para el resto sería un callejón—.
+   */
+  roles?: string[]
 }
 
 const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
@@ -28,7 +34,7 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
   // al que entra toda la empresa (presentan los trabajadores, dan seguimiento
   // los jueces), no una pantalla de indicadores.
   { seccion: 'Gran Cosecha', items: [
-    { to: '/gran-cosecha', label: 'Proyectos', icon: <Sprout className="h-5 w-5" /> },
+    { to: '/gran-cosecha/proyectos', label: 'Proyectos', icon: <Sprout className="h-5 w-5" /> },
     // La landing /gran-cosecha.html: su contenido lo escribe sólo el Líder,
     // así que el item tampoco se muestra a nadie más (no es un guard, es
     // sólo el menú: la ruta y la RLS siguen pidiendo lo mismo).
@@ -42,14 +48,19 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
  * El JUEZ no tiene acceso a las vistas de Resultados (ninguna lo incluye en
  * su `RequireRol`), así que un enlace de ahí lo rebotaría a su propia casa.
  * Se le arma el menú con la sección que sí puede abrir y nada más.
+ *
+ * Los enlaces con `roles` se filtran primero: el de Contenido no le sirve a
+ * nadie que no sea JUEZ o LÍDER, y un enlace que la ruta rechaza sólo ensucia
+ * el menú.
  */
 function seccionesDe(rol: string | undefined): { seccion: string; items: EnlaceMenu[] }[] {
-  // El filtro de `soloLider` (la página de la landing la edita sólo el
-  // Líder). Una sección que queda sin items no se pinta.
+  // Los dos filtros conviven: primero `roles` (el de Contenido sólo es de
+  // JUEZ/LÍDER) y después `soloLider` (la página de la landing la edita sólo
+  // el Líder). Una sección que queda sin items no se pinta.
   const visibles = enlaces
     .map((s) => ({
       ...s,
-      items: s.items.filter((i) => !i.soloLider || rol === 'LIDER')
+      items: s.items.filter((i) => !i.roles || i.roles.includes(rol ?? '')).filter((i) => !i.soloLider || rol === 'LIDER')
     }))
     .filter((s) => s.items.length > 0)
   // El JUEZ no ve Resultados: sólo la sección del concurso.
@@ -69,7 +80,9 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   // La cuenta se configura DESDE la consola, con su barra y su menú: salirse
   // de la barra para cambiar la contraseña se sentía como otra app.
   '/perfil': { titulo: 'Configuración', subtitulo: 'Administra tus datos personales y la seguridad de tu cuenta' },
-  '/gran-cosecha': {
+  // OJO con la barra: `/gran-cosecha` (sin más) YA NO es la consola — es la
+  // redirección a la landing pública. El concurso vive en `/gran-cosecha/proyectos`.
+  '/gran-cosecha/proyectos': {
     titulo: 'Gran Cosecha',
     subtitulo: 'Concurso trimestral de proyectos: equipos, propuestas y avances'
   },
@@ -86,12 +99,12 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
 export function ConsoleLayout() {
   return (
     <DashboardFiltersProvider>
-      <ConsoleLayoutContenido />
+      <ConsoleLayoutInterna />
     </DashboardFiltersProvider>
   )
 }
 
-function ConsoleLayoutContenido() {
+function ConsoleLayoutInterna() {
   const { profile, signOut } = useAuth()
   const { abierto: filtrosAbiertos, alternar: alternarFiltros } = useDashboardFilters()
   const { pathname } = useLocation()

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Gran Cosecha Luxor — La vitrina de premios</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800;900&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:1440px; height:900px; overflow:hidden; }
+  body { font-family:'Archivo',sans-serif; background:#F8FAFC; color:#0B2545; }
+  .nav { height:76px; display:flex; align-items:center; gap:40px; padding:0 56px; background:#0B2545; color:#fff; }
+  .mark { font-weight:900; font-size:22px; letter-spacing:-.02em; }
+  .mark span { color:#F59E0B; }
+  .links { display:flex; gap:28px; font-size:15px; font-weight:600; color:#CBD5E1; }
+  .links b { color:#fff; }
+  .cta-nav { margin-left:auto; background:#F59E0B; color:#0B2545; font-weight:800; font-size:15px; padding:12px 22px; border-radius:8px; }
+  .hero { display:grid; grid-template-columns:1.15fr .85fr; height:600px; }
+  .left { padding:64px 56px 0; }
+  .eyebrow { font-size:14px; font-weight:800; letter-spacing:.18em; text-transform:uppercase; color:#D97706; }
+  h1 { font-size:96px; line-height:.94; font-weight:900; letter-spacing:-.035em; margin:18px 0 20px; }
+  h1 em { font-style:normal; color:#F59E0B; }
+  .sub { font-size:20px; line-height:1.5; color:#334155; max-width:560px; }
+  .actions { display:flex; gap:16px; margin-top:34px; }
+  .btn { font-size:18px; font-weight:800; padding:18px 34px; border-radius:10px; }
+  .btn-p { background:#F59E0B; color:#0B2545; box-shadow:0 6px 0 #B45309; }
+  .btn-s { background:transparent; color:#0B2545; border:2px solid #0B2545; }
+  .vitrine { background:linear-gradient(160deg,#0B2545 0%,#1E3A63 60%,#0B2545 100%); position:relative; display:flex; align-items:flex-end; justify-content:center; gap:34px; padding-bottom:64px; border-left:1px solid #0E2A4E; }
+  .shelf { position:absolute; left:8%; right:8%; top:58%; height:4px; background:linear-gradient(90deg,transparent,#4F87C7,transparent); }
+  .plaque { width:150px; height:190px; border-radius:10px 10px 4px 4px; background:linear-gradient(180deg,#F8FAFC,#CBD5E1); border:6px solid #94A3B8; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; padding:14px; position:relative; z-index:2; }
+  .plaque .medal { width:56px; height:56px; border-radius:50%; background:radial-gradient(circle at 35% 30%,#FDE68A,#D97706); border:4px solid #B45309; margin-bottom:12px; }
+  .plaque b { font-size:13px; color:#0B2545; text-align:center; }
+  .plaque.gold { transform:translateY(-46px); width:176px; height:238px; border-color:#F59E0B; background:linear-gradient(180deg,#FFFBEB,#FDE68A); }
+  .plaque.gold .medal { width:74px; height:74px; }
+  .standings { height:150px; background:#fff; border-top:3px solid #0B2545; display:flex; align-items:center; gap:44px; padding:0 56px; }
+  .st-title { font-size:13px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; color:#64748B; width:150px; line-height:1.5; }
+  .row { flex:1; display:flex; align-items:center; gap:16px; }
+  .pos { font-size:26px; font-weight:900; width:44px; color:#0B2545; }
+  .info { flex:1; }
+  .pname { font-size:16px; font-weight:800; margin-bottom:8px; }
+  .bar { height:12px; border-radius:6px; background:#E2E8F0; overflow:hidden; }
+  .bar i { display:block; height:100%; background:linear-gradient(90deg,#16A34A,#4ADE80); }
+  .pct { font-size:20px; font-weight:900; color:#16A34A; width:64px; text-align:right; }
+  .peek { height:74px; background:#0B2545; color:#fff; display:flex; align-items:center; padding:0 56px; font-size:24px; font-weight:900; letter-spacing:-.02em; }
+</style>
+</head>
+<body>
+  <div class="nav">
+    <div class="mark">Eva<span>Luxor</span></div>
+    <div class="links"><b>Bases</b><span>Calendario</span><span>Proyectos</span><span>Premios</span><span>FAQ</span></div>
+    <div class="cta-nav">Presentá tu proyecto</div>
+  </div>
+  <div class="hero">
+    <div class="left">
+      <div class="eyebrow">Concurso trimestral de proyectos · T4 2026</div>
+      <h1>Gran Cosecha<br><em>Luxor</em></h1>
+      <div class="sub">Armá un equipo de tres, presentá tu proyecto y ganalo: tres meses de desarrollo, seguimiento de los jueces y premios para los mejores.</div>
+      <div class="actions">
+        <div class="btn btn-p">Presentá tu proyecto</div>
+        <div class="btn btn-s">Ver bases</div>
+      </div>
+    </div>
+    <div class="vitrine">
+      <div class="shelf"></div>
+      <div class="plaque"><div class="medal"></div><b>2º puesto</b></div>
+      <div class="plaque gold"><div class="medal"></div><b>1er puesto<br>Gran Cosecha</b></div>
+      <div class="plaque"><div class="medal"></div><b>Mención<br>del jurado</b></div>
+    </div>
+  </div>
+  <div class="standings">
+    <div class="st-title">Posiciones en vivo</div>
+    <div class="row"><div class="pos">1</div><div class="info"><div class="pname">Estantes sin quiebres</div><div class="bar"><i style="width:82%"></i></div></div><div class="pct">82%</div></div>
+    <div class="row"><div class="pos">2</div><div class="info"><div class="pname">Caja cero espera</div><div class="bar"><i style="width:67%"></i></div></div><div class="pct">67%</div></div>
+    <div class="row"><div class="pos">3</div><div class="info"><div class="pname">Fruta fresca al día</div><div class="bar"><i style="width:54%"></i></div></div><div class="pct">54%</div></div>
+  </div>
+  <div class="peek">Cómo funciona →</div>
+</body>
+</html>

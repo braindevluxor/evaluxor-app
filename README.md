@@ -37,6 +37,65 @@ Los datos viven en `supabase/schema.sql`, bloque `bonos.sql` (tablas `bonos_carg
 
 **Nómina espejo**: los ocupantes se leen de la tabla `trabajadores_nomina` —el registro **crudo** de la API, porque la normalización (activo, área, estado) vive sólo en el cliente—, que refresca la Edge Function `actualizar-nomina` todos los días a las 05:00 con `pg_cron` + `pg_net`. Si la tabla está vacía (o el bloque no está aplicado) la app cae a la API en vivo, y la pantalla avisa de dónde salió la nómina, cuánto hace que se actualizó y ofrece «Actualizar ahora». Si una tienda no responde, **sus filas no se borran**: se queda el último estado bueno. Para programarlo: habilitar `pg_cron` y `pg_net` (Database → Extensions), desplegar la función, aplicar el bloque `nomina-trabajadores.sql`, cargar la configuración y llamar `select public.programar_nomina_cron();` (el detalle está en la cabecera del bloque).
 
+## Riegos de Gran Cosecha (para Academia Luxor y Desarrollo Luxor)
+
+Un usuario de los **portales hermanos** puede *regar* un proyecto participante de la Gran Cosecha: es el «me gusta» del concurso, con regadera de jardín en vez de pulgar. **Una sola vez por usuario y proyecto** —como un post de Facebook— y la landing pública **`/gran-cosecha.html`** lo muestra en cada tarjeta de la sección **EQUIPOS PARTICIPANTES** (campo `riegos` de `participantes`, que arma `ver_contenido_gran_cosecha` con los proyectos REGISTRADOS en `/gran-cosecha/proyectos`).
+
+La invariante no vive en el código: la tabla `gran_cosecha_riego` tiene por PRIMARY KEY `(proyecto_id, usuario)`, así que un riego repetido no crea fila. Esa tabla está **cerrada** (sin privilegios para `anon` ni `authenticated`, RLS sin políticas): sólo se entra por DOS puertas, y ninguna es un `insert` desde el cliente.
+
+**También se riega desde EvaLuxor**: en `/gran-cosecha/proyectos`, la tarjeta de cada proyecto y su detalle traen el chip de conteo y el botón «Regar». Pasa por dos RPC con `grant ... to authenticated` — `regar_proyecto(uuid)` (escribe; guarda el `usuario` de la **sesión**, sin parámetro de identidad posible) y `riegos_de_la_cosecha()` (lee el mapa `{"<pid>": {"riegos": n, "mio": bool}}`; nunca devuelve quién regó).
+
+**Las dos fotos del participante** —la imagen del proyecto (la cara de la tarjeta, siempre visible) y la foto del equipo (que la landing revela al tocarla)— **se cargan en el propio proyecto**, en el alta o la edición de `/gran-cosecha/proyectos`, y se guardan en `gran_cosecha_proyecto.imagen` / `.foto`. Suben al bucket `gran-cosecha` con ruta `proyectos/<uuid>.webp`: política propia del bucket para que cualquier sesión que pueda editar el proyecto cambie sus fotos, y sólo bajo ese prefijo. Vacías, la tarjeta usa la inicial del título.
+
+**Endpoint**: Edge Function `registrar-riego`
+
+```
+https://<REF>.supabase.co/functions/v1/registrar-riego
+```
+
+Autorización: la API key compartida `RIEGO_API_KEY` en el header `x-riego-api-key` (o en `Authorization: Bearer <RIEGO_API_KEY>`). Si la función quedó desplegada con la verificación de JWT **encendida**, el gateway de Supabase exige además un JWT válido antes de dejar pasar: en ese caso manden `Authorization: Bearer <anon key>` (la anon key es pública) y dejen la API key en `x-riego-api-key`.
+
+> **Así está desplegada hoy: verificación de JWT ENCENDIDA.** El gateway devuelve `UNAUTHORIZED_NO_AUTH_HEADER` si no hay `Authorization`, así que la llamada real lleva **DOS cabeceras** (`Authorization: Bearer <anon key>` + `x-riego-api-key`) — lo demás del contrato es igual. Si algún día se desactiva la verificación, basta `x-riego-api-key`.
+
+### Regar un proyecto
+
+```
+POST /functions/v1/registrar-riego
+Content-Type: application/json
+x-riego-api-key: <RIEGO_API_KEY>
+
+{ "proyecto_id": "uuid-del-proyecto", "usuario": "clave estable del usuario en su portal" }
+```
+
+```json
+{ "ok": true, "status": 200,
+  "data": { "proyecto_id": "…", "usuario": "…", "ya_regado": false, "riegos": 12 },
+  "error": null }
+```
+
+- `ya_regado: true` → ese usuario ya lo había regado: no se duplica nada. La llamada es **idempotente**, un reintento de red no puede inflar el conteo.
+- `riegos` → total de riegos del proyecto después de éste (el mismo número que después publica la landing).
+- `usuario`: texto de 1 a 120 caracteres **sin espacios alrededor**. **Tiene que ser el MISMO valor del campo `usuario` de EvaLuxor** (el username con el que se entra a la app): es la identidad compartida — si un portal manda otra cosa (cédula, id propio), ese humano contaría DOS veces, uno por lado. EvaLuxor riega desde la consola con `regar_proyecto`, que guarda exactamente ese mismo valor, y esa unicidad vive en la PRIMARY KEY de la tabla.
+- Los `uuid` de los proyectos salen de la **misma RPC pública de la landing**: `ver_contenido_gran_cosecha()` (sin sesión) devuelve en `participantes` el `id` y `titulo` de los proyectos del trimestre, con sus riegos. Los CANCELADOS no aparecen.
+
+Errores: `400` cuerpo mal formado · `401` API key inválida · `404` proyecto inexistente · `409` proyecto CANCELADO (ya no participa) · `500` secretos faltantes en la función.
+
+### Qué proyectos ya regó un usuario (para pintar sus botones)
+
+```
+GET /functions/v1/registrar-riego?usuario=<clave>
+→ { "ok": true, "status": 200, "data": { "proyectos": ["uuid", "…"] }, "error": null }
+```
+
+Devuelve los `proyecto_id` que ese usuario ya regó (en TODOS los proyectos, sin importar período), para que el portal los pinte como regados antes de que nadie toque nada.
+
+### Puesta en marcha
+
+1. `supabase secrets set RIEGO_API_KEY=<valor largo y secreto>` (o Dashboard → Edge Functions → Secrets).
+2. `supabase functions deploy registrar-riego`.
+3. Aplicar `supabase/schema.sql` en el SQL Editor: trae `gran_cosecha_riego` y los `participantes` con `riegos` de `ver_contenido_gran_cosecha`. Es idempotente.
+4. Pasar a cada portal la URL, la API key y el formato acordado de `usuario`.
+
 ## Puesta en marcha
 
 1. Clonar e instalar:

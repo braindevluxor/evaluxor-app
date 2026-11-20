@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { Rol } from './lib/types'
 import { AuthProvider } from './context/AuthContext'
@@ -82,6 +82,23 @@ function Susp() {
   return <CargadorPantalla completa />
 }
 
+/**
+ * `/gran-cosecha` SIN `.html`: la dirección obvia de la cosecha.
+ *
+ * Quien la tipea espera la PÁGINA PÚBLICA, no la consola — ésa era la
+ * confusión entre las dos rutas. El HTML estático vive FUERA del router de
+ * React, así que la redirección es una navegación real (`location.replace`):
+ * un `<Navigate>` cambiaría sólo el historial y dejaría la SPA pintando en una
+ * URL que no le pertenece. La consola del concurso pasó a
+ * `/gran-cosecha/proyectos`, junto a sus editors.
+ */
+function IrALandingGranCosecha() {
+  useEffect(() => {
+    window.location.replace('/gran-cosecha.html')
+  }, [])
+  return <Susp />
+}
+
 /** Envuelve las rutas en un error boundary que se limpia al navegar: si algo
  *  lanza durante el render de una pantalla, se muestra el fallback en vez de
  *  dejar la app en blanco, y cambiar de ruta reintenta solo. */
@@ -102,6 +119,10 @@ function Rutas() {
                         propia ruta para no pisar el de conciliación. */}
                     <Route path="/compartir/cargos/:token" element={<CargosPublicos />} />
                     <Route path="/compartir/:token" element={<ConciliacionPublica />} />
+                    {/* La dirección obvia de la cosecha: manda a la landing
+                        pública estática. La consola está adentro del grupo de
+                        sesión, en /gran-cosecha/proyectos. */}
+                    <Route path="/gran-cosecha" element={<IrALandingGranCosecha />} />
                     {/* El menú de UNA sucursal: la carta que ve el cliente
                         desde su QR. Sin `RequireAuth` a propósito — la
                         autorización es la RPC (`ver_menu_publico`), que
@@ -315,9 +336,11 @@ function Rutas() {
                           sesión presenta su proyecto y cualquiera lo mira; el
                           seguimiento lo dan los jueces, que entra por el mismo
                           RLS (`puede_gran_cosecha`) que pide el menú. */}
-                      <Route path="/gran-cosecha" element={<GranCosechaPage />} />
-                      {/* El contenido de /gran-cosecha.html: lo edita sólo
-                          el Líder (ruta propia /gran-cosecha/pagina). */}
+                      <Route path="/gran-cosecha/proyectos" element={<GranCosechaPage />} />
+                      {/* Todo lo que publica /gran-cosecha.html —hero,
+                          premios, fotos y las tarjetas de los participantes—:
+                          lo edita sólo el Líder (`SoloLider` en la ruta, el
+                          item `soloLider` en el menú y la RLS `es_lider()`). */}
                       <Route
                         path="/gran-cosecha/pagina"
                         element={

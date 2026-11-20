@@ -4,6 +4,7 @@ import { avisar } from '../lib/aviso'
 import {
   Badge,
   Button,
+  CampoFoto,
   EmptyState,
   Field,
   Input,
@@ -21,19 +22,27 @@ import {
   TIPOS_BITACORA,
   actualizarProyecto,
   candidatosDeEquipoAsync,
+  claveDeMiembro,
   crearProyecto,
   etiquetaPeriodo,
   historialAvances,
   listarBitacora,
   listarProyectos,
+  listarTrabajadoresEquipo,
   periodosRecientes,
+  regarProyecto,
+  riegosDeLaCosecha,
+  subirFotoProyecto,
   validarEquipo,
   type CambiosProyecto,
   type EstadoProyecto,
   type FilaBitacora,
   type MiembroEquipo,
-  type ProyectoGranCosecha
+  type ProyectoGranCosecha,
+  type RiegosProyecto,
+  type TrabajadorNomina
 } from '../lib/data/granCosecha'
+import { cedula, esActivo, nombreCompleto } from '../lib/data/colaboradores'
 import type { ProfileVista } from '../lib/data/usuarios'
 
 /**
@@ -69,6 +78,80 @@ function fechaCorta(iso: string): string {
   return `${p(f.getDate())}/${p(f.getMonth() + 1)}/${f.getFullYear()} ${p(f.getHours())}:${p(f.getMinutes())}`
 }
 
+/** La regadera del "regar": el like de jardín, con la temática de la cosecha. */
+function Regadera({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden="true" focusable="false">
+      <path d="M12 13h11a2 2 0 0 1 2 2v7a4 4 0 0 1-4 4h-7a4 4 0 0 1-4-4v-9z" fill="currentColor" />
+      <path
+        d="M15 13a4.5 4.5 0 0 1 9 0"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path d="M12 15 6 11.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+      <circle cx="4.5" cy="10.5" r="3" fill="currentColor" />
+      <circle cx="5" cy="18" r="1.4" fill="currentColor" />
+      <circle cx="8" cy="21.5" r="1.1" fill="currentColor" />
+    </svg>
+  )
+}
+
+/**
+ * El conteo de RIEGOS y su estado — en la cabecera de la tarjeta: cuántas
+ * veces se regó el proyecto y si YO ya lo regué.
+ *
+ * Si ya regué, sólo un texto apagado y no un botón: apretar de nuevo no hace
+ * nada (la PK ya cuenta el riego) y una píldora gris llenaba de más la fila.
+ * `datos` en `null` es "la RPC de conteo no está disponible" (bloque de
+ * riegos sin aplicar): no se pinta nada — un cero inventado sería peor que
+ * el silencio.
+ */
+function RiegoProyecto({
+  datos,
+  ocupado,
+  onRegar
+}: {
+  datos: { riegos: number; mio: boolean } | null
+  ocupado: boolean
+  onRegar: () => void
+}) {
+  if (!datos) return null
+  const n = datos.riegos
+  return (
+    <span className="flex items-center gap-2">
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1 text-xs font-bold text-sky-900"
+        title="Veces que regaron este proyecto"
+      >
+        <Regadera className="h-3.5 w-3.5" />
+        <span className="tabular-nums">{n}</span>
+        {n === 1 ? 'riego' : 'riegos'}
+      </span>
+      {datos.mio ? (
+        <span
+          className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400"
+          title="Ya regaste este proyecto"
+        >
+          <Regadera className="h-3.5 w-3.5" />
+          Ya regaste
+        </span>
+      ) : (
+        <Button
+          className="min-h-[30px] px-2.5 py-1 text-xs"
+          disabled={ocupado}
+          onClick={onRegar}
+          title="Regar este proyecto"
+        >
+          <Regadera className="h-3.5 w-3.5" />
+          {ocupado ? 'Regando…' : 'Regar'}
+        </Button>
+      )}
+    </span>
+  )
+}
+
 export function GranCosechaPage() {
   const { profile } = useAuth()
 
@@ -76,6 +159,15 @@ export function GranCosechaPage() {
   const [error, setError] = useState<string | null>(null)
   const [recargar, setRecargar] = useState(0)
   const [periodo, setPeriodo] = useState(() => periodoDeHoy())
+
+  /**
+   * Los riegos por proyecto (conteo + si YO ya regué). `null` mientras la
+   * RPC no responda —bloque de riegos sin aplicar—: sin dato no se pinta
+   * chip alguno, no un cero inventado.
+   */
+  const [riegos, setRiegos] = useState<Record<string, RiegosProyecto> | null>(null)
+  /** El proyecto que se está regando ahora: no se mandan dos en paralelo. */
+  const [regando, setRegando] = useState<string | null>(null)
 
   /** El proyecto cuyo detalle está abierto. */
   const [abierto, setAbierto] = useState<string | null>(null)
@@ -94,7 +186,11 @@ export function GranCosechaPage() {
   const cargar = useCallback(async () => {
     setError(null)
     try {
-      setProyectos(await listarProyectos(periodo))
+      // Los riegos viajan con la lista pero NO la mandan a fallar: si su RPC
+      // no existe, la pantalla sirve igual y sólo quedan sin chip.
+      const [lista, mapa] = await Promise.all([listarProyectos(periodo), riegosDeLaCosecha()])
+      setProyectos(lista)
+      setRiegos(mapa)
     } catch (e) {
       // Sin proyectos no se juran: `null` es "no sé", `[]` es "no hay".
       setProyectos(null)
@@ -149,6 +245,21 @@ export function GranCosechaPage() {
     }
   }
 
+  /**
+   * Publica una foto EN EL MOMENTO (mismo criterio que el Estado): no pasa
+   * por el formulario y NO limpia la bitácora —una foto no es un movimiento
+   * del proyecto—, así que el detalle se queda con su historial puesto.
+   */
+  const publicarFoto = async (cambios: Pick<CambiosProyecto, 'imagen' | 'foto'>, id: string) => {
+    try {
+      await actualizarProyecto(id, cambios)
+      avisar('Foto publicada: ya aparece en la landing.')
+      setRecargar((n) => n + 1)
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo guardar la foto.', 'error')
+    }
+  }
+
   const crear = async (entrada: Parameters<typeof crearProyecto>[0]) => {
     if (!profile) return
     try {
@@ -159,6 +270,31 @@ export function GranCosechaPage() {
     } catch (e) {
       avisar(e instanceof Error ? e.message : 'No se pudo presentar el proyecto.', 'error')
       throw e
+    }
+  }
+
+  /**
+   * Regar un proyecto: la base guarda el `usuario` de QUIEN aprieta (la
+   * misma clave que mandan los portales), así que no hay forma de regar por
+   * otro. Idempotente: si ya estaba regado, la respuesta lo dice y el
+   * conteo no se mueve.
+   */
+  const regar = async (id: string) => {
+    if (regando) return
+    setRegando(id)
+    try {
+      const r = await regarProyecto(id)
+      setRiegos((prev) => ({ ...(prev ?? {}), [id]: { riegos: r.riegos, mio: true } }))
+      avisar(
+        r.ya_regado
+          ? 'Ya habías regado este proyecto: el conteo sigue igual.'
+          : '¡Regado! Tu riego ya cuenta en el proyecto.',
+        'aviso'
+      )
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo regar el proyecto.', 'error')
+    } finally {
+      setRegando(null)
     }
   }
 
@@ -224,7 +360,14 @@ export function GranCosechaPage() {
                     {p.miembros.length} en el equipo · presentado el {fechaCorta(p.created_at)}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* El riego vive en la tarjeta: chip con el conteo y su
+                      botón, el mismo que despliega el detalle. */}
+                  <RiegoProyecto
+                    datos={riegos ? (riegos[p.id] ?? { riegos: 0, mio: false }) : null}
+                    ocupado={regando === p.id}
+                    onRegar={() => void regar(p.id)}
+                  />
                   {puedeEditar(p) ? (
                     <Button
                       variant="ghost"
@@ -268,6 +411,7 @@ export function GranCosechaPage() {
                   proyecto={p}
                   bitacora={bitacora[p.id] ?? null}
                   puedeEditar={puedeEditar(p)}
+                  onFoto={(cambios) => void publicarFoto(cambios, p.id)}
                   onEstado={(estado) => void guardar({ estado }, p.id)}
                   onAvance={() => setAvanceDe(p)}
                   onEditar={() => setEditando(p)}
@@ -320,6 +464,7 @@ function DetalleProyecto({
   proyecto,
   bitacora,
   puedeEditar,
+  onFoto,
   onEstado,
   onAvance,
   onEditar
@@ -327,11 +472,32 @@ function DetalleProyecto({
   proyecto: ProyectoGranCosecha
   bitacora: FilaBitacora[] | null
   puedeEditar: boolean
+  /** Guarda una foto EN EL MOMENTO (misma inmediación que el Estado). */
+  onFoto: (cambios: Pick<CambiosProyecto, 'imagen' | 'foto'>) => void
   onEstado: (estado: EstadoProyecto) => void
   onAvance: () => void
   onEditar: () => void
 }) {
   const avances = bitacora ? historialAvances(bitacora) : []
+  const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
+
+  /** Sube la foto elegida y la publica de una vez, sin pasar por el form. */
+  const subirFoto = async (campo: 'imagen' | 'foto', archivo: File | undefined) => {
+    if (!archivo) return
+    setSubiendoFoto(campo)
+    try {
+      const url = await subirFotoProyecto(
+        archivo,
+        campo === 'imagen' ? (proyecto.imagen ?? '') : (proyecto.foto ?? '')
+      )
+      if (campo === 'imagen') onFoto({ imagen: url })
+      else onFoto({ foto: url })
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo subir la foto.', 'error')
+    } finally {
+      setSubiendoFoto(null)
+    }
+  }
 
   return (
     <div className="mt-4 space-y-4 rounded-xl bg-slate-50 p-4">
@@ -341,12 +507,76 @@ function DetalleProyecto({
         <p className="text-sm text-slate-500">Sin descripción.</p>
       )}
 
+      {/* Las DOS fotos, con subida directa: como el Estado, se guardan al
+          tocar y no hace falta abrir el formulario de edición. Sin permiso
+          de edición sólo se muestran; sin fotos ni permiso, ni se dibuja. */}
+      {puedeEditar || proyecto.imagen || proyecto.foto ? (
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            Fotos
+          </span>
+          {puedeEditar ? (
+            <>
+              <div className="mt-1.5 grid gap-4 sm:grid-cols-2">
+                <CampoFoto
+                  etiqueta="Imagen del proyecto"
+                  url={proyecto.imagen ?? ''}
+                  vacio="Sin imagen: la landing usa la inicial del título"
+                  ocupado={subiendoFoto === 'imagen'}
+                  onArchivo={(archivo) => void subirFoto('imagen', archivo)}
+                  onQuitar={() => onFoto({ imagen: '' })}
+                />
+                <CampoFoto
+                  etiqueta="Foto del equipo"
+                  url={proyecto.foto ?? ''}
+                  vacio="Sin foto: no hay nada que revelar"
+                  ocupado={subiendoFoto === 'foto'}
+                  onArchivo={(archivo) => void subirFoto('foto', archivo)}
+                  onQuitar={() => onFoto({ foto: '' })}
+                />
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-400">
+                Se guardan solas al subirlas: ya aparecen en la landing.
+              </p>
+            </>
+          ) : (
+            <div className="mt-1.5 flex flex-wrap gap-3">
+              {proyecto.imagen ? (
+                <figure className="w-40">
+                  <img
+                    src={proyecto.imagen}
+                    alt="Imagen del proyecto"
+                    className="h-24 w-full rounded-xl border border-slate-200 object-cover"
+                  />
+                  <figcaption className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Imagen del proyecto
+                  </figcaption>
+                </figure>
+              ) : null}
+              {proyecto.foto ? (
+                <figure className="w-40">
+                  <img
+                    src={proyecto.foto}
+                    alt="Foto del equipo"
+                    className="h-24 w-full rounded-xl border border-slate-200 object-cover"
+                  />
+                  <figcaption className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Foto del equipo
+                  </figcaption>
+                </figure>
+              ) : null}
+            </div>
+          )}
+        </div>
+      ) : null}
+
       <div>
         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Equipo</span>
         <ul className="mt-1.5 flex flex-wrap gap-2">
           {proyecto.miembros.map((m) => (
             <li
-              key={m.usuario_id}
+              key={claveDeMiembro(m)}
+              title={m.dni != null ? `${m.nacionalidad ?? 'V'}-${m.dni}` : undefined}
               className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200"
             >
               {m.nombre}
@@ -441,21 +671,106 @@ function FormProyecto({
   const [descripcion, setDescripcion] = useState(proyecto?.descripcion ?? '')
   const [periodo, setPeriodo] = useState(proyecto?.periodo ?? periodoDeHoy())
   const [elegidos, setElegidos] = useState<MiembroEquipo[]>(proyecto?.miembros ?? [])
+  const [imagen, setImagen] = useState(proyecto?.imagen ?? '')
+  const [foto, setFoto] = useState(proyecto?.foto ?? '')
+  const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
   const [busqueda, setBusqueda] = useState('')
   const [guardando, setGuardando] = useState(false)
+  /** Trabajadores de la nómina que coincide la búsqueda (con o sin cuenta). */
+  const [trabajadores, setTrabajadores] = useState<TrabajadorNomina[]>([])
+  /** Falló la última búsqueda en la nómina (bloque de SQL pendiente, red…). */
+  const [errorNomina, setErrorNomina] = useState(false)
+
+  // La nómina no se baja entera (miles de filas): la búsqueda va al servidor,
+  // con debounce y recién desde 2 letras. Mientras tanto, el filtro local de
+  // siempre sigue cubriendo a los usuarios de la app. El error va AL TEXTO y
+  // no a un toast: dura mientras se siga escribiendo y un aviso por tecla
+  // enloquecería la pantalla.
+  useEffect(() => {
+    const texto = busqueda.trim()
+    if (texto.length < 2) {
+      setTrabajadores([])
+      setErrorNomina(false)
+      return
+    }
+    let vivo = true
+    const reloj = setTimeout(() => {
+      listarTrabajadoresEquipo(texto)
+        .then((filas) => {
+          if (!vivo) return
+          setTrabajadores(filas)
+          setErrorNomina(false)
+        })
+        .catch(() => {
+          if (!vivo) return
+          setTrabajadores([])
+          setErrorNomina(true)
+        })
+    }, 300)
+    return () => {
+      vivo = false
+      clearTimeout(reloj)
+    }
+  }, [busqueda])
 
   const q = busqueda.trim().toLowerCase()
-  const visibles = (candidatos ?? []).filter(
-    (c) => !q || `${c.nombre} ${c.usuario}`.toLowerCase().includes(q)
-  )
+  /** Una fila del selector: un usuario de la app o un trabajador de la nómina. */
+  type Opcion = {
+    clave: string
+    nombre: string
+    /** Qué se muestra debajo: el usuario, o la cédula y la sucursal. */
+    sub: string
+    perfil?: ProfileVista
+    trabajador?: TrabajadorNomina
+  }
+  const opciones: Opcion[] = [
+    ...(candidatos ?? []).map((c) => ({
+      clave: `u:${c.id}`,
+      nombre: c.nombre || c.usuario,
+      sub: c.usuario,
+      perfil: c
+    })),
+    // Sólo activos: `esActivo` es el MISMO criterio con el que se paga la nómina.
+    ...trabajadores.filter(esActivo).map((t) => ({
+      clave: `w:${t.nacionalidad}-${t.dni}`,
+      nombre: nombreCompleto(t),
+      sub: `${cedula({ nationality: t.nacionalidad, dni: t.dni })}${t.sucursal ? ` · ${t.sucursal}` : ''}`,
+      trabajador: t
+    }))
+  ]
+  const visibles = opciones.filter((o) => !q || `${o.nombre} ${o.sub}`.toLowerCase().includes(q))
   const problema = titulo.trim() ? validarEquipo(elegidos) : 'Escribí el título del proyecto.'
 
-  const alternar = (c: ProfileVista) =>
-    setElegidos((prev) =>
-      prev.some((m) => m.usuario_id === c.id)
-        ? prev.filter((m) => m.usuario_id !== c.id)
-        : [...prev, { usuario_id: c.id, nombre: c.nombre || c.usuario }]
-    )
+  const alternar = (o: Opcion) =>
+    setElegidos((prev) => {
+      const esta = (m: MiembroEquipo) => claveDeMiembro(m) === o.clave
+      if (prev.some(esta)) return prev.filter((m) => !esta(m))
+      const nuevo: MiembroEquipo = o.perfil
+        ? { usuario_id: o.perfil.id, nombre: o.perfil.nombre || o.perfil.usuario }
+        : {
+            usuario_id: '',
+            nombre: o.nombre,
+            nacionalidad: o.trabajador?.nacionalidad,
+            dni: o.trabajador?.dni
+          }
+      return [...prev, nuevo]
+    })
+
+  /** Sube la foto elegida y la deja en el estado del formulario. */
+  const subirFoto = async (campo: 'imagen' | 'foto', archivo: File | undefined) => {
+    if (!archivo) return
+    setSubiendoFoto(campo)
+    try {
+      const url = await subirFotoProyecto(archivo, campo === 'imagen' ? imagen : foto)
+      if (campo === 'imagen') setImagen(url)
+      else setFoto(url)
+      avisar('Foto subida. Tocá el botón de guardar para publicarla.')
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo subir la foto.', 'error')
+    } finally {
+      setSubiendoFoto(null)
+    }
+  }
 
   return (
     <Modal
@@ -476,7 +791,9 @@ function FormProyecto({
                 titulo: titulo.trim(),
                 descripcion: descripcion.trim(),
                 periodo,
-                miembros: elegidos
+                miembros: elegidos,
+                imagen,
+                foto
               })
                 .catch(() => undefined)
                 .finally(() => setGuardando(false))
@@ -504,14 +821,36 @@ function FormProyecto({
           </Select>
         </Field>
 
+        {/* Las DOS fotos que la landing del participante muestra: la del
+            proyecto (la cara, siempre visible) y la del equipo (se revela al
+            tocarla). Ya suben al bucket público; se guardan con el botón. */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <CampoFoto
+            etiqueta="Imagen del proyecto"
+            url={imagen}
+            vacio="Sin imagen: la landing usa la inicial del título"
+            ocupado={subiendoFoto === 'imagen'}
+            onArchivo={(archivo) => void subirFoto('imagen', archivo)}
+            onQuitar={() => setImagen('')}
+          />
+          <CampoFoto
+            etiqueta="Foto del equipo"
+            url={foto}
+            vacio="Sin foto: no hay nada que revelar"
+            ocupado={subiendoFoto === 'foto'}
+            onArchivo={(archivo) => void subirFoto('foto', archivo)}
+            onQuitar={() => setFoto('')}
+          />
+        </div>
+
         <Field
           label={`Equipo (${elegidos.length})`}
-          hint="Mínimo 3 personas. Se eligen de los usuarios de la empresa."
+          hint="Mínimo 3 personas: usuarios de la app y trabajadores de cualquier sucursal."
         >
           <Input
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Buscar por nombre o usuario"
+            placeholder="Buscar por nombre, usuario o cédula"
             aria-label="Buscar integrante"
           />
         </Field>
@@ -524,28 +863,45 @@ function FormProyecto({
           <p className="text-sm text-slate-500">Nadie coincide con «{busqueda}».</p>
         ) : (
           <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
-            {visibles.map((c) => {
-              const marcado = elegidos.some((m) => m.usuario_id === c.id)
+            {visibles.map((o) => {
+              const marcado = elegidos.some((m) => claveDeMiembro(m) === o.clave)
               return (
-                <li key={c.id}>
+                <li key={o.clave}>
                   <label className="flex cursor-pointer items-center gap-3 px-3 py-2">
                     <input
                       type="checkbox"
                       className="h-4 w-4 accent-primary"
                       checked={marcado}
-                      onChange={() => alternar(c)}
+                      onChange={() => alternar(o)}
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-slate-800">{c.nombre}</span>
-                      <span className="block text-xs text-slate-500">{c.usuario}</span>
+                      <span className="block truncate text-sm font-semibold text-slate-800">
+                        {o.nombre}
+                      </span>
+                      <span className="block text-xs text-slate-500">{o.sub}</span>
                     </span>
-                    {marcado ? <Badge color={1}>Equipo</Badge> : null}
+                    {marcado ? (
+                      <Badge color={1}>Equipo</Badge>
+                    ) : o.trabajador ? (
+                      <Badge color={0}>Trabajador</Badge>
+                    ) : null}
                   </label>
                 </li>
               )
             })}
           </ul>
         )}
+        {errorNomina ? (
+          <p className="mt-2 text-xs font-semibold text-amber-700">
+            No se pudo buscar en la nómina de trabajadores — ¿el bloque de Gran Cosecha está aplicado
+            en el SQL Editor?
+          </p>
+        ) : q.length < 2 ? (
+          <p className="mt-2 text-[11px] text-slate-400">
+            Escribí 2 letras o más para buscar también entre los trabajadores de cualquier sucursal,
+            aunque no tengan cuenta en EvaLuxor.
+          </p>
+        ) : null}
 
         {problema ? <p className="text-xs font-semibold text-amber-700">{problema}</p> : null}
       </div>

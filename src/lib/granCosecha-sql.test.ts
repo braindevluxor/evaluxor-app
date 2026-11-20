@@ -65,6 +65,18 @@ const DDL = `
     rol text not null check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH')),
     token text not null unique default gen_random_uuid()::text
   );
+
+  -- Espejo de la nómina (la crea el bloque de nómina-trabajadores, que este
+  -- test NO corre): sólo lo que lee la RPC de candidatos del equipo. Sin la
+  -- FK a sucursales — acá sólo importa la persona, no su tienda.
+  create table public.trabajadores_nomina (
+    sucursal_id uuid not null default gen_random_uuid(),
+    nacionalidad text not null default 'V',
+    dni bigint not null,
+    datos jsonb not null,
+    actualizado_en timestamptz not null default now(),
+    constraint trabajadores_nomina_unico primary key (sucursal_id, nacionalidad, dni)
+  );
 `
 
 const JUEZ = '00000000-0000-0000-0000-000000000001'
@@ -92,6 +104,14 @@ beforeAll(async () => {
   // Ahora sí, el rol: se asigna DESPUÉS del bloque, que es justo lo que
   // cambió —antes el `check` viejo habría rechazado este update.
   await db.exec(`update public.profiles set rol = 'JUEZ' where id = '${JUEZ}'`)
+
+  // Los `usuario` de cada perfil: ES ESA CLAVE con la que se riega (la misma
+  // que mandan los portales hermanos), así que los tres tienen que tenerla.
+  await db.exec(
+    `update public.profiles set usuario = 'rita.juez' where id = '${JUEZ}';
+     update public.profiles set usuario = 'ana.lider' where id = '${LIDER}';
+     update public.profiles set usuario = 'juan.trabajador' where id = '${EVALUADOR}'`
+  )
 })
 
 afterAll(async () => {
@@ -430,5 +450,337 @@ describe('gran-cosecha.sql · permisos', () => {
       `select cmd from pg_policies where schemaname = 'public' and tablename = 'gran_cosecha_bitacora'`
     )
     expect(bit.rows.map((r) => r.cmd.toLowerCase())).toEqual(['select'])
+  })
+})
+
+describe('gran-cosecha.sql · regar desde EvaLuxor', () => {
+  /** La RPC como la llama la pantalla: sólo el proyecto, NUNCA identidad. */
+  async function regar(proyectoId: string): Promise<Record<string, unknown>> {
+    const r = await db.query<{ regar_proyecto: Record<string, unknown> }>(
+      `select public.regar_proyecto($1) as regar_proyecto`,
+      [proyectoId]
+    )
+    return r.rows[0].regar_proyecto
+  }
+
+  /** El mapa de conteos que lee la consola, con la sesión puesta. */
+  async function leerRiegos(): Promise<Record<string, { riegos: number; mio: boolean }>> {
+    const r = await db.query<{ riegos_de_la_cosecha: Record<string, { riegos: number; mio: boolean }> }>(
+      `select public.riegos_de_la_cosecha() as riegos_de_la_cosecha`
+    )
+    return r.rows[0].riegos_de_la_cosecha
+  }
+
+  it('guarda el USUARIO de la sesión y cuenta UNA vez por persona', async () => {
+    const proyecto = await presentar({ titulo: 'Para regar' })
+
+    await conRol(EVALUADOR, async () => {
+      // El primero: entra y devuelve el conteo.
+      expect(await regar(proyecto)).toEqual({ ya_regado: false, riegos: 1 })
+      // El mismo, otra vez: NO duplica y lo dice.
+      expect(await regar(proyecto)).toEqual({ ya_regado: true, riegos: 1 })
+    })
+
+    // La clave de la fila es el `usuario` DEL PERFIL de quien apretó — la
+    // misma que mandan los portales—, no un id de sesión.
+    const filas = await db.query<{ usuario: string }>(
+      `select usuario from public.gran_cosecha_riego where proyecto_id = $1`,
+      [proyecto]
+    )
+    expect(filas.rows.map((f) => f.usuario)).toEqual(['juan.trabajador'])
+  })
+
+  it('otra persona riega el mismo proyecto: son DOS riegos', async () => {
+    const proyecto = await presentar({ titulo: 'Para regar entre dos' })
+    await conRol(EVALUADOR, async () => {
+      await regar(proyecto)
+    })
+    await conRol(JUEZ, async () => {
+      expect(await regar(proyecto)).toEqual({ ya_regado: false, riegos: 2 })
+    })
+    const n = await contar(
+      `select count(*) as n from public.gran_cosecha_riego where proyecto_id = $1`,
+      [proyecto]
+    )
+    expect(n).toBe(2)
+  })
+
+  it('la identidad NO es parámetro: no hay forma de regar por otro', async () => {
+    // La única entrada de la función es el proyecto; quién riega lo decide
+    // la función con la sesión, así que ni la pantalla ni un llamado roto
+    // pueden mandar el usuario de otro.
+    const { rows } = await db.query<{ args: string }>(
+      `select pg_get_function_arguments(p.oid) as args
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'regar_proyecto'`
+    )
+    expect(rows[0].args).toBe('p_proyecto_id uuid')
+  })
+
+  it('anon no riega ni lee: ni la función ni la tabla', async () => {
+    for (const fn of ['regar_proyecto(uuid)', 'riegos_de_la_cosecha()']) {
+      const n = await contar(
+        `select case when has_function_privilege('anon', 'public.${fn}', 'execute') then 1 else 0 end as n`
+      )
+      expect(n, fn).toBe(0)
+    }
+
+    const proyecto = await presentar({ titulo: 'Protegido de anon' })
+    await como(null)
+    await db.exec('set role anon')
+    try {
+      await expect(regar(proyecto)).rejects.toThrow(/permission denied for function/i)
+    } finally {
+      await db.exec('reset role')
+    }
+    const n = await contar(
+      `select count(*) as n from public.gran_cosecha_riego where proyecto_id = $1`,
+      [proyecto]
+    )
+    expect(n).toBe(0)
+  })
+
+  it('un proyecto cancelado o inexistente no se riega', async () => {
+    const cancelado = await presentar({ titulo: 'Canceladito', estado: 'CANCELADO' })
+    await conRol(EVALUADOR, async () => {
+      await expect(regar(cancelado)).rejects.toThrow(/ya no participa/i)
+      await expect(regar('00000000-0000-0000-0000-00000000ffff')).rejects.toThrow(/No existe ese proyecto/i)
+    })
+  })
+
+  it('un perfil sin usuario de EvaLuxor no puede regar (y no deja rastro)', async () => {
+    const proyecto = await presentar({ titulo: 'Perfil sin usuario' })
+    await db.query(`update public.profiles set usuario = '' where id = $1`, [EVALUADOR])
+    try {
+      await conRol(EVALUADOR, async () => {
+        await expect(regar(proyecto)).rejects.toThrow(/usuario de EvaLuxor/i)
+      })
+    } finally {
+      await db.query(`update public.profiles set usuario = 'juan.trabajador' where id = $1`, [EVALUADOR])
+    }
+    const n = await contar(
+      `select count(*) as n from public.gran_cosecha_riego where proyecto_id = $1`,
+      [proyecto]
+    )
+    expect(n).toBe(0)
+  })
+
+  it('el conteo de la consola: número y lo mío, sin identidad de nadie', async () => {
+    const proyecto = await presentar({ titulo: 'Para el conteo' })
+    await conRol(EVALUADOR, async () => {
+      await regar(proyecto)
+    })
+    await conRol(JUEZ, async () => {
+      await regar(proyecto)
+    })
+
+    await conRol(EVALUADOR, async () => {
+      const mapa = await leerRiegos()
+      expect(mapa[proyecto]).toEqual({ riegos: 2, mio: true })
+      // Ni un solo `usuario` cruza por más de que la sesión tenga sesión.
+      expect(JSON.stringify(mapa)).not.toContain('trabajador')
+    })
+
+    // LÍDER no riegó: ve el conteo, pero NO como suyo.
+    await conRol(LIDER, async () => {
+      const mapa = await leerRiegos()
+      expect(mapa[proyecto]).toEqual({ riegos: 2, mio: false })
+    })
+
+    // Un proyecto sin riegos ni siquiera aparece en el mapa: la pantalla
+    // distingue «nadie regó» de «no sé» por la clave que exista.
+    const virgen = await presentar({ titulo: 'Sin riegos' })
+    await conRol(LIDER, async () => {
+      const mapa = await leerRiegos()
+      expect(mapa[virgen]).toBeUndefined()
+    })
+  })
+})
+
+describe('gran-cosecha.sql · los riegos', () => {
+  const regar = (proyecto: string, usuario: string) =>
+    db.query(
+      `insert into public.gran_cosecha_riego (proyecto_id, usuario) values ($1, $2)`,
+      [proyecto, usuario]
+    )
+
+  it('un usuario riega UNA vez por proyecto: la unicidad la tiene la PK', async () => {
+    const enUno = await presentar({ titulo: 'Proyecto con riego' })
+    const enOtro = await presentar({ titulo: 'Otro proyecto con riego' })
+
+    // El primer riego entra…
+    await regar(enUno, 'academia:101')
+    // …el mismo usuario sobre el MISMO proyecto, no: choca con la clave
+    // primaria. No es la app la que lo evita, es la base.
+    await expect(regar(enUno, 'academia:101')).rejects.toThrow(/duplicate key/i)
+
+    // Pero el mismo usuario sí riega OTRO proyecto, y OTRO usuario el mismo:
+    // la unicidad es por par (proyecto, usuario), como un "me gusta".
+    await regar(enUno, 'desarrollo:77')
+    await regar(enOtro, 'academia:101')
+
+    const n = await contar(
+      `select count(*) as n from public.gran_cosecha_riego where proyecto_id = $1`,
+      [enUno]
+    )
+    expect(n).toBe(2)
+  })
+
+  it('el usuario va sin espacios de más: con y sin, es el mismo riego', async () => {
+    const proyecto = await presentar({ titulo: 'Proyecto con riego 2' })
+    await regar(proyecto, 'academia:202')
+    // Un `trim` malo en el portal no crearía un "segundo usuario" invisible.
+    await expect(regar(proyecto, ' academia:202 ')).rejects.toThrow(/check|violaci/i)
+    // Y un usuario totalmente vacío ni siquiera es un riego.
+    await expect(regar(proyecto, '   ')).rejects.toThrow(/check|violaci/i)
+  })
+
+  it('nadie riega desde EvaLuxor: sin privilegio para anon ni para la sesión', async () => {
+    // Dos capas en este orden: el revoke (sin privilegio de tabla ni siquiera
+    // se llega a evaluar el RLS) y el RLS sin ninguna política.
+    for (const rol of ['anon', 'authenticated']) {
+      const n = await contar(
+        `select case when has_table_privilege('${rol}', 'public.gran_cosecha_riego', 'select')
+                then 1 else 0 end as n`
+      )
+      expect(n, `${rol} no puede leer los riegos`).toBe(0)
+    }
+
+    const rls = await contar(
+      `select relrowsecurity::int as n from pg_class c
+         join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relname = 'gran_cosecha_riego'`
+    )
+    expect(rls).toBe(1)
+
+    const politicas = await contar(
+      `select count(*)::int as n from pg_policies
+        where schemaname = 'public' and tablename = 'gran_cosecha_riego'`
+    )
+    expect(politicas).toBe(0)
+
+    // Una sesión que intente regar, ni llega: la escribe sólo la edge
+    // function con la service_role.
+    const proyecto = await presentar({ titulo: 'Proyecto con riego 3' })
+    await conRol(EVALUADOR, async () => {
+      await expect(regar(proyecto, 'academia:303')).rejects.toThrow(
+        /permission denied|row-level security/i
+      )
+    })
+  })
+
+  it('un riego a un proyecto que no existe no entra', async () => {
+    await expect(regar('00000000-0000-0000-0000-00000000ffff', 'academia:404')).rejects.toThrow(
+      /foreign key/i
+    )
+  })
+})
+
+describe('gran-cosecha.sql · las fotos del proyecto', () => {
+  it('nacen vacías, las cambia el que edita el proyecto y no ensucian la bitácora', async () => {
+    const id = await presentar({ titulo: 'Proyecto con fotos' })
+
+    // El default es cadena vacía: la tarjeta de la landing usa la inicial.
+    const inicial = await db.query<{ imagen: string; foto: string }>(
+      `select imagen, foto from public.gran_cosecha_proyecto where id = $1`,
+      [id]
+    )
+    expect(inicial.rows[0]).toEqual({ imagen: '', foto: '' })
+
+    // El creador cambia sus fotos: la RLS de UPDATE es por fila y cubre las
+    // columnas nuevas sin tocar políticas…
+    await conRol(EVALUADOR, async () => {
+      await db.query(
+        `update public.gran_cosecha_proyecto
+            set imagen = 'https://supabase.test/proyectos/cara.webp',
+                foto   = 'https://supabase.test/proyectos/equipo.webp'
+          where id = $1`,
+        [id]
+      )
+    })
+
+    const despues = await db.query<{ imagen: string; foto: string }>(
+      `select imagen, foto from public.gran_cosecha_proyecto where id = $1`,
+      [id]
+    )
+    expect(despues.rows[0]).toEqual({
+      imagen: 'https://supabase.test/proyectos/cara.webp',
+      foto: 'https://supabase.test/proyectos/equipo.webp'
+    })
+
+    // …y cambiar una foto NO deja fila en la bitácora: es cosmético, no un
+    // avance ni una edición de contenido. Sigue habiendo sólo el ALTA.
+    const filas = await db.query<{ tipo: string }>(
+      `select tipo from public.gran_cosecha_bitacora where proyecto_id = $1 order by created_at`,
+      [id]
+    )
+    expect(filas.rows.map((f) => f.tipo)).toEqual(['ALTA'])
+  })
+})
+
+describe('gran-cosecha.sql · los candidatos sin cuenta', () => {
+  it('anon no la puede llamar: es sólo para sesiones', async () => {
+    const anon = await contar(
+      `select case when has_function_privilege('anon', 'public.listar_trabajadores_equipo(text)', 'execute')
+              then 1 else 0 end as n`
+    )
+    expect(anon).toBe(0)
+
+    await como(null)
+    await db.exec('set role anon')
+    try {
+      await expect(
+        db.query(`select public.listar_trabajadores_equipo('maria')`)
+      ).rejects.toThrow(/permission denied for function/i)
+    } finally {
+      await db.exec('reset role')
+    }
+  })
+
+  it('busca por nombre o cédula, deja a cada persona UNA vez y sólo manda lo mínimo', async () => {
+    // La MISMA persona en dos sucursales (se cambió de tienda): el picker
+    // tiene que verla UNA sola vez, con su registro más reciente.
+    await db.query(
+      `insert into public.trabajadores_nomina (sucursal_id, nacionalidad, dni, datos, actualizado_en) values
+         (gen_random_uuid(), 'V', 12345678,
+          '{"name":"Maria","lastname":"Perez","branch_name":"Centro","active":true}', '2026-01-01'),
+         (gen_random_uuid(), 'V', 12345678,
+          '{"name":"Maria","lastname":"Perez","branch_name":"Norte","active":true}', '2026-06-01'),
+         (gen_random_uuid(), 'V', 87654321,
+          '{"name":"Jose","lastname":"Gomez","branch_name":"Sur","active":false}', '2026-06-01')`
+    )
+
+    await conRol(EVALUADOR, async () => {
+      const buscar = async (texto: string): Promise<Record<string, unknown>[]> => {
+        const r = await db.query<{ filas: Record<string, unknown>[] }>(
+          `select public.listar_trabajadores_equipo($1) as filas`,
+          [texto]
+        )
+        return r.rows[0].filas
+      }
+
+      const porApellido = await buscar('perez')
+      expect(porApellido).toHaveLength(1)
+      expect(porApellido[0].nacionalidad).toBe('V')
+      expect(Number(porApellido[0].dni)).toBe(12345678)
+      expect(porApellido[0].name).toBe('Maria')
+      // La sucursal es la del registro MÁS RECIENTE (se cambió a Norte).
+      expect(porApellido[0].sucursal).toBe('Norte')
+
+      // También por cédula, como la escribe la gente.
+      expect(await buscar('V-1234')).toHaveLength(1)
+
+      // Sólo lo mínimo para el picker: ni el resto de `datos` (sueldos,
+      // fechas, cargo) ni basura.
+      expect(Object.keys(porApellido[0]).sort()).toEqual(
+        ['active', 'estado', 'estado_display', 'is_active', 'lastname', 'name',
+         'nacionalidad', 'status', 'status_display', 'sucursal', 'dni'].sort()
+      )
+
+      // Sin coincidencias o sin texto: lista vacía, NO la nómina entera.
+      expect(await buscar('zzzz')).toHaveLength(0)
+      expect(await buscar('')).toHaveLength(0)
+    })
+    await como(null)
   })
 })

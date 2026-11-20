@@ -30,14 +30,10 @@ describe('gran cosecha · la página en la consola', () => {
     expect(consola).toContain("titulo: 'Página de la Gran Cosecha'")
   })
 
-  it('la página toca las secciones de la landing que todavía se editan', () => {
-    for (const bloque of ['Hero', 'Carrusel del hero', 'Premios']) {
+  it('la página toca las cuatro secciones de la landing', () => {
+    for (const bloque of ['Hero', 'Premios']) {
       expect(pagina, bloque).toContain(bloque)
     }
-    // Los equipos los carga el módulo de proyectos y las fotos de rounds ya
-    // no se publican: la consola no ofrece esos bloques.
-    expect(pagina).not.toContain('Equipos participantes')
-    expect(pagina).not.toContain('titulo="Imágenes"')
     expect(pagina).toContain('cargarContenidoPagina')
     expect(pagina).toContain('guardarContenidoPagina')
     expect(pagina).toContain('subirFotoPagina')
@@ -115,10 +111,6 @@ describe('gran cosecha · el módulo de datos', () => {
     premioRoto.premios[1].descripcion = ''
     expect(validarContenido(premioRoto)).toMatch(/premio 2/)
 
-    const equipoSinNombre = structuredClone(CONTENIDO_BASE)
-    equipoSinNombre.equipos = [{ nombre: ' ', sucursal: 'Luxor Central', imagen: '', foto: '' }]
-    expect(validarContenido(equipoSinNombre)).toMatch(/equipo 1/)
-
     const sinFecha = structuredClone(CONTENIDO_BASE)
     sinFecha.hero.fechaHastaMes = ''
     expect(validarContenido(sinFecha)).toMatch(/fecha de cierre/)
@@ -142,13 +134,36 @@ describe('gran cosecha · la landing', () => {
     }
   })
 
-  it('la sección de equipos nace oculta: sin equipos publicados no aparece', () => {
+  it('la sección de participantes nace oculta: sin proyectos registrados no aparece', () => {
     expect(landing).toMatch(/<section id="equipos" class="[^"]*\bhidden\b/)
-    // Y el script la muestra sólo si hay equipos con nombre.
+    // La lista sale de los proyectos REGISTRADOS en la consola, no de nada
+    // escrito a mano en la landing.
+    expect(landing).toContain('pintarParticipantes(contenido.participantes)')
     expect(landing).toContain("seccion.classList.remove('hidden')")
   })
 
-  it('la tarjeta del equipo monta la imagen del proyecto y revela su foto', () => {
+  it('la sección de participantes va en el azul primario y con la textura de fondo.svg', () => {
+    // Azul #28315F —el mismo de los botones de EvaLuxor (HEX_PRIMARY)— y la
+    // MISMA retícula de cruces que el bloque rojo de «¿QUÉ ES?»: fondo.svg
+    // pintado SOBRE el color de fondo de la sección.
+    expect(landing).toMatch(/<section id="equipos" class="[^"]*\bbg-\[#28315F\]/)
+    expect(landing).toMatch(/<section id="equipos" class="[^"]*\btextura-cruces\b/)
+    // La textura es la misma que usa el bloque rojo: una sola clase.
+    expect(landing.match(/textura-cruces/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+  })
+
+  it('cada participante lleva su avance y sus RIEGOS con regadera', () => {
+    // El "like" de jardín: el conteo que mandan Academia/Desarrollo Luxor,
+    // pintado en el proyecto que se registró en /gran-cosecha/proyectos.
+    expect(landing).toContain('function pintarParticipantes(participantes)')
+    expect(landing).toContain('class="chip-riegos"')
+    expect(landing).toContain('class="chip-avance"')
+    expect(landing).toContain('class="riego-ico"')
+    // Sólo el NÚMERO cruza: quién regó vive en una tabla cerrada.
+    expect(landing).toContain("riegos === 1 ? 'riego' : 'riegos'")
+  })
+
+  it('la tarjeta del participante monta la imagen del proyecto y revela su foto', () => {
     // Cada tarjeta lleva DOS caras: la imagen del proyecto (con la inicial
     // pintada debajo por si la URL no carga)…
     expect(landing).toContain('class="inicial"')
@@ -163,15 +178,25 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain("querySelectorAll('.tarjeta-equipo.esta-activa')")
     expect(landing).toContain("classList.remove('esta-activa')")
     // Sólo con foto la tarjeta es un botón: sin nada que revelar no hay
-    // acción que ofrecer.
-    expect(landing).toContain("foto\n            ? '<button type=\"button\" class=\"tarjeta-equipo con-foto\">'")
+    // acción que ofrecer. Con `\r?\n` porque el fin de línea del HTML
+    // depende del checkout (autocrlf en Windows) y no del contenido.
+    expect(landing).toMatch(/foto\r?\n {12}\? '<button type="button" class="tarjeta-equipo con-foto">/)
     // La invitación a pasar el mouse sólo aparece si algún equipo trae foto.
     expect(landing).toContain('id="equiposPista"')
     expect(landing).toContain('pistaSeccion.classList.toggle')
     // Quien pidió menos movimiento ve sólo el cambio de opacidad.
-    expect(landing).toContain('.tarjeta-equipo .foto-equipo {\n        transition: opacity 0.2s linear;')
-    // El rótulo del equipo va con velo navy: se lee sobre cualquier foto.
+    expect(landing).toMatch(/\.tarjeta-equipo \.foto-equipo \{\r?\n {8}transition: opacity 0\.2s linear;/)
+    // El rótulo del participante va con velo navy: se lee sobre cualquier foto.
     expect(landing).toContain('rgba(6, 18, 56, 0.96)')
+  })
+
+  it('el editor ya no ofrece participantes: esos datos salen de Proyectos', () => {
+    // La sección entera se retiró: ni la tarjeta en la consola…
+    expect(pagina).not.toContain('titulo="Equipos participantes"')
+    expect(pagina).not.toContain('subirFotoEquipo')
+    // …ni el campo ni su helper en el data layer.
+    expect(datos).not.toContain('EquipoPagina')
+    expect(datos).not.toContain('subirFotoEquipo')
   })
 
   it('el hero tiene su carrusel, con velo y videos en mudo', () => {

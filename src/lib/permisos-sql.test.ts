@@ -262,9 +262,8 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
       const rol = sinSesion.has(fn) ? 'anon' : 'authenticated'
       // Se busca en el ARCHIVO ENTERO y no en `permisos-funcion.sql`: esa
       // corre a mitad de archivo y las funciones de los bloques posteriores
-      // (la de la página de la Gran Cosecha, por ejemplo) no pueden recibir
-      // su grant ahí, porque el grant a una función inexistente tumba la
-      // instalación.
+      // (la de la landing pública, por ejemplo) no pueden recibir su grant
+      // ahí, porque el grant a una función inexistente tumba la instalación.
       expect(
         schemaCompleto,
         `${fn}: la app la llama por RPC pero ningún archivo le da permiso a ${rol}`
@@ -277,9 +276,9 @@ describe('schema.sql · los enlaces públicos', () => {
   /**
    * Son las únicas aperturas a `anon` que existen después del login, y son
    * deliberadas: hay pantallas públicas (`/compartir/:token`,
-   * `/compartir/cargos/:token`) para quien quiere ver algo sin tener cuenta.
-   * Estos tests existen para que la próxima apertura tenga que venir con su
-   * motivo.
+   * `/compartir/cargos/:token` y la landing `/gran-cosecha.html`) para quien
+   * ver algo sin tener cuenta. Estos tests existen para que la próxima
+   * apertura tenga que venir con su motivo.
    */
   it('las únicas funciones abiertas a anon, además de las del login, son las pantallas públicas', () => {
     // Se mira el ARCHIVO ENTERO y no sólo `permisos-funcion.sql`: los grants

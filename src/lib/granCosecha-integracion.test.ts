@@ -23,14 +23,25 @@ describe('gran cosecha · el módulo está en el menú', () => {
   it('la consola ofrece «Proyectos» a todos los que entran', () => {
     // Va en su propia sección y no dentro de «Resultados»: es un concurso al
     // que entra toda la empresa, no una pantalla de indicadores.
-    expect(menu).toContain("to: '/gran-cosecha'")
+    expect(menu).toContain("to: '/gran-cosecha/proyectos'")
     expect(menu).toContain("{ seccion: 'Gran Cosecha'")
     expect(menu).toContain('label: \'Proyectos\'')
 
     // Y con su título en la cabecera, igual que el resto de las vistas.
-    expect(menu).toContain("'/gran-cosecha'")
+    expect(menu).toContain("'/gran-cosecha/proyectos'")
     expect(menu).toContain('Gran Cosecha')
     expect(menu).toContain('Concurso trimestral de proyectos')
+  })
+
+  it('la dirección /gran-cosecha (sin .html) manda a la LANDING pública', () => {
+    // Ésa era la confusión entre las dos rutas de la cosecha: la dirección
+    // obvia tiene que terminar en la página pública estática, y la consola
+    // del concurso vive en /gran-cosecha/proyectos, junto a sus editors.
+    expect(app).toContain('<Route path="/gran-cosecha" element={<IrALandingGranCosecha />} />')
+    expect(app).toContain("window.location.replace('/gran-cosecha.html')")
+    // Navegación REAL: el HTML estático está fuera del router de React, así
+    // que un <Navigate> dejaría la SPA pintando en una URL que no le toca.
+    expect(app).not.toContain('<Navigate to="/gran-cosecha.html"')
   })
 
   it('al JUEZ sólo se le ofrece Gran Cosecha: las demás vistas lo rebotarían', () => {
@@ -45,14 +56,70 @@ describe('gran cosecha · el módulo está en el menú', () => {
   it('la ruta está adentro del grupo de la consola y sin RequireRol', () => {
     // Sin `RequireRol`: la crean los trabajadores y la siguen los jueces. El
     // grupo ya trae `RequireAuth`, que es quien manda al SIN_ROL a /pendiente.
-    expect(app).toContain('<Route path="/gran-cosecha" element={<GranCosechaPage />} />')
+    expect(app).toContain('<Route path="/gran-cosecha/proyectos" element={<GranCosechaPage />} />')
 
     const grupo = app.indexOf('<ConsoleLayout />')
-    const ruta = app.indexOf('path="/gran-cosecha"')
+    const ruta = app.indexOf('path="/gran-cosecha/proyectos"')
     expect(grupo).toBeGreaterThan(-1)
     expect(ruta).toBeGreaterThan(grupo)
     // Y con lazy, como el resto de las pantallas de la consola.
     expect(app).toContain("import('./pages/GranCosecha')")
+  })
+
+  it('el riego se ofrece UNA sola vez, en la tarjeta, por el data layer', () => {
+    const pagina = fuente('../pages/GranCosecha.tsx')
+    const datos = fuente('./data/granCosecha.ts')
+
+    // La pantalla usa las DOS piezas del riego: el conteo y el botón…
+    expect(pagina).toContain('riegosDeLaCosecha')
+    expect(pagina).toContain('regarProyecto')
+    expect(pagina).toContain('function RiegoProyecto')
+    // …sólo EN LA TARJETA: en el detalle se quitó porque quedaba duplicado
+    // pegado al mismo chip, uno al lado del otro.
+    expect(pagina.match(/<RiegoProyecto/g) ?? []).toHaveLength(1)
+
+    // El dato pasa por el data layer: la pantalla no arma llamadas sueltas.
+    expect(datos).toContain("supabase.rpc('regar_proyecto'")
+    expect(datos).toContain("supabase.rpc('riegos_de_la_cosecha'")
+    expect(pagina).not.toContain('supabase.rpc(')
+  })
+
+  it('las fotos del participante se cargan en el PROYECTO, no en la Página', () => {
+    const paginaProyecto = fuente('../pages/GranCosecha.tsx')
+    const datosProyecto = fuente('./data/granCosecha.ts')
+    const editorPagina = fuente('../pages/GranCosechaPagina.tsx')
+
+    // El formulario del proyecto (alta y edición) ofrece las dos fotos…
+    expect(paginaProyecto).toContain('Imagen del proyecto')
+    expect(paginaProyecto).toContain('Foto del equipo')
+    expect(paginaProyecto).toContain('subirFotoProyecto')
+    // …subidas por el data layer al prefijo `proyectos/` del bucket…
+    expect(datosProyecto).toContain('subirFotoProyecto')
+    expect(datosProyecto).toContain('proyectos/')
+    // …y el editor de la Página ya no las toca: ese dato lo manda Proyectos.
+    expect(editorPagina).not.toContain('Imagen del proyecto')
+    expect(editorPagina).not.toContain('subirFotoEquipo')
+    expect(editorPagina).toContain('CampoFoto')
+    // El detalle del proyecto las ofrece con subida directa (sin el form)…
+    expect(paginaProyecto).toContain('Se guardan solas al subirlas')
+  })
+
+  it('el equipo acepta trabajadores sin cuenta, de cualquier sucursal', () => {
+    const pagina = fuente('../pages/GranCosecha.tsx')
+    const datos = fuente('./data/granCosecha.ts')
+
+    // El selector busca también en la nómina — al servidor y con debounce,
+    // porque son miles de filas— por nombre o cédula…
+    expect(pagina).toContain('listarTrabajadoresEquipo')
+    expect(datos).toContain("supabase.rpc('listar_trabajadores_equipo'")
+    expect(pagina).toContain('placeholder="Buscar por nombre, usuario o cédula"')
+    // …los distingue en la lista…
+    expect(pagina).toContain('>Trabajador</Badge>')
+    // …y la identidad de cada integrante es su usuario O su cédula: dos
+    // trabajadores sin cuenta no pueden colisionar en el usuario vacío.
+    expect(pagina).toContain('claveDeMiembro')
+    expect(datos).toContain('claveDeMiembro')
+    expect(datos).toContain('listarTrabajadoresEquipo')
   })
 })
 
@@ -70,6 +137,6 @@ describe('gran cosecha · el rol que lo sostiene', () => {
     expect(roles).toMatch(/ROLES_EDITABLES[\s\S]*?'JUEZ'/)
     // Y al entrar, su casa es el concurso: `RequireAuth` lo manda al home
     // de su rol, que para un juez no puede ser el dashboard.
-    expect(roles).toMatch(/case 'JUEZ':[\s\S]{0,300}?return '\/gran-cosecha'/)
+    expect(roles).toMatch(/case 'JUEZ':[\s\S]{0,300}?return '\/gran-cosecha\/proyectos'/)
   })
 })
