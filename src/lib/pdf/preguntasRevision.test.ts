@@ -28,9 +28,9 @@ describe('resolverPregunta · CHECKLIST', () => {
       { selected: ['o1'] }
     )
     expect(r.filas).toEqual([
-      { etiqueta: 'SOAT vigente', valor: 'Cumple' },
-      { etiqueta: 'Revisión vigente', valor: 'No cumple' },
-      { etiqueta: 'Presión de llantas', valor: 'No cumple' }
+      { etiqueta: 'SOAT vigente', valor: 'Cumple', observacion: null },
+      { etiqueta: 'Revisión vigente', valor: 'No cumple', observacion: null },
+      { etiqueta: 'Presión de llantas', valor: 'No cumple', observacion: null }
     ])
   })
 
@@ -44,7 +44,7 @@ describe('resolverPregunta · CHECKLIST', () => {
       item({ tipo: 'CHECKLIST', texto: 'X', opciones }),
       { selected: ['o1'], informativos: ['o2'] }
     )
-    expect(r.filas[1]).toEqual({ etiqueta: 'Revisión vigente', valor: 'Informativo' })
+    expect(r.filas[1]).toEqual({ etiqueta: 'Revisión vigente', valor: 'Informativo', observacion: null })
   })
 
   it('un RANGO cumple al alcanzar el mínimo y muestra el valor medido', () => {
@@ -52,7 +52,11 @@ describe('resolverPregunta · CHECKLIST', () => {
       item({ tipo: 'CHECKLIST', texto: 'X', opciones }),
       { selected: [], valores: { o3: 32 } }
     )
-    expect(cumple.filas[2]).toEqual({ etiqueta: 'Presión de llantas', valor: 'Cumple (32 psi)' })
+    expect(cumple.filas[2]).toEqual({
+      etiqueta: 'Presión de llantas',
+      valor: 'Cumple (32 psi)',
+      observacion: null
+    })
 
     const noCumple = resolverPregunta(
       item({ tipo: 'CHECKLIST', texto: 'X', opciones }),
@@ -61,10 +65,10 @@ describe('resolverPregunta · CHECKLIST', () => {
     expect(noCumple.filas[2].valor).toBe('No cumple (28 psi)')
   })
 
-  it('los COMENTARIOS de cada punto salen en el veredicto, en su orden', () => {
+  it('los COMENTARIOS de cada punto van en SU fila, en la columna Observación', () => {
     // El evaluador los escribe en la fila del punto y quedan en
-    // `valor.comentarios`; sin esto el PDF de la inspección salía con los
-    // estados y nada más (el bug de «no muestra los comentarios»).
+    // `valor.comentarios`; antes todos se juntaban en una sola fila «· Nota»
+    // con todos adentro (el bug de «los comentarios en una sola fila»).
     const r = resolverPregunta(
       item({ tipo: 'CHECKLIST', texto: 'Documentación', opciones }),
       {
@@ -72,19 +76,22 @@ describe('resolverPregunta · CHECKLIST', () => {
         comentarios: { o3: 'Falta la delantera', o2: 'Vence en diciembre' }
       }
     )
-    expect(r.veredicto).toBe('Revisión vigente: Vence en diciembre · Presión de llantas: Falta la delantera')
-    // Y las filas de estado no cambian: el comentario es una fila aparte.
+    // Cada punto con el SUYO, en la fila que le corresponde…
+    expect(r.filas[0].observacion).toBeNull()
+    expect(r.filas[1].observacion).toBe('Vence en diciembre')
+    expect(r.filas[2].observacion).toBe('Falta la delantera')
+    // …y SIN la fila de nota aparte: tres puntos, tres filas.
     expect(r.filas).toHaveLength(3)
   })
 
-  it('sin comentarios el veredicto queda vacío: no se inventa una nota', () => {
+  it('sin comentarios las observaciones quedan vacías: no se inventa una nota', () => {
     const r = resolverPregunta(item({ tipo: 'CHECKLIST', texto: 'X', opciones }), { selected: ['o1'] })
-    expect(r.veredicto).toBeNull()
+    expect(r.filas.every((f) => f.observacion == null)).toBe(true)
     expect(
       resolverPregunta(item({ tipo: 'CHECKLIST', texto: 'X', opciones }), {
         selected: ['o1'],
         comentarios: { o1: '   ' }
-      }).veredicto
+      }).filas[0].observacion
     ).toBeNull()
   })
 })
@@ -101,8 +108,9 @@ describe('resolverPregunta · CUMPLE_NO_CUMPLE', () => {
       item({ tipo: 'CUMPLE_NO_CUMPLE', texto: '¿Se entrega?' }),
       { value: false, evidencias: [{ photoIds: [], comentario: 'Falta SOAT' }, { photoIds: [], comentario: ' ' }] }
     )
-    expect(r.filas).toEqual([{ etiqueta: 'Estado', valor: 'No cumple' }])
-    expect(r.veredicto).toBe('Falta SOAT')
+    expect(r.filas).toEqual([
+      { etiqueta: 'Estado', valor: 'No cumple', observacion: 'Falta SOAT' }
+    ])
   })
 
   it('sin responder deja el estado vacío', () => {
@@ -114,6 +122,8 @@ describe('resolverPregunta · CUMPLE_NO_CUMPLE', () => {
 describe('resolverPregunta · tipos ajenos a la herramienta', () => {
   it('no pierde la pregunta: la lista como "No aplica"', () => {
     const r = resolverPregunta(item({ tipo: 'CONCILIACION', texto: 'Conteo' }), undefined)
-    expect(r.filas).toEqual([{ etiqueta: 'Detalle', valor: 'No aplica a esta herramienta' }])
+    expect(r.filas).toEqual([
+      { etiqueta: 'Detalle', valor: 'No aplica a esta herramienta', observacion: null }
+    ])
   })
 })

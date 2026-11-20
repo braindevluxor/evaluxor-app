@@ -175,7 +175,9 @@ describe('Inspección de vehículo · el PDF', () => {
 
   it('abre una banda por sección sobre sus filas', () => {
     expect(exportador).toMatch(/grupo: g\.seccion \?\? 'Dictamen'/)
-    expect(pdf).toContain('colspan="2"')
+    // TRES columnas: Ítem, Valor/Estado y Observación (la del punto, en su fila).
+    expect(pdf).toContain('Observación')
+    expect(pdf).toContain('colspan="3"')
     expect(pdf).toContain('filasTabla(')
   })
 

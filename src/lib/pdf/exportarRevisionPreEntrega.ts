@@ -54,9 +54,10 @@ export interface DatosRevision {
   personaCampos?: CampoPersona[]
   /**
    * Filas de la tabla. `grupo` abre una banda con el nombre de la sección
-   * (Estética / Mecánica / Gas vehicular) cada vez que cambia.
+   * (Estética / Mecánica / Gas vehicular) cada vez que cambia, y
+   * `observacion` es el comentario del PUNTO, en SU fila.
    */
-  items?: Array<{ etiqueta: string; valor: string | null; grupo?: string | null }>
+  items?: Array<{ etiqueta: string; valor: string | null; grupo?: string | null; observacion?: string | null }>
   /**
    * El enlace PÚBLICO al detalle completo (fotos y videos): el QR de la
    * hoja apunta acá. Las evidencias NO se imprimen —el papel no es el
@@ -173,6 +174,7 @@ export function htmlRevision(datos: DatosRevision, enc: Encabezado = encabezadoD
             <tr style="background:#0f766e;color:#ffffff">
               <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700">Ítem</th>
               <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700">Valor / Estado</th>
+              <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700">Observación</th>
             </tr>
           </thead>
           <tbody>
@@ -358,15 +360,16 @@ function filasTabla(items: NonNullable<DatosRevision['items']>): string {
       const grupo = it.grupo ?? null
       const banda =
         grupo && grupo !== grupoActual
-          ? `<tr><td colspan="2" style="padding:7px 10px;background:#ccfbf1;border-top:1px solid #e2e8f0;font-size:11px;font-weight:700;color:#0f766e;letter-spacing:0.4px;text-transform:uppercase">${escapeHtml(grupo)}</td></tr>`
+          ? `<tr><td colspan="3" style="padding:7px 10px;background:#ccfbf1;border-top:1px solid #e2e8f0;font-size:11px;font-weight:700;color:#0f766e;letter-spacing:0.4px;text-transform:uppercase">${escapeHtml(grupo)}</td></tr>`
           : ''
       grupoActual = grupo
       const fondo = fila % 2 === 0 ? '#ffffff' : '#f8fafc'
       fila++
       return `${banda}
               <tr style="background:${fondo}">
-                <td style="padding:8px 10px;border-top:1px solid #f1f5f9;font-size:11px">${escapeHtml(it.etiqueta)}</td>
-                <td style="padding:8px 10px;border-top:1px solid #f1f5f9;font-size:11px;font-weight:600">${escapeHtml(it.valor || '-')}</td>
+                <td style="padding:8px 10px;border-top:1px solid #f1f5f9;font-size:11px;width:38%">${escapeHtml(it.etiqueta)}</td>
+                <td style="padding:8px 10px;border-top:1px solid #f1f5f9;font-size:11px;font-weight:600;width:22%">${escapeHtml(it.valor || '-')}</td>
+                <td style="padding:8px 10px;border-top:1px solid #f1f5f9;font-size:11px;color:#475569;white-space:pre-wrap">${escapeHtml(it.observacion || '—')}</td>
               </tr>`
     })
     .join('')

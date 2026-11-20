@@ -325,10 +325,13 @@ export default function RevisionPreEntrega() {
    */
   const filasPdf = useMemo(
     () =>
-      preguntas.flatMap((p) => [
-        ...p.filas.map((f) => ({ etiqueta: `${p.texto} · ${f.etiqueta}`, valor: f.valor })),
-        ...(p.veredicto ? [{ etiqueta: `${p.texto} · Nota`, valor: p.veredicto }] : [])
-      ]),
+      preguntas.flatMap((p) =>
+        p.filas.map((f) => ({
+          etiqueta: `${p.texto} · ${f.etiqueta}`,
+          valor: f.valor,
+          observacion: f.observacion ?? null
+        }))
+      ),
     [preguntas]
   )
 

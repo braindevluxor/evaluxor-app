@@ -207,20 +207,24 @@ function VistaInspeccion({
                   <tr className="bg-teal-700 text-left text-xs font-bold uppercase tracking-wide text-white">
                     <th className="px-3 py-2">Ítem</th>
                     <th className="px-3 py-2">Valor / Estado</th>
+                    <th className="px-3 py-2">Observación</th>
                   </tr>
                 </thead>
                 <tbody>
                   {agruparPorSeccion(datos.items).map((fila, i) =>
                     fila.seccion ? (
                       <tr key={`s-${i}`}>
-                        <td colSpan={2} className="border-t border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-slate-600">
+                        <td colSpan={3} className="border-t border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-slate-600">
                           {fila.seccion}
                         </td>
                       </tr>
                     ) : (
-                      <tr key={`f-${i}`} className="border-t border-slate-100">
+                      <tr key={`f-${i}`} className="border-t border-slate-100 align-top">
                         <td className="px-3 py-2 text-slate-600">{fila.etiqueta}</td>
                         <td className="px-3 py-2 font-medium text-slate-800">{fila.valor}</td>
+                        <td className="px-3 py-2 whitespace-pre-wrap text-slate-500">
+                          {fila.observacion || '—'}
+                        </td>
                       </tr>
                     )
                   )}
@@ -319,21 +323,23 @@ function VistaInspeccion({
 
 /**
  * Las filas de la tabla agrupadas por sección: la fila de sección va
- * ENTRERADA y las suyas debajo (mismo dibujo que el PDF).
+ * ENTRERADA y las suyas debajo (mismo dibujo que el PDF). Cada fila lleva
+ * SU observación, en la tercera columna.
  */
 function agruparPorSeccion(items: DetalleInspeccion['items']): {
   seccion?: string
   etiqueta?: string
   valor?: string
+  observacion?: string | null
 }[] {
-  const filas: { seccion?: string; etiqueta?: string; valor?: string }[] = []
+  const filas: { seccion?: string; etiqueta?: string; valor?: string; observacion?: string | null }[] = []
   let seccionActual: string | null | undefined = null
   for (const item of items) {
     if (item.grupo !== seccionActual) {
       seccionActual = item.grupo
       if (item.grupo) filas.push({ seccion: item.grupo })
     }
-    filas.push({ etiqueta: item.etiqueta, valor: item.valor })
+    filas.push({ etiqueta: item.etiqueta, valor: item.valor, observacion: item.observacion ?? null })
   }
   return filas
 }

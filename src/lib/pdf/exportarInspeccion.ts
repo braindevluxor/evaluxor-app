@@ -70,16 +70,21 @@ export async function nombresEnCarpeta(revisionId: string): Promise<string[]> {
 export function filasParaPdf(
   items: Item[],
   respuestas: Record<string, unknown>
-): { etiqueta: string; valor: string; grupo: string | null }[] {
-  const filas: { etiqueta: string; valor: string; grupo: string | null }[] = []
+): { etiqueta: string; valor: string; grupo: string | null; observacion: string | null }[] {
+  const filas: { etiqueta: string; valor: string; grupo: string | null; observacion: string | null }[] = []
   for (const g of seccionarItems(items)) {
     for (const item of g.items) {
       const p = resolverPregunta(item, respuestas[item.id])
+      // Cada fila lleva SU observación: la del punto en la fila del punto.
+      // Antes los comentarios se juntaban en una sola fila «· Nota» con
+      // todos adentro, ilegible y despegado de su punto.
       for (const f of p.filas) {
-        filas.push({ etiqueta: `${item.texto} · ${f.etiqueta}`, valor: f.valor, grupo: g.seccion ?? 'Dictamen' })
-      }
-      if (p.veredicto) {
-        filas.push({ etiqueta: `${item.texto} · Nota`, valor: p.veredicto, grupo: g.seccion ?? 'Dictamen' })
+        filas.push({
+          etiqueta: `${item.texto} · ${f.etiqueta}`,
+          valor: f.valor,
+          grupo: g.seccion ?? 'Dictamen',
+          observacion: f.observacion ?? null
+        })
       }
     }
   }
@@ -97,7 +102,7 @@ export function filasParaPdf(
 async function enlaceDelDetalle(
   r: PreEntregaRecord,
   p: PedidoInspeccion,
-  items: { etiqueta: string; valor: string; grupo: string | null }[]
+  items: { etiqueta: string; valor: string; grupo: string | null; observacion: string | null }[]
 ): Promise<string | null> {
   try {
     const detalle = armarDetalleInspeccion({

@@ -10,7 +10,8 @@ import { htmlRevision } from './exportarRevisionPreEntrega'
  *  1. El QR al detalle PÚBLICO, que reemplazó a las fotos impresas.
  *  2. Que las evidencias NO vuelvan a imprimirse: el material visual vive
  *     en el enlace, no en el papel.
- *  3. Que los comentarios por punto (la fila «· Nota») siguen saliendo.
+ *  3. Que la tabla tenga sus TRES columnas —Ítem, Valor/Estado y
+ *     Observación— y que cada comentario vaya en la fila de SU punto.
  */
 
 const BASE = {
@@ -65,16 +66,30 @@ describe('htmlRevision · lo que NO debe volver', () => {
     expect(html).toContain('alt="EvaLuxor"')
   })
 
-  it('la tabla de puntos y sus comentarios siguen en la hoja', () => {
+  it('la tabla tiene sus tres columnas y la observación va en la fila de su punto', () => {
     const html = htmlRevision({
       ...BASE,
       items: [
-        { etiqueta: 'Documentación · SOAT vigente', valor: 'Cumple', grupo: 'Documentación' },
-        { etiqueta: 'Documentación · Nota', valor: 'Vence en diciembre', grupo: 'Documentación' }
+        {
+          etiqueta: 'Carrocería y pintura · Sin abolladuras',
+          valor: 'No cumple',
+          grupo: 'Estética',
+          observacion: 'Rayón en la puerta trasera'
+        },
+        { etiqueta: 'Carrocería y pintura · Sin óxido visible', valor: 'Cumple', grupo: 'Estética' }
       ]
     })
-    expect(html).toContain('Inspección / Checklist')
-    expect(html).toContain('Documentación')
-    expect(html).toContain('Vence en diciembre')
+
+    // Las TRES columnas que pidió el usuario.
+    expect(html).toContain('>Ítem<')
+    expect(html).toContain('Valor / Estado')
+    expect(html).toContain('>Observación<')
+
+    // El comentario, en SU fila y no en una nota aparte…
+    expect(html).toContain('Rayón en la puerta trasera')
+    expect(html).not.toContain('· Nota')
+    // …y la fila sin comentario queda con un guion, no vacía.
+    expect(html).toContain('—')
+    expect(html).toContain('Estética')
   })
 })

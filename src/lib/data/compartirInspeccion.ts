@@ -32,6 +32,8 @@ export interface FilaInspeccion {
   valor: string
   /** La sección (Estética / Mecánica / Gas) que la agrupa en el documento. */
   grupo?: string | null
+  /** El comentario del PUNTO, en SU fila (columna Observación). */
+  observacion?: string | null
 }
 
 /** Un bloque de evidencia: su pie y las rutas de sus fotos/videos. */
