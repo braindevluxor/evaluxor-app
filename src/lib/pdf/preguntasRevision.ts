@@ -1,5 +1,6 @@
 import type { Item, Opcion } from '../types'
 import type { ValorChecklist, ValorCumple } from '../scoring'
+import { lineasDeComentario, textoDeComentarios } from '../comentariosPunto'
 
 /**
  * Resolución de un ítem del catálogo al texto que se imprime en el PDF de la
@@ -43,6 +44,15 @@ export function resolverPregunta(item: Item, valor: unknown): PreguntaResuelta {
     const v = (valor as ValorChecklist | null) ?? null
     const informativos = new Set(v?.informativos ?? [])
     const opciones = (item.opciones ?? []) as Opcion[]
+    // Los COMENTARIOS LIBRES por punto («falta revisar la delantera»): el
+    // evaluador los escribe en la misma fila del punto y se guardan en
+    // `valor.comentarios`. Sin ésto el PDF de la inspección salía con los
+    // estados y nada más —que es exactamente lo que pasaba—.
+    //
+    // Van como `veredicto` y no como filas extra: los DOS llamadores (el
+    // PDF de la inspección y el de la pre-entrega, más la vista previa de
+    // la pantalla) ya saben dibujar el veredicto como fila «· Nota».
+    const notas = lineasDeComentario(v?.comentarios, opciones)
     return {
       texto: item.texto,
       filas: opciones.map((o) => {
@@ -54,7 +64,8 @@ export function resolverPregunta(item: Item, valor: unknown): PreguntaResuelta {
             ? ` (${valorRango}${o.unidad ? ` ${o.unidad}` : ''})`
             : ''
         return { etiqueta: o.etiqueta, valor: `${cumplida ? 'Cumple' : 'No cumple'}${sufijo}` }
-      })
+      }),
+      veredicto: notas.length ? textoDeComentarios(notas) : null
     }
   }
 

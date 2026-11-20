@@ -60,6 +60,33 @@ describe('resolverPregunta · CHECKLIST', () => {
     )
     expect(noCumple.filas[2].valor).toBe('No cumple (28 psi)')
   })
+
+  it('los COMENTARIOS de cada punto salen en el veredicto, en su orden', () => {
+    // El evaluador los escribe en la fila del punto y quedan en
+    // `valor.comentarios`; sin esto el PDF de la inspección salía con los
+    // estados y nada más (el bug de «no muestra los comentarios»).
+    const r = resolverPregunta(
+      item({ tipo: 'CHECKLIST', texto: 'Documentación', opciones }),
+      {
+        selected: ['o1'],
+        comentarios: { o3: 'Falta la delantera', o2: 'Vence en diciembre' }
+      }
+    )
+    expect(r.veredicto).toBe('Revisión vigente: Vence en diciembre · Presión de llantas: Falta la delantera')
+    // Y las filas de estado no cambian: el comentario es una fila aparte.
+    expect(r.filas).toHaveLength(3)
+  })
+
+  it('sin comentarios el veredicto queda vacío: no se inventa una nota', () => {
+    const r = resolverPregunta(item({ tipo: 'CHECKLIST', texto: 'X', opciones }), { selected: ['o1'] })
+    expect(r.veredicto).toBeNull()
+    expect(
+      resolverPregunta(item({ tipo: 'CHECKLIST', texto: 'X', opciones }), {
+        selected: ['o1'],
+        comentarios: { o1: '   ' }
+      }).veredicto
+    ).toBeNull()
+  })
 })
 
 describe('opcionCumplida', () => {
