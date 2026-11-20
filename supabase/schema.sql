@@ -6801,4 +6801,143 @@ drop function if exists public.ver_concurso_publico(text);
 -- premios, jurado, FAQ y ganadores de una landing que ya no existe.
 drop table if exists public.gran_cosecha_contenido;
 
+-- Archivo consolidado: bonos-programas.sql
+-- ###########################################################################
+-- ============================================================================
+-- PROGRAMAS DE BONIFICACIÓN: LA NOTA DEL BONO, SEPARADA DE LOS MÓDULOS
+--
+-- POR QUÉ EXISTE ESTE ARCHIVO
+-- ---------------------------
+-- `modulos`/`items` miden EVALUACIONES; `bonos_cargo` pagaba con una nota que
+-- se cargaba a mano. En el medio aparecían actividades concretas de un bono
+-- metidas en la pantalla de Módulos, y los dos conceptos se pisaban. Este
+-- bloque crea la entidad que faltaba:
+--
+--  * `bonos_programa` es el PROGRAMA: nombre, descripción, si está activo.
+--  * `bonos_programa_fuente` dice DE DÓNDE SALE SU NOTA, con DOS tipos, que
+--    es justamente lo que separa esto de los módulos:
+--      - MODULO → apunta a un `modulos` existente: la nota la dan las
+--        evaluaciones de ese módulo. NO se copia el nombre (renombrar el
+--        módulo no rompe el programa) y si el módulo se borra, la fuente
+--        queda sin módulo (`on delete set null`) y hay que volver a elegirlo.
+--      - ACTIVIDAD → una actividad propia del programa, con su nombre
+--        («Auditoría de precios») y su nota cargada a mano por PERSONA y
+--        PERÍODO en `bonos_programa_nota`.
+--    Cada fuente tiene PESO: la nota del programa es el promedio ponderado
+--    de las fuentes que tengan nota (el cálculo vive en la app).
+--
+--  * `bonos_cargo.bono_programa_id` ata un cargo a su programa. Sin programa
+--    el cargo sigue como hoy: la nota se carga a mano en `bonos_pago`.
+--
+-- QUIÉN ENTRA
+-- -----------
+-- La MISMA cerradura que el resto de los bonos (`puede_bonos`): LÍDER y
+-- GERENTE DE TALENTO HUMANO. Las tres tablas con select + gestión idénticos
+-- y el revoke a `anon` de segunda capa, igual que en `bonos.sql`.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+
+-- EL PROGRAMA
+create table if not exists public.bonos_programa (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null check (length(trim(nombre)) > 0),
+  descripcion text not null default '',
+  activo boolean not null default true,
+  -- Cada cuánto se paga y, por lo tanto, con qué formato de período se cargan
+  -- las notas de sus actividades: la misma pareja que los cargos.
+  periodicidad text not null default 'MENSUAL' check (periodicidad in ('MENSUAL', 'TRIMESTRAL')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- DE DÓNDE SALE LA NOTA: un módulo de evaluación O una actividad propia.
+create table if not exists public.bonos_programa_fuente (
+  id uuid primary key default gen_random_uuid(),
+  bono_programa_id uuid not null references public.bonos_programa(id) on delete cascade,
+  tipo text not null check (tipo in ('MODULO', 'ACTIVIDAD')),
+  -- MODULO: se apunta al módulo Y se le copia su NOMBRE, que es el que se
+  -- muestra. La copia no es redundante: es el respaldo que permite que el
+  -- módulo se borre SIN llevarse la fuente (`on delete set null`) — borrar un
+  -- módulo no puede borrar el programa—, y en ese caso la fuente queda
+  -- «sin módulo» y hay que volver a elegirlo desde la pantalla.
+  modulo_id uuid references public.modulos(id) on delete set null,
+  -- El nombre que se MUESTRA: el de la actividad, o el del módulo copiado al
+  -- agregar la fuente. Siempre con contenido: sin él la fila no se lee.
+  nombre text not null check (length(trim(nombre)) > 0),
+  peso numeric not null default 1 check (peso > 0),
+  orden integer not null default 0,
+  created_at timestamptz not null default now(),
+  -- Un ACTIVIDAD nunca apunta a un módulo: son las DOS formas de la nota,
+  -- no dos a la vez. (Lo contrario sí puede pasar y es el estado normal de
+  -- una fuente cuyo módulo se borró: queda sin módulo, con su nombre.)
+  constraint bonos_fuente_actividad_chk check (tipo <> 'ACTIVIDAD' or modulo_id is null)
+);
+
+create index if not exists idx_bonos_fuente_programa
+  on public.bonos_programa_fuente (bono_programa_id, orden);
+
+-- LA NOTA DE UNA ACTIVIDAD, por persona y período. La de los módulos NO vive
+-- acá: esa la calculan las evaluaciones. Mismo formato de período que los
+-- pagos (`2026-11` o `2026-T1`…`2026-T4`) y misma identidad de persona que
+-- la nómina (nacionalidad + DNI). El `nombre` va CONGELADO al cargarlo —
+-- igual que en `bonos_pago`—: la fila se lee aunque la persona salga de la
+-- nómina mañana.
+create table if not exists public.bonos_programa_nota (
+  bono_programa_fuente_id uuid not null references public.bonos_programa_fuente(id) on delete cascade,
+  periodo text not null check (periodo ~ '^\d{4}-(T[1-4]|(0[1-9]|1[0-2]))$'),
+  nacionalidad text not null default 'V',
+  dni bigint not null,
+  nombre text not null default '',
+  nota numeric not null check (nota >= 0 and nota <= 100),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint bonos_programa_nota_pkey
+    primary key (bono_programa_fuente_id, periodo, nacionalidad, dni)
+);
+
+-- EL ENLACE con el cargo: opcional. Si el cargo no tiene programa, su nota
+-- sigue cargándose a mano como hasta ahora (`bonos_pago.nota`).
+alter table public.bonos_cargo
+  add column if not exists bono_programa_id uuid
+    references public.bonos_programa(id) on delete set null;
+
+-- RLS: la misma cerradura que todo lo de bonos. El `select` TAMBIÉN va
+-- filtrado —un programa de bono es cifra de sueldo, no configuración abierta—.
+alter table public.bonos_programa enable row level security;
+
+drop policy if exists bonos_programa_select on public.bonos_programa;
+create policy bonos_programa_select on public.bonos_programa
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_programa_gestion on public.bonos_programa;
+create policy bonos_programa_gestion on public.bonos_programa
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+alter table public.bonos_programa_fuente enable row level security;
+
+drop policy if exists bonos_programa_fuente_select on public.bonos_programa_fuente;
+create policy bonos_programa_fuente_select on public.bonos_programa_fuente
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_programa_fuente_gestion on public.bonos_programa_fuente;
+create policy bonos_programa_fuente_gestion on public.bonos_programa_fuente
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+alter table public.bonos_programa_nota enable row level security;
+
+drop policy if exists bonos_programa_nota_select on public.bonos_programa_nota;
+create policy bonos_programa_nota_select on public.bonos_programa_nota
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_programa_nota_gestion on public.bonos_programa_nota;
+create policy bonos_programa_nota_gestion on public.bonos_programa_nota
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+-- Segunda capa, igual que en `bonos.sql`: si algún día RLS queda apagado en
+-- estas tablas, el grant por defecto de Supabase sería la única puerta.
+do $$
+begin
+  execute 'revoke all on public.bonos_programa from anon';
+  execute 'revoke all on public.bonos_programa_fuente from anon';
+  execute 'revoke all on public.bonos_programa_nota from anon';
+end $$;
+
 

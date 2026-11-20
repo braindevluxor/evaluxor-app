@@ -33,6 +33,12 @@ const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ defau
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
 // Bonos por desempeño: qué cargos gozan de bono y el pago de los mismos.
 const BonosPage = lazy(() => import('./pages/config/Bonos').then((m) => ({ default: m.BonosPage })))
+// Programas de bonificación: de dónde sale la nota del bono (módulos de
+// evaluación o actividades propias). Separado de la pantalla de Módulos y
+// con la MISMA cerradura que los bonos.
+const ProgramasBonosPage = lazy(() =>
+  import('./pages/config/ProgramasBonos').then((m) => ({ default: m.ProgramasPage }))
+)
 // Gran Cosecha: el concurso trimestral de proyectos. Sin `RequireRol` —lo
 // crean los trabajadores y lo siguen los jueces— pero con lazy, porque es la
 // única pantalla que no entra nadie si no entra a la consola.
@@ -325,6 +331,17 @@ function Rutas() {
                         element={
                           <RequireRol roles={['LIDER', 'GERENTE_TH']}>
                             <BonosPage />
+                          </RequireRol>
+                        }
+                      />
+                      {/* Programas de bonificación: misma cerradura que los
+                          bonos (ruta + RLS `puede_bonos`), pero pantalla
+                          aparte: los MÓDULOS no se tocan acá. */}
+                      <Route
+                        path="/config/programas-bono"
+                        element={
+                          <RequireRol roles={['LIDER', 'GERENTE_TH']}>
+                            <ProgramasBonosPage />
                           </RequireRol>
                         }
                       />
