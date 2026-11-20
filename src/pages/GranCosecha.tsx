@@ -190,7 +190,12 @@ export function GranCosechaPage() {
   const [abierto, setAbierto] = useState<string | null>(null)
   const [bitacora, setBitacora] = useState<Record<string, FilaBitacora[]>>({})
 
-  const [editando, setEditando] = useState<ProyectoGranCosecha | null>(null)
+  /**
+   * El id del proyecto que se está editando DENTRO de su propio detalle: no
+   * hay modal de edición (el panel ya tiene todo lo demás), así que el modo
+   * ver/editar vive acá y se le pasa al detalle como prop.
+   */
+  const [editando, setEditando] = useState<string | null>(null)
   const [nuevo, setNuevo] = useState(false)
   const [avanceDe, setAvanceDe] = useState<ProyectoGranCosecha | null>(null)
 
@@ -257,16 +262,26 @@ export function GranCosechaPage() {
     }
   }
 
-  const guardar = async (cambios: CambiosProyecto, id: string) => {
+  /**
+   * Aplica cambios y dice si salió bien: el detalle lo necesita para cerrar
+   * su modo de edición SÓLO cuando se guardó (si falla, el formulario se
+   * queda con lo escrito para reintentar).
+   *
+   * No cierra la edición por su cuenta: un cambio de Estado desde el mismo
+   * panel también pasa por acá, y tirar abajo lo que se está escribiendo
+   * por guardar un campo aparte sería perder trabajo.
+   */
+  const guardar = async (cambios: CambiosProyecto, id: string): Promise<boolean> => {
     try {
       await actualizarProyecto(id, cambios)
       avisar('Proyecto actualizado.')
       setRecargar((n) => n + 1)
       setBitacora({})
-      setEditando(null)
       setAvanceDe(null)
+      return true
     } catch (e) {
       avisar(e instanceof Error ? e.message : 'No se pudo guardar el cambio.', 'error')
+      return false
     }
   }
 
@@ -473,13 +488,21 @@ export function GranCosechaPage() {
 
               {abierto === p.id ? (
                 <DetalleProyecto
+                  // El `key` cambia con el MODO: al entrar a editar el panel
+                  // se remonta con los valores guardados, y mientras se
+                  // edita un refresco de la fila no pisa lo escrito.
+                  key={`${p.id}:${editando === p.id}`}
                   proyecto={p}
                   bitacora={bitacora[p.id] ?? null}
                   puedeEditar={puedeEditar(p)}
+                  candidatos={candidatos}
+                  editando={editando === p.id}
                   onFoto={(cambios) => void publicarFoto(cambios, p.id)}
                   onEstado={(estado) => void guardar({ estado }, p.id)}
                   onAvance={() => setAvanceDe(p)}
-                  onEditar={() => setEditando(p)}
+                  onEditar={() => setEditando(p.id)}
+                  onGuardar={(cambios) => guardar(cambios, p.id)}
+                  onCerrar={() => setEditando(null)}
                 />
               ) : null}
             </li>
@@ -487,19 +510,10 @@ export function GranCosechaPage() {
         </ul>
       )}
 
-      {nuevo || editando ? (
-        <FormProyecto
-          proyecto={editando}
-          candidatos={candidatos}
-          onGuardar={async (entrada) => {
-            if (editando) await guardar(entrada, editando.id)
-            else await crear(entrada)
-          }}
-          onCerrar={() => {
-            setNuevo(false)
-            setEditando(null)
-          }}
-        />
+      {/* El alta sigue en modal —es un formulario nuevo, no hay panel que
+          reusar—; la EDICIÓN vive dentro del propio detalle. */}
+      {nuevo ? (
+        <FormProyecto candidatos={candidatos} onGuardar={crear} onCerrar={() => setNuevo(false)} />
       ) : null}
 
       {avanceDe ? (
@@ -531,31 +545,80 @@ function periodoDeHoy(): string {
 }
 
 /**
- * Lo que se despliega bajo la fila: descripción, equipo, estado y bitácora.
+ * Lo que se despliega bajo la fila: descripción, fotos, equipo, estado y
+ * bitácora — y TAMBIÉN la edición.
  *
- * El estado se cambia con un `select` directo y no en modal: es un campo de
- * una sola tirada y el modal sólo agregaría un paso para lo que es un toque.
+ * No hay modal de edición: apretar «Editar» convierte a este mismo panel en
+ * el formulario (título, trimestre, descripción y equipo) con «Guardar
+ * cambios» / «Cancelar» al pie. El estado y las fotos siguen guardándose solos,
+ * como siempre: sólo lo que necesita un formulario entra en modo edición.
+ *
+ * El cambio de modo se hace con un `key` distinto en el llamador
+ * (`id + modo`), así que al entrar a editar el panel se remonta con los
+ * valores guardados y mientras se edita, un refresco de la fila (un cambio
+ * de estado, por ejemplo) NO pisa lo que se está escribiendo.
  */
 function DetalleProyecto({
   proyecto,
   bitacora,
   puedeEditar,
+  candidatos,
+  editando,
   onFoto,
   onEstado,
   onAvance,
-  onEditar
+  onEditar,
+  onGuardar,
+  onCerrar
 }: {
   proyecto: ProyectoGranCosecha
   bitacora: FilaBitacora[] | null
   puedeEditar: boolean
+  /** Los posibles integrantes para cambiar el equipo en el mismo panel. */
+  candidatos: ProfileVista[] | null
+  /** `true` = el panel está en modo formulario (edición en el lugar). */
+  editando: boolean
   /** Guarda una foto EN EL MOMENTO (misma inmediación que el Estado). */
   onFoto: (cambios: Pick<CambiosProyecto, 'imagen' | 'foto'>) => void
   onEstado: (estado: EstadoProyecto) => void
   onAvance: () => void
   onEditar: () => void
+  /** Guarda el formulario del modo edición; devuelve si salió bien. */
+  onGuardar: (cambios: CambiosProyecto) => Promise<boolean>
+  /** Sale del modo edición sin guardar. */
+  onCerrar: () => void
 }) {
   const avances = bitacora ? historialAvances(bitacora) : []
   const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
+
+  // Sólo viven en modo edición; el `key` del llamador garantiza que arranquen
+  // con los valores guardados al entrar y que un refresco de la fila no las
+  // pise mientras se escribe.
+  const [titulo, setTitulo] = useState(proyecto.titulo)
+  const [descripcion, setDescripcion] = useState(proyecto.descripcion)
+  const [periodo, setPeriodo] = useState(proyecto.periodo)
+  const [elegidos, setElegidos] = useState<MiembroEquipo[]>(proyecto.miembros)
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false)
+
+  const equipoProblema = validarEquipo(elegidos)
+  const tituloVacio = !titulo.trim()
+  const sinGuardar = tituloVacio || equipoProblema !== null
+
+  /** Guarda el formulario y sale del modo edición sólo si salió bien. */
+  const guardarEdicion = async () => {
+    if (sinGuardar || guardandoEdicion) return
+    setGuardandoEdicion(true)
+    const ok = await onGuardar({
+      titulo: titulo.trim(),
+      descripcion: descripcion.trim(),
+      periodo,
+      miembros: elegidos
+    })
+    setGuardandoEdicion(false)
+    // Si falló (permiso, red, bloque sin aplicar) el formulario se queda con
+    // lo escrito: reintentar no debería empezar de cero.
+    if (ok) onCerrar()
+  }
 
   /** Sube la foto elegida y la publica de una vez, sin pasar por el form. */
   const subirFoto = async (campo: 'imagen' | 'foto', archivo: File | undefined) => {
@@ -577,7 +640,47 @@ function DetalleProyecto({
 
   return (
     <div className="mt-4 space-y-4 rounded-xl bg-slate-50 p-4">
-      {proyecto.descripcion ? (
+      {/* MODO EDICIÓN: los mismos campos que traía el modal, ahora adentro
+          del panel. MODO LECTURA: la descripción, tal cual se publica. */}
+      {editando ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-[1fr_13rem]">
+            <Field
+              label="Título"
+              hint={tituloVacio ? 'Escribí el título del proyecto.' : undefined}
+              hintClassName="font-semibold text-amber-700"
+            >
+              <Input
+                value={titulo}
+                onChange={(e) => setTitulo(e.target.value)}
+                placeholder="Ej.: Huerto vertical en la tienda"
+                aria-label="Título del proyecto"
+              />
+            </Field>
+            <Field label="Trimestre">
+              <Select
+                value={periodo}
+                onChange={(e) => setPeriodo(e.target.value)}
+                aria-label="Trimestre del proyecto"
+              >
+                {PERIODOS.map((p) => (
+                  <option key={p} value={p}>
+                    {etiquetaPeriodo(p)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <Field label="Descripción" hint="Qué proponen hacer y en qué consiste el proyecto.">
+            <Textarea
+              rows={4}
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value)}
+              aria-label="Descripción del proyecto"
+            />
+          </Field>
+        </>
+      ) : proyecto.descripcion ? (
         <p className="whitespace-pre-wrap text-sm text-slate-700">{proyecto.descripcion}</p>
       ) : (
         <p className="text-sm text-slate-500">Sin descripción.</p>
@@ -648,34 +751,60 @@ function DetalleProyecto({
         </div>
       ) : null}
 
-      {/* El equipo como TABLA y no como píldoras: tres nombres largos en
-          píldoras se apilan y se cortan, y la tercera columna lleva la
-          identidad de cada uno —la cédula del trabajador sin cuenta, o el
-          hecho de que su identidad es su cuenta—, que en las píldoras sólo
-          estaba en un `title` invisible. */}
-      <div>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Equipo</span>
-        <div className="mt-1.5 overflow-x-auto rounded-xl border border-slate-200">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400">
-                <th className="px-4 py-3">#</th>
-                <th className="px-4 py-3">Integrante</th>
-                <th className="px-4 py-3">Identificación</th>
-              </tr>
-            </thead>
-            <tbody>
-              {proyecto.miembros.map((m, i) => (
-                <tr key={claveDeMiembro(m)} className="border-t border-slate-100">
-                  <td className="px-4 py-3 tabular-nums text-slate-400">{i + 1}</td>
-                  <td className="px-4 py-3 font-semibold text-slate-700">{m.nombre}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-slate-500">{identidadDe(m)}</td>
+      {/* El equipo: TABLA en modo lectura —tres nombres largos en píldoras
+          se apilan, y la identidad de cada uno (cédula o cuenta) quedaba sólo
+          en un `title` invisible— y el SELECTOR (búsqueda + candidatos) en
+          modo edición, el mismo que usa el alta. */}
+      {editando ? (
+        <SelectorEquipo
+          elegidos={elegidos}
+          candidatos={candidatos}
+          onElegidos={setElegidos}
+          problema={equipoProblema}
+        />
+      ) : (
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Equipo</span>
+          <div className="mt-1.5 overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400">
+                  <th className="px-4 py-3">#</th>
+                  <th className="px-4 py-3">Integrante</th>
+                  <th className="px-4 py-3">Identificación</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {proyecto.miembros.map((m, i) => (
+                  <tr key={claveDeMiembro(m)} className="border-t border-slate-100">
+                    <td className="px-4 py-3 tabular-nums text-slate-400">{i + 1}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-700">{m.nombre}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-slate-500">{identidadDe(m)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* La barra del modo edición: va después del ÚLTIMO campo (el equipo)
+          y antes del Estado, que se guarda solo. */}
+      {editando ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
+          <Button
+            onClick={() => void guardarEdicion()}
+            disabled={guardandoEdicion || sinGuardar}
+            title={equipoProblema ?? undefined}
+          >
+            {guardandoEdicion ? <Spinner size={16} light /> : null}
+            Guardar cambios
+          </Button>
+          <Button variant="ghost" onClick={onCerrar} disabled={guardandoEdicion}>
+            Cancelar
+          </Button>
+        </div>
+      ) : null}
 
       {puedeEditar ? (
         <div className="flex flex-wrap items-end gap-3">
@@ -698,10 +827,14 @@ function DetalleProyecto({
               <TrendingUp className="h-4 w-4" />
               Registrar avance
             </Button>
-            <Button variant="ghost" className="text-xs" onClick={onEditar}>
-              <Pencil className="h-4 w-4" />
-              Editar
-            </Button>
+            {/* En modo edición el botón sobra: la barra de arriba ya tiene
+                «Guardar cambios» y «Cancelar». */}
+            {editando ? null : (
+              <Button variant="ghost" className="text-xs" onClick={onEditar}>
+                <Pencil className="h-4 w-4" />
+                Editar
+              </Button>
+            )}
           </div>
         </div>
       ) : null}
@@ -742,32 +875,29 @@ function DetalleProyecto({
 }
 
 /**
- * El formulario de alta y de edición: es el mismo con un título distinto.
+ * El selector de EQUIPO: la búsqueda y la lista de candidatos (usuarios de
+ * la app + trabajadores de la nómina, con debounce al servidor a partir de
+ * 2 letras, porque son miles de filas).
  *
- * El equipo se elige de los usuarios de la app (checkbox + búsqueda) y el
- * mínimo de tres se valida ACÁ con el mismo criterio que el `check` de la
- * base, para que el error se lea en castellano y no como un 23514.
+ * Va en DOS lugares —el alta de proyecto y la edición dentro del detalle—,
+ * por eso no guarda nada: recibe los elegidos y avisa con `onElegidos`. La
+ * validación (mínimo tres, repetidos) la calcula quien lo usa y la pasa en
+ * `problema`: acá sólo se muestra, para que el mensaje quede junto a lo que
+ * falla.
  */
-function FormProyecto({
-  proyecto,
+function SelectorEquipo({
+  elegidos,
   candidatos,
-  onGuardar,
-  onCerrar
+  onElegidos,
+  problema
 }: {
-  proyecto: ProyectoGranCosecha | null
+  elegidos: MiembroEquipo[]
   candidatos: ProfileVista[] | null
-  onGuardar: (entrada: Parameters<typeof crearProyecto>[0]) => Promise<void>
-  onCerrar: () => void
+  onElegidos: (miembros: MiembroEquipo[]) => void
+  /** `null` = el equipo está bien; si no, el texto a mostrar al pie. */
+  problema: string | null
 }) {
-  const [titulo, setTitulo] = useState(proyecto?.titulo ?? '')
-  const [descripcion, setDescripcion] = useState(proyecto?.descripcion ?? '')
-  const [periodo, setPeriodo] = useState(proyecto?.periodo ?? periodoDeHoy())
-  const [elegidos, setElegidos] = useState<MiembroEquipo[]>(proyecto?.miembros ?? [])
-  const [imagen, setImagen] = useState(proyecto?.imagen ?? '')
-  const [foto, setFoto] = useState(proyecto?.foto ?? '')
-  const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
   const [busqueda, setBusqueda] = useState('')
-  const [guardando, setGuardando] = useState(false)
   /** Trabajadores de la nómina que coincide la búsqueda (con o sin cuenta). */
   const [trabajadores, setTrabajadores] = useState<TrabajadorNomina[]>([])
   /** Falló la última búsqueda en la nómina (bloque de SQL pendiente, red…). */
@@ -831,22 +961,121 @@ function FormProyecto({
     }))
   ]
   const visibles = opciones.filter((o) => !q || `${o.nombre} ${o.sub}`.toLowerCase().includes(q))
-  const problema = titulo.trim() ? validarEquipo(elegidos) : 'Escribí el título del proyecto.'
 
-  const alternar = (o: Opcion) =>
-    setElegidos((prev) => {
-      const esta = (m: MiembroEquipo) => claveDeMiembro(m) === o.clave
-      if (prev.some(esta)) return prev.filter((m) => !esta(m))
-      const nuevo: MiembroEquipo = o.perfil
-        ? { usuario_id: o.perfil.id, nombre: o.perfil.nombre || o.perfil.usuario }
-        : {
-            usuario_id: '',
-            nombre: o.nombre,
-            nacionalidad: o.trabajador?.nacionalidad,
-            dni: o.trabajador?.dni
-          }
-      return [...prev, nuevo]
-    })
+  const alternar = (o: Opcion) => {
+    const esta = (m: MiembroEquipo) => claveDeMiembro(m) === o.clave
+    if (elegidos.some(esta)) {
+      onElegidos(elegidos.filter((m) => !esta(m)))
+      return
+    }
+    const nuevo: MiembroEquipo = o.perfil
+      ? { usuario_id: o.perfil.id, nombre: o.perfil.nombre || o.perfil.usuario }
+      : {
+          usuario_id: '',
+          nombre: o.nombre,
+          nacionalidad: o.trabajador?.nacionalidad,
+          dni: o.trabajador?.dni
+        }
+    onElegidos([...elegidos, nuevo])
+  }
+
+  return (
+    <div>
+      <Field
+        label={`Equipo (${elegidos.length})`}
+        hint="Mínimo 3 personas: usuarios de la app y trabajadores de cualquier sucursal."
+      >
+        <Input
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          placeholder="Buscar por nombre, usuario o cédula"
+          aria-label="Buscar integrante"
+        />
+      </Field>
+
+      {candidatos === null ? (
+        <p className="flex items-center gap-2 text-sm text-slate-500">
+          <Spinner size={16} /> Cargando usuarios…
+        </p>
+      ) : !visibles.length ? (
+        <p className="text-sm text-slate-500">Nadie coincide con «{busqueda}».</p>
+      ) : (
+        <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
+          {visibles.map((o) => {
+            const marcado = elegidos.some((m) => claveDeMiembro(m) === o.clave)
+            return (
+              <li key={o.clave}>
+                <label className="flex cursor-pointer items-center gap-3 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-primary"
+                    checked={marcado}
+                    onChange={() => alternar(o)}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-slate-800">
+                      {o.nombre}
+                    </span>
+                    <span className="block text-xs text-slate-500">{o.sub}</span>
+                  </span>
+                  {marcado ? (
+                    <Badge color={1}>Equipo</Badge>
+                  ) : o.trabajador ? (
+                    <Badge color={0}>Trabajador</Badge>
+                  ) : null}
+                </label>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {errorNomina ? (
+        <p className="mt-2 text-xs font-semibold text-amber-700">
+          No se pudo buscar en la nómina de trabajadores — ¿el bloque de Gran Cosecha está aplicado
+          en el SQL Editor?
+        </p>
+      ) : q.length < 2 ? (
+        <p className="mt-2 text-[11px] text-slate-400">
+          Escribí 2 letras o más para buscar también entre los trabajadores de cualquier sucursal,
+          aunque no tengan cuenta en EvaLuxor.
+        </p>
+      ) : null}
+      {problema ? (
+        <p className="mt-2 text-xs font-semibold text-amber-700">{problema}</p>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * El formulario de ALTA: se presenta un proyecto nuevo.
+ *
+ * La EDICIÓN ya no pasa por acá — vive dentro del propio detalle
+ * (`DetalleProyecto`, en modo edición), que tiene los mismos campos sin
+ * abrir ventana. Acá sólo queda el alta, con el mínimo de tres validado con
+ * el mismo criterio que el `check` de la base, para que el error se lea en
+ * castellano y no como un 23514.
+ */
+function FormProyecto({
+  candidatos,
+  onGuardar,
+  onCerrar
+}: {
+  candidatos: ProfileVista[] | null
+  onGuardar: (entrada: Parameters<typeof crearProyecto>[0]) => Promise<void>
+  onCerrar: () => void
+}) {
+  const [titulo, setTitulo] = useState('')
+  const [descripcion, setDescripcion] = useState('')
+  const [periodo, setPeriodo] = useState(periodoDeHoy())
+  const [elegidos, setElegidos] = useState<MiembroEquipo[]>([])
+  const [imagen, setImagen] = useState('')
+  const [foto, setFoto] = useState('')
+  const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
+  const [guardando, setGuardando] = useState(false)
+
+  const equipoProblema = validarEquipo(elegidos)
+  const tituloVacio = !titulo.trim()
 
   /** Sube la foto elegida y la deja en el estado del formulario. */
   const subirFoto = async (campo: 'imagen' | 'foto', archivo: File | undefined) => {
@@ -868,7 +1097,7 @@ function FormProyecto({
     <Modal
       open
       onClose={onCerrar}
-      title={proyecto ? 'Editar proyecto' : 'Nuevo proyecto'}
+      title="Nuevo proyecto"
       footer={
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onCerrar} disabled={guardando}>
@@ -876,7 +1105,7 @@ function FormProyecto({
           </Button>
           <Button
             type="button"
-            disabled={guardando || problema !== null}
+            disabled={guardando || tituloVacio || equipoProblema !== null}
             onClick={() => {
               setGuardando(true)
               void onGuardar({
@@ -891,13 +1120,17 @@ function FormProyecto({
                 .finally(() => setGuardando(false))
             }}
           >
-            {guardando ? 'Guardando…' : proyecto ? 'Guardar cambios' : 'Presentar proyecto'}
+            {guardando ? 'Guardando…' : 'Presentar proyecto'}
           </Button>
         </div>
       }
     >
       <div className="space-y-4">
-        <Field label="Título">
+        <Field
+          label="Título"
+          hint={tituloVacio ? 'Escribí el título del proyecto.' : undefined}
+          hintClassName="font-semibold text-amber-700"
+        >
           <Input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ej.: Huerto vertical en la tienda" />
         </Field>
         <Field label="Descripción" hint="Qué proponen hacer y en qué consiste el proyecto.">
@@ -937,67 +1170,12 @@ function FormProyecto({
           />
         </div>
 
-        <Field
-          label={`Equipo (${elegidos.length})`}
-          hint="Mínimo 3 personas: usuarios de la app y trabajadores de cualquier sucursal."
-        >
-          <Input
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Buscar por nombre, usuario o cédula"
-            aria-label="Buscar integrante"
-          />
-        </Field>
-
-        {candidatos === null ? (
-          <p className="flex items-center gap-2 text-sm text-slate-500">
-            <Spinner size={16} /> Cargando usuarios…
-          </p>
-        ) : !visibles.length ? (
-          <p className="text-sm text-slate-500">Nadie coincide con «{busqueda}».</p>
-        ) : (
-          <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
-            {visibles.map((o) => {
-              const marcado = elegidos.some((m) => claveDeMiembro(m) === o.clave)
-              return (
-                <li key={o.clave}>
-                  <label className="flex cursor-pointer items-center gap-3 px-3 py-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-primary"
-                      checked={marcado}
-                      onChange={() => alternar(o)}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-slate-800">
-                        {o.nombre}
-                      </span>
-                      <span className="block text-xs text-slate-500">{o.sub}</span>
-                    </span>
-                    {marcado ? (
-                      <Badge color={1}>Equipo</Badge>
-                    ) : o.trabajador ? (
-                      <Badge color={0}>Trabajador</Badge>
-                    ) : null}
-                  </label>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-        {errorNomina ? (
-          <p className="mt-2 text-xs font-semibold text-amber-700">
-            No se pudo buscar en la nómina de trabajadores — ¿el bloque de Gran Cosecha está aplicado
-            en el SQL Editor?
-          </p>
-        ) : q.length < 2 ? (
-          <p className="mt-2 text-[11px] text-slate-400">
-            Escribí 2 letras o más para buscar también entre los trabajadores de cualquier sucursal,
-            aunque no tengan cuenta en EvaLuxor.
-          </p>
-        ) : null}
-
-        {problema ? <p className="text-xs font-semibold text-amber-700">{problema}</p> : null}
+        <SelectorEquipo
+          elegidos={elegidos}
+          candidatos={candidatos}
+          onElegidos={setElegidos}
+          problema={equipoProblema}
+        />
       </div>
     </Modal>
   )

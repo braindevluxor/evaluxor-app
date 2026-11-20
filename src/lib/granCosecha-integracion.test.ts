@@ -164,6 +164,28 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(pagina).toContain('identidadDe')
     expect(pagina).not.toContain('rounded-full bg-white px-3 py-1')
   })
+
+  it('la edición vive en el DETALLE, no en un modal', () => {
+    const pagina = fuente('../pages/GranCosecha.tsx')
+
+    // «Editar» no abre ventana: convierte al MISMO panel en formulario, con
+    // «Guardar cambios» / «Cancelar» al pie del último campo.
+    expect(pagina).toContain('editando')
+    expect(pagina).toContain('Guardar cambios')
+    expect(pagina).toContain('onCerrar={() => setEditando(null)}')
+
+    // El cambio de modo va por `key`, para que el panel se remonta con los
+    // valores guardados y un refresco de la fila no pise lo que se escribe.
+    expect(pagina).toContain('key={`${p.id}:${editando === p.id}`}')
+
+    // El selector de equipo es UN componente compartido con el alta, no una
+    // copia pegada en el detalle.
+    expect(pagina.match(/<SelectorEquipo/g) ?? []).toHaveLength(2)
+
+    // El modal quedó SÓLO para presentar uno nuevo.
+    expect(pagina).toContain('title="Nuevo proyecto"')
+    expect(pagina).not.toContain('Editar proyecto')
+  })
 })
 
 describe('gran cosecha · el rol que lo sostiene', () => {
