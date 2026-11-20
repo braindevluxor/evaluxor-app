@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
+import QRCode from 'qrcode'
 import { logoPie } from './marcaPie'
 import { cortesDePagina } from './paginarRevision'
 
@@ -38,13 +39,6 @@ export interface CampoPersona {
   valor?: string | number | null
 }
 
-export interface FotoPdf {
-  /** data: o blob: URL — `html2canvas` las volca igual. */
-  src: string
-  /** Pie impreso bajo la foto: qué se miró. */
-  pie?: string | null
-}
-
 export interface DatosRevision {
   titulo?: string
   numeroRevision?: string | null
@@ -63,8 +57,18 @@ export interface DatosRevision {
    * (Estética / Mecánica / Gas vehicular) cada vez que cambia.
    */
   items?: Array<{ etiqueta: string; valor: string | null; grupo?: string | null }>
-  /** Evidencias fotográficas, en la grilla que va debajo del checklist. */
-  fotos?: FotoPdf[]
+  /**
+   * El enlace PÚBLICO al detalle completo (fotos y videos): el QR de la
+   * hoja apunta acá. Las evidencias NO se imprimen —el papel no es el
+   * mejor lugar para mirar material visual— y ésta es la salida.
+   */
+  urlDetalle?: string | null
+  /**
+   * El QR ya dibujado (data URL). Lo genera `exportarRevisionPreEntrega`
+   * desde `urlDetalle` antes de volcar el HTML: `htmlRevision` es puro y
+   * sincrónico, y un encoder de QR no lo es.
+   */
+  qr?: string | null
 }
 
 function formatearFecha(f?: string | null): string {
@@ -181,20 +185,19 @@ export function htmlRevision(datos: DatosRevision, enc: Encabezado = encabezadoD
       }
 
       ${
-        datos.fotos && datos.fotos.length > 0
+        datos.qr
           ? `
       <section>
-        <h2 style="margin:0 0 8px 0;font-size:14px;font-weight:700;color:#0f766e;border-left:4px solid #0f766e;padding-left:8px">Evidencias fotográficas</h2>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-          ${datos.fotos
-            .map(
-              (f) => `
-          <figure style="margin:0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#ffffff">
-            <img src="${f.src}" alt="${escapeHtml(f.pie ?? 'Evidencia')}" style="display:block;width:100%;height:150px;object-fit:cover" />
-            <figcaption style="padding:6px 8px;font-size:10px;line-height:1.35;color:#475569">${escapeHtml(f.pie ?? '')}</figcaption>
-          </figure>`
-            )
-            .join('')}
+        <h2 style="margin:0 0 8px 0;font-size:14px;font-weight:700;color:#0f766e;border-left:4px solid #0f766e;padding-left:8px">Detalle completo en línea</h2>
+        <div style="display:flex;gap:16px;align-items:center;padding:12px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc">
+          <img src="${datos.qr}" alt="Código QR con el enlace al detalle de esta inspección" style="width:132px;height:132px;flex:none;background:#ffffff;padding:6px;border:1px solid #e2e8f0;border-radius:8px" />
+          <div style="min-width:0">
+            <p style="margin:0;font-size:12px;font-weight:700;color:#0f766e">Escaneá el código para ver las evidencias</p>
+            <p style="margin:6px 0 0 0;font-size:11px;color:#475569;line-height:1.45">
+              Las fotos y los videos NO se imprimen: se ven en línea, junto con la tabla de puntos y los comentarios de cada uno.
+            </p>
+            <p style="margin:6px 0 0 0;font-size:10px;color:#64748b;word-break:break-all">${escapeHtml(datos.urlDetalle ?? '')}</p>
+          </div>
         </div>
       </section>
       `
@@ -244,6 +247,23 @@ export function htmlRevision(datos: DatosRevision, enc: Encabezado = encabezadoD
 export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<void> {
   const enc = encabezadoDe(datos)
 
+  // El QR al detalle público: se genera ACÁ y no en `htmlRevision` porque
+  // esa función es pura y sincrónica, y el encoder de QR no lo es. Sin
+  // enlace no hay QR, y el documento sale igual (sin la sección).
+  let qr: string | null = null
+  if (datos.urlDetalle) {
+    try {
+      qr = await QRCode.toDataURL(datos.urlDetalle, {
+        margin: 1,
+        width: 240,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#0f2937ff', light: '#ffffffff' }
+      })
+    } catch {
+      qr = null
+    }
+  }
+
   const contenedor = document.createElement('div')
   contenedor.style.position = 'absolute'
   contenedor.style.left = '-9999px'
@@ -256,7 +276,7 @@ export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<
   contenedor.style.fontSize = '12px'
   contenedor.style.lineHeight = '1.5'
 
-  contenedor.innerHTML = htmlRevision(datos, enc)
+  contenedor.innerHTML = htmlRevision({ ...datos, qr }, enc)
   document.body.appendChild(contenedor)
 
   try {

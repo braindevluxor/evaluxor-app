@@ -303,6 +303,7 @@ export function InspeccionVehiculo() {
         persona,
         moduloNombre: modulo.nombre,
         evaluador: profile?.nombre ?? null,
+        evaluadorId: profile?.id ?? null,
         online
       })
       // El registro finalizado vuelve del exportador: se pinta acá, sin volver

@@ -58,6 +58,11 @@ const ConciliacionPublica = lazy(() =>
 const CargosPublicos = lazy(() =>
   import('./pages/publico/CargosPublicos').then((m) => ({ default: m.CargosPublicos }))
 )
+// Lo que muestra el QR del PDF de la inspección: detalle público con el
+// material visual, sin cuenta. Como las otras pantallas de invitado.
+const InspeccionCompartida = lazy(() =>
+  import('./pages/publico/InspeccionPublica').then((m) => ({ default: m.InspeccionPublica }))
+)
 // El menú de cada sucursal: pantalla de CLIENTES que se abre sin sesión
 // (el QR de la tienda), igual que los enlaces de invitado.
 const MenuPublico = lazy(() =>
@@ -123,6 +128,9 @@ function Rutas() {
                         token, y sólo da lectura — ver `supabase/compartir-evaluacion.sql`. */}
                     {/* Enlace de INVITADO: la otra pantalla pública, con su
                         propia ruta para no pisar el de conciliación. */}
+                    {/* Lo que lleva el QR del PDF de la inspección: el
+                        detalle con sus fotos y videos, sin cuenta. */}
+                    <Route path="/compartir/inspeccion/:token" element={<InspeccionCompartida />} />
                     <Route path="/compartir/cargos/:token" element={<CargosPublicos />} />
                     <Route path="/compartir/:token" element={<ConciliacionPublica />} />
                     {/* La dirección obvia de la cosecha: manda a la landing

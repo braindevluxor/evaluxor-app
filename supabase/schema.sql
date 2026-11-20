@@ -6801,6 +6801,108 @@ drop function if exists public.ver_concurso_publico(text);
 -- premios, jurado, FAQ y ganadores de una landing que ya no existe.
 drop table if exists public.gran_cosecha_contenido;
 
+-- Archivo consolidado: compartir-inspeccion.sql
+-- ###########################################################################
+-- ============================================================================
+-- ENLACE PÚBLICO DE UNA INSPECCIÓN DE VEHÍCULO / PRE-ENTREGA
+--
+-- POR QUÉ EXISTE
+-- -------------
+-- El PDF ya NO pega las fotos de evidencia: el papel no es el mejor lugar
+-- para mirar material visual (y una hoja con veinte fotos es un ladrillo).
+-- En su lugar lleva un QR que apunta a ESTE enlace, que sí muestra el
+-- detalle entero —la tabla de puntos con sus comentarios y el material
+-- visual, fotos y videos— sin cuenta y desde cualquier teléfono.
+--
+-- Es el mismo molde que `compartir-cargos.sql` y `compartir-evaluacion.sql`:
+--
+--  * La PK es la REVISIÓN y no el token: compartir de nuevo REEMPLAZA el
+--    enlace (y su reporte congelado) en vez de acumular links viejos que
+--    nadie puede apagar. Se apaga con un `activo = false`.
+--  * `datos` es el detalle ARMADO POR LA APP, con las URLs de las fotos ya
+--    firmadas (un año, igual que en cargos): lo que no está acá, el enlace
+--    no lo muestra.
+--  * La única puerta es `ver_inspeccion_compartida(p_token)`, SECURITY
+--    DEFINER: la pantalla corre sin sesión y `anon` no tiene permiso de
+--    tabla. Token equivocado y enlace apagado devuelven lo MISMO, para que
+--    no se pueda adivinar un token comparando respuestas.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+
+create table if not exists public.inspecciones_compartidas (
+  revision_id uuid primary key
+    references public.revision_pre_entrega (id) on delete cascade,
+  token text not null unique,
+  -- El detalle armado por la app (jsonb), con las URLs firmadas de las
+  -- fotos. Es lo único que viaja al que recibe el enlace.
+  datos jsonb not null,
+  activo boolean not null default true,
+  creado_por uuid references public.profiles (id) on delete set null,
+  creado_at timestamptz not null default now()
+);
+
+alter table public.inspecciones_compartidas enable row level security;
+
+-- Quien hizo la inspección (o el Líder, que puede con todo) ve que su
+-- enlace está activo: si no, el botón no tendría memoria entre sesiones.
+drop policy if exists inspecciones_compartidas_select on public.inspecciones_compartidas;
+create policy inspecciones_compartidas_select on public.inspecciones_compartidas
+  for select to authenticated
+  using (exists (
+    select 1 from public.revision_pre_entrega r
+    where r.id = inspecciones_compartidas.revision_id
+      and (r.evaluador_id = auth.uid() or public.es_lider())
+  ));
+
+-- Generar y apagar el enlace: mismo criterio que el select de arriba.
+drop policy if exists inspecciones_compartidas_gestion on public.inspecciones_compartidas;
+create policy inspecciones_compartidas_gestion on public.inspecciones_compartidas
+  for all to authenticated
+  using (exists (
+    select 1 from public.revision_pre_entrega r
+    where r.id = inspecciones_compartidas.revision_id
+      and (r.evaluador_id = auth.uid() or public.es_lider())
+  ))
+  with check (exists (
+    select 1 from public.revision_pre_entrega r
+    where r.id = inspecciones_compartidas.revision_id
+      and (r.evaluador_id = auth.uid() or public.es_lider())
+  ));
+
+-- La única puerta: leer el detalle de un enlace, SIN sesión.
+create or replace function public.ver_inspeccion_compartida(p_token text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select case
+    when exists (
+      select 1 from public.inspecciones_compartidas i
+      where i.activo and i.token = p_token
+    )
+    then (
+      select jsonb_build_object(
+        'datos', i.datos,
+        'generado', i.creado_at
+      )
+      from public.inspecciones_compartidas i
+      where i.activo and i.token = p_token
+    )
+    else jsonb_build_object('datos', null)
+  end;
+$$;
+
+-- `anon` porque la pantalla corre sin sesión, y `authenticated` porque el
+-- enlace lo puede abrir alguien que ya tiene la app abierta (el propio
+-- evaluador mirando su link). El revoke va con PUBLIC porque los permisos
+-- en Postgres son aditivos, y DESPUÉS del `create or replace`, que reactiva
+-- ese permiso.
+revoke execute on function public.ver_inspeccion_compartida(text) from public, anon;
+grant  execute on function public.ver_inspeccion_compartida(text) to anon, authenticated;
+
 -- Archivo consolidado: bonos-programas.sql
 -- ###########################################################################
 -- ============================================================================

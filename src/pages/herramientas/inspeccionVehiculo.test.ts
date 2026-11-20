@@ -179,14 +179,19 @@ describe('Inspección de vehículo · el PDF', () => {
     expect(pdf).toContain('filasTabla(')
   })
 
-  it('imprime las evidencias con su pie y las toma de las dos procedencias', () => {
-    expect(pdf).toContain('Evidencias fotográficas')
-    expect(exportador).toContain('createSignedUrls(paths, 3600)')
-    expect(exportador).toMatch(/getPhotos\(ev\.photoIds\)/)
-    // Se revocan: si no, cada exportación deja blob: colgados en la pestaña.
-    expect(exportador).toMatch(/for \(const u of urls\) URL\.revokeObjectURL\(u\)/)
-    // Y la pantalla sigue avisando con el texto de siempre según el resultado.
-    expect(pagina).toContain('exportarInspeccion({')
+  it('no imprime las evidencias: lleva el QR al detalle público', () => {
+    // El papel no es el mejor lugar para mirar fotos. El PDF dejó de pegarlas
+    // y en su lugar lleva el enlace público al detalle completo (tabla,
+    // comentarios y material visual), que se arma ANTES de generar la hoja.
+    expect(pdf).not.toContain('Evidencias fotográficas')
+    expect(pdf).toContain('Detalle completo en línea')
+    expect(pdf).toContain('datos.qr')
+    expect(pdf).toContain('datos.urlDetalle')
+    expect(exportador).toContain('enlaceDelDetalle(')
+    expect(exportador).toContain('urlDetalle')
+    // Si el enlace no se puede crear, el documento sale igual y se avisa:
+    // un problema con el QR no puede dejar a nadie sin su inspección.
+    expect(exportador).toContain('El PDF sale sin QR')
   })
 
   it('pagina la hoja: ninguna A4 se corta con el contenido entero dentro', () => {
