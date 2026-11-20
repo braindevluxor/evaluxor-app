@@ -31,7 +31,7 @@ describe('gran cosecha · la página en la consola', () => {
   })
 
   it('la página toca las cuatro secciones de la landing', () => {
-    for (const bloque of ['Hero', 'Premios', 'Equipos participantes', 'Imágenes']) {
+    for (const bloque of ['Hero', 'Premios', 'Equipos participantes']) {
       expect(pagina, bloque).toContain(bloque)
     }
     expect(pagina).toContain('cargarContenidoPagina')

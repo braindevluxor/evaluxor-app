@@ -6325,7 +6325,6 @@ as $$
   select jsonb_build_object(
     'hero', g.hero,
     'premios', g.premios,
-    'imagenes', g.imagenes,
     -- LOS PARTICIPANTES: los proyectos REGISTRADOS en la consola, del
     -- trimestre en curso y sin cancelados («los que ya están compitiendo»).
     -- Cada uno trae SU conteo de riegos —sólo el número, la tabla está

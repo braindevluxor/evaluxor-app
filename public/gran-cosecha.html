@@ -1220,15 +1220,6 @@
         hero.style.backgroundColor = '#b91c1c';
       }
 
-      function pintarImagenes(imagenes) {
-        if (!imagenes || typeof imagenes !== 'object') return;
-        ['round1', 'round2', 'round3'].forEach(function (clave) {
-          var el = document.getElementById(clave);
-          var url = imagenes[clave];
-          if (el && typeof url === 'string' && url) el.src = url;
-        });
-      }
-
       // El carrusel del hero: capas absolutas que se rotan con un fundido,
       // cada una con el mismo velo navy del fondo estático para que el texto
       // blanco siga leyéndose sobre cualquier medio. Nace oculto: sin
@@ -1299,7 +1290,6 @@
         }
         pintarPremios(contenido.premios);
         pintarParticipantes(contenido.participantes);
-        pintarImagenes(contenido.imagenes);
       }
 
       fetch(URL_BASE + '/rest/v1/rpc/ver_contenido_gran_cosecha', {

@@ -90,18 +90,10 @@ export interface EquipoPagina {
   foto: string
 }
 
-/** Las tres fotos de los rounds de la página. */
-export interface ImagenesPagina {
-  round1: string
-  round2: string
-  round3: string
-}
-
 export interface ContenidoPagina {
   hero: HeroPagina
   premios: PremioPagina[]
   equipos: EquipoPagina[]
-  imagenes: ImagenesPagina
 }
 
 /**
@@ -126,21 +118,20 @@ export const CONTENIDO_BASE: ContenidoPagina = {
     { puesto: '2° PUESTO', descripcion: 'Incentivo Especial para Todo el Equipo' },
     { puesto: '3° PUESTO', descripcion: 'Reconocimiento Destacado y Cesta Luxor' }
   ],
-  equipos: [],
-  imagenes: { round1: '', round2: '', round3: '' }
+  equipos: []
 }
 
 /**
  * El contenido de la página, o los valores por defecto si todavía no hay.
  *
- * El `hero` y las `imagenes` se mergean con los suyos: una fila guardada en
- * una versión anterior de la consola no puede quedarse sin un campo nuevo
- * que la página necesita pintar.
+ * El `hero` se mergea con el suyo: una fila guardada en una versión anterior
+ * de la consola no puede quedarse sin un campo nuevo que la página necesita
+ * pintar.
  */
 export async function cargarContenidoPagina(): Promise<ContenidoPagina> {
   const { data, error } = await supabase
     .from('gran_cosecha_pagina')
-    .select('hero, premios, equipos, imagenes')
+    .select('hero, premios, equipos')
     .eq('id', true)
     .maybeSingle()
   if (error) throw error
@@ -162,8 +153,7 @@ export async function cargarContenidoPagina(): Promise<ContenidoPagina> {
           imagen: e?.imagen ?? '',
           foto: e?.foto ?? ''
         }))
-      : [],
-    imagenes: { ...CONTENIDO_BASE.imagenes, ...(data.imagenes as Partial<ImagenesPagina> | null) }
+      : []
   }
 }
 
@@ -218,8 +208,11 @@ export function validarContenido(contenido: ContenidoPagina): string | null {
   return null
 }
 
-/** Las fotos que la página puede cambiar: una por slot, con su URL propia. */
-export type FotoPagina = 'fondo' | 'round1' | 'round2' | 'round3'
+/**
+ * La única foto con slot fijo que queda: el fondo del hero. Los rounds se
+ * retiraron de la página, y con ellos `round1..3`.
+ */
+export type FotoPagina = 'fondo'
 
 const BUCKET = 'gran-cosecha'
 /** Extensión del archivo ya convertido, según el tipo que salió de la conversión. */

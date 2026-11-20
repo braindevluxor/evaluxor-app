@@ -13,7 +13,6 @@ import {
   validarContenido,
   type ContenidoPagina,
   type EquipoPagina,
-  type FotoPagina,
   type HeroPagina,
   type PremioPagina
 } from '../lib/data/granCosechaPagina'
@@ -26,7 +25,7 @@ import {
  * de sólo LÍDER tres veces —el item del menú, el guard de la ruta
  * (`SoloLider`) y la política `for all ... es_lider()` de la tabla—.
  *
- * Cinco tarjetas, un solo botón «Guardar»: todo se publica de una vez, con
+ * Cuatro tarjetas, un solo botón «Guardar»: todo se publica de una vez, con
  * la validación de `validarContenido` explicando en pantalla lo que el
  * `check` de la base rechazaría. Las fotos y los videos del carrusel se
  * suben solos al bucket público —convertidos a WebP/WebM—, pero su URL
@@ -90,16 +89,16 @@ export function GranCosechaPaginaPage() {
     }
   }
 
-  const subir = async (slot: FotoPagina, archivo: File | undefined, urlActual: string) => {
+  /**
+   * Sube el fondo estático del hero —el único slot fijo que queda: los
+   * rounds se retiraron de la página y con ellos `round1..3`.
+   */
+  const subir = async (archivo: File | undefined, urlActual: string) => {
     if (!archivo) return
-    setSubiendo(slot)
+    setSubiendo('fondo')
     try {
-      const url = await subirFotoPagina(slot, archivo, urlActual)
-      setContenido((c) => {
-        if (!c) return c
-        if (slot === 'fondo') return { ...c, hero: { ...c.hero, fondo: url } }
-        return { ...c, imagenes: { ...c.imagenes, [slot]: url } }
-      })
+      const url = await subirFotoPagina('fondo', archivo, urlActual)
+      setContenido((c) => (c ? { ...c, hero: { ...c.hero, fondo: url } } : c))
       avisar('Foto subida. Tocá «Guardar» para publicarla.')
     } catch (e) {
       avisar(e instanceof Error ? e.message : 'No se pudo subir la foto.', 'error')
@@ -111,13 +110,9 @@ export function GranCosechaPaginaPage() {
   const cambiarHero = (campo: keyof HeroPagina, valor: string) =>
     setContenido((c) => (c ? { ...c, hero: { ...c.hero, [campo]: valor } } : c))
 
-  /** Vuelve la foto a la que trae la página por defecto. */
-  const quitarFoto = (slot: FotoPagina) =>
-    setContenido((c) => {
-      if (!c) return c
-      if (slot === 'fondo') return { ...c, hero: { ...c.hero, fondo: '' } }
-      return { ...c, imagenes: { ...c.imagenes, [slot]: '' } }
-    })
+  /** Vuelve el fondo al que trae la página por defecto. */
+  const quitarFoto = () =>
+    setContenido((c) => (c ? { ...c, hero: { ...c.hero, fondo: '' } } : c))
 
   /**
    * Convierte el archivo (WebP o WebM) y lo agrega al carrusel.
@@ -187,9 +182,9 @@ export function GranCosechaPaginaPage() {
    * Sube una de las dos fotos de un equipo: la del PROYECTO (la cara de la
    * tarjeta) o la del EQUIPO (la que la landing revela al pasar el mouse).
    *
-   * Va con la clave `equipo-N-campo` en `subiendo` porque los slots fijos
-   * (`FotoPagina`) no cubren estos archivos: cada equipo tiene dos rutas
-   * propias y sólo una subida puede estar en curso por fila.
+   * Va con la clave `equipo-N-campo` en `subiendo` porque el único slot
+   * fijo (el fondo del hero) no cubre estos archivos: cada equipo tiene dos
+   * rutas propias y sólo una subida puede estar en curso por fila.
    */
   const subirFotoDeEquipo = async (
     i: number,
@@ -315,8 +310,8 @@ export function GranCosechaPaginaPage() {
                 etiqueta="Fondo estático (si no hay carrusel)"
                 url={contenido.hero.fondo}
                 ocupado={subiendo === 'fondo'}
-                onArchivo={(archivo) => void subir('fondo', archivo, contenido.hero.fondo)}
-                onQuitar={() => quitarFoto('fondo')}
+                onArchivo={(archivo) => void subir(archivo, contenido.hero.fondo)}
+                onQuitar={() => quitarFoto()}
               />
             </div>
           </Tarjeta>
@@ -553,24 +548,6 @@ export function GranCosechaPaginaPage() {
                 ))}
               </ul>
             )}
-          </Tarjeta>
-
-          <Tarjeta
-            titulo="Imágenes"
-            descripcion="Las tres fotos de los rounds. Sin foto propia, la página usa las que ya trae."
-          >
-            <div className="grid gap-4 sm:grid-cols-3">
-              {(['round1', 'round2', 'round3'] as const).map((slot) => (
-                <CampoFoto
-                  key={slot}
-                  etiqueta={`Round ${slot.slice(-1)}`}
-                  url={contenido.imagenes[slot]}
-                  ocupado={subiendo === slot}
-                  onArchivo={(archivo) => void subir(slot, archivo, contenido.imagenes[slot])}
-                  onQuitar={() => quitarFoto(slot)}
-                />
-              ))}
-            </div>
           </Tarjeta>
         </>
       ) : null}

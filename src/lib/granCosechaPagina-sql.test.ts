@@ -119,7 +119,6 @@ const CONTENIDO = {
       foto: 'https://supabase.test/gran-cosecha/equipo.webp'
     }
   ],
-  imagenes: { round1: '', round2: '', round3: '' }
 }
 
 /** El trimestre en curso, igual que lo calcula la app y que el SQL. */
@@ -164,8 +163,8 @@ async function regar(proyectoId: string, usuario: string): Promise<void> {
 }
 
 const INSERT_CONTENIDO = `
-  insert into public.gran_cosecha_pagina (id, hero, premios, equipos, imagenes)
-  values (true, $1, $2, $3, $4)
+  insert into public.gran_cosecha_pagina (id, hero, premios, equipos)
+  values (true, $1, $2, $3)
 `
 
 let db: PGlite
@@ -187,7 +186,7 @@ beforeAll(async () => {
   // que después tienen que filtrar las políticas para los demás roles.
   await db.exec(
     `insert into storage.objects (bucket_id, name) values
-       ('gran-cosecha', 'pagina/round1.jpg'),
+       ('gran-cosecha', 'pagina/fondo-hero.jpg'),
        ('evidencias', 'ev/abc/foto.jpg')`
   )
 
@@ -258,8 +257,7 @@ async function guardarComoRol(usuario: string): Promise<void> {
     await db.query(INSERT_CONTENIDO, [
       CONTENIDO.hero,
       CONTENIDO.premios,
-      CONTENIDO.equipos,
-      CONTENIDO.imagenes
+      CONTENIDO.equipos
     ])
   })
 }
@@ -277,6 +275,8 @@ describe('gran-cosecha-pagina.sql · la tabla', () => {
   })
 
   it('cada sección nace con su forma', async () => {
+    // (La columna `imagenes` sigue viva en la base aunque el bloque de rounds
+    // se retiró de la página: su `check` también es una regla que probar.)
     // Un objeto donde va el array de premios.
     await expect(
       db.query(
@@ -329,8 +329,7 @@ describe('gran-cosecha-pagina.sql · RLS', () => {
         db.query(INSERT_CONTENIDO, [
           CONTENIDO.hero,
           CONTENIDO.premios,
-          CONTENIDO.equipos,
-          CONTENIDO.imagenes
+          CONTENIDO.equipos
         ])
       ).rejects.toThrow(/row-level security/i)
     })
@@ -373,7 +372,7 @@ describe('gran-cosecha-pagina.sql · la función pública', () => {
       )
       const contenido = r.rows[0].r
       expect(contenido).not.toBeNull()
-      expect(Object.keys(contenido ?? {}).sort()).toEqual(['hero', 'imagenes', 'participantes', 'premios'])
+      expect(Object.keys(contenido ?? {}).sort()).toEqual(['hero', 'participantes', 'premios'])
       expect((contenido?.hero as { lema: string }).lema).toBe('LEMA NUEVO')
 
       // La función no es una puerta atrás a la tabla.
