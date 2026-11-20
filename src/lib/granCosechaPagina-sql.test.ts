@@ -92,6 +92,9 @@ const DDL = `
     -- el espejo las trae desde acá para que la RPC pueda leerlas.
     imagen text not null default '',
     foto   text not null default '',
+    -- Lo mismo para los archivos de la presentación: el bloque los agrega
+    -- con un alter table add column if not exists adjuntos jsonb.
+    adjuntos jsonb not null default '[]',
     created_at timestamptz not null default now()
   );
 
@@ -420,6 +423,39 @@ describe('gran-cosecha-pagina.sql · la función pública', () => {
       // Sin fotos: cadena vacía, y la tarjeta usa la inicial del título.
       expect(sinFotos.imagen).toBe('')
       expect(sinFotos.foto).toBe('')
+    })
+  })
+
+  it('los archivos de la presentación salen enteros, y vacíos si no los hay', async () => {
+    const adjuntos = [
+      {
+        ruta: 'proyectos/abc/1700000000000-presentacion.mp4',
+        nombre: 'presentacion.mp4',
+        tipo: 'video/mp4',
+        bytes: 1234567,
+        url: 'https://supabase.test/proyectos/abc/1700000000000-presentacion.mp4',
+        subido_at: '2026-11-01T10:00:00.000Z'
+      }
+    ]
+    await db.query(
+      `update public.gran_cosecha_proyecto set adjuntos = $1::jsonb where titulo = 'Huerto vertical'`,
+      [JSON.stringify(adjuntos)]
+    )
+
+    await conAnon(async () => {
+      const r = await db.query<{ r: Record<string, unknown> | null }>(
+        `select public.ver_contenido_gran_cosecha() as r`
+      )
+      const participantes = (r.rows[0].r?.participantes ?? []) as Record<string, unknown>[]
+      const con = participantes.find((p) => p.titulo === 'Huerto vertical') as Record<string, unknown>
+      const sin = participantes.find((p) => p.titulo === 'Caja cero espera') as Record<string, unknown>
+
+      // Tal cual los guardó la consola: el nombre con el que se subió, el
+      // tipo (decide si la página reproduce o enlaza) y la URL pública.
+      expect(con.adjuntos).toEqual(adjuntos)
+      // Sin archivos: lista vacía y no `null`, para que la página pinta
+      // nada sin tener que distinguir los dos casos.
+      expect(sin.adjuntos).toEqual([])
     })
   })
 

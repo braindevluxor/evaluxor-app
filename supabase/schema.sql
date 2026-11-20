@@ -5960,6 +5960,17 @@ alter table public.gran_cosecha_proyecto
   add column if not exists imagen text not null default '',
   add column if not exists foto   text not null default '';
 
+-- LOS ADJUNTOS DE LA PRESENTACIÓN: documentos y videos que el equipo sube
+-- para presentar el proyecto (PDF, Word, Excel, PowerPoint y video). Va en
+-- jsonb y no en tabla aparte porque es UNA lista por proyecto que sólo se
+-- lee entera — misma decisión que `miembros`. Cada elemento es
+-- `{ ruta, nombre, tipo, bytes, url, subido_at }`: la `ruta` es la del
+-- bucket `gran-cosecha` bajo `proyectos/<id>/…`, que la MISMA política de
+-- las fotos ya cubre (`gran_cosecha_fotos_proyecto`), así que subir y borrar
+-- no necesita regla nueva. Lo público lo decide la RPC de la landing.
+alter table public.gran_cosecha_proyecto
+  add column if not exists adjuntos jsonb not null default '[]';
+
 create table if not exists public.gran_cosecha_bitacora (
   id uuid primary key default gen_random_uuid(),
   proyecto_id uuid not null references public.gran_cosecha_proyecto(id) on delete cascade,
@@ -6442,7 +6453,12 @@ as $$
           -- Las dos fotos, guardadas EN EL PROYECTO (las edita la consola de
           -- Proyectos): vacías, la tarjeta usa la inicial del título.
           'imagen', pr.imagen,
-          'foto', pr.foto
+          'foto', pr.foto,
+          -- Los archivos de la presentación (documentos y videos): van
+          -- enteros, que la página los pinta tal cual. La tabla de proyectos
+          -- es pública de lectura por esta función; nada de acá da permiso
+          -- sobre el bucket (el bucket es público para lectura).
+          'adjuntos', pr.adjuntos
         )
         order by pr.avance desc, pr.created_at
       ), '[]'::jsonb)

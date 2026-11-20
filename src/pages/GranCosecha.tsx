@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Pencil, Plus, Trash2, TrendingUp } from 'lucide-react'
+import { FileText, Pencil, Plus, Trash2, TrendingUp, Video } from 'lucide-react'
 import { avisar } from '../lib/aviso'
 import {
   Badge,
@@ -20,22 +20,29 @@ import { PortalCabecera } from '../components/PortalCabecera'
 import { chipPastel } from '../lib/diseno'
 import { useAuth } from '../context/AuthContext'
 import {
+  ACEPTA_ADJUNTOS,
   ESTADOS,
+  MAX_ADJUNTO_BYTES,
   TIPOS_BITACORA,
   actualizarProyecto,
   claveDeMiembro,
   crearProyecto,
   eliminarProyecto,
   etiquetaPeriodo,
+  formatoBytes,
   historialAvances,
   listarBitacora,
   listarProyectos,
   listarTrabajadoresEquipo,
   periodosRecientes,
+  quitarAdjunto,
   regarProyecto,
+  rechazoDeAdjunto,
   riegosDeLaCosecha,
+  subirAdjunto,
   subirFotoProyecto,
   validarEquipo,
+  type AdjuntoProyecto,
   type CambiosProyecto,
   type EstadoProyecto,
   type FilaBitacora,
@@ -320,6 +327,23 @@ export function GranCosechaPage() {
   }
 
   /**
+   * Guarda la lista de archivos de la presentación. Devuelve si salió bien:
+   * el detalle la necesita para borrar el archivo del bucket SÓLO después
+   * de que la fila quedó sin él — así nunca queda un enlace roto.
+   */
+  const guardarAdjuntos = async (adjuntos: AdjuntoProyecto[], id: string): Promise<boolean> => {
+    try {
+      await actualizarProyecto(id, { adjuntos })
+      avisar(adjuntos.length ? 'Archivos de la presentación guardados.' : 'Archivo quitado de la presentación.')
+      setRecargar((n) => n + 1)
+      return true
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudieron guardar los archivos.', 'error')
+      return false
+    }
+  }
+
+  /**
    * Regar un proyecto: la base guarda el `usuario` de QUIEN aprieta (la
    * misma clave que mandan los portales), así que no hay forma de regar por
    * otro. Idempotente: si ya estaba regado, la respuesta lo dice y el
@@ -481,6 +505,7 @@ export function GranCosechaPage() {
                   onAvance={() => setAvanceDe(p)}
                   onEditar={() => setEditando(p.id)}
                   onGuardar={(cambios) => guardar(cambios, p.id)}
+                  onAdjuntos={(adjuntos) => guardarAdjuntos(adjuntos, p.id)}
                   onCerrar={() => setEditando(null)}
                 />
               ) : null}
@@ -524,6 +549,112 @@ function periodoDeHoy(): string {
 }
 
 /**
+ * Los archivos de la PRESENTACIÓN: documentos y videos del proyecto.
+ *
+ * Se guardan solas al subirlas (igual que las fotos), así que este bloque no
+ * depende del modo edición: el que puede editar sube y quita desde acá, y el
+ * que sólo mira los abre o baja. Sin archivos y sin permiso, ni se dibuja.
+ */
+function AdjuntosProyecto({
+  adjuntos,
+  puedeEditar,
+  subiendo,
+  onSubir,
+  onQuitar
+}: {
+  adjuntos: AdjuntoProyecto[]
+  puedeEditar: boolean
+  /** Qué se está subiendo, para no mandar dos tandas en paralelo. */
+  subiendo: string | null
+  onSubir: (archivos: File[]) => void
+  onQuitar: (adjunto: AdjuntoProyecto) => void
+}) {
+  if (!puedeEditar && !adjuntos.length) return null
+  return (
+    <div>
+      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+        Presentación{adjuntos.length ? ` · ${adjuntos.length}` : ''}
+      </span>
+      {adjuntos.length ? (
+        <ul className="mt-1.5 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
+          {adjuntos.map((a) => {
+            const esVideo = a.tipo.startsWith('video/')
+            return (
+              <li key={a.ruta} className="flex items-center gap-3 px-3 py-2">
+                {esVideo ? (
+                  <Video className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+                ) : (
+                  <FileText className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-slate-700">{a.nombre}</span>
+                  <span className="block text-xs text-slate-500">
+                    {esVideo ? 'Video' : 'Documento'} · {formatoBytes(a.bytes)}
+                  </span>
+                </span>
+                <a
+                  href={a.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:bg-primary-50"
+                >
+                  Abrir
+                </a>
+                {puedeEditar ? (
+                  <button
+                    type="button"
+                    onClick={() => onQuitar(a)}
+                    disabled={subiendo != null}
+                    title={`Quitar ${a.nombre}`}
+                    aria-label={`Quitar ${a.nombre}`}
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </li>
+            )
+          })}
+        </ul>
+      ) : (
+        <p className="mt-1.5 text-xs text-slate-500">
+          Sin archivos todavía: subí el video o los documentos con los que el equipo presenta el proyecto.
+        </p>
+      )}
+
+      {puedeEditar ? (
+        <>
+          <input
+            type="file"
+            multiple
+            accept={ACEPTA_ADJUNTOS}
+            disabled={subiendo != null}
+            onChange={(e) => {
+              const archivos = Array.from(e.target.files ?? [])
+              // Se limpia YA: así se puede volver a elegir el mismo archivo
+              // si el primer intento falló (sin esto no dispara onChange).
+              e.target.value = ''
+              onSubir(archivos)
+            }}
+            aria-label="Subir archivos de la presentación"
+            className="mt-2 block w-full text-xs text-slate-500 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-primary-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-700 disabled:opacity-50"
+          />
+          {subiendo ? (
+            <p className="mt-1.5 flex items-center gap-2 text-xs text-slate-500">
+              <Spinner size={14} /> Subiendo {subiendo}…
+            </p>
+          ) : null}
+          <p className="mt-1.5 text-[11px] text-slate-400">
+            Videos y documentos (PDF, Word, Excel, PowerPoint), hasta {formatoBytes(MAX_ADJUNTO_BYTES)} por archivo.
+            Se publican en la landing del concurso.
+          </p>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+/**
  * Lo que se despliega bajo la fila: descripción, fotos, equipo, estado y
  * bitácora — y TAMBIÉN la edición.
  *
@@ -547,6 +678,7 @@ function DetalleProyecto({
   onAvance,
   onEditar,
   onGuardar,
+  onAdjuntos,
   onCerrar
 }: {
   proyecto: ProyectoGranCosecha
@@ -561,11 +693,15 @@ function DetalleProyecto({
   onEditar: () => void
   /** Guarda el formulario del modo edición; devuelve si salió bien. */
   onGuardar: (cambios: CambiosProyecto) => Promise<boolean>
+  /** Guarda la lista de archivos de la presentación; devuelve si salió bien. */
+  onAdjuntos: (adjuntos: AdjuntoProyecto[]) => Promise<boolean>
   /** Sale del modo edición sin guardar. */
   onCerrar: () => void
 }) {
   const avances = bitacora ? historialAvances(bitacora) : []
   const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
+  /** El archivo que se está subiendo ahora (para no mandar dos en paralelo). */
+  const [subiendoAdjunto, setSubiendoAdjunto] = useState<string | null>(null)
 
   // Sólo viven en modo edición; el `key` del llamador garantiza que arranquen
   // con los valores guardados al entrar y que un refresco de la fila no las
@@ -612,6 +748,55 @@ function DetalleProyecto({
     } finally {
       setSubiendoFoto(null)
     }
+  }
+
+  /**
+   * Sube un archivo de la presentación y lo agrega a la lista.
+   *
+   * El formato y el tamaño se cortan ACÁ, antes de subir un megabyte, con
+   * mensaje propio: ni el tipo rechazado ni el límite del bucket dicen nada
+   * útiles en el error crudo del servidor.
+   */
+  const subirAdjuntosA = async (archivos: File[]) => {
+    if (!archivos.length || subiendoAdjunto) return
+    // Se valida TODO antes de subir nada: si uno no entra, no se sube ninguno.
+    const rechazo = archivos.map((archivo) => rechazoDeAdjunto(archivo)).find(Boolean)
+    if (rechazo) {
+      avisar(rechazo, 'error')
+      return
+    }
+    setSubiendoAdjunto(archivos.length === 1 ? `«${archivos[0].name}»` : `${archivos.length} archivos`)
+    try {
+      // En serie y guardando lo que vaya saliendo: si la tercera falla, las
+      // dos primeras quedan publicadas en vez de colgadas en el bucket.
+      const nuevos: AdjuntoProyecto[] = []
+      let fallo: unknown = null
+      for (const archivo of archivos) {
+        try {
+          nuevos.push(await subirAdjunto(proyecto.id, archivo))
+        } catch (e) {
+          fallo = e
+          break
+        }
+      }
+      if (nuevos.length) await onAdjuntos([...(proyecto.adjuntos ?? []), ...nuevos])
+      if (fallo) throw fallo
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo subir el archivo.', 'error')
+    } finally {
+      setSubiendoAdjunto(null)
+    }
+  }
+
+  /**
+   * Quita un archivo: PRIMERO la fila y DESPUÉS el del bucket (sin cortar
+   * si eso falla). Al revés quedaría un enlace roto apuntando a un archivo
+   * que ya no existe; al derecho, como mucho, un archivo huérfano.
+   */
+  const quitarAdjuntoA = async (adjunto: AdjuntoProyecto) => {
+    const quedan = (proyecto.adjuntos ?? []).filter((a) => a.ruta !== adjunto.ruta)
+    const ok = await onAdjuntos(quedan)
+    if (ok) await quitarAdjunto(adjunto).catch(() => null)
   }
 
   return (
@@ -726,6 +911,17 @@ function DetalleProyecto({
           )}
         </div>
       ) : null}
+
+      {/* LA PRESENTACIÓN: los documentos y videos del equipo. Como las
+          fotos, se guardan solas al subirlas y no dependen del modo
+          edición; en modo sólo lectura se listan para abrir o bajar. */}
+      <AdjuntosProyecto
+        adjuntos={proyecto.adjuntos ?? []}
+        puedeEditar={puedeEditar}
+        subiendo={subiendoAdjunto}
+        onSubir={subirAdjuntosA}
+        onQuitar={quitarAdjuntoA}
+      />
 
       {/* El equipo: TABLA en modo lectura —tres nombres largos en píldoras
           se apilan, y la identidad de cada uno (cédula o cuenta) quedaba sólo

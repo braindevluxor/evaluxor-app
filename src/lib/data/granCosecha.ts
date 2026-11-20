@@ -85,6 +85,12 @@ export interface ProyectoGranCosecha {
    */
   imagen: string
   foto: string
+  /**
+   * Los archivos de la presentación (documentos y videos). Opcional: es la
+   * última columna agregada y una base con el bloque sin reaplicar no la
+   * trae — por eso la pantalla usa `?? []`.
+   */
+  adjuntos?: AdjuntoProyecto[]
   creador_id: string | null
   created_at: string
   updated_at: string
@@ -330,6 +336,8 @@ export interface CambiosProyecto {
   avance_nota?: string
   imagen?: string
   foto?: string
+  /** Los archivos de la presentación (documentos y videos). */
+  adjuntos?: AdjuntoProyecto[]
 }
 
 /**
@@ -482,6 +490,147 @@ export async function subirFotoProyecto(archivo: File, urlActual: string): Promi
     await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
   }
   return url
+}
+
+/* -------------------------------------------------------------------------
+ * LOS ADJUNTOS DE LA PRESENTACIÓN: documentos y videos del proyecto
+ * ------------------------------------------------------------------------- */
+
+/** Un archivo de la presentación, en la forma que queda guardada. */
+export interface AdjuntoProyecto {
+  /** Ruta en el bucket (`proyectos/<proyecto>/<archivo>`). */
+  ruta: string
+  /** Nombre con el que se subió: es el que se muestra. */
+  nombre: string
+  /** MIME type: decide si la página lo reproduce o lo ofrece para bajar. */
+  tipo: string
+  /** Tamaño en bytes. */
+  bytes: number
+  /** URL pública (el bucket de la landing es público). */
+  url: string
+  /** ISO de cuándo se subió. */
+  subido_at: string
+}
+
+/** Lo que admite el input: video y documentos de lectura/oficina. */
+export const ACEPTA_ADJUNTOS =
+  'video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt'
+
+/**
+ * Límite por archivo: 50 MB, que es además el `file_size_limit` por
+ * defecto de un bucket de Supabase. Subir de más falla del lado del
+ * servidor con un mensaje que no explica nada, así que se corta ACÁ, en
+ * castellano y antes de subir un megabyte.
+ */
+export const MAX_ADJUNTO_BYTES = 50 * 1024 * 1024
+
+/** MIME types que entran. El prefijo `video/` cubre mp4, webm, mov… */
+const TIPOS_ADJUNTO = [
+  'video/',
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/csv'
+]
+
+/**
+ * Por qué NO entra este archivo, o `null` si entra.
+ *
+ * Se rechaza en el cliente con mensaje propio: ni el tipo desconocido ni el
+ * límite del bucket dicen nada útiles en el error crudo del servidor.
+ */
+export function rechazoDeAdjunto(archivo: File): string | null {
+  const tipo = (archivo.type || '').toLowerCase()
+  const permitido = TIPOS_ADJUNTO.some((p) => (p.endsWith('/') ? tipo.startsWith(p) : tipo === p))
+  if (!permitido) {
+    return `«${archivo.name}» no es un formato permitido: subí videos o documentos (PDF, Word, Excel, PowerPoint).`
+  }
+  if (archivo.size > MAX_ADJUNTO_BYTES) {
+    return `«${archivo.name}» pesa ${formatoBytes(archivo.size)} y el máximo por archivo es ${formatoBytes(MAX_ADJUNTO_BYTES)}.`
+  }
+  return null
+}
+
+/** `1234567` → `1.2 MB`, sin depender del locale. */
+export function formatoBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const kb = bytes / 1024
+  if (kb < 1024) return `${kb.toFixed(kb < 10 ? 1 : 0)} KB`
+  const mb = kb / 1024
+  return `${mb.toFixed(mb < 10 ? 1 : 0)} MB`
+}
+
+/** El nombre que va al bucket: sin acentos, sin separadores de ruta. */
+function nombreSano(nombre: string): string {
+  const limpio = nombre
+    .normalize('NFD')
+    // Con la NFD los acentos salen como combinantes detrás de la letra
+    // (U+0300 a U+036F): sin esto, «presentación.pdf» viajaría con un byte
+    // raro en medio del nombre.
+    .split('')
+    .filter((c) => {
+      const codigo = c.charCodeAt(0)
+      return codigo < 0x0300 || codigo > 0x036f
+    })
+    .join('')
+    .replace(/[/\\:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '_')
+    // Se corta por el FINAL: así se conserva la extensión, que es lo que
+    // decide cómo la abre el navegador.
+    .slice(-80)
+  return limpio || 'archivo'
+}
+
+/**
+ * Sube un archivo de la presentación y devuelve su descriptor.
+ *
+ * Va al MISMO prefijo que las fotos (`proyectos/<id>/…`), que la política
+ * del bucket ya abre para el que puede editar el proyecto. El nombre se
+ * sanea y se le antepone un timestamp: dos subidas del mismo archivo no
+ * pisan la URL ni el navegador sirve una versión vieja desde su caché.
+ *
+ * Se sube TAL CUAL —sin conversión ni recorte—: es material de
+ * presentación, no una foto de la tarjeta.
+ */
+export async function subirAdjunto(proyectoId: string, archivo: File): Promise<AdjuntoProyecto> {
+  const ruta = `proyectos/${proyectoId}/${Date.now()}-${nombreSano(archivo.name)}`
+  const tipo = archivo.type || 'application/octet-stream'
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, archivo, {
+    contentType: tipo,
+    upsert: false
+  })
+  if (error) {
+    if (/size|large|413/i.test(error.message ?? '')) {
+      throw new Error(`«${archivo.name}» supera el límite de ${formatoBytes(MAX_ADJUNTO_BYTES)}.`)
+    }
+    throw new Error(`No se pudo subir «${archivo.name}»: ${error.message}`)
+  }
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  return {
+    ruta,
+    nombre: archivo.name,
+    tipo,
+    bytes: archivo.size,
+    url: data.publicUrl,
+    subido_at: new Date().toISOString()
+  }
+}
+
+/**
+ * Saca el archivo del bucket.
+ *
+ * El llamador borra PRIMERO la fila (la columna `adjuntos`) y después llama
+ * acá sin esperar su resultado: si esto falla queda un archivo huérfano —que
+ * no molesta— y nunca un enlace roto apuntando a algo que ya no está.
+ */
+export async function quitarAdjunto(adjunto: AdjuntoProyecto): Promise<void> {
+  const { error } = await supabase.storage.from(BUCKET).remove([adjunto.ruta])
+  if (error) throw new Error(`No se pudo borrar «${adjunto.nombre}» del almacenamiento: ${error.message}`)
 }
 
 /* -------------------------------------------------------------------------

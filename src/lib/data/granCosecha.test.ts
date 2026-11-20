@@ -5,13 +5,16 @@ vi.mock('../supabase', () => ({ supabase: { rpc: rpcMock } }))
 
 import {
   ESTADOS,
+  MAX_ADJUNTO_BYTES,
   TIPOS_BITACORA,
   claveDeMiembro,
   etiquetaPeriodo,
+  formatoBytes,
   historialAvances,
   periodoDe,
   periodosRecientes,
   regarProyecto,
+  rechazoDeAdjunto,
   riegosDeLaCosecha,
   validarEquipo,
   type FilaBitacora,
@@ -200,5 +203,58 @@ describe('claveDeMiembro · la identidad de un integrante', () => {
     expect(claveDeMiembro({ usuario_id: '', nombre: 'José Pérez', nacionalidad: 'V', dni: 12345678 })).toBe(
       'w:V-12345678'
     )
+  })
+})
+
+describe('los archivos de la presentación · qué entra', () => {
+  /**
+   * No hace falta un `File` de verdad: el validador sólo mira `name`, `type`
+   * y `size`, y un archivo de 50 MB en el test sería un buffer de 50 MB.
+   */
+  const archivo = (nombre: string, tipo: string, bytes = 1024) =>
+    ({ name: nombre, type: tipo, size: bytes }) as unknown as File
+
+  it('entran videos y documentos de lectura/office', () => {
+    const casos: [string, string][] = [
+      ['presentacion.mp4', 'video/mp4'],
+      ['clase.webm', 'video/webm'],
+      ['bases.pdf', 'application/pdf'],
+      ['informe.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+      ['precios.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+      ['planilla.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+      ['notas.txt', 'text/plain']
+    ]
+    for (const [nombre, tipo] of casos) {
+      expect(rechazoDeAdjunto(archivo(nombre, tipo)), nombre).toBeNull()
+    }
+  })
+
+  it('no entran ejecutables ni imágenes: para eso están las fotos', () => {
+    const casos: [string, string][] = [
+      ['setup.exe', 'application/x-msdownload'],
+      ['firma.png', 'image/png'],
+      ['datos.zip', 'application/zip'],
+      ['sin-tipo', '']
+    ]
+    for (const [nombre, tipo] of casos) {
+      expect(rechazoDeAdjunto(archivo(nombre, tipo)), nombre).toMatch(/no es un formato permitido/)
+    }
+  })
+
+  it('corta por tamaño ANTES de subir, con el número a la vista', () => {
+    const grande = archivo('video.mp4', 'video/mp4', MAX_ADJUNTO_BYTES + 1)
+    expect(rechazoDeAdjunto(grande)).toMatch(/máximo por archivo/)
+    expect(rechazoDeAdjunto(archivo('video.mp4', 'video/mp4', MAX_ADJUNTO_BYTES))).toBeNull()
+  })
+})
+
+describe('formatoBytes · cómo se lee un tamaño', () => {
+  it('pasa de B a KB a MB con una decimal sólo cuando importa', () => {
+    expect(formatoBytes(0)).toBe('0 B')
+    expect(formatoBytes(512)).toBe('512 B')
+    expect(formatoBytes(2048)).toBe('2.0 KB')
+    expect(formatoBytes(300 * 1024)).toBe('300 KB')
+    expect(formatoBytes(50 * 1024 * 1024)).toBe('50 MB')
+    expect(formatoBytes(2.5 * 1024 * 1024)).toBe('2.5 MB')
   })
 })

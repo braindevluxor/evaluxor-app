@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { schemaSql } from './supabaseSql'
 
 function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -201,6 +202,40 @@ describe('gran cosecha · el módulo está en el menú', () => {
     // El modal quedó SÓLO para presentar uno nuevo.
     expect(pagina).toContain('title="Nuevo proyecto"')
     expect(pagina).not.toContain('Editar proyecto')
+  })
+
+  it('los archivos de la presentación: se suben en el detalle y salen en la landing', () => {
+    const pagina = fuente('../pages/GranCosecha.tsx')
+    const datos = fuente('./data/granCosecha.ts')
+    const landing = fuente('../../public/gran-cosecha.html')
+    const sql = schemaSql()
+
+    // En la consola: el bloque vive en el DETALLE (no en un modal), sube
+    // con validación de formato y tamaño, y quita la fila antes que el
+    // archivo del bucket.
+    expect(pagina).toContain('<AdjuntosProyecto')
+    expect(pagina).toContain('subirAdjuntosA')
+    expect(pagina).toContain('rechazoDeAdjunto')
+    expect(pagina).toContain('onAdjuntos=')
+    expect(pagina).toContain('type="file"')
+
+    // En el data layer: subida al prefijo de los proyectos (la política del
+    // bucket ya lo abre) con sus límites declarados.
+    expect(datos).toContain('export async function subirAdjunto')
+    expect(datos).toContain('export function rechazoDeAdjunto')
+    expect(datos).toContain('export const MAX_ADJUNTO_BYTES')
+    expect(datos).toContain('proyectos/${proyectoId}/')
+
+    // En la base: la columna nueva y la RPC pública que los publica.
+    expect(sql).toContain('add column if not exists adjuntos jsonb')
+    expect(sql).toContain("'adjuntos', pr.adjuntos")
+
+    // En la landing: su sección, con los videos embebidos y los documentos
+    // como enlaces — oculta si ningún proyecto trae archivos.
+    expect(landing).toContain('id="presentacion"')
+    expect(landing).toContain('function pintarPresentacion')
+    expect(landing).toContain('<video src="')
+    expect(landing).toContain('pintarPresentacion(contenido.participantes)')
   })
 })
 
