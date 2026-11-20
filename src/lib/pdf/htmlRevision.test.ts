@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { htmlRevision } from './exportarRevisionPreEntrega'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { jsPDF } from 'jspdf'
+import { htmlRevision, pintarFirmas } from './exportarRevisionPreEntrega'
 
 /**
  * La hoja de la Revisión Pre-Entrega / Inspección, a texto.
@@ -52,8 +55,7 @@ describe('htmlRevision · el QR al detalle público', () => {
   })
 })
 
-describe('htmlRevision · lo que NO debe volver', () => {
-  it('no imprime evidencias fotográficas: quedaron en el enlace', () => {
+describe('htmlRevision · lo que NO debe volver', () => {  it('no imprime evidencias fotográficas ni firmas: quedan en el enlace y en el papel', () => {
     const html = htmlRevision({
       ...BASE,
       urlDetalle: 'https://x.test/a',
@@ -61,8 +63,10 @@ describe('htmlRevision · lo que NO debe volver', () => {
     })
     expect(html).not.toContain('Evidencias fotográficas')
     expect(html).not.toContain('<figure')
-    // La firma y el logo SIGUEN en el documento: son parte del acta.
-    expect(html).toContain('Firma del chofer')
+    // Las firmas TAMPOCO van acá: se dibujan en CADA hoja con jsPDF (ver
+    // `pintarFirmas`), vacías, porque el documento se firma en papel.
+    expect(html).not.toContain('Firma del')
+    // El logo SÍ sigue: es parte de la marca del documento.
     expect(html).toContain('alt="EvaLuxor"')
   })
 
@@ -91,5 +95,38 @@ describe('htmlRevision · lo que NO debe volver', () => {
     // …y la fila sin comentario queda con un guion, no vacía.
     expect(html).toContain('—')
     expect(html).toContain('Estética')
+  })
+})
+
+describe('pintarFirmas · el pie de CADA hoja', () => {
+  it('dibuja los dos rótulos, vacíos para firmar en papel', () => {
+    const pdf = new jsPDF('p', 'mm', 'a4')
+    pintarFirmas(pdf, 210, 297, 'conductor')
+    const salida = pdf.output()
+
+    expect(salida).toContain('Firma del conductor')
+    expect(salida).toContain('Firma y sello del evaluador')
+    expect(salida).toContain('Acepto las condiciones')
+    // Un sólo texto por hoja: la firma capturada en la app NO se imprime.
+    expect(salida.match(/Firma del conductor/g)).toHaveLength(1)
+  })
+
+  it('el rótulo sigue al documento: la Revisión Pre-Entrega dice chofer', () => {
+    const pdf = new jsPDF('p', 'mm', 'a4')
+    pintarFirmas(pdf, 210, 297, 'chofer')
+    expect(pdf.output()).toContain('Firma del chofer')
+  })
+
+  it('la banda y el corte de páginas comparten el mismo contrato', () => {
+    // La ventana de corte descuenta EXACTAMENTE el alto de la banda: si
+    // alguien cambia uno sin mover el otro, el contenido se pisa con las
+    // firmas (o se imprime una hoja con un pie enorme). Ése es el string
+    // que une a las dos piezas.
+    const fuente = readFileSync(
+      fileURLToPath(new URL('./exportarRevisionPreEntrega.ts', import.meta.url)),
+      'utf8'
+    )
+    expect(fuente).toContain('pdfHeight - MARGEN_INFERIOR_MM - ALTO_BANDA_FIRMA_MM')
+    expect(fuente).toContain('const ALTO_BANDA_FIRMA_MM = 26')
   })
 })

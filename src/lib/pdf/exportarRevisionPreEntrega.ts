@@ -12,6 +12,17 @@ import { cortesDePagina } from './paginarRevision'
 const MARGEN_INFERIOR_MM = 10
 const MARGEN_CONTINUACION_MM = 12
 
+/**
+ * Alto de la banda de FIRMAS que lleva CADA hoja, en mm.
+ *
+ * El documento se imprime y se firma en papel, así que cada hoja tiene que
+ * traer su renglón — no sólo la última. El contenido se corta más arriba
+ * para dejarle el lugar, y la banda se dibuja con jsPDF después de pegar
+ * cada porción: el HTML se rasteriza UNA sola vez, repetir el bloque acá
+ * exigiría dos pasadas por el canvas.
+ */
+const ALTO_BANDA_FIRMA_MM = 26
+
 export interface DatosChofer {
   cedula?: string | null
   nombre?: string | null
@@ -217,24 +228,11 @@ export function htmlRevision(datos: DatosRevision, enc: Encabezado = encabezadoD
           : ''
       }
 
-      <section style="margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end;gap:24px">
-        <div style="flex:1">
-          <p style="margin:0 0 6px 0;font-size:11px;font-weight:600;color:#475569">Firma del ${escapeHtml(etiquetaPersona)}</p>
-          <div style="border:1px dashed #cbd5e1;border-radius:12px;padding:8px;min-height:90px;display:flex;align-items:center;justify-content:center;background:#ffffff">
-            ${
-              datos.chofer?.firma
-                ? `<img src="${datos.chofer.firma}" alt="Firma del ${escapeHtml(etiquetaPersona)}" style="max-width:100%;max-height:90px;object-fit:contain"/>`
-                : `<span style="color:#94a3b8;font-size:11px">Sin firma</span>`
-            }
-          </div>
-          <p style="margin:6px 0 0 0;font-size:10px;color:#64748b">Acepto las condiciones y el resultado de esta revisión.</p>
-        </div>
-        <div style="text-align:right;min-width:180px">
-          <div style="border-top:1px solid #1f2937;margin-top:40px;padding-top:6px">
-            <p style="margin:0;font-size:11px;font-weight:600">Firma y sello del evaluador</p>
-          </div>
-        </div>
-      </section>
+      <!-- Las firmas NO van en el HTML: se dibujan con jsPDF en CADA hoja
+           (ver pintarFirmas). El HTML se rasteriza una sola vez y se corta,
+           así que repetir el bloque acá exigiría dos pasadas por el canvas —
+           y además las dos quedan VACÍAS: el documento se imprime y se firma
+           en papel. -->
 
       <!-- La misma marca al pie que en los informes: a la izquierda y al lado
            del texto, para que los tres reportes se lean como una familia. -->
@@ -248,6 +246,8 @@ export function htmlRevision(datos: DatosRevision, enc: Encabezado = encabezadoD
 
 export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<void> {
   const enc = encabezadoDe(datos)
+  /** Quién firma en el pie de cada hoja: «conductor» en la inspección. */
+  const etiqueta = datos.etiquetaPersona || 'chofer'
 
   // El QR al detalle público: se genera ACÁ y no en `htmlRevision` porque
   // esa función es pura y sincrónica, y el encoder de QR no lo es. Sin
@@ -293,7 +293,9 @@ export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<
     const pxPorMm = canvas.width / pdfWidth
 
     // Cortes seguros: el borde de cada bloque, fila de la tabla o foto, para
-    // que ninguna quede partida en dos hojas.
+    // que ninguna quede partida en dos hojas. La ventana se achica por la
+    // banda de FIRMAS: cada hoja deja libre su pie para que se firme en
+    // papel — por eso el alto útil se descuenta en las dos ventanas.
     const caja = contenedor.getBoundingClientRect()
     const escala = canvas.width / (caja.width || 1)
     const limitesPx = Array.from(contenedor.querySelectorAll('section, tr, figure, footer')).map(
@@ -303,8 +305,11 @@ export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<
       canvas.height,
       pxPorMm,
       limitesPx,
-      { altoMm: pdfHeight - MARGEN_INFERIOR_MM, topMm: 0 },
-      { altoMm: pdfHeight - MARGEN_INFERIOR_MM - MARGEN_CONTINUACION_MM, topMm: MARGEN_CONTINUACION_MM }
+      { altoMm: pdfHeight - MARGEN_INFERIOR_MM - ALTO_BANDA_FIRMA_MM, topMm: 0 },
+      {
+        altoMm: pdfHeight - MARGEN_INFERIOR_MM - MARGEN_CONTINUACION_MM - ALTO_BANDA_FIRMA_MM,
+        topMm: MARGEN_CONTINUACION_MM
+      }
     )
     if (!cortes.length) cortes.push(canvas.height)
 
@@ -325,6 +330,9 @@ export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<
       }
       if (i > 0) pdf.addPage()
       pdf.addImage(porcion, 'PNG', 0, topMm, pdfWidth, altoPx / pxPorMm)
+      // Las firmas, en el pie de CADA hoja: el documento se imprime y se
+      // firma en papel, y una hoja sin renglón de firma no sirve.
+      pintarFirmas(pdf, pdfWidth, pdfHeight, etiqueta)
       inicio = cortes[i]
     }
 
@@ -373,4 +381,49 @@ function filasTabla(items: NonNullable<DatosRevision['items']>): string {
               </tr>`
     })
     .join('')
+}
+
+/**
+ * Las DOS firmas al pie de CADA hoja, dibujadas con primitivas de jsPDF.
+ *
+ * Por qué jsPDF y no el HTML: el HTML se rasteriza UNA vez y se corta en
+ * páginas, así que un bloque ahí sólo podía aparecer una vez, al final.
+ * Dibujarlo después de pegar cada porción lo repite en todas las hojas,
+ * sin una segunda pasada por el canvas.
+ *
+ * Las dos cajas van VACÍAS a propósito: el documento se imprime y se firma
+ * en papel. La firma capturada en la app no se imprime —se ve en la página
+ * pública que abre el QR—, porque lo que vale acá es la de tinta.
+ */
+export function pintarFirmas(pdf: jsPDF, ancho: number, alto: number, etiqueta: string): void {
+  const margen = 10
+  // El mismo corte que se le descuentó a la ventana: la banda vive ahí.
+  const y0 = alto - MARGEN_INFERIOR_MM - ALTO_BANDA_FIRMA_MM
+  const mitad = ancho / 2 + 4
+
+  // Separador de la banda (el teal del documento).
+  pdf.setDrawColor(15, 118, 110)
+  pdf.setLineWidth(0.5)
+  pdf.line(margen, y0 + 1, ancho - margen, y0 + 1)
+
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(7.5)
+  pdf.setTextColor(71, 85, 105)
+  pdf.text(`Firma del ${etiqueta}`, margen, y0 + 6)
+  pdf.text('Firma y sello del evaluador', mitad, y0 + 6)
+
+  // La caja del conductor: vacía, para firmar al imprimir.
+  pdf.setDrawColor(203, 213, 225)
+  pdf.setLineWidth(0.3)
+  pdf.rect(margen, y0 + 8, mitad - margen - 8, 12)
+
+  // La línea del evaluador: también vacía.
+  pdf.setDrawColor(31, 41, 55)
+  pdf.setLineWidth(0.4)
+  pdf.line(mitad, y0 + 18, ancho - margen, y0 + 18)
+
+  pdf.setFont('helvetica', 'normal')
+  pdf.setFontSize(6)
+  pdf.setTextColor(100, 116, 139)
+  pdf.text('Acepto las condiciones y el resultado de esta revisión.', margen, y0 + 23.5)
 }

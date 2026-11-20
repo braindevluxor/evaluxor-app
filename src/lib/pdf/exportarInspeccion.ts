@@ -91,6 +91,12 @@ export function filasParaPdf(
   return filas
 }
 
+/** Nombre o apellido en MAYÚSCULAS: es lo que se firma en el papel. */
+function mayus(texto?: string | null): string | null {
+  const limpio = texto?.trim()
+  return limpio ? limpio.toUpperCase() : null
+}
+
 /**
  * El enlace PÚBLICO al detalle completo (tabla, comentarios y material
  * visual): es lo que apunta el QR que lleva el PDF.
@@ -175,11 +181,12 @@ export async function exportarInspeccion(p: PedidoInspeccion): Promise<Resultado
       cargo: null,
       firma: r.chofer_firma
     },
-    etiquetaPersona: 'propietario',
+    etiquetaPersona: 'conductor',
     personaCampos: [
       { etiqueta: 'Cédula / RIF', valor: p.persona.cedula || null },
-      { etiqueta: 'Nombre', valor: p.persona.nombre || null },
-      { etiqueta: 'Apellido', valor: p.persona.apellido || null },
+      // MAYÚSCULAS: es lo que se firma en papel, y así se lee en el acta.
+      { etiqueta: 'Nombre', valor: mayus(p.persona.nombre) },
+      { etiqueta: 'Apellido', valor: mayus(p.persona.apellido) },
       { etiqueta: 'Teléfono', valor: p.persona.telefono || null }
     ],
     items,

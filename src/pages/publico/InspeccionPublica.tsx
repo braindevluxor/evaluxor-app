@@ -174,12 +174,14 @@ function VistaInspeccion({
           ) : null}
           {persona.length || datos.persona.firma ? (
             <article className="rounded-xl border border-slate-200 bg-white p-4">
-              <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">Propietario</h2>
+              <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">Conductor</h2>
               <dl className="mt-2 space-y-1.5">
                 {persona.map(([etiqueta, valor]) => (
                   <div key={etiqueta} className="flex justify-between gap-3 text-sm">
                     <dt className="text-slate-500">{etiqueta}</dt>
-                    <dd className="font-semibold text-slate-800">{valor}</dd>
+                    {/* MAYÚSCULAS: es lo que se firma en papel, y así se
+                        lee también en el enlace. */}
+                    <dd className="font-semibold uppercase text-slate-800">{valor}</dd>
                   </div>
                 ))}
               </dl>
@@ -188,7 +190,7 @@ function VistaInspeccion({
                   <p className="text-xs font-semibold text-slate-400">Firma</p>
                   <img
                     src={datos.persona.firma}
-                    alt="Firma del propietario"
+                    alt="Firma del conductor"
                     className="mt-1 max-h-20 w-auto rounded border border-slate-100 bg-white object-contain"
                   />
                 </div>
