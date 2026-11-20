@@ -5884,10 +5884,12 @@ end $$;
 --    servidor con `auth.uid()`: no se puede crear un proyecto "de otro").
 --  * CREA y EDITA su propio proyecto: el equipo reporta sus avances.
 --  * JUEZ y LÍDER editan EL DE CUALQUIERA: son los que dan seguimiento.
---  * NADIE BORRA. Borrar un proyecto tiraría su bitácora por `on delete
---    cascade` y con ella el historial del concurso: se CANCELA con `estado`,
---    que es reversible y queda registrado. Sin política de `delete`, RLS no
---    deja pasar ningún borrado por más rol que se tenga.
+--  * BORRAR: el equipo que lo creó y JUEZ/LÍDER (la MISMA cerradura que
+--    editar). Es un borrado completo: el `on delete cascade` de la bitácora
+--    y el de los riegos se llevan historia y «me gusta» con la fila, y la
+--    app retira las dos fotos del bucket. Quien sólo quiera SACARLO del
+--    concurso sin borrar nada lo CANCELA con `estado`, que es reversible y
+--    queda registrado en esa misma bitácora.
 --
 -- Cómo se registra: POR UN TRIGGER, no desde la app. Un `update` del proyecto
 -- (cualquiera que lo haga) dispara `gran_cosecha_registrar_cambio`, que en la
@@ -6013,9 +6015,17 @@ create policy gran_cosecha_proyecto_update on public.gran_cosecha_proyecto
   using (public.puede_gran_cosecha() or creador_id = auth.uid())
   with check (public.puede_gran_cosecha() or creador_id = auth.uid());
 
--- SIN POLÍTICA DE DELETE, A PROPÓSITO: no borra nadie. Un delete en cascata
--- se llevaría la bitácora y con ella el historial del concurso. El camino es
--- `estado = 'CANCELADO'`, que además queda registrado.
+-- BORRAR UN PROYECTO: el equipo que lo creó y JUEZ/LÍDER —la MISMA
+-- cerradura que el update, así no conviven dos reglas para «quién puede con
+-- éste». Es un borrado DE VERDAD: el `on delete cascade` de la bitácora y el
+-- de la tabla de riegos se llevan historial y «me gusta» junto con la fila,
+-- y las dos fotos del participante las retira la app del bucket.
+-- Para sacar un proyecto del concurso SIN borrar su historia sigue estando
+-- `estado = 'CANCELADO'`, que además queda registrado en esa misma bitácora.
+drop policy if exists gran_cosecha_proyecto_delete on public.gran_cosecha_proyecto;
+create policy gran_cosecha_proyecto_delete on public.gran_cosecha_proyecto
+  for delete to authenticated
+  using (public.puede_gran_cosecha() or creador_id = auth.uid());
 
 -- LA BITÁCORA LA ESCRIBE UN TRIGGER, NO LA APP
 --

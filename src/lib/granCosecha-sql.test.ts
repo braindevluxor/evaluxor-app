@@ -16,7 +16,8 @@ import { bloqueSql } from './supabaseSql'
  *  2. Los `check` de negocio: mínimo 3 en el equipo, trimestre `2026-T1`…
  *     `2026-T4`, avance de 0 a 100 y título con contenido.
  *  3. RLS con `puede_gran_cosecha`: cualquiera crea el SUYO, sólo JUEZ y
- *     LÍDER editan el de otro, y NADIE borra (no hay política de delete).
+ *     LÍDER editan el de otro; BORRAR usa la MISMA cerradura y se lleva la
+ *     bitácora y los riegos en cascada.
  *  4. El TRIGGER de bitácora: que un update deje registro en la misma
  *     transacción, que lo escriba él y no la app, y que la app no pueda
  *     escribir la bitácora por su cuenta.
@@ -284,21 +285,75 @@ describe('gran-cosecha.sql · quién entra', () => {
     expect((sigue.rows[0] as { titulo: string }).titulo).toBe('Huerto vertical')
   })
 
-  it('nadie borra un proyecto: se cancela con estado', async () => {
-    // Sin política de `delete`, RLS no deja pasar el borrado por más rol que
-    // se tenga, y un delete en cascata se llevaría la bitácora con él.
-    for (const usuario of [EVALUADOR, JUEZ, LIDER]) {
-      const id = await presentar({ creador_id: EVALUADOR })
+  it('borra el proyecto SU equipo, un juez o el líder… pero no el de otro', async () => {
+    // La MISMA cerradura que el update: `creador_id = auth.uid()` o
+    // `puede_gran_cosecha()`. Ojo con lo que devuelve: un delete filtrado por
+    // RLS NO da error, devuelve CERO filas — y esa es exactamente la señal
+    // que usa la app para avisar «no te corresponde» en vez de mentir con un
+    // «proyecto borrado».
+    const mio = await presentar({ creador_id: EVALUADOR })
+    await conRol(EVALUADOR, async () => {
+      const r = await db.query(
+        `delete from public.gran_cosecha_proyecto where id = $1 returning id`,
+        [mio]
+      )
+      expect(r.rows, 'el creador borra el suyo').toHaveLength(1)
+    })
+
+    for (const usuario of [JUEZ, LIDER]) {
+      const ajeno = await presentar({ creador_id: EVALUADOR })
       await conRol(usuario, async () => {
         const r = await db.query(
           `delete from public.gran_cosecha_proyecto where id = $1 returning id`,
-          [id]
+          [ajeno]
         )
-        expect(r.rows, `borró como ${usuario}`).toHaveLength(0)
+        expect(r.rows, `borró como ${usuario}`).toHaveLength(1)
       })
     }
-    const quedan = await contar(`select count(*) as n from public.gran_cosecha_proyecto`)
-    expect(quedan).toBeGreaterThan(0)
+
+    const deOtro = await presentar({ creador_id: LIDER })
+    await conRol(EVALUADOR, async () => {
+      const r = await db.query(
+        `delete from public.gran_cosecha_proyecto where id = $1 returning id`,
+        [deOtro]
+      )
+      expect(r.rows, 'un trabajador no borra el proyecto de otro').toHaveLength(0)
+    })
+    const sigue = await db.query(`select id from public.gran_cosecha_proyecto where id = $1`, [deOtro])
+    expect(sigue.rows, 'el proyecto ajeno sigue intacto').toHaveLength(1)
+  })
+
+  it('borrar se lleva la bitácora y los riegos en cascada', async () => {
+    // El proyecto es UNA fila con dos hijos: `on delete cascade` en las dos
+    // tablas. Si la cascada no corriera (o la RLS de la bitácora la
+    // frenara), el delete entero fallaría con violación de FK y acá se caería.
+    const id = await presentar({ creador_id: EVALUADOR })
+    await db.query(
+      `update public.gran_cosecha_proyecto set avance = 50, avance_nota = 'A medio camino' where id = $1`,
+      [id]
+    )
+    await db.query(
+      `insert into public.gran_cosecha_riego (proyecto_id, usuario) values ($1, 'academia:101')`,
+      [id]
+    )
+    expect(
+      await contar(`select count(*) as n from public.gran_cosecha_bitacora where proyecto_id = $1`, [id])
+    ).toBeGreaterThan(0)
+    expect(await contar(`select count(*) as n from public.gran_cosecha_riego where proyecto_id = $1`, [id])).toBe(1)
+
+    await conRol(EVALUADOR, async () => {
+      const r = await db.query(
+        `delete from public.gran_cosecha_proyecto where id = $1 returning id`,
+        [id]
+      )
+      expect(r.rows).toHaveLength(1)
+    })
+
+    expect(await contar(`select count(*) as n from public.gran_cosecha_proyecto where id = $1`, [id])).toBe(0)
+    expect(
+      await contar(`select count(*) as n from public.gran_cosecha_bitacora where proyecto_id = $1`, [id])
+    ).toBe(0)
+    expect(await contar(`select count(*) as n from public.gran_cosecha_riego where proyecto_id = $1`, [id])).toBe(0)
   })
 })
 
@@ -436,16 +491,19 @@ describe('gran-cosecha.sql · permisos', () => {
     expect(anon).toBe(0)
   })
 
-  it('el proyecto tiene select, insert y update… pero NO delete', async () => {
+  it('el proyecto tiene select, insert, update y delete; la bitácora, sólo select', async () => {
     const filas = await db.query<{ policyname: string; cmd: string }>(
       `select policyname, cmd from pg_policies
         where schemaname = 'public' and tablename = 'gran_cosecha_proyecto' order by policyname`
     )
     const comandos = filas.rows.map((f) => f.cmd.toLowerCase()).sort()
-    expect(comandos).toEqual(['insert', 'select', 'update'])
+    // El delete es el único con `using` y sin `with check`: en un borrado no
+    // hay fila nueva que validar, sólo quién está mirando la vieja.
+    expect(comandos).toEqual(['delete', 'insert', 'select', 'update'])
 
     // Y la bitácora sólo se lee: ni insert (lo hace el trigger) ni update ni
-    // delete (el registro no se reescribe).
+    // delete (el registro no se reescribe; la única forma de que desaparezca
+    // es el cascade de SU proyecto).
     const bit = await db.query<{ cmd: string }>(
       `select cmd from pg_policies where schemaname = 'public' and tablename = 'gran_cosecha_bitacora'`
     )

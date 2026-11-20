@@ -121,6 +121,29 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(datos).toContain('claveDeMiembro')
     expect(datos).toContain('listarTrabajadoresEquipo')
   })
+
+  it('borrar un proyecto: botón con confirmación y todo por el data layer', () => {
+    const pagina = fuente('../pages/GranCosecha.tsx')
+    const datos = fuente('./data/granCosecha.ts')
+
+    // Nunca de un toque: el borrado saca la bitácora y los riegos en
+    // cascada, así que siempre pasa por el `Confirmar`…
+    expect(pagina).toContain('<Confirmar')
+    expect(pagina).toContain('setABorrar(')
+    expect(pagina).toContain('textoConfirmar="Sí, borrar"')
+    // …y sólo para quien puede editar, que es la MISMA regla que la
+    // política `delete` de la base.
+    expect(pagina).toMatch(/puedeEditar\(p\)[\s\S]{0,900}setABorrar\(p\)/)
+
+    // La consulta vive en el data layer, con el control de que el borrado
+    // haya pasado de verdad: un `delete` filtrado por RLS no da error,
+    // devuelve cero filas, y sin ese chequeo el aviso mentiría.
+    expect(pagina).toContain('eliminarProyecto')
+    expect(datos).toContain('export async function eliminarProyecto')
+    expect(datos).toContain('.delete()')
+    expect(datos).toContain(".select('id')")
+    expect(pagina).not.toContain('.delete()')
+  })
 })
 
 describe('gran cosecha · el rol que lo sostiene', () => {

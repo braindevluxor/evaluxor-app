@@ -355,6 +355,52 @@ export async function actualizarProyecto(id: string, cambios: CambiosProyecto): 
 }
 
 /**
+ * Borra el proyecto DE VERDAD: la fila sale sola y con ella, por
+ * `on delete cascade`, su bitácora y sus riegos. Acá sólo se retiran las DOS
+ * fotos del bucket —no viven en la fila— y a pérdida: si el `remove` falla
+ * queda un archivo huérfano, pero el proyecto ya borrado no vuelve por eso.
+ *
+ * QUIÉN: la RLS `gran_cosecha_proyecto_delete` es la misma cerradura que
+ * editar (el equipo que lo creó, o JUEZ/LÍDER). Un `delete` filtrado por RLS
+ * NO da error: devuelve cero filas, así que el `select` posterior es el que
+ * distingue «borrado» de «no te corresponde» — sin él, el aviso mentiría.
+ *
+ * Para sacar un proyecto del concurso sin borrar su historia no se borra:
+ * se CANCELA con `estado`.
+ */
+export async function eliminarProyecto(
+  proyecto: Pick<ProyectoGranCosecha, 'id' | 'imagen' | 'foto'>
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('gran_cosecha_proyecto')
+    .delete()
+    .eq('id', proyecto.id)
+    .select('id')
+  if (error) throw errorDeTabla(error, 'No se pudo borrar el proyecto.')
+  if (!data?.length) {
+    throw new Error('No podés borrar este proyecto: lo puede borrar su equipo o un juez / el líder.')
+  }
+
+  const rutas = [proyecto.imagen, proyecto.foto].map(rutaDeObjeto).filter(Boolean)
+  if (rutas.length) await supabase.storage.from(BUCKET).remove(rutas).catch(() => null)
+}
+
+/**
+ * La ruta dentro del bucket a partir de la URL pública
+ * (`…/object/public/gran-cosecha/proyectos/<uuid>.webp?v=123`).
+ *
+ * Vacío si la URL no es de ESTE bucket o no está bajo `proyectos/`: esas
+ * fotos no las borra nadie por acá, que es lo que quiere el prefijo de la
+ * política del bucket.
+ */
+function rutaDeObjeto(url: string | null | undefined): string {
+  if (!url) return ''
+  const marca = `/object/public/${BUCKET}/`
+  const ruta = url.includes(marca) ? (url.split(marca)[1]?.split('?')[0] ?? '') : ''
+  return ruta.startsWith('proyectos/') ? ruta : ''
+}
+
+/**
  * Los posibles integrantes del equipo, listos para elegir.
  *
  * Se reusa `listarUsuarios` (trae el nombre y la sucursal) y acá sólo se
@@ -443,9 +489,8 @@ export async function subirFotoProyecto(archivo: File, urlActual: string): Promi
   if (error) throw error
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
   const url = `${data.publicUrl}?v=${Date.now()}`
-  const marca = `/object/public/${BUCKET}/`
-  const anterior = urlActual.includes(marca) ? urlActual.split(marca)[1]?.split('?')[0] : ''
-  if (anterior && anterior.startsWith('proyectos/')) {
+  const anterior = rutaDeObjeto(urlActual)
+  if (anterior) {
     await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
   }
   return url

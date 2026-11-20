@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Pencil, Plus, TrendingUp } from 'lucide-react'
+import { Pencil, Plus, Trash2, TrendingUp } from 'lucide-react'
 import { avisar } from '../lib/aviso'
 import {
   Badge,
   Button,
   CampoFoto,
+  Confirmar,
   EmptyState,
   Field,
   Input,
@@ -24,6 +25,7 @@ import {
   candidatosDeEquipoAsync,
   claveDeMiembro,
   crearProyecto,
+  eliminarProyecto,
   etiquetaPeriodo,
   historialAvances,
   listarBitacora,
@@ -55,12 +57,14 @@ import type { ProfileVista } from '../lib/data/usuarios'
  *
  * Quién puede qué lo decide el componente con la MISMA regla que la RLS
  * (`puede_gran_cosecha`): cualquiera crea el suyo, JUEZ y LÍDER editan
- * cualquiera. La base es la segunda cerradura —si el componente se equivoca,
- * el `update` no pasa—, así que acá sólo se trata de no ofrecer un botón que
- * va a fallar.
+ * cualquiera —y los dos también lo BORRAN, con la misma cerradura en la
+ * política `delete`. La base es la segunda cerradura —si el componente se
+ * equivoca, ni el `update` ni el `delete` pasan—, así que acá sólo se trata
+ * de no ofrecer un botón que va a fallar.
  *
- * Todo cambio a un proyecto pasa por `actualizarProyecto`: la bitácora la
- * escribe el trigger, no ésta pantalla.
+ * Todo cambio a un proyecto pasa por `actualizarProyecto` (la bitácora la
+ * escribe el trigger, no ésta pantalla) y el borrado por `eliminarProyecto`,
+ * que además retira las dos fotos del bucket.
  */
 
 const PERIODOS = periodosRecientes(8)
@@ -177,6 +181,14 @@ export function GranCosechaPage() {
   const [nuevo, setNuevo] = useState(false)
   const [avanceDe, setAvanceDe] = useState<ProyectoGranCosecha | null>(null)
 
+  /**
+   * El proyecto que se está por borrar. Es destructivo y no se puede
+   * deshacer —la bitácora y los riegos salen en cascada—, así que nunca se
+   * borra de un toque: siempre pasa por el `Confirmar`.
+   */
+  const [aBorrar, setABorrar] = useState<ProyectoGranCosecha | null>(null)
+  const [borrando, setBorrando] = useState(false)
+
   const [candidatos, setCandidatos] = useState<ProfileVista[] | null>(null)
 
   const esJuezOLider = profile?.rol === 'JUEZ' || profile?.rol === 'LIDER'
@@ -270,6 +282,32 @@ export function GranCosechaPage() {
     } catch (e) {
       avisar(e instanceof Error ? e.message : 'No se pudo presentar el proyecto.', 'error')
       throw e
+    }
+  }
+
+  /**
+   * Borrar el proyecto DE VERDAD: la fila sale sola y con ella, en cascada,
+   * la bitácora y los riegos; las dos fotos las retira `eliminarProyecto`
+   * del bucket. Si RLS no deja (no es tuyo ni sos Juez/Líder) no hay error:
+   * la función devuelve cero filas y avisa — sin ese control el «borrado»
+   * habría mentido.
+   */
+  const borrar = async () => {
+    if (!aBorrar || borrando) return
+    setBorrando(true)
+    try {
+      await eliminarProyecto(aBorrar)
+      avisar(`«${aBorrar.titulo}» fue borrado del concurso.`)
+      setABorrar(null)
+      // El detalle apuntaba a una fila que ya no existe: se cierra y se
+      // limpia su bitácora en memoria antes de recargar la lista.
+      setAbierto(null)
+      setBitacora({})
+      setRecargar((n) => n + 1)
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo borrar el proyecto.', 'error')
+    } finally {
+      setBorrando(false)
     }
   }
 
@@ -369,16 +407,30 @@ export function GranCosechaPage() {
                     onRegar={() => void regar(p.id)}
                   />
                   {puedeEditar(p) ? (
-                    <Button
-                      variant="ghost"
-                      className="text-xs"
-                      onClick={() => {
-                        setAvanceDe(p)
-                      }}
-                    >
-                      <TrendingUp className="h-4 w-4" />
-                      Avance
-                    </Button>
+                    <>
+                      <Button
+                        variant="ghost"
+                        className="text-xs"
+                        onClick={() => {
+                          setAvanceDe(p)
+                        }}
+                      >
+                        <TrendingUp className="h-4 w-4" />
+                        Avance
+                      </Button>
+                      {/* Borrar sólo para quien puede editar (misma regla
+                          que la RLS del delete) y SIEMPRE con confirmación:
+                          la bitácora y los riegos salen en cascada. */}
+                      <Button
+                        variant="danger"
+                        className="min-h-[34px] px-3 py-1.5 text-xs"
+                        onClick={() => setABorrar(p)}
+                        title="Borrar el proyecto del concurso"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        <span className="hidden sm:inline">Borrar</span>
+                      </Button>
+                    </>
                   ) : null}
                   <Button variant="ghost" className="text-xs" onClick={() => void abrirDetalle(p)}>
                     {abierto === p.id ? 'Cerrar' : 'Ver detalle'}
@@ -444,6 +496,17 @@ export function GranCosechaPage() {
           onCerrar={() => setAvanceDe(null)}
         />
       ) : null}
+
+      {/* Borrar es definitivo: se lleva el proyecto, su bitácora y sus riegos.
+          Por eso el texto también ofrece el camino que NO borra nada
+          (cancelarlo), que es el que sirve si sólo hace falta sacarlo. */}
+      <Confirmar
+        open={aBorrar != null}
+        texto={`¿Borrar «${aBorrar?.titulo ?? ''}»? Sale el proyecto, todo su historial de avances y sus riegos, y no se puede deshacer. Si sólo querés sacarlo del concurso conservando la historia, cancelalo en su detalle en vez de borrarlo.`}
+        textoConfirmar="Sí, borrar"
+        onConfirm={() => void borrar()}
+        onCancel={() => setABorrar(null)}
+      />
     </div>
   )
 }
