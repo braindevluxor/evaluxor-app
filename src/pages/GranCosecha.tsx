@@ -95,9 +95,11 @@ function Regadera({ className }: { className?: string }) {
 }
 
 /**
- * El conteo de RIEGOS y su botón — el mismo bloque en la tarjeta y en el
- * detalle: cuántas veces se regó el proyecto y si YO ya lo regué.
+ * El conteo de RIEGOS y su estado — en la cabecera de la tarjeta: cuántas
+ * veces se regó el proyecto y si YO ya lo regué.
  *
+ * Si ya regué, sólo un texto apagado y no un botón: apretar de nuevo no hace
+ * nada (la PK ya cuenta el riego) y una píldora gris llenaba de más la fila.
  * `datos` en `null` es "la RPC de conteo no está disponible" (bloque de
  * riegos sin aplicar): no se pinta nada — un cero inventado sería peor que
  * el silencio.
@@ -123,15 +125,25 @@ function RiegoProyecto({
         <span className="tabular-nums">{n}</span>
         {n === 1 ? 'riego' : 'riegos'}
       </span>
-      <Button
-        className="min-h-[30px] px-2.5 py-1 text-xs"
-        disabled={ocupado || datos.mio}
-        onClick={onRegar}
-        title={datos.mio ? 'Ya regaste este proyecto' : 'Regar este proyecto'}
-      >
-        <Regadera className="h-3.5 w-3.5" />
-        {ocupado ? 'Regando…' : datos.mio ? 'Ya regaste' : 'Regar'}
-      </Button>
+      {datos.mio ? (
+        <span
+          className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400"
+          title="Ya regaste este proyecto"
+        >
+          <Regadera className="h-3.5 w-3.5" />
+          Ya regaste
+        </span>
+      ) : (
+        <Button
+          className="min-h-[30px] px-2.5 py-1 text-xs"
+          disabled={ocupado}
+          onClick={onRegar}
+          title="Regar este proyecto"
+        >
+          <Regadera className="h-3.5 w-3.5" />
+          {ocupado ? 'Regando…' : 'Regar'}
+        </Button>
+      )}
     </span>
   )
 }
@@ -226,6 +238,21 @@ export function GranCosechaPage() {
       setAvanceDe(null)
     } catch (e) {
       avisar(e instanceof Error ? e.message : 'No se pudo guardar el cambio.', 'error')
+    }
+  }
+
+  /**
+   * Publica una foto EN EL MOMENTO (mismo criterio que el Estado): no pasa
+   * por el formulario y NO limpia la bitácora —una foto no es un movimiento
+   * del proyecto—, así que el detalle se queda con su historial puesto.
+   */
+  const publicarFoto = async (cambios: Pick<CambiosProyecto, 'imagen' | 'foto'>, id: string) => {
+    try {
+      await actualizarProyecto(id, cambios)
+      avisar('Foto publicada: ya aparece en la landing.')
+      setRecargar((n) => n + 1)
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo guardar la foto.', 'error')
     }
   }
 
@@ -380,9 +407,7 @@ export function GranCosechaPage() {
                   proyecto={p}
                   bitacora={bitacora[p.id] ?? null}
                   puedeEditar={puedeEditar(p)}
-                  riegos={riegos ? (riegos[p.id] ?? { riegos: 0, mio: false }) : null}
-                  ocupado={regando === p.id}
-                  onRegar={() => void regar(p.id)}
+                  onFoto={(cambios) => void publicarFoto(cambios, p.id)}
                   onEstado={(estado) => void guardar({ estado }, p.id)}
                   onAvance={() => setAvanceDe(p)}
                   onEditar={() => setEditando(p)}
@@ -435,9 +460,7 @@ function DetalleProyecto({
   proyecto,
   bitacora,
   puedeEditar,
-  riegos,
-  ocupado,
-  onRegar,
+  onFoto,
   onEstado,
   onAvance,
   onEditar
@@ -445,16 +468,32 @@ function DetalleProyecto({
   proyecto: ProyectoGranCosecha
   bitacora: FilaBitacora[] | null
   puedeEditar: boolean
-  /** El conteo del riego de ESTE proyecto, o `null` si no hay RPC. */
-  riegos: { riegos: number; mio: boolean } | null
-  /** Si el riego de este proyecto está en vuelo. */
-  ocupado: boolean
-  onRegar: () => void
+  /** Guarda una foto EN EL MOMENTO (misma inmediación que el Estado). */
+  onFoto: (cambios: Pick<CambiosProyecto, 'imagen' | 'foto'>) => void
   onEstado: (estado: EstadoProyecto) => void
   onAvance: () => void
   onEditar: () => void
 }) {
   const avances = bitacora ? historialAvances(bitacora) : []
+  const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
+
+  /** Sube la foto elegida y la publica de una vez, sin pasar por el form. */
+  const subirFoto = async (campo: 'imagen' | 'foto', archivo: File | undefined) => {
+    if (!archivo) return
+    setSubiendoFoto(campo)
+    try {
+      const url = await subirFotoProyecto(
+        archivo,
+        campo === 'imagen' ? (proyecto.imagen ?? '') : (proyecto.foto ?? '')
+      )
+      if (campo === 'imagen') onFoto({ imagen: url })
+      else onFoto({ foto: url })
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo subir la foto.', 'error')
+    } finally {
+      setSubiendoFoto(null)
+    }
+  }
 
   return (
     <div className="mt-4 space-y-4 rounded-xl bg-slate-50 p-4">
@@ -464,38 +503,68 @@ function DetalleProyecto({
         <p className="text-sm text-slate-500">Sin descripción.</p>
       )}
 
-      {/* Las dos fotos del proyecto, si las trae: se cargan en el formulario. */}
-      {proyecto.imagen || proyecto.foto ? (
-        <div className="flex flex-wrap gap-3">
-          {proyecto.imagen ? (
-            <figure className="w-40">
-              <img
-                src={proyecto.imagen}
-                alt="Imagen del proyecto"
-                className="h-24 w-full rounded-xl border border-slate-200 object-cover"
-              />
-              <figcaption className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                Imagen del proyecto
-              </figcaption>
-            </figure>
-          ) : null}
-          {proyecto.foto ? (
-            <figure className="w-40">
-              <img
-                src={proyecto.foto}
-                alt="Foto del equipo"
-                className="h-24 w-full rounded-xl border border-slate-200 object-cover"
-              />
-              <figcaption className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                Foto del equipo
-              </figcaption>
-            </figure>
-          ) : null}
+      {/* Las DOS fotos, con subida directa: como el Estado, se guardan al
+          tocar y no hace falta abrir el formulario de edición. Sin permiso
+          de edición sólo se muestran; sin fotos ni permiso, ni se dibuja. */}
+      {puedeEditar || proyecto.imagen || proyecto.foto ? (
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            Fotos
+          </span>
+          {puedeEditar ? (
+            <>
+              <div className="mt-1.5 grid gap-4 sm:grid-cols-2">
+                <CampoFoto
+                  etiqueta="Imagen del proyecto"
+                  url={proyecto.imagen ?? ''}
+                  vacio="Sin imagen: la landing usa la inicial del título"
+                  ocupado={subiendoFoto === 'imagen'}
+                  onArchivo={(archivo) => void subirFoto('imagen', archivo)}
+                  onQuitar={() => onFoto({ imagen: '' })}
+                />
+                <CampoFoto
+                  etiqueta="Foto del equipo"
+                  url={proyecto.foto ?? ''}
+                  vacio="Sin foto: no hay nada que revelar"
+                  ocupado={subiendoFoto === 'foto'}
+                  onArchivo={(archivo) => void subirFoto('foto', archivo)}
+                  onQuitar={() => onFoto({ foto: '' })}
+                />
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-400">
+                Se guardan solas al subirlas: ya aparecen en la landing.
+              </p>
+            </>
+          ) : (
+            <div className="mt-1.5 flex flex-wrap gap-3">
+              {proyecto.imagen ? (
+                <figure className="w-40">
+                  <img
+                    src={proyecto.imagen}
+                    alt="Imagen del proyecto"
+                    className="h-24 w-full rounded-xl border border-slate-200 object-cover"
+                  />
+                  <figcaption className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Imagen del proyecto
+                  </figcaption>
+                </figure>
+              ) : null}
+              {proyecto.foto ? (
+                <figure className="w-40">
+                  <img
+                    src={proyecto.foto}
+                    alt="Foto del equipo"
+                    className="h-24 w-full rounded-xl border border-slate-200 object-cover"
+                  />
+                  <figcaption className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Foto del equipo
+                  </figcaption>
+                </figure>
+              ) : null}
+            </div>
+          )}
         </div>
       ) : null}
-
-      {/* El riego también desde el detalle: mismo chip, mismo botón. */}
-      <RiegoProyecto datos={riegos} ocupado={ocupado} onRegar={onRegar} />
 
       <div>
         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Equipo</span>

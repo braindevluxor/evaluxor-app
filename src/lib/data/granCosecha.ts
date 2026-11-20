@@ -185,9 +185,15 @@ export function candidatosDeEquipo(perfiles: readonly ProfileVista[]): ProfileVi
  * un "No se pudo cargar" sin pista de qué hacer (mismo criterio que
  * `listarBitacora`).
  */
-function errorDeTabla(error: { code?: string }, mensaje: string): Error {
+function errorDeTabla(error: { code?: string; message?: string }, mensaje: string): Error {
   if (error.code === '42P01' || error.code === '42501') {
     return new Error('Gran Cosecha todavía no está creada en la base. Ejecuta el bloque gran-cosecha.sql en el SQL Editor de Supabase.')
+  }
+  // Columna que todavía no existe en la base (un `alter table` pendiente,
+  // como las fotos del proyecto): el mensaje crudo de PostgREST habla de
+  // "schema cache" y no dice nada útil.
+  if (error.code === 'PGRST204' || /schema cache/i.test(error.message ?? '')) {
+    return new Error('Falta una columna nueva en la base: pegá el bloque de Gran Cosecha en el SQL Editor de Supabase (ver README) y recargá.')
   }
   return new Error(mensaje)
 }

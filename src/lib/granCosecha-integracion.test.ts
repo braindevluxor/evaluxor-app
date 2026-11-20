@@ -66,17 +66,17 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(app).toContain("import('./pages/GranCosecha')")
   })
 
-  it('el riego se ofrece en la tarjeta Y en el detalle, por el data layer', () => {
+  it('el riego se ofrece UNA sola vez, en la tarjeta, por el data layer', () => {
     const pagina = fuente('../pages/GranCosecha.tsx')
     const datos = fuente('./data/granCosecha.ts')
 
     // La pantalla usa las DOS piezas del riego: el conteo y el botón…
     expect(pagina).toContain('riegosDeLaCosecha')
     expect(pagina).toContain('regarProyecto')
-    // …en los DOS lugares pedidos: la tarjeta de cada proyecto y su detalle.
     expect(pagina).toContain('function RiegoProyecto')
-    expect(pagina).toContain('<RiegoProyecto')
-    expect(pagina).toContain('onRegar={onRegar}')
+    // …sólo EN LA TARJETA: en el detalle se quitó porque quedaba duplicado
+    // pegado al mismo chip, uno al lado del otro.
+    expect(pagina.match(/<RiegoProyecto/g) ?? []).toHaveLength(1)
 
     // El dato pasa por el data layer: la pantalla no arma llamadas sueltas.
     expect(datos).toContain("supabase.rpc('regar_proyecto'")
@@ -100,6 +100,8 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(editorPagina).not.toContain('Imagen del proyecto')
     expect(editorPagina).not.toContain('subirFotoEquipo')
     expect(editorPagina).toContain('CampoFoto')
+    // El detalle del proyecto las ofrece con subida directa (sin el form)…
+    expect(paginaProyecto).toContain('Se guardan solas al subirlas')
   })
 })
 
