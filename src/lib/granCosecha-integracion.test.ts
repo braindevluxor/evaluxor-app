@@ -144,6 +144,26 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(datos).toContain(".select('id')")
     expect(pagina).not.toContain('.delete()')
   })
+
+  it('las fotos del participante se previsualizan CUADRADAS y el equipo va en tabla', () => {
+    const pagina = fuente('../pages/GranCosecha.tsx')
+    const ui = fuente('../components/ui.tsx')
+
+    // La tarjeta de la landing es cuadrada (`aspect-ratio: 1/1`), así que la
+    // vista previa enseña lo mismo y no un recorte sorpresa. `CampoFoto`
+    // conserva su banda ancha por defecto —la usa el fondo del hero— y sólo
+    // las CUATRO fotos del proyecto la piden cuadrada (detalle y form).
+    expect(ui).toContain('cuadrada ? ')
+    expect(pagina.match(/cuadrada/g) ?? []).toHaveLength(4)
+
+    // El equipo, como TABLA: tres nombres largos en píldoras se apilan, y la
+    // identidad de cada uno (cédula o cuenta) quedaba sólo en un `title`
+    // invisible.
+    expect(pagina).toContain('<table className="w-full text-sm">')
+    expect(pagina).toContain('Identificación')
+    expect(pagina).toContain('identidadDe')
+    expect(pagina).not.toContain('rounded-full bg-white px-3 py-1')
+  })
 })
 
 describe('gran cosecha · el rol que lo sostiene', () => {

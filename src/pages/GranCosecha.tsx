@@ -82,6 +82,19 @@ function fechaCorta(iso: string): string {
   return `${p(f.getDate())}/${p(f.getMonth() + 1)}/${f.getFullYear()} ${p(f.getHours())}:${p(f.getMinutes())}`
 }
 
+/**
+ * La columna «Identificación» de la tabla del equipo.
+ *
+ * En `miembros` la cédula sólo la traen los trabajadores SIN cuenta —los
+ * demás entran por su usuario de EvaLuxor y su cédula no viaja en la fila—,
+ * así que: cédula donde hay, y «Cuenta en EvaLuxor» donde no. No se inventa
+ * un dato que la fila no tiene.
+ */
+function identidadDe(m: MiembroEquipo): string {
+  if (m.dni != null) return `${m.nacionalidad ?? 'V'}-${m.dni}`
+  return 'Cuenta en EvaLuxor'
+}
+
 /** La regadera del "regar": el like de jardín, con la temática de la cosecha. */
 function Regadera({ className }: { className?: string }) {
   return (
@@ -585,6 +598,7 @@ function DetalleProyecto({
                   etiqueta="Imagen del proyecto"
                   url={proyecto.imagen ?? ''}
                   vacio="Sin imagen: la landing usa la inicial del título"
+                  cuadrada
                   ocupado={subiendoFoto === 'imagen'}
                   onArchivo={(archivo) => void subirFoto('imagen', archivo)}
                   onQuitar={() => onFoto({ imagen: '' })}
@@ -593,6 +607,7 @@ function DetalleProyecto({
                   etiqueta="Foto del equipo"
                   url={proyecto.foto ?? ''}
                   vacio="Sin foto: no hay nada que revelar"
+                  cuadrada
                   ocupado={subiendoFoto === 'foto'}
                   onArchivo={(archivo) => void subirFoto('foto', archivo)}
                   onQuitar={() => onFoto({ foto: '' })}
@@ -609,7 +624,7 @@ function DetalleProyecto({
                   <img
                     src={proyecto.imagen}
                     alt="Imagen del proyecto"
-                    className="h-24 w-full rounded-xl border border-slate-200 object-cover"
+                    className="aspect-square w-full rounded-xl border border-slate-200 object-cover"
                   />
                   <figcaption className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                     Imagen del proyecto
@@ -621,7 +636,7 @@ function DetalleProyecto({
                   <img
                     src={proyecto.foto}
                     alt="Foto del equipo"
-                    className="h-24 w-full rounded-xl border border-slate-200 object-cover"
+                    className="aspect-square w-full rounded-xl border border-slate-200 object-cover"
                   />
                   <figcaption className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                     Foto del equipo
@@ -633,19 +648,33 @@ function DetalleProyecto({
         </div>
       ) : null}
 
+      {/* El equipo como TABLA y no como píldoras: tres nombres largos en
+          píldoras se apilan y se cortan, y la tercera columna lleva la
+          identidad de cada uno —la cédula del trabajador sin cuenta, o el
+          hecho de que su identidad es su cuenta—, que en las píldoras sólo
+          estaba en un `title` invisible. */}
       <div>
         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Equipo</span>
-        <ul className="mt-1.5 flex flex-wrap gap-2">
-          {proyecto.miembros.map((m) => (
-            <li
-              key={claveDeMiembro(m)}
-              title={m.dni != null ? `${m.nacionalidad ?? 'V'}-${m.dni}` : undefined}
-              className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200"
-            >
-              {m.nombre}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-1.5 overflow-x-auto rounded-xl border border-slate-200">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400">
+                <th className="px-4 py-3">#</th>
+                <th className="px-4 py-3">Integrante</th>
+                <th className="px-4 py-3">Identificación</th>
+              </tr>
+            </thead>
+            <tbody>
+              {proyecto.miembros.map((m, i) => (
+                <tr key={claveDeMiembro(m)} className="border-t border-slate-100">
+                  <td className="px-4 py-3 tabular-nums text-slate-400">{i + 1}</td>
+                  <td className="px-4 py-3 font-semibold text-slate-700">{m.nombre}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-slate-500">{identidadDe(m)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {puedeEditar ? (
@@ -892,6 +921,7 @@ function FormProyecto({
             etiqueta="Imagen del proyecto"
             url={imagen}
             vacio="Sin imagen: la landing usa la inicial del título"
+            cuadrada
             ocupado={subiendoFoto === 'imagen'}
             onArchivo={(archivo) => void subirFoto('imagen', archivo)}
             onQuitar={() => setImagen('')}
@@ -900,6 +930,7 @@ function FormProyecto({
             etiqueta="Foto del equipo"
             url={foto}
             vacio="Sin foto: no hay nada que revelar"
+            cuadrada
             ocupado={subiendoFoto === 'foto'}
             onArchivo={(archivo) => void subirFoto('foto', archivo)}
             onQuitar={() => setFoto('')}

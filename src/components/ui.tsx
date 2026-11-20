@@ -186,6 +186,7 @@ export function CampoFoto({
   etiqueta,
   url,
   vacio = 'Sin foto todavía',
+  cuadrada = false,
   ocupado,
   onArchivo,
   onQuitar
@@ -194,6 +195,13 @@ export function CampoFoto({
   url: string
   /** Qué dice el hueco cuando NO hay foto propia. */
   vacio?: string
+  /**
+   * Vista previa CUADRADA (1:1) en vez de la banda ancha. Van las fotos del
+   * participante: la tarjeta de la landing es cuadrada (`aspect-ratio: 1/1`),
+   * así que enseñarlas así es enseñar lo que se publica, sin recorte
+   * sorpresa. El defecto ancho sigue para los fondos de hero.
+   */
+  cuadrada?: boolean
   ocupado: boolean
   onArchivo: (archivo: File | undefined) => void
   onQuitar: () => void
@@ -207,10 +215,18 @@ export function CampoFoto({
         <img
           src={url}
           alt={etiqueta}
-          className="h-28 w-full rounded-xl border border-slate-200 bg-slate-50 object-cover"
+          className={cn(
+            'w-full rounded-xl border border-slate-200 bg-slate-50 object-cover',
+            cuadrada ? 'aspect-square' : 'h-28'
+          )}
         />
       ) : (
-        <div className="grid h-28 place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 text-center text-xs text-slate-400">
+        <div
+          className={cn(
+            'grid place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 text-center text-xs text-slate-400',
+            cuadrada ? 'aspect-square' : 'h-28'
+          )}
+        >
           {vacio}
         </div>
       )}
