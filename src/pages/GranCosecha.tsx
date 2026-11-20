@@ -8,6 +8,7 @@ import {
   Confirmar,
   EmptyState,
   Field,
+  FotoAmpliable,
   Input,
   Modal,
   Select,
@@ -699,10 +700,10 @@ function DetalleProyecto({
             <div className="mt-1.5 flex flex-wrap gap-3">
               {proyecto.imagen ? (
                 <figure className="w-40">
-                  <img
-                    src={proyecto.imagen}
-                    alt="Imagen del proyecto"
-                    className="aspect-square w-full rounded-xl border border-slate-200 object-cover"
+                  <FotoAmpliable
+                    url={proyecto.imagen}
+                    etiqueta="Imagen del proyecto"
+                    className="aspect-square w-full"
                   />
                   <figcaption className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                     Imagen del proyecto
@@ -711,10 +712,10 @@ function DetalleProyecto({
               ) : null}
               {proyecto.foto ? (
                 <figure className="w-40">
-                  <img
-                    src={proyecto.foto}
-                    alt="Foto del equipo"
-                    className="aspect-square w-full rounded-xl border border-slate-200 object-cover"
+                  <FotoAmpliable
+                    url={proyecto.foto}
+                    etiqueta="Foto del equipo"
+                    className="aspect-square w-full"
                   />
                   <figcaption className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                     Foto del equipo

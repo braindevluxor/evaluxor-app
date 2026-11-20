@@ -164,6 +164,14 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(ui).toContain('cuadrada ? ')
     expect(pagina.match(/cuadrada/g) ?? []).toHaveLength(4)
 
+    // La previa va CHICA (160px) y se amplía en un modal al tocarla: en el
+    // formulario ocupaba media columna y no dejaba ver nada más.
+    expect(ui).toContain('aspect-square w-40')
+    expect(ui).toContain('export function FotoAmpliable')
+    expect(ui).toContain('cursor-zoom-in')
+    // Las dos fotos en modo sólo lectura también se pueden ampliar.
+    expect(pagina.match(/<FotoAmpliable/g) ?? []).toHaveLength(2)
+
     // El equipo, como TABLA: tres nombres largos en píldoras se apilan, y la
     // identidad de cada uno (cédula o cuenta) quedaba sólo en un `title`
     // invisible.
