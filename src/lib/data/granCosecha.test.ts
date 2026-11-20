@@ -7,6 +7,7 @@ import {
   ESTADOS,
   TIPOS_BITACORA,
   candidatosDeEquipo,
+  claveDeMiembro,
   etiquetaPeriodo,
   historialAvances,
   periodoDe,
@@ -181,5 +182,40 @@ describe('riegos · lo que la pantalla manda y lo que hace sin el bloque', () =>
       error: { code: 'P0001', message: 'Ese proyecto ya no participa en el concurso.' }
     })
     await expect(regarProyecto('p1')).rejects.toThrow(/ya no participa/)
+  })
+})
+
+describe('validarEquipo · integrantes sin cuenta', () => {
+  const trabajador = (dni: number, nombre = `Trabajador ${dni}`): MiembroEquipo => ({
+    usuario_id: '',
+    nombre,
+    nacionalidad: 'V',
+    dni
+  })
+
+  it('dos trabajadores de la nómina NO son «el mismo repetido»', () => {
+    // Antes la identidad era sólo `usuario_id`: los dos sin cuenta chocaban
+    // en la cadena vacía y parecían un integrante repetido.
+    expect(validarEquipo([...equipo('a', 'b'), trabajador(1), trabajador(2)])).toBeNull()
+  })
+
+  it('la misma cédula dos veces SÍ es repetido', () => {
+    expect(validarEquipo([...equipo('a', 'b'), trabajador(1), trabajador(1)])).toMatch(/repetidos/)
+  })
+
+  it('nadie entra sin nombre ni sin identidad', () => {
+    expect(validarEquipo([...equipo('a', 'b'), { usuario_id: '', nombre: '   ' }])).toMatch(/nombre/)
+    expect(validarEquipo([...equipo('a', 'b'), { usuario_id: '', nombre: 'Sin cédula' }])).toMatch(
+      /usuario ni cédula/
+    )
+  })
+})
+
+describe('claveDeMiembro · la identidad de un integrante', () => {
+  it('usa el usuario si tiene cuenta y la cédula si no', () => {
+    expect(claveDeMiembro({ usuario_id: 'u1', nombre: 'Ana Líder' })).toBe('u:u1')
+    expect(claveDeMiembro({ usuario_id: '', nombre: 'José Pérez', nacionalidad: 'V', dni: 12345678 })).toBe(
+      'w:V-12345678'
+    )
   })
 })

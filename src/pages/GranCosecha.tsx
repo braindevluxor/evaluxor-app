@@ -22,11 +22,13 @@ import {
   TIPOS_BITACORA,
   actualizarProyecto,
   candidatosDeEquipoAsync,
+  claveDeMiembro,
   crearProyecto,
   etiquetaPeriodo,
   historialAvances,
   listarBitacora,
   listarProyectos,
+  listarTrabajadoresEquipo,
   periodosRecientes,
   regarProyecto,
   riegosDeLaCosecha,
@@ -37,8 +39,10 @@ import {
   type FilaBitacora,
   type MiembroEquipo,
   type ProyectoGranCosecha,
-  type RiegosProyecto
+  type RiegosProyecto,
+  type TrabajadorNomina
 } from '../lib/data/granCosecha'
+import { cedula, esActivo, nombreCompleto } from '../lib/data/colaboradores'
 import type { ProfileVista } from '../lib/data/usuarios'
 
 /**
@@ -571,7 +575,8 @@ function DetalleProyecto({
         <ul className="mt-1.5 flex flex-wrap gap-2">
           {proyecto.miembros.map((m) => (
             <li
-              key={m.usuario_id}
+              key={claveDeMiembro(m)}
+              title={m.dni != null ? `${m.nacionalidad ?? 'V'}-${m.dni}` : undefined}
               className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200"
             >
               {m.nombre}
@@ -671,19 +676,85 @@ function FormProyecto({
   const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
   const [busqueda, setBusqueda] = useState('')
   const [guardando, setGuardando] = useState(false)
+  /** Trabajadores de la nómina que coincide la búsqueda (con o sin cuenta). */
+  const [trabajadores, setTrabajadores] = useState<TrabajadorNomina[]>([])
+  /** Falló la última búsqueda en la nómina (bloque de SQL pendiente, red…). */
+  const [errorNomina, setErrorNomina] = useState(false)
+
+  // La nómina no se baja entera (miles de filas): la búsqueda va al servidor,
+  // con debounce y recién desde 2 letras. Mientras tanto, el filtro local de
+  // siempre sigue cubriendo a los usuarios de la app. El error va AL TEXTO y
+  // no a un toast: dura mientras se siga escribiendo y un aviso por tecla
+  // enloquecería la pantalla.
+  useEffect(() => {
+    const texto = busqueda.trim()
+    if (texto.length < 2) {
+      setTrabajadores([])
+      setErrorNomina(false)
+      return
+    }
+    let vivo = true
+    const reloj = setTimeout(() => {
+      listarTrabajadoresEquipo(texto)
+        .then((filas) => {
+          if (!vivo) return
+          setTrabajadores(filas)
+          setErrorNomina(false)
+        })
+        .catch(() => {
+          if (!vivo) return
+          setTrabajadores([])
+          setErrorNomina(true)
+        })
+    }, 300)
+    return () => {
+      vivo = false
+      clearTimeout(reloj)
+    }
+  }, [busqueda])
 
   const q = busqueda.trim().toLowerCase()
-  const visibles = (candidatos ?? []).filter(
-    (c) => !q || `${c.nombre} ${c.usuario}`.toLowerCase().includes(q)
-  )
+  /** Una fila del selector: un usuario de la app o un trabajador de la nómina. */
+  type Opcion = {
+    clave: string
+    nombre: string
+    /** Qué se muestra debajo: el usuario, o la cédula y la sucursal. */
+    sub: string
+    perfil?: ProfileVista
+    trabajador?: TrabajadorNomina
+  }
+  const opciones: Opcion[] = [
+    ...(candidatos ?? []).map((c) => ({
+      clave: `u:${c.id}`,
+      nombre: c.nombre || c.usuario,
+      sub: c.usuario,
+      perfil: c
+    })),
+    // Sólo activos: `esActivo` es el MISMO criterio con el que se paga la nómina.
+    ...trabajadores.filter(esActivo).map((t) => ({
+      clave: `w:${t.nacionalidad}-${t.dni}`,
+      nombre: nombreCompleto(t),
+      sub: `${cedula({ nationality: t.nacionalidad, dni: t.dni })}${t.sucursal ? ` · ${t.sucursal}` : ''}`,
+      trabajador: t
+    }))
+  ]
+  const visibles = opciones.filter((o) => !q || `${o.nombre} ${o.sub}`.toLowerCase().includes(q))
   const problema = titulo.trim() ? validarEquipo(elegidos) : 'Escribí el título del proyecto.'
 
-  const alternar = (c: ProfileVista) =>
-    setElegidos((prev) =>
-      prev.some((m) => m.usuario_id === c.id)
-        ? prev.filter((m) => m.usuario_id !== c.id)
-        : [...prev, { usuario_id: c.id, nombre: c.nombre || c.usuario }]
-    )
+  const alternar = (o: Opcion) =>
+    setElegidos((prev) => {
+      const esta = (m: MiembroEquipo) => claveDeMiembro(m) === o.clave
+      if (prev.some(esta)) return prev.filter((m) => !esta(m))
+      const nuevo: MiembroEquipo = o.perfil
+        ? { usuario_id: o.perfil.id, nombre: o.perfil.nombre || o.perfil.usuario }
+        : {
+            usuario_id: '',
+            nombre: o.nombre,
+            nacionalidad: o.trabajador?.nacionalidad,
+            dni: o.trabajador?.dni
+          }
+      return [...prev, nuevo]
+    })
 
   /** Sube la foto elegida y la deja en el estado del formulario. */
   const subirFoto = async (campo: 'imagen' | 'foto', archivo: File | undefined) => {
@@ -774,12 +845,12 @@ function FormProyecto({
 
         <Field
           label={`Equipo (${elegidos.length})`}
-          hint="Mínimo 3 personas. Se eligen de los usuarios de la empresa."
+          hint="Mínimo 3 personas: usuarios de la app y trabajadores de cualquier sucursal."
         >
           <Input
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Buscar por nombre o usuario"
+            placeholder="Buscar por nombre, usuario o cédula"
             aria-label="Buscar integrante"
           />
         </Field>
@@ -792,28 +863,45 @@ function FormProyecto({
           <p className="text-sm text-slate-500">Nadie coincide con «{busqueda}».</p>
         ) : (
           <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
-            {visibles.map((c) => {
-              const marcado = elegidos.some((m) => m.usuario_id === c.id)
+            {visibles.map((o) => {
+              const marcado = elegidos.some((m) => claveDeMiembro(m) === o.clave)
               return (
-                <li key={c.id}>
+                <li key={o.clave}>
                   <label className="flex cursor-pointer items-center gap-3 px-3 py-2">
                     <input
                       type="checkbox"
                       className="h-4 w-4 accent-primary"
                       checked={marcado}
-                      onChange={() => alternar(c)}
+                      onChange={() => alternar(o)}
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-slate-800">{c.nombre}</span>
-                      <span className="block text-xs text-slate-500">{c.usuario}</span>
+                      <span className="block truncate text-sm font-semibold text-slate-800">
+                        {o.nombre}
+                      </span>
+                      <span className="block text-xs text-slate-500">{o.sub}</span>
                     </span>
-                    {marcado ? <Badge color={1}>Equipo</Badge> : null}
+                    {marcado ? (
+                      <Badge color={1}>Equipo</Badge>
+                    ) : o.trabajador ? (
+                      <Badge color={0}>Trabajador</Badge>
+                    ) : null}
                   </label>
                 </li>
               )
             })}
           </ul>
         )}
+        {errorNomina ? (
+          <p className="mt-2 text-xs font-semibold text-amber-700">
+            No se pudo buscar en la nómina de trabajadores — ¿el bloque de Gran Cosecha está aplicado
+            en el SQL Editor?
+          </p>
+        ) : q.length < 2 ? (
+          <p className="mt-2 text-[11px] text-slate-400">
+            Escribí 2 letras o más para buscar también entre los trabajadores de cualquier sucursal,
+            aunque no tengan cuenta en EvaLuxor.
+          </p>
+        ) : null}
 
         {problema ? <p className="text-xs font-semibold text-amber-700">{problema}</p> : null}
       </div>

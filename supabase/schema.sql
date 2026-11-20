@@ -5922,9 +5922,11 @@ create table if not exists public.gran_cosecha_proyecto (
   periodo text not null check (periodo ~ '^\d{4}-T[1-4]$'),
   titulo text not null check (length(trim(titulo)) > 0),
   descripcion text not null default '',
-  -- El equipo, mínimo 3. Jsonb con `{usuario_id, nombre}`: el `usuario_id`
-  -- cruza contra `profiles` y el `nombre` es la foto que se lee en pantalla,
-  -- igual que en `alerta_trabajadores`.
+  -- El equipo, mínimo 3. Jsonb con `{usuario_id, nombre}` —o con la cédula
+  -- del trabajador SIN cuenta (`{nacionalidad, dni, nombre}`): acepta
+  -- usuarios de la app y trabajadores de la nómina de cualquier sucursal.
+  -- `usuario_id` sólo si tiene cuenta (es el que cruza contra `profiles`);
+  -- el `nombre` es la foto que se lee en pantalla, igual que en alertas.
   miembros jsonb not null check (jsonb_array_length(miembros) >= 3),
   -- El estado actual. El historial es la bitácora; esto es para leer rápido.
   avance integer not null default 0 check (avance >= 0 and avance <= 100),
@@ -6116,6 +6118,69 @@ end $$;
 -- necesita, porque RLS llama a la función con el rol que consulta.
 revoke execute on function public.puede_gran_cosecha() from public, anon;
 grant execute on function public.puede_gran_cosecha() to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Elegir INTEGRANTES del equipo: usuarios de la app Y trabajadores de la
+-- nómina, de cualquier sucursal (aunque no tengan cuenta en EvaLuxor)
+-- ----------------------------------------------------------------------------
+-- La nómina (`trabajadores_nomina`) sólo la leen LÍDER y GERENTE_TH por su
+-- política, y armar equipo puede cualquiera: por eso la lectura va por esta
+-- función `security definer`, que devuelve SÓLO lo que el picker necesita —
+-- nacionalidad, cédula, nombre, sucursal y los flags crudos de actividad—
+-- y nunca el resto del `datos` crudo de la API (sueldos, fechas, cargos).
+--
+-- La normalización queda donde siempre estaba, en el cliente: `name` /
+-- `lastname` y los flags viajan tal cual, y `nombreCompleto` / `esActivo` de
+-- `colaboradores.ts` los interpretan —el mismo criterio con el que se paga la
+-- nómina—, porque guardar el crudo es lo que permite que viva en un solo
+-- lugar (así lo dice también la tabla).
+--
+-- La búsqueda va EN EL SERVIDOR: la nómina tiene miles de filas, así que la
+-- RPC filtra por texto (nombre, apellido, sucursal o cédula) con límite, en
+-- vez de tirarla entera al navegador. Y cada persona aparece UNA sola vez:
+-- `distinct on (nacionalidad, dni)` gana del registro más reciente, para que
+-- quien se cambió de sucursal no figure dos veces.
+create or replace function public.listar_trabajadores_equipo(p_texto text)
+returns jsonb
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'nacionalidad', n.nacionalidad,
+        'dni', n.dni,
+        'name', n.datos -> 'name',
+        'lastname', n.datos -> 'lastname',
+        'sucursal', n.datos -> 'branch_name',
+        'status', n.datos -> 'status',
+        'estado', n.datos -> 'estado',
+        'status_display', n.datos -> 'status_display',
+        'estado_display', n.datos -> 'estado_display',
+        'active', n.datos -> 'active',
+        'is_active', n.datos -> 'is_active'
+      )
+      order by n.datos ->> 'lastname', n.datos ->> 'name'
+    ),
+    '[]'::jsonb
+  )
+  from (
+    select distinct on (nacionalidad, dni) nacionalidad, dni, datos
+      from public.trabajadores_nomina
+     where p_texto <> ''
+       and (
+             datos ->> 'name' ilike '%' || p_texto || '%'
+          or datos ->> 'lastname' ilike '%' || p_texto || '%'
+          or datos ->> 'branch_name' ilike '%' || p_texto || '%'
+          or (nacionalidad || '-' || dni) ilike '%' || p_texto || '%'
+       )
+     order by nacionalidad, dni, actualizado_en desc
+     limit 300
+  ) n;
+$$;
+
+revoke execute on function public.listar_trabajadores_equipo(text) from public, anon;
+grant  execute on function public.listar_trabajadores_equipo(text) to authenticated;
 
 -- ----------------------------------------------------------------------------
 -- Los riegos: un "me gusta" con regadera, uno por usuario y proyecto

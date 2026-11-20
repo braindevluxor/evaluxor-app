@@ -103,6 +103,24 @@ describe('gran cosecha · el módulo está en el menú', () => {
     // El detalle del proyecto las ofrece con subida directa (sin el form)…
     expect(paginaProyecto).toContain('Se guardan solas al subirlas')
   })
+
+  it('el equipo acepta trabajadores sin cuenta, de cualquier sucursal', () => {
+    const pagina = fuente('../pages/GranCosecha.tsx')
+    const datos = fuente('./data/granCosecha.ts')
+
+    // El selector busca también en la nómina — al servidor y con debounce,
+    // porque son miles de filas— por nombre o cédula…
+    expect(pagina).toContain('listarTrabajadoresEquipo')
+    expect(datos).toContain("supabase.rpc('listar_trabajadores_equipo'")
+    expect(pagina).toContain('placeholder="Buscar por nombre, usuario o cédula"')
+    // …los distingue en la lista…
+    expect(pagina).toContain('>Trabajador</Badge>')
+    // …y la identidad de cada integrante es su usuario O su cédula: dos
+    // trabajadores sin cuenta no pueden colisionar en el usuario vacío.
+    expect(pagina).toContain('claveDeMiembro')
+    expect(datos).toContain('claveDeMiembro')
+    expect(datos).toContain('listarTrabajadoresEquipo')
+  })
 })
 
 describe('gran cosecha · el rol que lo sostiene', () => {

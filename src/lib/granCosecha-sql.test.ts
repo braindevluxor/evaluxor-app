@@ -65,6 +65,18 @@ const DDL = `
     rol text not null check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH')),
     token text not null unique default gen_random_uuid()::text
   );
+
+  -- Espejo de la nómina (la crea el bloque de nómina-trabajadores, que este
+  -- test NO corre): sólo lo que lee la RPC de candidatos del equipo. Sin la
+  -- FK a sucursales — acá sólo importa la persona, no su tienda.
+  create table public.trabajadores_nomina (
+    sucursal_id uuid not null default gen_random_uuid(),
+    nacionalidad text not null default 'V',
+    dni bigint not null,
+    datos jsonb not null,
+    actualizado_en timestamptz not null default now(),
+    constraint trabajadores_nomina_unico primary key (sucursal_id, nacionalidad, dni)
+  );
 `
 
 const JUEZ = '00000000-0000-0000-0000-000000000001'
@@ -703,5 +715,72 @@ describe('gran-cosecha.sql · las fotos del proyecto', () => {
       [id]
     )
     expect(filas.rows.map((f) => f.tipo)).toEqual(['ALTA'])
+  })
+})
+
+describe('gran-cosecha.sql · los candidatos sin cuenta', () => {
+  it('anon no la puede llamar: es sólo para sesiones', async () => {
+    const anon = await contar(
+      `select case when has_function_privilege('anon', 'public.listar_trabajadores_equipo(text)', 'execute')
+              then 1 else 0 end as n`
+    )
+    expect(anon).toBe(0)
+
+    await como(null)
+    await db.exec('set role anon')
+    try {
+      await expect(
+        db.query(`select public.listar_trabajadores_equipo('maria')`)
+      ).rejects.toThrow(/permission denied for function/i)
+    } finally {
+      await db.exec('reset role')
+    }
+  })
+
+  it('busca por nombre o cédula, deja a cada persona UNA vez y sólo manda lo mínimo', async () => {
+    // La MISMA persona en dos sucursales (se cambió de tienda): el picker
+    // tiene que verla UNA sola vez, con su registro más reciente.
+    await db.query(
+      `insert into public.trabajadores_nomina (sucursal_id, nacionalidad, dni, datos, actualizado_en) values
+         (gen_random_uuid(), 'V', 12345678,
+          '{"name":"Maria","lastname":"Perez","branch_name":"Centro","active":true}', '2026-01-01'),
+         (gen_random_uuid(), 'V', 12345678,
+          '{"name":"Maria","lastname":"Perez","branch_name":"Norte","active":true}', '2026-06-01'),
+         (gen_random_uuid(), 'V', 87654321,
+          '{"name":"Jose","lastname":"Gomez","branch_name":"Sur","active":false}', '2026-06-01')`
+    )
+
+    await conRol(EVALUADOR, async () => {
+      const buscar = async (texto: string): Promise<Record<string, unknown>[]> => {
+        const r = await db.query<{ filas: Record<string, unknown>[] }>(
+          `select public.listar_trabajadores_equipo($1) as filas`,
+          [texto]
+        )
+        return r.rows[0].filas
+      }
+
+      const porApellido = await buscar('perez')
+      expect(porApellido).toHaveLength(1)
+      expect(porApellido[0].nacionalidad).toBe('V')
+      expect(Number(porApellido[0].dni)).toBe(12345678)
+      expect(porApellido[0].name).toBe('Maria')
+      // La sucursal es la del registro MÁS RECIENTE (se cambió a Norte).
+      expect(porApellido[0].sucursal).toBe('Norte')
+
+      // También por cédula, como la escribe la gente.
+      expect(await buscar('V-1234')).toHaveLength(1)
+
+      // Sólo lo mínimo para el picker: ni el resto de `datos` (sueldos,
+      // fechas, cargo) ni basura.
+      expect(Object.keys(porApellido[0]).sort()).toEqual(
+        ['active', 'estado', 'estado_display', 'is_active', 'lastname', 'name',
+         'nacionalidad', 'status', 'status_display', 'sucursal', 'dni'].sort()
+      )
+
+      // Sin coincidencias o sin texto: lista vacía, NO la nómina entera.
+      expect(await buscar('zzzz')).toHaveLength(0)
+      expect(await buscar('')).toHaveLength(0)
+    })
+    await como(null)
   })
 })

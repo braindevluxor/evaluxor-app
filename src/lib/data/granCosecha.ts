@@ -1,6 +1,7 @@
 import { supabase } from '../supabase'
 import { convertirImagenAWebP } from '../convertirMedia'
 import { BUCKET } from './granCosechaPagina'
+import type { ColaboradorAPI } from './colaboradores'
 import { listarUsuarios, type ProfileVista } from './usuarios'
 
 /**
@@ -37,13 +38,33 @@ export type EstadoProyecto = 'PROPUESTA' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELAD
 export type TipoBitacora = 'ALTA' | 'AVANCE' | 'ESTADO' | 'EDICION' | 'MIEMBROS'
 
 /**
- * Una persona del equipo. Va con el `usuario_id` (para cruzar contra
- * `profiles`) y el `nombre` de la foto: si el usuario algún día no está, la
- * fila se sigue leyendo igual que en `alerta_trabajadores`.
+ * Una persona del equipo: un usuario de EvaLuxor O un trabajador de la
+ * nómina que no tiene cuenta (de cualquier sucursal).
+ *
+ * El usuario va con su `usuario_id` (el que cruza contra `profiles`); el
+ * trabajador sin cuenta va con su CÉDULA (`nacionalidad` + `dni`, la misma
+ * identidad que usan bonos y alertas) y `usuario_id` vacío. En los dos, el
+ * `nombre` es la foto que se lee en pantalla — en la consola y en la
+ * landing—, así que la fila se lee aunque el usuario algún día no esté.
  */
 export interface MiembroEquipo {
+  /** Usuario de EvaLuxor; `''` cuando es un trabajador sin cuenta. */
   usuario_id: string
   nombre: string
+  /** Cédula del trabajador de la nómina (sólo cuando no tiene cuenta). */
+  nacionalidad?: string
+  dni?: number
+}
+
+/**
+ * La identidad de UN integrante, para detectar repetidos: su usuario si
+ * tiene cuenta, su cédula si es un trabajador de la nómina.
+ *
+ * Sin esto, dos trabajadores sin cuenta chocaban en el `usuario_id` vacío y
+ * parecían el mismo integrante repetido.
+ */
+export function claveDeMiembro(m: MiembroEquipo): string {
+  return m.usuario_id ? `u:${m.usuario_id}` : `w:${m.nacionalidad ?? ''}-${m.dni ?? ''}`
 }
 
 export interface ProyectoGranCosecha {
@@ -154,8 +175,17 @@ export function validarEquipo(miembros: readonly MiembroEquipo[]): string | null
   if (miembros.length < 3) return 'El equipo necesita al menos 3 personas.'
   const vistos = new Set<string>()
   for (const m of miembros) {
-    if (vistos.has(m.usuario_id)) return 'Hay integrantes repetidos en el equipo.'
-    vistos.add(m.usuario_id)
+    if (!m.nombre.trim()) return 'Un integrante del equipo no tiene nombre.'
+    // Sin identidad no hay equipo trazable: ni usuario ni cédula.
+    if (!m.usuario_id && m.dni == null) {
+      return 'Un integrante no tiene ni usuario ni cédula.'
+    }
+    // La identidad es el usuario si tiene cuenta, la cédula si es de la
+    // nómina: dos trabajadores sin cuenta antes chocaban en el usuario_id
+    // vacío y parecían repetidos.
+    const identidad = claveDeMiembro(m)
+    if (vistos.has(identidad)) return 'Hay integrantes repetidos en el equipo.'
+    vistos.add(identidad)
   }
   return null
 }
@@ -419,4 +449,44 @@ export async function subirFotoProyecto(archivo: File, urlActual: string): Promi
     await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
   }
   return url
+}
+
+/* -------------------------------------------------------------------------
+ * LOS INTEGRANTES SIN CUENTA: trabajadores de la nómina, de cualquier
+ * sucursal — el equipo no es sólo para usuarios de EvaLuxor.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Un trabajador de la nómina, en la forma CRUDA que devuelve la RPC.
+ *
+ * Es un `ColaboradorAPI` (mismo contrato que la API de colaboradores: los
+ * campos de actividad llegan como llegan de la API) más la cédula y la
+ * sucursal tal como se guardan acá. Por eso `nombreCompleto` y `esActivo`
+ * lo interpretan igual que al resto — sin duplicar la normalización, que
+ * vive sólo en el cliente.
+ */
+export interface TrabajadorNomina extends ColaboradorAPI {
+  nacionalidad: string
+  dni: number
+  sucursal: string | null
+}
+
+/**
+ * Trabajadores que coinciden con `texto` —nombre, apellido, sucursal o
+ * cédula—, con cuenta o no: así el equipo acepta a cualquiera, de cualquier
+ * sucursal.
+ *
+ * Va por RPC y no por la tabla: `trabajadores_nomina` sólo la leen LÍDER y
+ * GERENTE_TH por su política, y armar equipo puede cualquiera. La función
+ * devuelve SÓLO lo que el picker necesita (nunca el `datos` completo de la
+ * API) y con límite: la nómina tiene miles de filas, por eso la búsqueda va
+ * en el servidor y el navegador nunca la ve entera.
+ *
+ * `[]` significa «no coincidió nadie» — o texto demasiado corto (menos de
+ * dos letras no busca); el error de red o de permisos lo recibe el llamador.
+ */
+export async function listarTrabajadoresEquipo(texto: string): Promise<TrabajadorNomina[]> {
+  const { data, error } = await supabase.rpc('listar_trabajadores_equipo', { p_texto: texto })
+  if (error) throw errorDeTabla(error, 'No se pudo buscar en la nómina de trabajadores.')
+  return (data ?? []) as TrabajadorNomina[]
 }
