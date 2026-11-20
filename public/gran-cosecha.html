@@ -83,13 +83,10 @@
       .cta-inscripcion { animation: none; }
     }
 
-    /* TARJETAS DE EQUIPOS PARTICIPANTES
-       Cada equipo tiene DOS caras: la imagen del proyecto —o su inicial,
-       si no trae— se ve siempre; la FOTO del equipo se revela al pasar el
-       mouse, al enfocar la tarjeta con el teclado o al tocarla. La
-       revelación es el único momento de la sección: la foto entra
-       desenfocada y un punto más grande y se asienta nítida, con easing
-       exponencial desde el estado ya visible. */
+    /* TARJETAS DE PARTICIPANTES
+       Cada tarjeta es UN proyecto registrado: la inicial de su título va
+       pintada a pantalla completa (siempre hay algo que ver) y abajo su
+       rótulo con el equipo, el avance y los riegos. */
     .tarjeta-equipo {
       position: relative;
       display: block;
@@ -104,25 +101,7 @@
       cursor: default;
     }
 
-    /* Sólo con foto la tarjeta ofrece algo que activar. */
-    .tarjeta-equipo.con-foto { cursor: pointer; }
-
-    .tarjeta-equipo:focus-visible {
-      outline: 3px solid var(--luxor-white);
-      outline-offset: 3px;
-    }
-
-    .tarjeta-equipo .cara,
-    .tarjeta-equipo .foto-equipo {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    /* Respaldo pintado SIEMPRE debajo de la imagen: si la URL no carga,
-       la tarjeta se queda con la inicial en vez de un hueco navy. */
+    /* La inicial del título, de fondo detrás del rótulo. */
     .tarjeta-equipo .inicial {
       position: absolute;
       inset: 0;
@@ -137,27 +116,8 @@
         var(--luxor-navy-deep);
     }
 
-    /* La foto revelada: entra grande y desenfocada y se asienta. */
-    .tarjeta-equipo .foto-equipo {
-      opacity: 0;
-      transform: scale(1.12);
-      filter: blur(10px);
-      transition:
-        opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1),
-        transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
-        filter 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    .tarjeta-equipo:hover .foto-equipo,
-    .tarjeta-equipo:focus-visible .foto-equipo,
-    .tarjeta-equipo.esta-activa .foto-equipo {
-      opacity: 1;
-      transform: scale(1);
-      filter: blur(0);
-    }
-
-    /* El rótulo del equipo va SIEMPRE encima, con su velo navy para que el
-       amarillo y el gris se lean sobre cualquier foto. */
+    /* El rótulo va SIEMPRE encima, con su velo navy para que el amarillo,
+       el gris y los chips se lean sobre la inicial y el fondo. */
     .tarjeta-equipo .rotulo {
       position: absolute;
       left: 0;
@@ -210,39 +170,6 @@
       width: 13px;
       height: 13px;
       flex: none;
-    }
-
-    /* La pista invita al gesto y se aparta cuando la foto ya está encima. */
-    .tarjeta-equipo .pista {
-      position: absolute;
-      top: 0.75rem;
-      right: 0.75rem;
-      padding: 0.3rem 0.65rem;
-      border-radius: 9999px;
-      background: var(--luxor-yellow);
-      color: var(--luxor-navy);
-      font-size: 0.65rem;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      transition: opacity 0.3s ease, transform 0.3s ease;
-    }
-
-    .tarjeta-equipo:hover .pista,
-    .tarjeta-equipo:focus-visible .pista,
-    .tarjeta-equipo.esta-activa .pista {
-      opacity: 0;
-      transform: translateY(-4px);
-    }
-
-    /* Quien pidió menos movimiento: sólo opacidad, sin escala ni desenfoque. */
-    @media (prefers-reduced-motion: reduce) {
-      .tarjeta-equipo .foto-equipo {
-        transition: opacity 0.2s linear;
-        transform: none;
-        filter: none;
-      }
-      .tarjeta-equipo .pista { transition: none; }
     }
 
     /* TEXTURA DEL BLOQUE ¿QUÉ ES? — la retícula de cruces del sitio
@@ -679,9 +606,8 @@
 
   <!-- EQUIPOS PARTICIPANTES: la consola la publica con los proyectos
        REGISTRADOS en /gran-cosecha (sección oculta por defecto; el script de
-       abajo la muestra si hay proyectos en el trimestre). Cada tarjeta monta
-       la imagen del proyecto; si trae foto, la tarjeta se enfoca o se toca y
-       la foto se revela encima. -->
+       abajo la muestra si hay proyectos en el trimestre). Cada tarjeta lleva
+       la inicial de su título, su equipo, su avance y sus riegos. -->
   <section id="equipos" class="bg-[#0a1e5e] text-white py-16 px-4 hidden">
     <div class="mx-auto max-w-6xl text-center">
       <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#facc15] tracking-wide">
@@ -689,11 +615,6 @@
       </h2>
       <p class="mt-4 text-sm sm:text-base text-gray-200 max-w-2xl mx-auto">
         Los equipos que ya están compitiendo en GRAN COSECHA LUXOR.
-      </p>
-      <!-- La invitación a revelar la foto sólo se muestra si AL MENOS un
-           equipo la trae: sin fotos, prometería un gesto que no existe. -->
-      <p id="equiposPista" class="hidden mt-3 text-xs sm:text-sm font-semibold uppercase tracking-wide text-[#facc15]">
-        Pasá el mouse o tocá una tarjeta para conocer al equipo
       </p>
       <div id="equiposLista" class="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
     </div>
@@ -899,25 +820,6 @@
         premiosLista.addEventListener('mouseout', (e) => {
           const img = e.target.closest('img[data-regalo]');
           if (img) img.src = 'regalo-' + img.dataset.regalo + '.png';
-        });
-      }
-
-      // Las tarjetas de equipo se ABREN al tocarlas: en el celular no hay
-      // hover, así que el clic alterna la clase que revela la foto (en
-      // escritorio la revela el CSS del :hover, y el clic la deja fija).
-      // Va con delegación en la lista, como los premios, para que
-      // sobreviva al repintado de pintarParticipantes al Guardar.
-      const equiposLista = document.getElementById('equiposLista');
-      if (equiposLista) {
-        equiposLista.addEventListener('click', (e) => {
-          const tarjeta = e.target.closest('.tarjeta-equipo.con-foto');
-          if (!tarjeta) return;
-          // Una sola abierta por vez: tocar otra cierra la anterior.
-          const abierta = tarjeta.classList.contains('esta-activa');
-          equiposLista
-            .querySelectorAll('.tarjeta-equipo.esta-activa')
-            .forEach((t) => t.classList.remove('esta-activa'));
-          if (!abierta) tarjeta.classList.add('esta-activa');
         });
       }
 
@@ -1134,35 +1036,20 @@
 
       /**
        * LOS PARTICIPANTES: los proyectos REGISTRADOS en la consola, del
-       * trimestre en curso, con su equipo, su avance y sus RIEGOS. La foto
-       * (si el Líder vinculó una tarjeta a ese proyecto) va encima, igual
-       * que siempre: sin imagen se respalda con la inicial del título.
+       * trimestre en curso, con su equipo, su avance y sus RIEGOS. La tarjeta
+       * se respalda con la inicial de su título: no hay fotos que revelar.
        */
       function pintarParticipantes(participantes) {
         var seccion = document.getElementById('equipos');
         var cont = document.getElementById('equiposLista');
-        var pistaSeccion = document.getElementById('equiposPista');
         if (!seccion || !cont || !Array.isArray(participantes)) return;
         var html = '';
-        var algunaConFoto = false;
         participantes.forEach(function (p) {
           var titulo = p && typeof p.titulo === 'string' ? p.titulo.trim() : '';
           if (!titulo) return;
-          var imagen = p && typeof p.imagen === 'string' ? p.imagen.trim() : '';
-          var foto = p && typeof p.foto === 'string' ? p.foto.trim() : '';
-          if (foto) algunaConFoto = true;
-          // La inicial va PINTADA debajo de la imagen del proyecto en todas
-          // las tarjetas: si la URL no carga, la cara se queda con la
-          // inicial en vez de un hueco navy.
-          var inicial = '<span class="inicial" aria-hidden="true">'
+          // La inicial del título, pintada a pantalla completa detrás del rótulo.
+          var cara = '<span class="inicial" aria-hidden="true">'
             + esc(titulo.charAt(0).toUpperCase()) + '</span>';
-          var cara = inicial
-            + (imagen
-              ? '<img src="' + esc(imagen) + '" alt="" loading="lazy" decoding="async" class="cara" />'
-              : '');
-          var revelado = foto
-            ? '<img src="' + esc(foto) + '" alt="Foto del equipo de ' + esc(titulo) + '" loading="lazy" decoding="async" class="foto-equipo" />'
-            : '';
           // El equipo (sólo nombres: los id nunca cruzan la función pública)
           // y debajo los dos números del proyecto: cómo va y cuántas veces lo
           // regaron los portales.
@@ -1181,20 +1068,12 @@
             + (miembros ? '<span class="mt-1 block text-sm text-gray-200">' + esc(miembros) + '</span>' : '')
             + datos
             + '</span>';
-          // Sólo con foto la tarjeta es un botón: sin nada que revelar no
-          // hay acción que ofrecer al teclado ni al toque.
-          html += foto
-            ? '<button type="button" class="tarjeta-equipo con-foto">'
-              + cara + revelado + rotulo + '<span class="pista">Ver foto</span></button>'
-            : '<div class="tarjeta-equipo">' + cara + rotulo + '</div>';
+          html += '<div class="tarjeta-equipo">' + cara + rotulo + '</div>';
         });
         // Sin proyectos registrados en el trimestre, la sección sigue oculta.
         if (html) {
           cont.innerHTML = html;
           seccion.classList.remove('hidden');
-          // La invitación a pasar el mouse sólo aparece si AL MENOS una
-          // tarjeta trae foto: sin fotos, prometería un gesto inútil.
-          if (pistaSeccion) pistaSeccion.classList.toggle('hidden', !algunaConFoto);
         }
       }
 

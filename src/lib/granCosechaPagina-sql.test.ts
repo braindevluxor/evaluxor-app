@@ -110,15 +110,6 @@ const CONTENIDO = {
     fondo: ''
   },
   premios: [{ puesto: '1° PUESTO', descripcion: 'Trofeo' }],
-  // La tarjeta de FOTOS: su `proyecto_id` se completa en el `beforeAll`,
-  // cuando ya existe el proyecto registrado al que se vincula.
-  equipos: [
-    {
-      proyecto_id: '',
-      imagen: 'https://supabase.test/gran-cosecha/cara.webp',
-      foto: 'https://supabase.test/gran-cosecha/equipo.webp'
-    }
-  ],
 }
 
 /** El trimestre en curso, igual que lo calcula la app y que el SQL. */
@@ -163,8 +154,8 @@ async function regar(proyectoId: string, usuario: string): Promise<void> {
 }
 
 const INSERT_CONTENIDO = `
-  insert into public.gran_cosecha_pagina (id, hero, premios, equipos)
-  values (true, $1, $2, $3)
+  insert into public.gran_cosecha_pagina (id, hero, premios)
+  values (true, $1, $2)
 `
 
 let db: PGlite
@@ -201,9 +192,6 @@ beforeAll(async () => {
   // Dos riegos al primero (dos "usuarios" distintos) y ninguno al resto.
   await regar(idConFoto, 'academia:1')
   await regar(idConFoto, 'desarrollo:2')
-
-  // La tarjeta de FOTOS queda atada al proyecto que sí tiene fotos.
-  CONTENIDO.equipos[0].proyecto_id = idConFoto
 
   // El Líder publica el primer contenido —con sesión y RLS de verdad, que es
   // como lo hace la consola—: el resto de los tests se apoya en esta fila.
@@ -256,8 +244,7 @@ async function guardarComoRol(usuario: string): Promise<void> {
   await conRol(usuario, async () => {
     await db.query(INSERT_CONTENIDO, [
       CONTENIDO.hero,
-      CONTENIDO.premios,
-      CONTENIDO.equipos
+      CONTENIDO.premios
     ])
   })
 }
@@ -328,8 +315,7 @@ describe('gran-cosecha-pagina.sql · RLS', () => {
       await expect(
         db.query(INSERT_CONTENIDO, [
           CONTENIDO.hero,
-          CONTENIDO.premios,
-          CONTENIDO.equipos
+          CONTENIDO.premios
         ])
       ).rejects.toThrow(/row-level security/i)
     })
@@ -407,19 +393,18 @@ describe('gran-cosecha-pagina.sql · la función pública', () => {
     })
   })
 
-  it('las fotos salen de la tarjeta vinculada; sin tarjeta salen null', async () => {
+  it('participantes NO trae fotos: ese dato lo retiró la página', async () => {
     await conAnon(async () => {
       const r = await db.query<{ r: Record<string, unknown> | null }>(
         `select public.ver_contenido_gran_cosecha() as r`
       )
       const participantes = (r.rows[0].r?.participantes ?? []) as Record<string, unknown>[]
-      const conFoto = participantes.find((p) => p.titulo === 'Huerto vertical') as Record<string, unknown>
-      const sinFoto = participantes.find((p) => p.titulo === 'Caja cero espera') as Record<string, unknown>
-      expect(conFoto.imagen).toBe('https://supabase.test/gran-cosecha/cara.webp')
-      expect(conFoto.foto).toBe('https://supabase.test/gran-cosecha/equipo.webp')
-      // El proyecto sin tarjeta se publica igual —es la regla—, sin foto.
-      expect(sinFoto.imagen).toBeNull()
-      expect(sinFoto.foto).toBeNull()
+      expect(participantes.length).toBeGreaterThan(0)
+      // Sólo título, equipo, avance, riegos e id: nada de fotos de tarjetas.
+      for (const p of participantes) {
+        expect(p.imagen).toBeUndefined()
+        expect(p.foto).toBeUndefined()
+      }
     })
   })
 

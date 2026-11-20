@@ -31,7 +31,7 @@ describe('gran cosecha · la página en la consola', () => {
   })
 
   it('la página toca las cuatro secciones de la landing', () => {
-    for (const bloque of ['Hero', 'Premios', 'Equipos participantes']) {
+    for (const bloque of ['Hero', 'Premios']) {
       expect(pagina, bloque).toContain(bloque)
     }
     expect(pagina).toContain('cargarContenidoPagina')
@@ -111,17 +111,6 @@ describe('gran cosecha · el módulo de datos', () => {
     premioRoto.premios[1].descripcion = ''
     expect(validarContenido(premioRoto)).toMatch(/premio 2/)
 
-    const tarjetaSinProyecto = structuredClone(CONTENIDO_BASE)
-    tarjetaSinProyecto.equipos = [{ proyecto_id: '', imagen: '', foto: '' }]
-    expect(validarContenido(tarjetaSinProyecto)).toMatch(/tarjeta 1/)
-
-    const dosTarjetasDelMismo = structuredClone(CONTENIDO_BASE)
-    dosTarjetasDelMismo.equipos = [
-      { proyecto_id: 'p1', imagen: '', foto: '' },
-      { proyecto_id: 'p1', imagen: '', foto: '' }
-    ]
-    expect(validarContenido(dosTarjetasDelMismo)).toMatch(/tarjeta 2/)
-
     const sinFecha = structuredClone(CONTENIDO_BASE)
     sinFecha.hero.fechaHastaMes = ''
     expect(validarContenido(sinFecha)).toMatch(/fecha de cierre/)
@@ -164,51 +153,28 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain("riegos === 1 ? 'riego' : 'riegos'")
   })
 
-  it('la tarjeta del equipo monta la imagen del proyecto y revela su foto', () => {
-    // Cada tarjeta lleva DOS caras: la imagen del proyecto (con la inicial
-    // pintada debajo por si la URL no carga)…
+  it('la tarjeta de participante lleva su inicial y su rótulo, sin fotos', () => {
+    // Con los datos de Proyectos ya no hay fotos que revelar: la tarjeta es
+    // un div con la inicial del título pintada de fondo…
+    expect(landing).toContain('<div class="tarjeta-equipo">')
     expect(landing).toContain('class="inicial"')
-    expect(landing).toContain('class="cara"')
-    // …y la foto del equipo, que se revela al pasar el mouse, al enfocar
-    // la tarjeta con el teclado o al tocarla en el celular.
-    expect(landing).toContain('class="foto-equipo"')
-    expect(landing).toContain('.tarjeta-equipo:hover .foto-equipo')
-    expect(landing).toContain('.tarjeta-equipo:focus-visible .foto-equipo')
-    // El clic alterna la clase (una sola abierta por vez): en táctil no
-    // hay hover, y en escritorio el clic deja la foto fija.
-    expect(landing).toContain("querySelectorAll('.tarjeta-equipo.esta-activa')")
-    expect(landing).toContain("classList.remove('esta-activa')")
-    // Sólo con foto la tarjeta es un botón: sin nada que revelar no hay
-    // acción que ofrecer. Con `\r?\n` porque el fin de línea del HTML
-    // depende del checkout (autocrlf en Windows) y no del contenido.
-    expect(landing).toMatch(/foto\r?\n {12}\? '<button type="button" class="tarjeta-equipo con-foto">'/)
-    // La invitación a pasar el mouse sólo aparece si algún equipo trae foto.
-    expect(landing).toContain('id="equiposPista"')
-    expect(landing).toContain('pistaSeccion.classList.toggle')
-    // Quien pidió menos movimiento ve sólo el cambio de opacidad.
-    expect(landing).toMatch(/\.tarjeta-equipo \.foto-equipo \{\r?\n {8}transition: opacity 0\.2s linear;/)
-    // El rótulo del equipo va con velo navy: se lee sobre cualquier foto.
+    // …y su rótulo con velo navy, que se lee sobre la inicial.
     expect(landing).toContain('rgba(6, 18, 56, 0.96)')
+    // Y no queda rastro del revelado de fotos: se fue con la sección del
+    // editor (y con el bloque de la landing que la usaba).
+    expect(landing).not.toContain('foto-equipo')
+    expect(landing).not.toContain('esta-activa')
+    expect(landing).not.toContain('equiposPista')
+    expect(landing).not.toContain('con-foto')
   })
 
-  it('cada tarjeta se edita con su proyecto y sus dos fotos', () => {
-    // El vínculo: cada tarjeta lleva el proyecto REGISTRADO al que pertenecen
-    // sus fotos; sin él la tarjeta no se publica.
-    expect(pagina).toContain('Elegí el proyecto de esta tarjeta')
-    expect(pagina).toContain('listarProyectos')
-    expect(pagina).toContain('Imagen del proyecto')
-    expect(pagina).toContain('Foto del equipo')
-    expect(pagina).toContain('subirFotoDeEquipo')
-    expect(pagina).toContain('quitarFotoDeEquipo')
-    // Las claves de subida por fila distinguen los dos campos.
-    expect(pagina).toContain('`equipo-${i}-${campo}`')
-    // La ruta de subida lleva uuid: las tarjetas no tienen cupos fijos.
-    expect(datos).toContain('pagina/equipos/${crypto.randomUUID()}')
-    // Una fila guardada con la versión vieja (nombre/sucursal, sin proyecto)
-    // se normaliza a la forma actual en vez de romper la consola.
-    expect(datos).toContain("proyecto_id: e?.proyecto_id ?? ''")
-    expect(datos).toContain("imagen: e?.imagen ?? ''")
-    expect(datos).toContain("foto: e?.foto ?? ''")
+  it('el editor ya no ofrece participantes: esos datos salen de Proyectos', () => {
+    // La sección entera se retiró: ni la tarjeta en la consola…
+    expect(pagina).not.toContain('titulo="Equipos participantes"')
+    expect(pagina).not.toContain('subirFotoEquipo')
+    // …ni el campo ni su helper en el data layer.
+    expect(datos).not.toContain('EquipoPagina')
+    expect(datos).not.toContain('subirFotoEquipo')
   })
 
   it('el hero tiene su carrusel, con velo y videos en mudo', () => {

@@ -7,10 +7,12 @@ import { supabase } from '../supabase'
  * La página de la Gran Cosecha es HTML estático: se sirve desde `dist/` y
  * queda FUERA del router de React, así que no puede usar esta sesión ni el
  * cliente de la app para mostrar algo. Lo que cambia en ella —el hero con su
- * carrusel, los premios, los equipos y las fotos— vive en UNA fila
+ * carrusel y los premios— vive en UNA fila
  * (`public.gran_cosecha_pagina`) y la página lo lee sola, por su cuenta, con
  * `ver_contenido_gran_cosecha` (la única función además de las de los
- * enlaces y el login que está abierta a `anon`).
+ * enlaces y el login que está abierta a `anon`). Lo que se ve de los
+ * PARTICIPANTES viene de otra parte: de `gran_cosecha_proyecto`, con su
+ * conteo de riegos.
  *
  * Todo lo visual se SUBE CONVERTIDO: las imágenes en WebP y los videos en
  * WebM, en el navegador, antes de llegar al bucket (ver `../convertirMedia`)
@@ -69,31 +71,9 @@ export interface PremioPagina {
   descripcion: string
 }
 
-/**
- * Las FOTOS de un participante de la sección «EQUIPOS PARTICIPANTES».
- *
- * Quien APARECE en la sección son los proyectos registrados en la consola
- * (`gran_cosecha_proyecto`): esta tarjeta sólo dice QUÉ fotos van en cada uno.
- * `proyecto_id` es ese vínculo —sin él la tarjeta no se publica, aunque el
- * proyecto aparezca igual, sin foto—. Las dos caras de la tarjeta: `imagen` es
- * la del PROYECTO (lo que se ve siempre) y `foto` es la del equipo, que se
- * revela al pasar el mouse (o al tocarla o enfocarla con el teclado). Las dos
- * son opcionales: sin imagen la tarjeta se respalda con la inicial del título,
- * y sin foto simplemente no hay nada que revelar.
- */
-export interface EquipoPagina {
-  /** El proyecto registrado al que pertenecen las fotos ('' = sin vincular). */
-  proyecto_id: string
-  /** Imagen del proyecto: la cara frontal de la tarjeta. */
-  imagen: string
-  /** Foto del equipo, revelada al interactuar con la tarjeta. */
-  foto: string
-}
-
 export interface ContenidoPagina {
   hero: HeroPagina
   premios: PremioPagina[]
-  equipos: EquipoPagina[]
 }
 
 /**
@@ -117,8 +97,7 @@ export const CONTENIDO_BASE: ContenidoPagina = {
     { puesto: '1° PUESTO', descripcion: 'Gran Premio Corporativo y Trofeo Luxor' },
     { puesto: '2° PUESTO', descripcion: 'Incentivo Especial para Todo el Equipo' },
     { puesto: '3° PUESTO', descripcion: 'Reconocimiento Destacado y Cesta Luxor' }
-  ],
-  equipos: []
+  ]
 }
 
 /**
@@ -131,7 +110,7 @@ export const CONTENIDO_BASE: ContenidoPagina = {
 export async function cargarContenidoPagina(): Promise<ContenidoPagina> {
   const { data, error } = await supabase
     .from('gran_cosecha_pagina')
-    .select('hero, premios, equipos')
+    .select('hero, premios')
     .eq('id', true)
     .maybeSingle()
   if (error) throw error
@@ -142,18 +121,7 @@ export async function cargarContenidoPagina(): Promise<ContenidoPagina> {
   if (!Array.isArray(hero.carrusel)) hero.carrusel = []
   return {
     hero,
-    premios: Array.isArray(data.premios) ? (data.premios as PremioPagina[]) : [],
-    // Una fila guardada con la versión vieja de las tarjetas traía `nombre` y
-    // `sucursal` (ya no: el nombre del participante lo manda su proyecto) y no
-    // traía `proyecto_id`. Se normaliza a la forma actual para que la consola
-    // no pinte `undefined` y la validación pueda decir qué falta vincular.
-    equipos: Array.isArray(data.equipos)
-      ? (data.equipos as Partial<EquipoPagina>[]).map((e) => ({
-          proyecto_id: e?.proyecto_id ?? '',
-          imagen: e?.imagen ?? '',
-          foto: e?.foto ?? ''
-        }))
-      : []
+    premios: Array.isArray(data.premios) ? (data.premios as PremioPagina[]) : []
   }
 }
 
@@ -192,18 +160,6 @@ export function validarContenido(contenido: ContenidoPagina): string | null {
     if (!premio.puesto.trim() || !premio.descripcion.trim()) {
       return `El premio ${i + 1} necesita su puesto y su descripción.`
     }
-  }
-  const vinculados = new Set<string>()
-  for (const [i, equipo] of contenido.equipos.entries()) {
-    if (!equipo.proyecto_id.trim()) {
-      return `La tarjeta ${i + 1} no está vinculada a un proyecto: elegí cuál proyecto publica o quitá la tarjeta.`
-    }
-    // Dos tarjetas del mismo proyecto: la página sólo puede usar la primera
-    // (la función toma una sola), así que la segunda se ignoraría en silencio.
-    if (vinculados.has(equipo.proyecto_id)) {
-      return `El proyecto de la tarjeta ${i + 1} ya está en otra tarjeta: cada proyecto lleva una sola.`
-    }
-    vinculados.add(equipo.proyecto_id)
   }
   return null
 }
@@ -253,34 +209,6 @@ export async function subirFotoPagina(slot: FotoPagina, archivo: File, urlActual
   // Los slots viejos guardaban jpg/png: al migrar a webp el archivo anterior
   // queda huérfano en el bucket. Se borra sólo si es otro distinto del recién
   // subido, y un fallo acá no deshace la subida.
-  const anterior = rutaDeUrlPublica(urlActual)
-  if (anterior && anterior !== ruta) {
-    await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
-  }
-  return url
-}
-
-/**
- * Sube una de las fotos de un equipo (la del proyecto o la del equipo) y
- * devuelve su URL pública.
- *
- * La ruta lleva un uuid y no el nombre del equipo: los equipos no tienen
- * cupos fijos —se agregan y se quitan desde la consola— y dos equipos pueden
- * llamarse igual, así que el nombre del archivo no puede salir de ellos
- * (mismo criterio que el carrusel). La foto ANTERIOR del mismo campo sí se
- * borra: si era nuestra, queda huérfana en el bucket como en los slots
- * fijos, y un fallo acá no deshace la subida.
- */
-export async function subirFotoEquipo(archivo: File, urlActual: string): Promise<string> {
-  const webp = await convertirImagenAWebP(archivo)
-  const ruta = `pagina/equipos/${crypto.randomUUID()}.webp`
-  const { error } = await supabase.storage.from(BUCKET).upload(ruta, webp, {
-    contentType: 'image/webp',
-    upsert: true
-  })
-  if (error) throw error
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
-  const url = `${data.publicUrl}?v=${Date.now()}`
   const anterior = rutaDeUrlPublica(urlActual)
   if (anterior && anterior !== ruta) {
     await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)

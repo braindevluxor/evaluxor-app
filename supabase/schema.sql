@@ -6257,10 +6257,8 @@ grant  execute on function public.riegos_de_la_cosecha() to authenticated;
 --
 -- QUIÉN APARECE EN LA SECCIÓN DE PARTICIPANTES: los proyectos REGISTRADOS en
 -- la consola (`gran_cosecha_proyecto`), NO lo que se escriba a mano — la
--- función los arma abajo con su conteo de riegos. Esta fila sólo aporta las
--- FOTOS: cada tarjeta de `equipos` lleva `proyecto_id` para decir cuáles fotos
--- van en cada proyecto; sin tarjeta vinculada, el proyecto se publica igual,
--- sin foto.
+-- función los arma abajo con su equipo, su avance y su conteo de riegos. Esta
+-- fila sólo aporta el hero y los premios.
 --
 -- Escribe sólo el LÍDER (`es_lider()`), la misma cerradura del menú de
 -- consola (`SoloLider`), y cada sección nace con un `check` de forma: ni una
@@ -6283,9 +6281,10 @@ create table if not exists public.gran_cosecha_pagina (
     constraint gran_cosecha_pagina_hero check (jsonb_typeof(hero) = 'object'),
   premios jsonb not null default '[]'::jsonb
     constraint gran_cosecha_pagina_premios check (jsonb_typeof(premios) = 'array'),
-  -- Las FOTOS de un participante: `proyecto_id` (el proyecto registrado al
-  -- que pertenecen) + la imagen del proyecto + la foto del equipo. El nombre
-  -- y los datos no se guardan acá: los manda el proyecto.
+  -- LEGACY: las tarjetas de fotos de participantes, retiradas con la sección
+  -- (los datos del participante los manda `gran_cosecha_proyecto`). La
+  -- columna queda con su `check` por si hay filas viejas; no la lee ni la
+  -- escribe nadie.
   equipos jsonb not null default '[]'::jsonb
     constraint gran_cosecha_pagina_equipos check (jsonb_typeof(equipos) = 'array'),
   imagenes jsonb not null default '{}'::jsonb
@@ -6327,9 +6326,8 @@ as $$
     'premios', g.premios,
     -- LOS PARTICIPANTES: los proyectos REGISTRADOS en la consola, del
     -- trimestre en curso y sin cancelados («los que ya están compitiendo»).
-    -- Cada uno trae SU conteo de riegos —sólo el número, la tabla está
-    -- cerrada— y, si el Líder le vinculó una tarjeta en «Página», las dos
-    -- fotos de esa tarjeta (null si no hay: la página usa su respaldo).
+    -- Cada uno trae SU conteo de riegos: sólo el número, la tabla está
+    -- cerrada y quién regó no es contenido público.
     'participantes', (
       select coalesce(jsonb_agg(
         jsonb_build_object(
@@ -6348,20 +6346,11 @@ as $$
             select count(*)
             from public.gran_cosecha_riego r
             where r.proyecto_id = pr.id
-          ),
-          'imagen', c.tarjeta ->> 'imagen',
-          'foto', c.tarjeta ->> 'foto'
+          )
         )
         order by pr.avance desc, pr.created_at
       ), '[]'::jsonb)
       from public.gran_cosecha_proyecto pr
-      -- La tarjeta de FOTOS vinculada a ESTE proyecto (si hay), o null.
-      left join lateral (
-        select t.tarjeta
-          from jsonb_array_elements(coalesce(g.equipos, '[]'::jsonb)) as t (tarjeta)
-         where t.tarjeta ->> 'proyecto_id' = pr.id::text
-         limit 1
-      ) c on true
       where pr.periodo = to_char(now(), 'YYYY') || '-T' || to_char(now(), 'Q')
         and pr.estado <> 'CANCELADO'
     )
