@@ -378,7 +378,12 @@ export async function eliminarProyecto(
     .select('id')
   if (error) throw errorDeTabla(error, 'No se pudo borrar el proyecto.')
   if (!data?.length) {
-    throw new Error('No podés borrar este proyecto: lo puede borrar su equipo o un juez / el líder.')
+    // Con el botón puesto (la pantalla sólo lo ofrece a quien puede editar),
+    // cero filas casi siempre es la política de borrado que todavía no existe
+    // en la base: decirlo ahorra una búsqueda de culpables.
+    throw new Error(
+      'No se pudo borrar el proyecto. Si recién actualizaste la app, reaplicá el bloque gran-cosecha.sql en el SQL Editor de Supabase (crea la política de borrado); si no, este proyecto no te corresponde borrarlo.'
+    )
   }
 
   const rutas = [proyecto.imagen, proyecto.foto].map(rutaDeObjeto).filter(Boolean)
