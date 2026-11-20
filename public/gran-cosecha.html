@@ -245,13 +245,13 @@
       .tarjeta-equipo .pista { transition: none; }
     }
 
-    /* TEXTURA DEL BLOQUE ¿QUÉ ES? — la retícula de cruces del sitio
-       corporativo (public/fondo.svg, grises al 8 %), con el MISMO
-       tratamiento que allá: cover sin repetir y attachment fixed, para
-       que la retícula quede quieta mientras la sección pasa. Va con
-       background-image y NO con el shorthand `background`, que borraría
-       el background-color: el vinotinto de Tailwind sigue de base y la
-       textura pinta encima. */
+    /* TEXTURA DE FONDO (bloque rojo de «¿QUÉ ES?» y sección de
+       PARTICIPANTES) — la retícula de cruces del sitio corporativo
+       (public/fondo.svg, grises al 8 %), con el MISMO tratamiento en los dos:
+       cover sin repetir y attachment fixed, para que la retícula quede quieta
+       mientras la sección pasa. Va con background-image y NO con el
+       shorthand `background`, que borraría el background-color: el color de
+       Tailwind sigue de base y la textura pinta encima. */
     .textura-cruces {
       background-image: url('fondo.svg');
       background-size: cover;
@@ -681,8 +681,12 @@
        REGISTRADOS en /gran-cosecha (sección oculta por defecto; el script de
        abajo la muestra si hay proyectos en el trimestre). Cada tarjeta monta
        la imagen del proyecto; si trae foto, la tarjeta se enfoca o se toca y
-       la foto se revela encima. -->
-  <section id="equipos" class="bg-[#0a1e5e] text-white py-16 px-4 hidden">
+       la foto se revela encima.
+       Va en el AZUL PRIMARIO #28315F —el de los botones de EvaLuxor— y con
+       la MISMA textura de fondo.svg que el bloque rojo de «¿QUÉ ES?»: la
+       retícula va SOBRE el color de fondo (background-image, nunca el
+       shorthand `background`, que lo borraría). -->
+  <section id="equipos" class="bg-[#28315F] textura-cruces text-white py-16 px-4 hidden">
     <div class="mx-auto max-w-6xl text-center">
       <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#facc15] tracking-wide">
         EQUIPOS PARTICIPANTES

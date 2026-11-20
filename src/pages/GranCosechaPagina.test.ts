@@ -142,6 +142,16 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain("seccion.classList.remove('hidden')")
   })
 
+  it('la sección de participantes va en el azul primario y con la textura de fondo.svg', () => {
+    // Azul #28315F —el mismo de los botones de EvaLuxor (HEX_PRIMARY)— y la
+    // MISMA retícula de cruces que el bloque rojo de «¿QUÉ ES?»: fondo.svg
+    // pintado SOBRE el color de fondo de la sección.
+    expect(landing).toMatch(/<section id="equipos" class="[^"]*\bbg-\[#28315F\]/)
+    expect(landing).toMatch(/<section id="equipos" class="[^"]*\btextura-cruces\b/)
+    // La textura es la misma que usa el bloque rojo: una sola clase.
+    expect(landing.match(/textura-cruces/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+  })
+
   it('cada participante lleva su avance y sus RIEGOS con regadera', () => {
     // El "like" de jardín: el conteo que mandan Academia/Desarrollo Luxor,
     // pintado en el proyecto que se registró en /gran-cosecha/proyectos.
