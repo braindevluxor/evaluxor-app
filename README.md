@@ -45,6 +45,8 @@ La invariante no vive en el código: la tabla `gran_cosecha_riego` tiene por PRI
 
 **También se riega desde EvaLuxor**: en `/gran-cosecha/proyectos`, la tarjeta de cada proyecto y su detalle traen el chip de conteo y el botón «Regar». Pasa por dos RPC con `grant ... to authenticated` — `regar_proyecto(uuid)` (escribe; guarda el `usuario` de la **sesión**, sin parámetro de identidad posible) y `riegos_de_la_cosecha()` (lee el mapa `{"<pid>": {"riegos": n, "mio": bool}}`; nunca devuelve quién regó).
 
+**Las dos fotos del participante** —la imagen del proyecto (la cara de la tarjeta, siempre visible) y la foto del equipo (que la landing revela al tocarla)— **se cargan en el propio proyecto**, en el alta o la edición de `/gran-cosecha/proyectos`, y se guardan en `gran_cosecha_proyecto.imagen` / `.foto`. Suben al bucket `gran-cosecha` con ruta `proyectos/<uuid>.webp`: política propia del bucket para que cualquier sesión que pueda editar el proyecto cambie sus fotos, y sólo bajo ese prefijo. Vacías, la tarjeta usa la inicial del título.
+
 **Endpoint**: Edge Function `registrar-riego`
 
 ```

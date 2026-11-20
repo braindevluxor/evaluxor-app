@@ -663,3 +663,45 @@ describe('gran-cosecha.sql · los riegos', () => {
     )
   })
 })
+
+describe('gran-cosecha.sql · las fotos del proyecto', () => {
+  it('nacen vacías, las cambia el que edita el proyecto y no ensucian la bitácora', async () => {
+    const id = await presentar({ titulo: 'Proyecto con fotos' })
+
+    // El default es cadena vacía: la tarjeta de la landing usa la inicial.
+    const inicial = await db.query<{ imagen: string; foto: string }>(
+      `select imagen, foto from public.gran_cosecha_proyecto where id = $1`,
+      [id]
+    )
+    expect(inicial.rows[0]).toEqual({ imagen: '', foto: '' })
+
+    // El creador cambia sus fotos: la RLS de UPDATE es por fila y cubre las
+    // columnas nuevas sin tocar políticas…
+    await conRol(EVALUADOR, async () => {
+      await db.query(
+        `update public.gran_cosecha_proyecto
+            set imagen = 'https://supabase.test/proyectos/cara.webp',
+                foto   = 'https://supabase.test/proyectos/equipo.webp'
+          where id = $1`,
+        [id]
+      )
+    })
+
+    const despues = await db.query<{ imagen: string; foto: string }>(
+      `select imagen, foto from public.gran_cosecha_proyecto where id = $1`,
+      [id]
+    )
+    expect(despues.rows[0]).toEqual({
+      imagen: 'https://supabase.test/proyectos/cara.webp',
+      foto: 'https://supabase.test/proyectos/equipo.webp'
+    })
+
+    // …y cambiar una foto NO deja fila en la bitácora: es cosmético, no un
+    // avance ni una edición de contenido. Sigue habiendo sólo el ALTA.
+    const filas = await db.query<{ tipo: string }>(
+      `select tipo from public.gran_cosecha_bitacora where proyecto_id = $1 order by created_at`,
+      [id]
+    )
+    expect(filas.rows.map((f) => f.tipo)).toEqual(['ALTA'])
+  })
+})

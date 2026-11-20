@@ -4,6 +4,7 @@ import { avisar } from '../lib/aviso'
 import {
   Badge,
   Button,
+  CampoFoto,
   EmptyState,
   Field,
   Input,
@@ -29,6 +30,7 @@ import {
   periodosRecientes,
   regarProyecto,
   riegosDeLaCosecha,
+  subirFotoProyecto,
   validarEquipo,
   type CambiosProyecto,
   type EstadoProyecto,
@@ -462,6 +464,36 @@ function DetalleProyecto({
         <p className="text-sm text-slate-500">Sin descripción.</p>
       )}
 
+      {/* Las dos fotos del proyecto, si las trae: se cargan en el formulario. */}
+      {proyecto.imagen || proyecto.foto ? (
+        <div className="flex flex-wrap gap-3">
+          {proyecto.imagen ? (
+            <figure className="w-40">
+              <img
+                src={proyecto.imagen}
+                alt="Imagen del proyecto"
+                className="h-24 w-full rounded-xl border border-slate-200 object-cover"
+              />
+              <figcaption className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Imagen del proyecto
+              </figcaption>
+            </figure>
+          ) : null}
+          {proyecto.foto ? (
+            <figure className="w-40">
+              <img
+                src={proyecto.foto}
+                alt="Foto del equipo"
+                className="h-24 w-full rounded-xl border border-slate-200 object-cover"
+              />
+              <figcaption className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Foto del equipo
+              </figcaption>
+            </figure>
+          ) : null}
+        </div>
+      ) : null}
+
       {/* El riego también desde el detalle: mismo chip, mismo botón. */}
       <RiegoProyecto datos={riegos} ocupado={ocupado} onRegar={onRegar} />
 
@@ -565,6 +597,9 @@ function FormProyecto({
   const [descripcion, setDescripcion] = useState(proyecto?.descripcion ?? '')
   const [periodo, setPeriodo] = useState(proyecto?.periodo ?? periodoDeHoy())
   const [elegidos, setElegidos] = useState<MiembroEquipo[]>(proyecto?.miembros ?? [])
+  const [imagen, setImagen] = useState(proyecto?.imagen ?? '')
+  const [foto, setFoto] = useState(proyecto?.foto ?? '')
+  const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
   const [busqueda, setBusqueda] = useState('')
   const [guardando, setGuardando] = useState(false)
 
@@ -580,6 +615,22 @@ function FormProyecto({
         ? prev.filter((m) => m.usuario_id !== c.id)
         : [...prev, { usuario_id: c.id, nombre: c.nombre || c.usuario }]
     )
+
+  /** Sube la foto elegida y la deja en el estado del formulario. */
+  const subirFoto = async (campo: 'imagen' | 'foto', archivo: File | undefined) => {
+    if (!archivo) return
+    setSubiendoFoto(campo)
+    try {
+      const url = await subirFotoProyecto(archivo, campo === 'imagen' ? imagen : foto)
+      if (campo === 'imagen') setImagen(url)
+      else setFoto(url)
+      avisar('Foto subida. Tocá el botón de guardar para publicarla.')
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo subir la foto.', 'error')
+    } finally {
+      setSubiendoFoto(null)
+    }
+  }
 
   return (
     <Modal
@@ -600,7 +651,9 @@ function FormProyecto({
                 titulo: titulo.trim(),
                 descripcion: descripcion.trim(),
                 periodo,
-                miembros: elegidos
+                miembros: elegidos,
+                imagen,
+                foto
               })
                 .catch(() => undefined)
                 .finally(() => setGuardando(false))
@@ -627,6 +680,28 @@ function FormProyecto({
             ))}
           </Select>
         </Field>
+
+        {/* Las DOS fotos que la landing del participante muestra: la del
+            proyecto (la cara, siempre visible) y la del equipo (se revela al
+            tocarla). Ya suben al bucket público; se guardan con el botón. */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <CampoFoto
+            etiqueta="Imagen del proyecto"
+            url={imagen}
+            vacio="Sin imagen: la landing usa la inicial del título"
+            ocupado={subiendoFoto === 'imagen'}
+            onArchivo={(archivo) => void subirFoto('imagen', archivo)}
+            onQuitar={() => setImagen('')}
+          />
+          <CampoFoto
+            etiqueta="Foto del equipo"
+            url={foto}
+            vacio="Sin foto: no hay nada que revelar"
+            ocupado={subiendoFoto === 'foto'}
+            onArchivo={(archivo) => void subirFoto('foto', archivo)}
+            onQuitar={() => setFoto('')}
+          />
+        </div>
 
         <Field
           label={`Equipo (${elegidos.length})`}

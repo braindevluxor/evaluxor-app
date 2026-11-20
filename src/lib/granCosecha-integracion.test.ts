@@ -83,6 +83,24 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(datos).toContain("supabase.rpc('riegos_de_la_cosecha'")
     expect(pagina).not.toContain('supabase.rpc(')
   })
+
+  it('las fotos del participante se cargan en el PROYECTO, no en la Página', () => {
+    const paginaProyecto = fuente('../pages/GranCosecha.tsx')
+    const datosProyecto = fuente('./data/granCosecha.ts')
+    const editorPagina = fuente('../pages/GranCosechaPagina.tsx')
+
+    // El formulario del proyecto (alta y edición) ofrece las dos fotos…
+    expect(paginaProyecto).toContain('Imagen del proyecto')
+    expect(paginaProyecto).toContain('Foto del equipo')
+    expect(paginaProyecto).toContain('subirFotoProyecto')
+    // …subidas por el data layer al prefijo `proyectos/` del bucket…
+    expect(datosProyecto).toContain('subirFotoProyecto')
+    expect(datosProyecto).toContain('proyectos/')
+    // …y el editor de la Página ya no las toca: ese dato lo manda Proyectos.
+    expect(editorPagina).not.toContain('Imagen del proyecto')
+    expect(editorPagina).not.toContain('subirFotoEquipo')
+    expect(editorPagina).toContain('CampoFoto')
+  })
 })
 
 describe('gran cosecha · el rol que lo sostiene', () => {

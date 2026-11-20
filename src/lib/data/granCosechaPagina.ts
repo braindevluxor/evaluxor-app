@@ -170,7 +170,7 @@ export function validarContenido(contenido: ContenidoPagina): string | null {
  */
 export type FotoPagina = 'fondo'
 
-const BUCKET = 'gran-cosecha'
+export const BUCKET = 'gran-cosecha'
 /** Extensión del archivo ya convertido, según el tipo que salió de la conversión. */
 const EXT_POR_TIPO = { imagen: 'webp', video: 'webm' } as const
 

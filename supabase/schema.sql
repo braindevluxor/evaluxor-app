@@ -4301,10 +4301,11 @@ create policy departamentos_centralizados_select on public.departamentos_central
 drop policy if exists "departamentos_centralizados_lider" on public.departamentos_centralizados;
 create policy departamentos_centralizados_lider on public.departamentos_centralizados for all using (public.es_lider()) with check (public.es_lider());
 
--- storage.objects (26 políticas: 11 distintas de fotos, cada una re-declarada
+-- storage.objects (27 políticas: 11 distintas de fotos, cada una re-declarada
 -- por el bloque que la trae y por `reactivar-politicas.sql` —7 de evidencias
--- e incidencias + 4 de la pre-entrega—, y 4 que sólo se declaran en su
--- propio bloque: 2 de la página de la Gran Cosecha y 2 del menú)
+-- e incidencias + 4 de la pre-entrega—, y 5 que sólo se declaran en su
+-- propio bloque: 3 de la Gran Cosecha (la página y las fotos de proyecto) y
+-- 2 del menú)
 -- (storage.objects ya tiene RLS; solo se reponen sus polÃ­ticas)
 drop policy if exists "evidencias_select" on storage.objects;
 create policy "evidencias_select" on storage.objects for select to authenticated using (bucket_id = 'evidencias');
@@ -4829,7 +4830,7 @@ order by c.relrowsecurity, n.nspname || '.' || c.relname;
 -- ----------------------------------------------------------------------------
 -- 2) Las politicas del repo, una por fila
 -- ----------------------------------------------------------------------------
--- Si esta consulta NO devuelve filas, estan las 68. Cada fila que aparezca es
+-- Si esta consulta NO devuelve filas, estan las 69. Cada fila que aparezca es
 -- una politica que falta: se creo la tabla pero no su regla, y queda abierta o
 -- inaccesible segun el caso.
 with esperadas (politica, tabla) as (
@@ -4899,6 +4900,7 @@ with esperadas (politica, tabla) as (
     ('gran_cosecha_pagina_lider', 'public.gran_cosecha_pagina'),
     ('gran_cosecha_pagina_fotos_select', 'storage.objects'),
     ('gran_cosecha_pagina_fotos_lider', 'storage.objects'),
+    ('gran_cosecha_fotos_proyecto', 'storage.objects'),
     ('menu_productos_encargado', 'public.menu_productos'),
     ('menu_fotos_select', 'storage.objects'),
     ('menu_fotos_encargado', 'storage.objects')
@@ -5845,7 +5847,10 @@ end $$;
 -- TRES TABLAS Y UNA REGLA DE ACCESO
 --
 --  * `gran_cosecha_proyecto` es la ficha: el trimestre en que participa
---    (`2026-T1`…`2026-T4`), el título, la descripción, el equipo y cómo va.
+--    (`2026-T1`…`2026-T4`), el título, la descripción, el equipo, cómo va y
+--    sus DOS fotos (`imagen` = la cara de la tarjeta en la landing; `foto` =
+--    la del equipo, que la página revela al tocarla). Vacías, la tarjeta usa
+--    la inicial del título.
 --    El equipo va en `miembros` (jsonb) y no en una tabla aparte porque el
 --    "mínimo 3" es una regla del PROYECTO: así entra en un `check` y no se
 --    puede guardar un proyecto sin equipo ni borrarle gente hasta dejarlo en
@@ -5938,6 +5943,18 @@ create table if not exists public.gran_cosecha_proyecto (
 
 create index if not exists idx_gran_cosecha_proyecto_periodo
   on public.gran_cosecha_proyecto (periodo, estado);
+
+-- Las DOS FOTOS del participante, ahora en el PROYECTO (antes vivían en la
+-- Página y se migraron acá, porque el dato del participante lo manda la
+-- consola de Proyectos): `imagen` es la del proyecto —la cara de la tarjeta,
+-- siempre visible— y `foto` la del equipo, que la landing revela al pasar el
+-- mouse. Vacías = la tarjeta usa la inicial del título. Las edita el que
+-- puede editar el proyecto (la RLS de UPDATE es por fila, así que cubre estas
+-- columnas sin tocar políticas).
+-- `if not exists` porque la tabla ya existe en bases instaladas.
+alter table public.gran_cosecha_proyecto
+  add column if not exists imagen text not null default '',
+  add column if not exists foto   text not null default '';
 
 create table if not exists public.gran_cosecha_bitacora (
   id uuid primary key default gen_random_uuid(),
@@ -6248,8 +6265,8 @@ grant  execute on function public.riegos_de_la_cosecha() to authenticated;
 --
 -- `public/gran-cosecha.html` es una landing estática: se sirve desde `dist/`
 -- y queda FUERA del router de React, así que no puede usar el cliente de la
--- app ni la sesión de nadie. Lo que cambia en esa página —el hero, los
--- premios, las tarjetas de participantes y las fotos— vive acá, en UNA sola
+-- app ni la sesión de nadie. Lo que cambia en esa página —el hero con su
+-- carrusel, los premios y las tarjetas de participantes— vive acá, en UNA sola
 -- fila, y la página lo lee con `ver_contenido_gran_cosecha`: una función
 -- `security definer` con `grant ... to anon`, el mismo camino de lo público
 -- que usan `ver_conciliacion_compartida` y `ver_cargos_compartidos`. En este
@@ -6346,7 +6363,11 @@ as $$
             select count(*)
             from public.gran_cosecha_riego r
             where r.proyecto_id = pr.id
-          )
+          ),
+          -- Las dos fotos, guardadas EN EL PROYECTO (las edita la consola de
+          -- Proyectos): vacías, la tarjeta usa la inicial del título.
+          'imagen', pr.imagen,
+          'foto', pr.foto
         )
         order by pr.avance desc, pr.created_at
       ), '[]'::jsonb)
@@ -6386,6 +6407,16 @@ create policy gran_cosecha_pagina_fotos_lider on storage.objects
   for all to authenticated
   using (bucket_id = 'gran-cosecha' and public.es_lider())
   with check (bucket_id = 'gran-cosecha' and public.es_lider());
+
+-- …salvo las FOTOS DE UN PROYECTO: el que puede editar el proyecto puede
+-- cambiar sus fotos, y sólo bajo `proyectos/` (rutas con uuid). Las
+-- políticas de `permissive` se UNEN, así que el Líder conserva todo lo de
+-- arriba y cualquier otra sesión queda limitada a ese prefijo.
+drop policy if exists gran_cosecha_fotos_proyecto on storage.objects;
+create policy gran_cosecha_fotos_proyecto on storage.objects
+  for all to authenticated
+  using (bucket_id = 'gran-cosecha' and name like 'proyectos/%')
+  with check (bucket_id = 'gran-cosecha' and name like 'proyectos/%');
 
 -- ###########################################################################
 -- Archivo consolidado: menu-sucursal.sql

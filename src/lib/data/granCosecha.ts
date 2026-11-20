@@ -1,4 +1,6 @@
 import { supabase } from '../supabase'
+import { convertirImagenAWebP } from '../convertirMedia'
+import { BUCKET } from './granCosechaPagina'
 import { listarUsuarios, type ProfileVista } from './usuarios'
 
 /**
@@ -55,6 +57,14 @@ export interface ProyectoGranCosecha {
   /** La nota del último avance; el historial completo está en la bitácora. */
   avance_nota: string | null
   estado: EstadoProyecto
+  /**
+   * Las DOS fotos del participante en la landing: `imagen` es la del proyecto
+   * (la cara de la tarjeta, siempre visible) y `foto` la del equipo, que la
+   * página revela al pasar el mouse. Vacías = la tarjeta usa la inicial.
+   * Se editan en el propio proyecto (alta o edición).
+   */
+  imagen: string
+  foto: string
   creador_id: string | null
   created_at: string
   updated_at: string
@@ -239,6 +249,9 @@ export interface NuevoProyecto {
   titulo: string
   descripcion: string
   miembros: MiembroEquipo[]
+  /** Las dos fotos de la landing: vacías, la tarjeta usa su inicial. */
+  imagen: string
+  foto: string
 }
 
 /**
@@ -259,6 +272,8 @@ export async function crearProyecto(entrada: NuevoProyecto, creadorId: string): 
       miembros: entrada.miembros,
       avance: 0,
       estado: 'PROPUESTA',
+      imagen: entrada.imagen,
+      foto: entrada.foto,
       creador_id: creadorId
     })
     .select('*')
@@ -269,7 +284,7 @@ export async function crearProyecto(entrada: NuevoProyecto, creadorId: string): 
 }
 
 /**
- * Un cambio en el proyecto: datos, estado, equipo o avance.
+ * Un cambio en el proyecto: datos, estado, equipo, avance o fotos.
  *
  * Sólo se manda lo que cambió. No por el trigger —él compara campo por campo
  * y un valor idéntico no genera fila—, sino para que el `update` no pise una
@@ -283,6 +298,8 @@ export interface CambiosProyecto {
   miembros?: MiembroEquipo[]
   avance?: number
   avance_nota?: string
+  imagen?: string
+  foto?: string
 }
 
 /**
@@ -366,4 +383,34 @@ export async function regarProyecto(
   }
   const r = data as { ya_regado?: boolean; riegos?: number } | null
   return { ya_regado: Boolean(r?.ya_regado), riegos: Number(r?.riegos ?? 0) }
+}
+
+/**
+ * Sube una de las DOS fotos del proyecto (la imagen o la del equipo) y
+ * devuelve su URL pública.
+ *
+ * Va al bucket de la landing bajo `proyectos/…` con nombre uuid —dos subidas
+ * nunca comparten ruta, como el carrusel— y la URL anterior del MISMO campo se
+ * borra si era nuestra (queda huérfana sólo si el fallo es de la red). Va
+ * convertida a WebP al vuelo, igual que todo lo que sube la app.
+ *
+ * El prefijo `proyectos/` es el que la política del bucket abre para cualquier
+ * sesión: el que puede editar el proyecto puede cambiar sus fotos.
+ */
+export async function subirFotoProyecto(archivo: File, urlActual: string): Promise<string> {
+  const webp = await convertirImagenAWebP(archivo)
+  const ruta = `proyectos/${crypto.randomUUID()}.webp`
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, webp, {
+    contentType: 'image/webp',
+    upsert: true
+  })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  const url = `${data.publicUrl}?v=${Date.now()}`
+  const marca = `/object/public/${BUCKET}/`
+  const anterior = urlActual.includes(marca) ? urlActual.split(marca)[1]?.split('?')[0] : ''
+  if (anterior && anterior.startsWith('proyectos/')) {
+    await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
+  }
+  return url
 }

@@ -153,19 +153,31 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toContain("riegos === 1 ? 'riego' : 'riegos'")
   })
 
-  it('la tarjeta de participante lleva su inicial y su rótulo, sin fotos', () => {
-    // Con los datos de Proyectos ya no hay fotos que revelar: la tarjeta es
-    // un div con la inicial del título pintada de fondo…
-    expect(landing).toContain('<div class="tarjeta-equipo">')
+  it('la tarjeta del participante monta la imagen del proyecto y revela su foto', () => {
+    // Cada tarjeta lleva DOS caras: la imagen del proyecto (con la inicial
+    // pintada debajo por si la URL no carga)…
     expect(landing).toContain('class="inicial"')
-    // …y su rótulo con velo navy, que se lee sobre la inicial.
+    expect(landing).toContain('class="cara"')
+    // …y la foto del equipo, que se revela al pasar el mouse, al enfocar
+    // la tarjeta con el teclado o al tocarla en el celular.
+    expect(landing).toContain('class="foto-equipo"')
+    expect(landing).toContain('.tarjeta-equipo:hover .foto-equipo')
+    expect(landing).toContain('.tarjeta-equipo:focus-visible .foto-equipo')
+    // El clic alterna la clase (una sola abierta por vez): en táctil no
+    // hay hover, y en escritorio el clic deja la foto fija.
+    expect(landing).toContain("querySelectorAll('.tarjeta-equipo.esta-activa')")
+    expect(landing).toContain("classList.remove('esta-activa')")
+    // Sólo con foto la tarjeta es un botón: sin nada que revelar no hay
+    // acción que ofrecer. Con `\r?\n` porque el fin de línea del HTML
+    // depende del checkout (autocrlf en Windows) y no del contenido.
+    expect(landing).toMatch(/foto\r?\n {12}\? '<button type="button" class="tarjeta-equipo con-foto">/)
+    // La invitación a pasar el mouse sólo aparece si algún equipo trae foto.
+    expect(landing).toContain('id="equiposPista"')
+    expect(landing).toContain('pistaSeccion.classList.toggle')
+    // Quien pidió menos movimiento ve sólo el cambio de opacidad.
+    expect(landing).toMatch(/\.tarjeta-equipo \.foto-equipo \{\r?\n {8}transition: opacity 0\.2s linear;/)
+    // El rótulo del participante va con velo navy: se lee sobre cualquier foto.
     expect(landing).toContain('rgba(6, 18, 56, 0.96)')
-    // Y no queda rastro del revelado de fotos: se fue con la sección del
-    // editor (y con el bloque de la landing que la usaba).
-    expect(landing).not.toContain('foto-equipo')
-    expect(landing).not.toContain('esta-activa')
-    expect(landing).not.toContain('equiposPista')
-    expect(landing).not.toContain('con-foto')
   })
 
   it('el editor ya no ofrece participantes: esos datos salen de Proyectos', () => {

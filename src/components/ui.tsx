@@ -173,6 +173,74 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
   )
 }
 
+/**
+ * Una foto con su vista previa y su selector de archivo.
+ *
+ * El input se limpia después de elegir (`e.target.value = ''`) para poder
+ * reelegir el MISMO archivo: sin eso, elegir dos veces la misma foto no
+ * dispara `onChange` y el segundo intento no hace nada. Vive acá —y no en
+ * una pantalla— porque la comparten el editor de la Página y el formulario
+ * del proyecto.
+ */
+export function CampoFoto({
+  etiqueta,
+  url,
+  vacio = 'Sin foto todavía',
+  ocupado,
+  onArchivo,
+  onQuitar
+}: {
+  etiqueta: string
+  url: string
+  /** Qué dice el hueco cuando NO hay foto propia. */
+  vacio?: string
+  ocupado: boolean
+  onArchivo: (archivo: File | undefined) => void
+  onQuitar: () => void
+}) {
+  return (
+    <div className="space-y-2">
+      <span className="block text-xs font-semibold uppercase tracking-wide text-slate-400">
+        {etiqueta}
+      </span>
+      {url ? (
+        <img
+          src={url}
+          alt={etiqueta}
+          className="h-28 w-full rounded-xl border border-slate-200 bg-slate-50 object-cover"
+        />
+      ) : (
+        <div className="grid h-28 place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 text-center text-xs text-slate-400">
+          {vacio}
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <input
+          type="file"
+          accept="image/*"
+          disabled={ocupado}
+          onChange={(e) => {
+            onArchivo(e.target.files?.[0])
+            e.target.value = ''
+          }}
+          className="block min-w-0 flex-1 text-xs text-slate-500 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-primary-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-700"
+        />
+        {url ? (
+          <button
+            type="button"
+            onClick={onQuitar}
+            disabled={ocupado}
+            className="shrink-0 rounded-full px-2 py-1 text-xs font-semibold text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+          >
+            Quitar
+          </button>
+        ) : null}
+      </div>
+      {ocupado ? <span className="block text-xs text-slate-500">Subiendo foto…</span> : null}
+    </div>
+  )
+}
+
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className={cn('rounded-2xl border border-slate-200 bg-white p-4', className)}>

@@ -17,7 +17,9 @@ import { bloqueSql } from './supabaseSql'
  *  3. La función pública: anon la ejecuta, `PUBLIC` no (queda revocada), y
  *     devuelve el contenido entero —con los proyectos REGISTRADOS del
  *     trimestre y su conteo de RIEGOS— sin abrirle la tabla a nadie.
- *  4. El bucket de fotos: público para VER, y sólo el Líder para SUBIR.
+ *  4. El bucket de fotos: público para VER; para SUBIR, sólo el Líder —
+ *     salvo las fotos de un proyecto (prefijo `proyectos/`), que sube
+ *     cualquiera que pueda editar el proyecto.
  *
  * Acá se corre el bloque TAL CÓMO está en `supabase/schema.sql`, dos veces
  * para probar que es idempotente (el SQL Editor lo aplica entero).
@@ -85,6 +87,11 @@ const DDL = `
     avance integer not null default 0 check (avance >= 0 and avance <= 100),
     estado text not null default 'PROPUESTA'
       check (estado in ('PROPUESTA','EN_CURSO','COMPLETADO','CANCELADO')),
+    -- Las dos fotos del participante: el bloque de Gran Cosecha las agrega
+    -- con un alter table (la tabla ya existe en bases instaladas), así que
+    -- el espejo las trae desde acá para que la RPC pueda leerlas.
+    imagen text not null default '',
+    foto   text not null default '',
     created_at timestamptz not null default now()
   );
 
@@ -393,18 +400,26 @@ describe('gran-cosecha-pagina.sql · la función pública', () => {
     })
   })
 
-  it('participantes NO trae fotos: ese dato lo retiró la página', async () => {
+  it('las fotos del participante salen del PROYECTO, no de la Página', async () => {
+    // El proyecto guarda sus dos fotos; la RPC sólo las publica desde ahí.
+    await db.query(
+      `update public.gran_cosecha_proyecto
+          set imagen = 'https://supabase.test/proyectos/cara.webp',
+              foto   = 'https://supabase.test/proyectos/equipo.webp'
+        where titulo = 'Huerto vertical'`
+    )
     await conAnon(async () => {
       const r = await db.query<{ r: Record<string, unknown> | null }>(
         `select public.ver_contenido_gran_cosecha() as r`
       )
       const participantes = (r.rows[0].r?.participantes ?? []) as Record<string, unknown>[]
-      expect(participantes.length).toBeGreaterThan(0)
-      // Sólo título, equipo, avance, riegos e id: nada de fotos de tarjetas.
-      for (const p of participantes) {
-        expect(p.imagen).toBeUndefined()
-        expect(p.foto).toBeUndefined()
-      }
+      const conFotos = participantes.find((p) => p.titulo === 'Huerto vertical') as Record<string, unknown>
+      const sinFotos = participantes.find((p) => p.titulo === 'Caja cero espera') as Record<string, unknown>
+      expect(conFotos.imagen).toBe('https://supabase.test/proyectos/cara.webp')
+      expect(conFotos.foto).toBe('https://supabase.test/proyectos/equipo.webp')
+      // Sin fotos: cadena vacía, y la tarjeta usa la inicial del título.
+      expect(sinFotos.imagen).toBe('')
+      expect(sinFotos.foto).toBe('')
     })
   })
 
@@ -464,5 +479,22 @@ describe('gran-cosecha-pagina.sql · las fotos', () => {
         db.query(`insert into storage.objects (bucket_id, name) values ('gran-cosecha', 'pagina/hack.jpg')`)
       ).rejects.toThrow(/row-level security/i)
     })
+  })
+
+  it('las FOTOS DE UN PROYECTO las sube cualquiera que edite el proyecto', async () => {
+    await conRol(EVALUADOR, async () => {
+      // Bajo proyectos/… sí: el que puede editar el proyecto cambia sus fotos.
+      await expect(
+        db.query(`insert into storage.objects (bucket_id, name) values ('gran-cosecha', 'proyectos/abc.webp')`)
+      ).resolves.toBeDefined()
+      // …pero sólo ahí: el resto del bucket sigue siendo del Líder (arriba).
+      await expect(
+        db.query(`insert into storage.objects (bucket_id, name) values ('gran-cosecha', 'pagina/x.jpg')`)
+      ).rejects.toThrow(/row-level security/i)
+      await expect(
+        db.query(`insert into storage.objects (bucket_id, name) values ('evidencias', 'proyectos/abc.webp')`)
+      ).rejects.toThrow(/row-level security/i)
+    })
+    await como(null)
   })
 })
