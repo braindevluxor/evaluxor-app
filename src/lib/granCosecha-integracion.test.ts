@@ -104,17 +104,25 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(paginaProyecto).toContain('Se guardan solas al subirlas')
   })
 
-  it('el equipo acepta trabajadores sin cuenta, de cualquier sucursal', () => {
+  it('el equipo sale SÓLO de la API de trabajadores, nunca de los usuarios del sistema', () => {
     const pagina = fuente('../pages/GranCosecha.tsx')
     const datos = fuente('./data/granCosecha.ts')
 
-    // El selector busca también en la nómina — al servidor y con debounce,
-    // porque son miles de filas— por nombre o cédula…
+    // La búsqueda va al servidor con debounce —son miles de filas— por
+    // nombre o cédula, y ES la única fuente de candidatos…
     expect(pagina).toContain('listarTrabajadoresEquipo')
     expect(datos).toContain("supabase.rpc('listar_trabajadores_equipo'")
-    expect(pagina).toContain('placeholder="Buscar por nombre, usuario o cédula"')
-    // …los distingue en la lista…
+    expect(pagina).toContain('placeholder="Buscar por nombre o cédula"')
+    // …y los distingue en la lista…
     expect(pagina).toContain('>Trabajador</Badge>')
+
+    // La candidatura de `profiles` se sacó entera del flujo: ni la pantalla
+    // ni el data layer siguen teniendo la lista de usuarios del sistema.
+    expect(pagina).not.toContain('candidatosDeEquipo')
+    expect(datos).not.toContain('candidatosDeEquipo')
+    expect(pagina).not.toContain('listarUsuarios')
+    expect(datos).not.toContain('listarUsuarios')
+
     // …y la identidad de cada integrante es su usuario O su cédula: dos
     // trabajadores sin cuenta no pueden colisionar en el usuario vacío.
     expect(pagina).toContain('claveDeMiembro')

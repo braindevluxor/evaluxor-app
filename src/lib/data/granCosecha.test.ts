@@ -6,7 +6,6 @@ vi.mock('../supabase', () => ({ supabase: { rpc: rpcMock } }))
 import {
   ESTADOS,
   TIPOS_BITACORA,
-  candidatosDeEquipo,
   claveDeMiembro,
   etiquetaPeriodo,
   historialAvances,
@@ -18,7 +17,6 @@ import {
   type FilaBitacora,
   type MiembroEquipo
 } from './granCosecha'
-import type { ProfileVista } from './usuarios'
 
 /**
  * Gran Cosecha: lo del cliente, con supabase mockeado.
@@ -77,21 +75,6 @@ describe('validarEquipo · el mínimo de tres', () => {
     expect(validarEquipo(equipo('a', 'b', 'b'))).toBe('Hay integrantes repetidos en el equipo.')
     expect(validarEquipo(equipo('a', 'b', 'c', 'a'))).toBe('Hay integrantes repetidos en el equipo.')
     expect(validarEquipo(equipo('a', 'b', 'c', 'd'))).toBeNull()
-  })
-})
-
-describe('candidatosDeEquipo · quién se puede elegir', () => {
-  const perfil = (extra: Partial<ProfileVista>): ProfileVista =>
-    ({ id: 'u1', email: 'a@x.com', usuario: 'ana', nombre: 'Ana', rol: 'EVALUADOR', activo: true, ...extra }) as ProfileVista
-
-  it('sólo los activos y con rol: SIN_ROL todavía no puede entrar a la app', () => {
-    const lista = [
-      perfil({}),
-      perfil({ id: 'u2', activo: false }),
-      perfil({ id: 'u3', rol: 'SIN_ROL' }),
-      perfil({ id: 'u4', rol: 'JUEZ' })
-    ]
-    expect(candidatosDeEquipo(lista).map((p) => p.id)).toEqual(['u1', 'u4'])
   })
 })
 

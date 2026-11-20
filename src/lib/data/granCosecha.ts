@@ -2,7 +2,6 @@ import { supabase } from '../supabase'
 import { convertirImagenAWebP } from '../convertirMedia'
 import { BUCKET } from './granCosechaPagina'
 import type { ColaboradorAPI } from './colaboradores'
-import { listarUsuarios, type ProfileVista } from './usuarios'
 
 /**
  * GRAN COSECHA: EL CONCURSO INTERNO DE PROYECTOS
@@ -198,11 +197,6 @@ export function validarEquipo(miembros: readonly MiembroEquipo[]): string | null
  */
 export function historialAvances(filas: readonly FilaBitacora[]): FilaBitacora[] {
   return filas.filter((f) => f.tipo === 'AVANCE')
-}
-
-/** Candidatos a integrantes del equipo: los usuarios activos con rol asignado. */
-export function candidatosDeEquipo(perfiles: readonly ProfileVista[]): ProfileVista[] {
-  return perfiles.filter((p) => p.activo && p.rol !== 'SIN_ROL')
 }
 
 // --- La red -----------------------------------------------------------------
@@ -403,17 +397,6 @@ function rutaDeObjeto(url: string | null | undefined): string {
   const marca = `/object/public/${BUCKET}/`
   const ruta = url.includes(marca) ? (url.split(marca)[1]?.split('?')[0] ?? '') : ''
   return ruta.startsWith('proyectos/') ? ruta : ''
-}
-
-/**
- * Los posibles integrantes del equipo, listos para elegir.
- *
- * Se reusa `listarUsuarios` (trae el nombre y la sucursal) y acá sólo se
- * recorta a los activos con rol: SIN_ROL todavía no puede entrar a la app, y
- * meterlo en un equipo sería sumar a alguien que no va a ver el concurso.
- */
-export async function candidatosDeEquipoAsync(): Promise<ProfileVista[]> {
-  return candidatosDeEquipo(await listarUsuarios())
 }
 
 /* -------------------------------------------------------------------------

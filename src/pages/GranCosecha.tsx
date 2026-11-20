@@ -22,7 +22,6 @@ import {
   ESTADOS,
   TIPOS_BITACORA,
   actualizarProyecto,
-  candidatosDeEquipoAsync,
   claveDeMiembro,
   crearProyecto,
   eliminarProyecto,
@@ -45,7 +44,6 @@ import {
   type TrabajadorNomina
 } from '../lib/data/granCosecha'
 import { cedula, esActivo, nombreCompleto } from '../lib/data/colaboradores'
-import type { ProfileVista } from '../lib/data/usuarios'
 
 /**
  * GRAN COSECHA: EL CONCURSO INTERNO DE PROYECTOS
@@ -207,8 +205,6 @@ export function GranCosechaPage() {
   const [aBorrar, setABorrar] = useState<ProyectoGranCosecha | null>(null)
   const [borrando, setBorrando] = useState(false)
 
-  const [candidatos, setCandidatos] = useState<ProfileVista[] | null>(null)
-
   const esJuezOLider = profile?.rol === 'JUEZ' || profile?.rol === 'LIDER'
   const puedeEditar = (p: ProyectoGranCosecha): boolean =>
     Boolean(profile) && (esJuezOLider || p.creador_id === profile?.id)
@@ -231,23 +227,6 @@ export function GranCosechaPage() {
   useEffect(() => {
     void cargar()
   }, [cargar, recargar])
-
-  // Los candidatos al equipo se piden una vez: sirven para crear y para
-  // editar, y la lista de usuarios no cambia durante la sesión.
-  useEffect(() => {
-    let vivo = true
-    void candidatosDeEquipoAsync()
-      .then((lista) => {
-        if (vivo) setCandidatos(lista)
-      })
-      .catch(() => {
-        // Sin candidatos no se puede armar un equipo: se avisa al abrir el
-        // formulario, no acá, para no ensuciar la lista con un error.
-      })
-    return () => {
-      vivo = false
-    }
-  }, [])
 
   /** La bitácora se pide recién al abrir el detalle: nadie la mira de paso. */
   const abrirDetalle = async (p: ProyectoGranCosecha) => {
@@ -495,7 +474,6 @@ export function GranCosechaPage() {
                   proyecto={p}
                   bitacora={bitacora[p.id] ?? null}
                   puedeEditar={puedeEditar(p)}
-                  candidatos={candidatos}
                   editando={editando === p.id}
                   onFoto={(cambios) => void publicarFoto(cambios, p.id)}
                   onEstado={(estado) => void guardar({ estado }, p.id)}
@@ -513,7 +491,7 @@ export function GranCosechaPage() {
       {/* El alta sigue en modal —es un formulario nuevo, no hay panel que
           reusar—; la EDICIÓN vive dentro del propio detalle. */}
       {nuevo ? (
-        <FormProyecto candidatos={candidatos} onGuardar={crear} onCerrar={() => setNuevo(false)} />
+        <FormProyecto onGuardar={crear} onCerrar={() => setNuevo(false)} />
       ) : null}
 
       {avanceDe ? (
@@ -562,7 +540,6 @@ function DetalleProyecto({
   proyecto,
   bitacora,
   puedeEditar,
-  candidatos,
   editando,
   onFoto,
   onEstado,
@@ -574,8 +551,6 @@ function DetalleProyecto({
   proyecto: ProyectoGranCosecha
   bitacora: FilaBitacora[] | null
   puedeEditar: boolean
-  /** Los posibles integrantes para cambiar el equipo en el mismo panel. */
-  candidatos: ProfileVista[] | null
   /** `true` = el panel está en modo formulario (edición en el lugar). */
   editando: boolean
   /** Guarda una foto EN EL MOMENTO (misma inmediación que el Estado). */
@@ -753,12 +728,11 @@ function DetalleProyecto({
 
       {/* El equipo: TABLA en modo lectura —tres nombres largos en píldoras
           se apilan, y la identidad de cada uno (cédula o cuenta) quedaba sólo
-          en un `title` invisible— y el SELECTOR (búsqueda + candidatos) en
+          en un `title` invisible— y el SELECTOR (trabajadores de la API) en
           modo edición, el mismo que usa el alta. */}
       {editando ? (
         <SelectorEquipo
           elegidos={elegidos}
-          candidatos={candidatos}
           onElegidos={setElegidos}
           problema={equipoProblema}
         />
@@ -875,9 +849,12 @@ function DetalleProyecto({
 }
 
 /**
- * El selector de EQUIPO: la búsqueda y la lista de candidatos (usuarios de
- * la app + trabajadores de la nómina, con debounce al servidor a partir de
- * 2 letras, porque son miles de filas).
+ * El selector de EQUIPO: de DÓNDE salen los participantes.
+ *
+ * SÓLO de la API de trabajadores (la nómina: búsqueda al servidor desde 2
+ * letras, porque son miles de filas) y de los que ya están ELEGIDOS, que
+ * aparecen primeros aunque su fila no salga de la API. Los usuarios del
+ * sistema NO son candidatos: no aparecen ni siquiera estando activos.
  *
  * Va en DOS lugares —el alta de proyecto y la edición dentro del detalle—,
  * por eso no guarda nada: recibe los elegidos y avisa con `onElegidos`. La
@@ -887,12 +864,10 @@ function DetalleProyecto({
  */
 export function SelectorEquipo({
   elegidos,
-  candidatos,
   onElegidos,
   problema
 }: {
   elegidos: MiembroEquipo[]
-  candidatos: ProfileVista[] | null
   onElegidos: (miembros: MiembroEquipo[]) => void
   /** `null` = el equipo está bien; si no, el texto a mostrar al pie. */
   problema: string | null
@@ -900,32 +875,37 @@ export function SelectorEquipo({
   const [busqueda, setBusqueda] = useState('')
   /** Trabajadores de la nómina que coincide la búsqueda (con o sin cuenta). */
   const [trabajadores, setTrabajadores] = useState<TrabajadorNomina[]>([])
+  /** Hay una búsqueda en vuelo: sin esto se enseñaría «nadie coincide» a mitad de request. */
+  const [buscando, setBuscando] = useState(false)
   /** Falló la última búsqueda en la nómina (bloque de SQL pendiente, red…). */
   const [errorNomina, setErrorNomina] = useState(false)
 
   // La nómina no se baja entera (miles de filas): la búsqueda va al servidor,
-  // con debounce y recién desde 2 letras. Mientras tanto, el filtro local de
-  // siempre sigue cubriendo a los usuarios de la app. El error va AL TEXTO y
-  // no a un toast: dura mientras se siga escribiendo y un aviso por tecla
-  // enloquecería la pantalla.
+  // con debounce y recién desde 2 letras — y es la ÚNICA fuente de
+  // candidatos. El error va AL TEXTO y no a un toast: dura mientras se siga
+  // escribiendo y un aviso por tecla enloquecería la pantalla.
   useEffect(() => {
     const texto = busqueda.trim()
     if (texto.length < 2) {
       setTrabajadores([])
+      setBuscando(false)
       setErrorNomina(false)
       return
     }
     let vivo = true
     const reloj = setTimeout(() => {
+      setBuscando(true)
       listarTrabajadoresEquipo(texto)
         .then((filas) => {
           if (!vivo) return
           setTrabajadores(filas)
+          setBuscando(false)
           setErrorNomina(false)
         })
         .catch(() => {
           if (!vivo) return
           setTrabajadores([])
+          setBuscando(false)
           setErrorNomina(true)
         })
     }, 300)
@@ -945,49 +925,39 @@ export function SelectorEquipo({
   const subDe = (m: MiembroEquipo): string =>
     m.dni != null ? cedula({ nationality: m.nacionalidad ?? 'V', dni: m.dni }) : 'Cuenta en EvaLuxor'
 
-  /** Una fila del selector: un usuario de la app o un trabajador de la nómina. */
+  /** Una fila del selector: un trabajador de la API, o una fila extra (ver `extras`). */
   type Opcion = {
     clave: string
     nombre: string
-    /** Qué se muestra debajo: el usuario, o la cédula y la sucursal. */
+    /** Qué se muestra debajo: la cédula y la sucursal. */
     sub: string
-    perfil?: ProfileVista
+    /** La fila completa, cuando la opción sale de los elegidos. */
+    miembro?: MiembroEquipo
     trabajador?: TrabajadorNomina
   }
-  const opciones: Opcion[] = [
-    ...(candidatos ?? []).map((c) => ({
-      clave: `u:${c.id}`,
-      nombre: c.nombre || c.usuario,
-      sub: c.usuario,
-      perfil: c
-    })),
-    // Sólo activos: `esActivo` es el MISMO criterio con el que se paga la nómina.
-    ...trabajadores.filter(esActivo).map((t) => ({
-      clave: `w:${t.nacionalidad}-${t.dni}`,
-      nombre: nombreCompleto(t),
-      sub: `${cedula({ nationality: t.nacionalidad, dni: t.dni })}${t.sucursal ? ` · ${t.sucursal}` : ''}`,
-      trabajador: t
-    }))
-  ]
+  /** Los candidatos: SÓLO la API de trabajadores, y sólo los activos. */
+  const opciones: Opcion[] = trabajadores.filter(esActivo).map((t) => ({
+    clave: `w:${t.nacionalidad}-${t.dni}`,
+    nombre: nombreCompleto(t),
+    sub: `${cedula({ nationality: t.nacionalidad, dni: t.dni })}${t.sucursal ? ` · ${t.sucursal}` : ''}`,
+    trabajador: t
+  }))
   /**
-   * Las filas que la lista ofrece AUNQUE no salgan de la candidatura.
-   *
-   * Dos casos: los ELEGIDOS que son trabajadores de la nómina (sólo entran
-   * a la lista cuando se los busca, porque son miles y la búsqueda va al
-   * servidor) y los que se deseleccionaron con este panel abierto. Sin
-   * esto el equipo era invisible —el contador decía «Equipo (3)» y la
-   * lista mostraba sólo a los usuarios del sistema—, y destildar a alguien
-   * hacía desaparecer su fila, con ella la forma de volver a marcarlo.
+   * Las filas que la lista ofrece AUNQUE no salgan de la API: los ELEGIDOS
+   * (que sólo aparecerían si se los busca) y los que se deseleccionaron con
+   * este panel abierto. Sin esto el equipo era invisible —«Equipo (3)» con
+   * la lista mostrando a otros—, y destildar hacía desaparecer la fila, con
+   * ella la forma de volver a marcarlo.
    *
    * Van PRIMEROS, así no hay que buscarlos para verlos.
    */
-  const [extras, setExtras] = useState<Record<string, { nombre: string; sub: string }>>(() =>
-    Object.fromEntries(elegidos.map((m) => [claveDeMiembro(m), { nombre: m.nombre, sub: subDe(m) }]))
+  const [extras, setExtras] = useState<Record<string, MiembroEquipo>>(() =>
+    Object.fromEntries(elegidos.map((m) => [claveDeMiembro(m), m]))
   )
 
   const filasExtras: Opcion[] = Object.entries(extras)
     .filter(([clave]) => !opciones.some((o) => o.clave === clave))
-    .map(([clave, datos]) => ({ clave, ...datos }))
+    .map(([clave, miembro]) => ({ clave, nombre: miembro.nombre, sub: subDe(miembro), miembro }))
 
   const visibles = [...filasExtras, ...opciones].filter(
     (o) => !q || `${o.nombre} ${o.sub}`.toLowerCase().includes(q)
@@ -999,20 +969,17 @@ export function SelectorEquipo({
       onElegidos(elegidos.filter((m) => !esta(m)))
       return
     }
-    const nuevo: MiembroEquipo = o.perfil
-      ? { usuario_id: o.perfil.id, nombre: o.perfil.nombre || o.perfil.usuario }
-      : {
-          usuario_id: '',
-          nombre: o.nombre,
-          nacionalidad: o.trabajador?.nacionalidad,
-          dni: o.trabajador?.dni
-        }
-    // Su fila queda registrada: si es un trabajador de la nómina, al limpiar
-    // la búsqueda dejaría de salir de `opciones` y se escondería estando
-    // elegido.
-    setExtras((prev) =>
-      prev[o.clave] ? prev : { ...prev, [o.clave]: { nombre: o.nombre, sub: o.sub } }
-    )
+    // Un integrante nuevo sale de la API; una fila extra vuelve con SUS
+    // datos completos, cédula incluida.
+    const nuevo: MiembroEquipo = o.miembro ?? {
+      usuario_id: '',
+      nombre: o.nombre,
+      nacionalidad: o.trabajador?.nacionalidad,
+      dni: o.trabajador?.dni
+    }
+    // Su fila queda registrada: al limpiar la búsqueda la opción dejaría de
+    // salir de la API y se escondería estando elegido.
+    setExtras((prev) => (prev[o.clave] ? prev : { ...prev, [o.clave]: nuevo }))
     onElegidos([...elegidos, nuevo])
   }
 
@@ -1020,19 +987,18 @@ export function SelectorEquipo({
     <div>
       <Field
         label={`Equipo (${elegidos.length})`}
-        hint="Mínimo 3 personas: usuarios de la app y trabajadores de cualquier sucursal."
+        hint="Mínimo 3 personas: se buscan entre los trabajadores de cualquier sucursal."
       >
         <Input
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
-          placeholder="Buscar por nombre, usuario o cédula"
+          placeholder="Buscar por nombre o cédula"
           aria-label="Buscar integrante"
         />
       </Field>
 
       {/* La lista PRIMERO: si hay algo que mostrar —incluidos los ya
-          elegidos— se pinta aunque `candidatos` todavía esté cargando, así
-          el equipo seleccionado nunca queda oculto detrás de un spinner. */}
+          elegidos— se pinta, sin esperar a que la búsqueda responda. */}
       {visibles.length ? (
         <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
           {visibles.map((o) => {
@@ -1062,13 +1028,13 @@ export function SelectorEquipo({
             )
           })}
         </ul>
-      ) : candidatos === null ? (
+      ) : buscando ? (
         <p className="flex items-center gap-2 text-sm text-slate-500">
-          <Spinner size={16} /> Cargando usuarios…
+          <Spinner size={16} /> Buscando trabajadores…
         </p>
-      ) : (
+      ) : q.length >= 2 ? (
         <p className="text-sm text-slate-500">Nadie coincide con «{busqueda}».</p>
-      )}
+      ) : null}
       {errorNomina ? (
         <p className="mt-2 text-xs font-semibold text-amber-700">
           No se pudo buscar en la nómina de trabajadores — ¿el bloque de Gran Cosecha está aplicado
@@ -1076,8 +1042,7 @@ export function SelectorEquipo({
         </p>
       ) : q.length < 2 ? (
         <p className="mt-2 text-[11px] text-slate-400">
-          Escribí 2 letras o más para buscar también entre los trabajadores de cualquier sucursal,
-          aunque no tengan cuenta en EvaLuxor.
+          Escribí 2 letras o más para buscar entre los trabajadores de cualquier sucursal.
         </p>
       ) : null}
       {problema ? (
@@ -1097,11 +1062,9 @@ export function SelectorEquipo({
  * castellano y no como un 23514.
  */
 function FormProyecto({
-  candidatos,
   onGuardar,
   onCerrar
 }: {
-  candidatos: ProfileVista[] | null
   onGuardar: (entrada: Parameters<typeof crearProyecto>[0]) => Promise<void>
   onCerrar: () => void
 }) {
@@ -1212,7 +1175,6 @@ function FormProyecto({
 
         <SelectorEquipo
           elegidos={elegidos}
-          candidatos={candidatos}
           onElegidos={setElegidos}
           problema={equipoProblema}
         />

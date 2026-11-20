@@ -1,24 +1,31 @@
 // @vitest-environment jsdom
 /**
- * Regresión: el selector de equipo ESCONDÍA a los ya elegidos.
+ * Regresión doble del selector de equipo.
  *
- * Los trabajadores de la nómina sólo entran a la lista cuando se los busca
- * —la búsqueda va al servidor porque son miles de filas—, así que con el
- * equipo cargado (tres integrantes SIN cuenta) el contador decía «Equipo
- * (3)» y la lista mostraba sólo a los usuarios del sistema: no se veía
- * quién estaba, y tampoco se podía sacar a nadie, porque sus filas no
- * estaban para destildarlas.
+ *  1. LOS ELEGIDOS SE VEN: los trabajadores sin cuenta sólo entraban a la
+ *     lista cuando se los buscaba, así que «Equipo (3)» venía con la lista
+ *     mostrando a otros — y destildar hacía desaparecer la fila, con ella
+ *     la forma de volver a marcarla.
+ *  2. LOS USUARIOS DEL SISTEMA NO APARECEN: los participantes salen SÓLO
+ *     de la API de trabajadores (la nómina). La candidatura de `profiles`
+ *     se sacó entera del flujo.
  *
- * Monta `SelectorEquipo` de verdad (jsdom + createRoot) sobre el equipo de
- * la captura y comprueba que los tres aparecen, marcados, y que se pueden
- * quitar.
+ * Monta `SelectorEquipo` de verdad (jsdom + createRoot) con la API mockeada
+ * —es la única fuente de candidatos— y aprieta las cosas como lo haría el
+ * usuario.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+
+const { buscarMock } = vi.hoisted(() => ({ buscarMock: vi.fn() }))
+vi.mock('../lib/data/granCosecha', async (importar) => {
+  const original = await importar<typeof import('../lib/data/granCosecha')>()
+  return { ...original, listarTrabajadoresEquipo: buscarMock }
+})
+
 import { SelectorEquipo } from './GranCosecha'
-import type { MiembroEquipo } from '../lib/data/granCosecha'
-import type { ProfileVista } from '../lib/data/usuarios'
+import type { MiembroEquipo, TrabajadorNomina } from '../lib/data/granCosecha'
 
 /** Los tres integrantes sin cuenta del proyecto de la captura. */
 const EQUIPO: MiembroEquipo[] = [
@@ -27,60 +34,32 @@ const EQUIPO: MiembroEquipo[] = [
   { usuario_id: '', nombre: 'Enrique Miguel Chacon Almerida', nacionalidad: 'V', dni: 19555666 }
 ]
 
-/** Dos usuarios del sistema, para ver que conviven con los de nómina. */
-const CANDIDATOS: ProfileVista[] = [
-  {
-    id: 'u-1',
-    email: 'tomasn@evaluxor.com',
-    usuario: 'tomasn',
-    nombre: 'Tomas Nava',
-    rol: 'EVALUADOR',
-    sucursal_id: null,
-    activo: true,
-    created_at: '',
-    updated_at: ''
-  },
-  {
-    id: 'u-2',
-    email: 'samirv@evaluxor.com',
-    usuario: 'samirv',
-    nombre: 'Samir Vasquez',
-    rol: 'EVALUADOR',
-    sucursal_id: null,
-    activo: true,
-    created_at: '',
-    updated_at: ''
-  }
-]
+/** Lo que devuelve la API de trabajadores para «mar». */
+const MARIA: TrabajadorNomina = {
+  nacionalidad: 'V',
+  dni: 28111222,
+  name: 'Maria',
+  lastname: 'Fernandez',
+  branch_name: 'Sucursal Norte',
+  active: true,
+  sucursal: 'Sucursal Norte'
+}
 
 let container: HTMLDivElement
 let root: Root
 
-/** El selector CON estado, para poder destildar de verdad. */
-function ConEstado({
-  inicial,
-  candidatos
-}: {
-  inicial: MiembroEquipo[]
-  candidatos: ProfileVista[] | null
-}) {
+/** El selector CON estado, para poder marcar y desmarcar de verdad. */
+function ConEstado({ inicial }: { inicial: MiembroEquipo[] }) {
   const [elegidos, setElegidos] = useState(inicial)
-  return (
-    <SelectorEquipo
-      elegidos={elegidos}
-      candidatos={candidatos}
-      onElegidos={setElegidos}
-      problema={null}
-    />
-  )
+  return <SelectorEquipo elegidos={elegidos} onElegidos={setElegidos} problema={null} />
 }
 
-async function montar(inicial: MiembroEquipo[], candidatos: ProfileVista[] | null) {
+async function montar(inicial: MiembroEquipo[]) {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
   await act(async () => {
-    root.render(<ConEstado inicial={inicial} candidatos={candidatos} />)
+    root.render(<ConEstado inicial={inicial} />)
   })
 }
 
@@ -90,78 +69,101 @@ async function desmontar() {
   })
 }
 
-/** El `<li>` de un integrante, si está en la lista. */
-function filaDe(nombre: string): HTMLLIElement | undefined {
-  return [...container.querySelectorAll('li')].find((li) =>
-    (li.textContent ?? '').includes(nombre)
-  )
+/** Escribe en el buscador y espera el debounce (300 ms) + la respuesta. */
+async function buscar(texto: string) {
+  const input = container.querySelector('input[aria-label="Buscar integrante"]') as HTMLInputElement
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+  await act(async () => {
+    setter.call(input, texto)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => {
+    await new Promise((resolver) => setTimeout(resolver, 400))
+  })
 }
-
-const casillaDe = (nombre: string): HTMLInputElement | null =>
-  (filaDe(nombre)?.querySelector('input[type="checkbox"]') ?? null) as HTMLInputElement | null
 
 const nombres = () =>
   [...container.querySelectorAll('li .truncate')].map((s) => s.textContent?.trim() ?? '')
 
+const casillaDe = (nombre: string): HTMLInputElement | null => {
+  const li = [...container.querySelectorAll('li')].find((f) => (f.textContent ?? '').includes(nombre))
+  return (li?.querySelector('input[type="checkbox"]') ?? null) as HTMLInputElement | null
+}
+
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  buscarMock.mockReset()
+  buscarMock.mockResolvedValue([])
 })
 
 afterEach(() => {
   container?.remove()
 })
 
-describe('SelectorEquipo · los elegidos se ven', () => {
-  it('muestra los tres integrantes sin cuenta, marcados, sin haber buscado nada', async () => {
-    await montar(EQUIPO, CANDIDATOS)
+describe('SelectorEquipo · de dónde salen los participantes', () => {
+  it('sin búsqueda, la lista es EXACTAMENTE el equipo elegido', async () => {
+    await montar(EQUIPO)
 
-    for (const miembro of EQUIPO) {
-      const casilla = casillaDe(miembro.nombre)
-      expect(casilla, `no aparece ${miembro.nombre}`).not.toBeNull()
-      expect(casilla!.checked, `${miembro.nombre} debería estar marcado`).toBe(true)
-    }
-    // Y siguen conviviendo con los usuarios del sistema.
-    expect(nombres()).toContain('Tomas Nava')
+    expect(nombres().sort()).toEqual(EQUIPO.map((m) => m.nombre).sort())
+    for (const miembro of EQUIPO) expect(casillaDe(miembro.nombre)!.checked).toBe(true)
+    // No se pidió nada a la API: nadie la llamó por escribirse sola.
+    expect(buscarMock).not.toHaveBeenCalled()
     await desmontar()
   })
 
-  it('un elegido que SÍ está en la candidatura no aparece dos veces', async () => {
-    // Tomas también es integrante: su fila tiene que ser UNA, no una por
-    // ser candidato y otra por estar elegido.
-    const conTomas: MiembroEquipo[] = [
-      ...EQUIPO,
-      { usuario_id: 'u-1', nombre: 'Tomas Nava' }
-    ]
-    await montar(conTomas, CANDIDATOS)
+  it('buscar trae trabajadores de la API, y el filtro no toca el contador', async () => {
+    buscarMock.mockResolvedValue([MARIA])
+    await montar(EQUIPO)
 
-    expect(nombres().filter((n) => n === 'Tomas Nava')).toHaveLength(1)
-    expect(casillaDe('Tomas Nava')!.checked).toBe(true)
-    await desmontar()
-  })
+    await buscar('mar')
 
-  it('destildar uno lo saca del equipo y actualiza el contador', async () => {
-    await montar(EQUIPO, CANDIDATOS)
+    // La única fuente es la API: sale el trabajador que devolvió y nadie de
+    // un sistema de usuarios.
+    expect(buscarMock).toHaveBeenCalledWith('mar')
+    expect(nombres()).toEqual(['Maria Fernandez'])
+    // El filtro de búsqueda es de la LISTA, no del equipo: siguen los tres.
     expect(container.textContent).toContain('Equipo (3)')
+
+    // Al limpiar, vuelve el equipo completo.
+    buscarMock.mockResolvedValue([])
+    await buscar('')
+    for (const miembro of EQUIPO) {
+      expect(casillaDe(miembro.nombre), `no aparece ${miembro.nombre}`).not.toBeNull()
+      expect(casillaDe(miembro.nombre)!.checked).toBe(true)
+    }
+    await desmontar()
+  })
+
+  it('al elegir uno de la API y limpiar la búsqueda, su fila se queda', async () => {
+    buscarMock.mockResolvedValue([MARIA])
+    await montar(EQUIPO)
+
+    await buscar('mar')
+    await act(async () => {
+      casillaDe('Maria Fernandez')!.click()
+    })
+    expect(container.textContent).toContain('Equipo (4)')
+
+    // Sin el registro de la fila, al limpiar la búsqueda dejaría de salir de
+    // la API y desaparecería ESTANDO elegida.
+    buscarMock.mockResolvedValue([])
+    await buscar('')
+    expect(casillaDe('Maria Fernandez')).not.toBeNull()
+    expect(casillaDe('Maria Fernandez')!.checked).toBe(true)
+    await desmontar()
+  })
+
+  it('destildar no borra la fila: queda para volver a marcarla', async () => {
+    await montar(EQUIPO)
 
     await act(async () => {
       casillaDe('Luis Jose Rodríguez Guerra')!.click()
     })
 
+    expect(casillaDe('Luis Jose Rodríguez Guerra')).not.toBeNull()
     expect(casillaDe('Luis Jose Rodríguez Guerra')!.checked).toBe(false)
     expect(container.textContent).toContain('Equipo (2)')
-    // Los otros dos siguen donde estaban.
     expect(casillaDe('Jovanny Rodríguez')!.checked).toBe(true)
-    await desmontar()
-  })
-
-  it('el equipo elegido se ve AUNQUE los candidatos sigan cargando', async () => {
-    // `candidatos === null` es el "todavía no respondió": antes el spinner
-    // tapaba por completo la lista y el equipo elegido quedaba invisible.
-    await montar(EQUIPO, null)
-
-    for (const miembro of EQUIPO) {
-      expect(casillaDe(miembro.nombre), `no aparece ${miembro.nombre}`).not.toBeNull()
-    }
     await desmontar()
   })
 })
