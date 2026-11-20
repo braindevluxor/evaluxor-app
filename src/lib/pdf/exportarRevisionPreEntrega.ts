@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
 import QRCode from 'qrcode'
-import { logoPie } from './marcaPie'
+import { ANCHO_LOGO_PIE, ponerLogoAlPie } from './marcaPie'
 import { cortesDePagina } from './paginarRevision'
 
 /**
@@ -228,18 +228,11 @@ export function htmlRevision(datos: DatosRevision, enc: Encabezado = encabezadoD
           : ''
       }
 
-      <!-- Las firmas NO van en el HTML: se dibujan con jsPDF en CADA hoja
-           (ver pintarFirmas). El HTML se rasteriza una sola vez y se corta,
-           así que repetir el bloque acá exigiría dos pasadas por el canvas —
-           y además las dos quedan VACÍAS: el documento se imprime y se firma
-           en papel. -->
-
-      <!-- La misma marca al pie que en los informes: a la izquierda y al lado
-           del texto, para que los tres reportes se lean como una familia. -->
-      <footer style="margin-top:16px;display:flex;align-items:center;gap:12px;font-size:10px;color:#94a3b8">
-        <img src="${logoPie}" alt="EvaLuxor" style="width:104px;height:auto;flex:none" />
-        <span>Generado automáticamente por EvaLuxor · ${fecha}</span>
-      </footer>
+      <!-- Las firmas Y la marca van en la banda de CADA hoja, dibujadas con
+           jsPDF (ver pintarFirmas): el HTML se rasteriza una sola vez y se
+           corta, así que un bloque acá sólo podía aparecer una vez — y este
+           pie terminaba en una HOJA DE SOBRA con sólo el logo. Las firmas
+           quedan vacías: el documento se imprime y se firma en papel. -->
     </div>
   `
 }
@@ -248,6 +241,8 @@ export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<
   const enc = encabezadoDe(datos)
   /** Quién firma en el pie de cada hoja: «conductor» en la inspección. */
   const etiqueta = datos.etiquetaPersona || 'chofer'
+  /** El pie de la marca: el mismo texto que tenían los otros reportes. */
+  const pie = `Generado automáticamente por EvaLuxor · ${enc.fecha}`
 
   // El QR al detalle público: se genera ACÁ y no en `htmlRevision` porque
   // esa función es pura y sincrónica, y el encoder de QR no lo es. Sin
@@ -330,9 +325,11 @@ export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<
       }
       if (i > 0) pdf.addPage()
       pdf.addImage(porcion, 'PNG', 0, topMm, pdfWidth, altoPx / pxPorMm)
-      // Las firmas, en el pie de CADA hoja: el documento se imprime y se
-      // firma en papel, y una hoja sin renglón de firma no sirve.
-      pintarFirmas(pdf, pdfWidth, pdfHeight, etiqueta)
+      // Las firmas y la marca, en el pie de CADA hoja: el documento se
+      // imprime y se firma en papel, y una hoja sin renglón de firma no
+      // sirve. (La marca va acá y no en un `<footer>` del HTML: ese pie
+      // terminaba en una hoja de sobra con sólo el logo.)
+      pintarFirmas(pdf, pdfWidth, pdfHeight, etiqueta, pie)
       inicio = cortes[i]
     }
 
@@ -395,11 +392,18 @@ function filasTabla(items: NonNullable<DatosRevision['items']>): string {
  * en papel. La firma capturada en la app no se imprime —se ve en la página
  * pública que abre el QR—, porque lo que vale acá es la de tinta.
  */
-export function pintarFirmas(pdf: jsPDF, ancho: number, alto: number, etiqueta: string): void {
+export function pintarFirmas(
+  pdf: jsPDF,
+  ancho: number,
+  alto: number,
+  etiqueta: string,
+  pie: string
+): void {
   const margen = 10
   // El mismo corte que se le descuentó a la ventana: la banda vive ahí.
   const y0 = alto - MARGEN_INFERIOR_MM - ALTO_BANDA_FIRMA_MM
   const mitad = ancho / 2 + 4
+  const yNota = y0 + 23.5
 
   // Separador de la banda (el teal del documento).
   pdf.setDrawColor(15, 118, 110)
@@ -425,5 +429,13 @@ export function pintarFirmas(pdf: jsPDF, ancho: number, alto: number, etiqueta: 
   pdf.setFont('helvetica', 'normal')
   pdf.setFontSize(6)
   pdf.setTextColor(100, 116, 139)
-  pdf.text('Acepto las condiciones y el resultado de esta revisión.', margen, y0 + 23.5)
+  pdf.text('Acepto las condiciones y el resultado de esta revisión.', margen, yNota)
+
+  // La marca de la familia, a la derecha sobre la MISMA línea que la nota:
+  // el mismo pie que los otros reportes (logo + texto), ahora en cada hoja.
+  pdf.setFontSize(7)
+  pdf.setTextColor(148, 163, 184)
+  const xTexto = ancho - margen - pdf.getTextWidth(pie)
+  pdf.text(pie, xTexto, yNota)
+  ponerLogoAlPie(pdf, xTexto - 3 - ANCHO_LOGO_PIE, yNota)
 }

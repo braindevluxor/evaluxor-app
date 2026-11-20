@@ -180,7 +180,7 @@ describe('Inspección de vehículo · el PDF', () => {
     // El HTML se rasteriza una sola vez y se corta: el bloque no puede vivir
     // ahí si tiene que repetirse en todas las hojas.
     expect(pdf).toContain('function pintarFirmas(')
-    expect(pdf).toContain('pintarFirmas(pdf, pdfWidth, pdfHeight, etiqueta)')
+    expect(pdf).toContain('pintarFirmas(pdf, pdfWidth, pdfHeight, etiqueta, pie)')
     // La ventana se achica por la banda: el contenido deja libre el pie.
     expect(pdf).toContain('ALTO_BANDA_FIRMA_MM')
     // Y la firma capturada en la app no se imprime: se firma en papel.

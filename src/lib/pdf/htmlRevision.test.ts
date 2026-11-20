@@ -64,10 +64,10 @@ describe('htmlRevision · lo que NO debe volver', () => {  it('no imprime eviden
     expect(html).not.toContain('Evidencias fotográficas')
     expect(html).not.toContain('<figure')
     // Las firmas TAMPOCO van acá: se dibujan en CADA hoja con jsPDF (ver
-    // `pintarFirmas`), vacías, porque el documento se firma en papel.
+    // `pintarFirmas`), vacías, porque el documento se firma en papel. Tampoco
+    // el pie con el logo: generaba una hoja de sobra con sólo el logo.
     expect(html).not.toContain('Firma del')
-    // El logo SÍ sigue: es parte de la marca del documento.
-    expect(html).toContain('alt="EvaLuxor"')
+    expect(html).not.toContain('<footer')
   })
 
   it('la tabla tiene sus tres columnas y la observación va en la fila de su punto', () => {
@@ -99,9 +99,11 @@ describe('htmlRevision · lo que NO debe volver', () => {  it('no imprime eviden
 })
 
 describe('pintarFirmas · el pie de CADA hoja', () => {
+  const PIE = 'Generado automáticamente por EvaLuxor · 20/11/2026'
+
   it('dibuja los dos rótulos, vacíos para firmar en papel', () => {
     const pdf = new jsPDF('p', 'mm', 'a4')
-    pintarFirmas(pdf, 210, 297, 'conductor')
+    pintarFirmas(pdf, 210, 297, 'conductor', PIE)
     const salida = pdf.output()
 
     expect(salida).toContain('Firma del conductor')
@@ -111,9 +113,28 @@ describe('pintarFirmas · el pie de CADA hoja', () => {
     expect(salida.match(/Firma del conductor/g)).toHaveLength(1)
   })
 
+  it('la marca de la familia va en la banda, no en un pie aparte', () => {
+    // El `<footer>` del HTML generaba una HOJA DE SOBRA con sólo el logo:
+    // la ventana de corte se achicó por la banda de firmas y el pie quedó
+    // sin lugar. Ahora la marca se dibuja acá, en cada hoja.
+    const fuente = readFileSync(
+      fileURLToPath(new URL('./exportarRevisionPreEntrega.ts', import.meta.url)),
+      'utf8'
+    )
+    expect(fuente).not.toContain('</footer>')
+    expect(fuente).toContain('ponerLogoAlPie(')
+
+    const pdf = new jsPDF('p', 'mm', 'a4')
+    pintarFirmas(pdf, 210, 297, 'conductor', PIE)
+    const salida = pdf.output()
+    expect(salida).toContain('Generado automáticamente por EvaLuxor')
+    // Y el logo queda incrustado en el archivo, no sólo referenciado.
+    expect(salida).toMatch(/\/Subtype\s*\/Image/)
+  })
+
   it('el rótulo sigue al documento: la Revisión Pre-Entrega dice chofer', () => {
     const pdf = new jsPDF('p', 'mm', 'a4')
-    pintarFirmas(pdf, 210, 297, 'chofer')
+    pintarFirmas(pdf, 210, 297, 'chofer', PIE)
     expect(pdf.output()).toContain('Firma del chofer')
   })
 
