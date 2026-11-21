@@ -30,22 +30,26 @@ describe('gran cosecha · la página en la consola', () => {
     expect(consola).toContain("titulo: 'Página de la Gran Cosecha'")
   })
 
-  it('la página toca las cuatro secciones de la landing', () => {
-    for (const bloque of ['Hero', 'Premios']) {
-      expect(pagina, bloque).toContain(bloque)
-    }
+  it('la página publica lo que la landing ARENA sí pinta', () => {
+    // DOS bloques: la bajada del hero y el carrusel de Cosechas Pasadas —
+    // lo único de la tabla que la landing nueva pinta.
+    expect(pagina).toContain('Portada')
+    expect(pagina).toContain('Cosechas Pasadas')
     expect(pagina).toContain('cargarContenidoPagina')
     expect(pagina).toContain('guardarContenidoPagina')
-    expect(pagina).toContain('subirFotoPagina')
+    expect(pagina).toContain('subirMediaCarrusel')
     expect(pagina).toContain('validarContenido')
     expect(pagina).toContain('PortalCabecera')
     expect(pagina).toContain('avisar(')
     // «Ver página» abre la landing en otra pestaña.
     expect(pagina).toContain('href="/gran-cosecha.html"')
+    // Lo que la landing ya no pinta (fechas, fondo, premios) no se edita.
+    expect(pagina).not.toContain('Agregar premio')
+    expect(pagina).not.toContain('Fondo estático')
   })
 
-  it('el carrusel del hero se edita con su conversión en pantalla', () => {
-    expect(pagina).toContain('Carrusel del hero')
+  it('el carrusel de Cosechas Pasadas se edita con su conversión en pantalla', () => {
+    expect(pagina).toContain('Cosechas Pasadas')
     expect(pagina).toContain('subirMediaCarrusel')
     // La barra de avance: convertir un video tarda lo que dura el clip.
     expect(pagina).toContain('convirtiendo')
@@ -204,14 +208,24 @@ describe('gran cosecha · la landing (Arena)', () => {
     expect(landing).toContain('paper-texture-ivory')
   })
 
-  it('la landing ya NO lee el contenido de la consola', () => {
-    // La Arena trae sus propios datos (semilla + localStorage): ni la RPC
-    // pública de la página ni los píntores del contenido viejo existen.
-    expect(landing).not.toContain('ver_contenido_gran_cosecha')
-    expect(landing).not.toContain('__SUPABASE_URL__')
+  it('la landing lee la portada y las cosechas que publica la consola', () => {
+    // La RPC pública con la config del build, siempre fresca…
+    expect(landing).toContain('ver_contenido_gran_cosecha')
+    expect(landing).toContain('__SUPABASE_URL__')
+    expect(landing).toContain('__SUPABASE_ANON_KEY__')
+    expect(landing).toContain("cache: 'no-store'")
+    // …y sin config el script ni siquiera pide nada.
+    expect(landing).toContain("URL_BASE.charAt(0) === '_'")
+    // La bajada pinta el párrafo del hero…
+    expect(landing).toContain('id="heroBajada"')
+    expect(landing).toContain("texto('heroBajada'")
+    // …y el carrusel publicado manda sobre la semilla/local del navegador.
+    expect(landing).toContain('carouselSlides = hero.carrusel')
+    expect(landing).toContain('renderCarousel()')
+    // Lo que la landing ARENA no pinta sigue fuera: equipos, premios y el
+    // pintor viejo del contenido.
     expect(landing).not.toContain('pintarParticipantes')
     expect(landing).not.toContain('pintarPremios')
-    expect(landing).not.toContain('premiosCarrusel')
     expect(landing).not.toContain('id="equipos"')
     expect(landing).not.toContain('id="inscripcion"')
   })

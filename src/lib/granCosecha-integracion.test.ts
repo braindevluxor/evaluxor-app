@@ -136,10 +136,12 @@ describe('gran cosecha · el módulo está en el menú', () => {
     // …subidas por el data layer al prefijo `proyectos/` del bucket…
     expect(datosProyecto).toContain('subirFotoProyecto')
     expect(datosProyecto).toContain('proyectos/')
-    // …y el editor de la Página ya no las toca: ese dato lo manda Proyectos.
+    // …y el editor de la Página ya no las toca: ese dato lo manda Proyectos
+    // — ni siquiera queda el campo de foto del fondo, porque la landing
+    // Arena no lo pinta.
     expect(editorPagina).not.toContain('Imagen del proyecto')
     expect(editorPagina).not.toContain('subirFotoEquipo')
-    expect(editorPagina).toContain('CampoFoto')
+    expect(editorPagina).not.toContain('CampoFoto')
     // El detalle del proyecto las ofrece con subida directa (sin el form)…
     expect(paginaProyecto).toContain('Se guardan solas al subirlas')
   })

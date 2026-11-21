@@ -236,7 +236,7 @@
                         </div>
                     </div>
 
-                    <p class="text-luxor-navy/85 text-base sm:text-lg font-medium leading-relaxed mb-8 max-w-xl mx-auto lg:mx-0">
+                    <p id="heroBajada" class="text-luxor-navy/85 text-base sm:text-lg font-medium leading-relaxed mb-8 max-w-xl mx-auto lg:mx-0">
                         Programa institucional de reconocimiento, creatividad e innovación para todos los colaboradores de <strong>Central Luxor, CENDIS y sucursales Luxor & Euromaxx</strong>.
                     </p>
 
@@ -1915,5 +1915,77 @@
             }[tag]));
         }
     </script>
+
+  <!-- CONTENIDO EDITABLE DESDE LA CONSOLA
+       La consola (sólo el Líder) guarda en la tabla `gran_cosecha_pagina` y
+       acá se lee con `ver_contenido_gran_cosecha`, la función abierta a anon
+       —el mismo camino de los enlaces públicos de la app—. Los marcadores
+       __SUPABASE_URL__ / __SUPABASE_ANON_KEY__ los reemplaza el build (ver
+       vite.config.ts): la anon key es pública por diseño, igual que en el
+       bundle de la app.
+       Lo que publica la consola MANDA sobre la semilla y sobre lo agregado
+       en este navegador (localStorage): si hay carrusel publicado, ése es el
+       de la página. El orden importa: este script corre DESPUÉS del
+       principal, así que en DOMContentLoaded su `loadState()` pinta primero
+       y la publicación llega después (el fetch es asíncrono) — si la
+       respuesta ganara la carrera, el `domListo` reaplica al terminar de
+       cargar. Si algo falla —sin red, sin config, tabla vacía— la página
+       se queda con sus valores: funciona aunque Supabase esté caído. -->
+  <script>
+    (function () {
+      var URL_BASE = '__SUPABASE_URL__';
+      var ANON_KEY = '__SUPABASE_ANON_KEY__';
+
+      // Sin config (build sin .env, archivo abierto a mano) no se pide nada:
+      // los marcadores siguen ahí y arrancan con "_".
+      if (URL_BASE.charAt(0) === '_' || ANON_KEY.charAt(0) === '_') return;
+
+      var contenido = null;
+      var domListo = false;
+
+      function texto(id, valor) {
+        var el = document.getElementById(id);
+        if (el && typeof valor === 'string' && valor.trim()) el.textContent = valor.trim();
+      }
+
+      function aplicar() {
+        if (!contenido || typeof contenido !== 'object' || !domListo) return;
+        var hero = contenido.hero;
+        if (hero && typeof hero === 'object') {
+          // La bajada: el párrafo institucional del hero.
+          texto('heroBajada', hero.bajada);
+          // El carrusel publicado manda sobre la semilla/local del
+          // navegador; se repinta y el autoplay arranca de cero.
+          if (Array.isArray(hero.carrusel) && hero.carrusel.length) {
+            carouselSlides = hero.carrusel;
+            currentSlide = 0;
+            renderCarousel();
+            startCarouselAutoplay();
+          }
+        }
+      }
+
+      // El principal registra SU handler primero (este guion va después en
+      // el archivo), así que loadState corre antes que esto.
+      document.addEventListener('DOMContentLoaded', function () {
+        domListo = true;
+        aplicar();
+      });
+
+      fetch(URL_BASE + '/rest/v1/rpc/ver_contenido_gran_cosecha', {
+        method: 'POST',
+        headers: {
+          apikey: ANON_KEY,
+          Authorization: 'Bearer ' + ANON_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: '{}',
+        cache: 'no-store'
+      })
+        .then(function (respuesta) { return respuesta.ok ? respuesta.json() : null; })
+        .then(function (dato) { contenido = dato; aplicar(); })
+        .catch(function () { /* sin conexión, la página se queda con sus valores */ });
+    })();
+  </script>
 </body>
 </html>

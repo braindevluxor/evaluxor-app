@@ -1,17 +1,15 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronUp, Eye, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Eye, Trash2 } from 'lucide-react'
 import { avisar } from '../lib/aviso'
-import { Button, ButtonIcon, CampoFoto, EmptyState, Field, Input, SkeletonFilas, Spinner } from '../components/ui'
+import { Button, ButtonIcon, EmptyState, Field, SkeletonFilas, Spinner, Textarea } from '../components/ui'
 import { PortalCabecera } from '../components/PortalCabecera'
 import {
   cargarContenidoPagina,
   guardarContenidoPagina,
-  subirFotoPagina,
   subirMediaCarrusel,
   validarContenido,
   type ContenidoPagina,
-  type HeroPagina,
-  type PremioPagina
+  type HeroPagina
 } from '../lib/data/granCosechaPagina'
 
 /**
@@ -22,18 +20,18 @@ import {
  * de sólo LÍDER tres veces —el item del menú, el guard de la ruta
  * (`SoloLider`) y la política `for all ... es_lider()` de la tabla—.
  *
- * Tres tarjetas, un solo botón «Guardar»: todo se publica de una vez, con
- * la validación de `validarContenido` explicando en pantalla lo que el
- * `check` de la base rechazaría. Las fotos y los videos del carrusel se
- * suben solos al bucket público —convertidos a WebP/WebM—, pero su URL
- * recién se guarda en la base al tocar Guardar.
+ * DOS tarjetas, un solo botón «Guardar»: sólo lo que la landing ARENA sí
+ * pinta —la bajada del hero y el carrusel de Cosechas Pasadas—. Todo se
+ * publica de una vez, con la validación de `validarContenido` explicando en
+ * pantalla lo que el `check` de la base rechazaría. Los archivos del
+ * carrusel se suben solos al bucket público —convertidos a WebP/WebM—, pero
+ * su URL recién se guarda en la base al tocar Guardar.
  */
 export function GranCosechaPaginaPage() {
   const [contenido, setContenido] = useState<ContenidoPagina | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
-  const [subiendo, setSubiendo] = useState<string | null>(null)
   /** Avance (0 a 1) de la conversión del carrusel en curso, o `null`. */
   const [convirtiendo, setConvirtiendo] = useState<number | null>(null)
 
@@ -71,30 +69,8 @@ export function GranCosechaPaginaPage() {
     }
   }
 
-  /**
-   * Sube el fondo estático del hero —el único slot fijo que queda: los
-   * rounds se retiraron de la página y con ellos `round1..3`.
-   */
-  const subir = async (archivo: File | undefined, urlActual: string) => {
-    if (!archivo) return
-    setSubiendo('fondo')
-    try {
-      const url = await subirFotoPagina('fondo', archivo, urlActual)
-      setContenido((c) => (c ? { ...c, hero: { ...c.hero, fondo: url } } : c))
-      avisar('Foto subida. Tocá «Guardar» para publicarla.')
-    } catch (e) {
-      avisar(e instanceof Error ? e.message : 'No se pudo subir la foto.', 'error')
-    } finally {
-      setSubiendo(null)
-    }
-  }
-
   const cambiarHero = (campo: keyof HeroPagina, valor: string) =>
     setContenido((c) => (c ? { ...c, hero: { ...c.hero, [campo]: valor } } : c))
-
-  /** Vuelve el fondo al que trae la página por defecto. */
-  const quitarFoto = () =>
-    setContenido((c) => (c ? { ...c, hero: { ...c.hero, fondo: '' } } : c))
 
   /**
    * Convierte el archivo (WebP o WebM) y lo agrega al carrusel.
@@ -140,15 +116,6 @@ export function GranCosechaPaginaPage() {
       return { ...c, hero: { ...c.hero, carrusel: lista } }
     })
 
-  const cambiarPremio = (i: number, campo: keyof PremioPagina, valor: string) =>
-    setContenido((c) =>
-      c ? { ...c, premios: c.premios.map((p, j) => (j === i ? { ...p, [campo]: valor } : p)) } : c
-    )
-  const agregarPremio = () =>
-    setContenido((c) => (c ? { ...c, premios: [...c.premios, { puesto: '', descripcion: '' }] } : c))
-  const quitarPremio = (i: number) =>
-    setContenido((c) => (c ? { ...c, premios: c.premios.filter((_, j) => j !== i) } : c))
-
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       {/* Ver y guardar viven en la barra, igual que en el resto de la consola:
@@ -189,75 +156,26 @@ export function GranCosechaPaginaPage() {
       ) : contenido ? (
         <>
           <Tarjeta
-            titulo="Hero"
-            descripcion="Lo primero que se ve en /gran-cosecha.html: lema, fechas y fondo."
+            titulo="Portada"
+            descripcion="Lo primero que se ve en /gran-cosecha.html: el párrafo institucional del hero."
           >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Lema">
-                <Input
-                  value={contenido.hero.lema}
-                  onChange={(e) => cambiarHero('lema', e.target.value)}
-                  placeholder="COMPETENCIA INTERNA DE EXCELENCIA Y SERVICIO"
-                />
-              </Field>
-              <Field label="Bajada">
-                <Input
-                  value={contenido.hero.bajada}
-                  onChange={(e) => cambiarHero('bajada', e.target.value)}
-                  placeholder="IMPULSANDO EL TALENTO DE NUESTRAS SUCURSALES LUXOR"
-                />
-              </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Desde (día)">
-                  <Input
-                    value={contenido.hero.fechaDesde}
-                    onChange={(e) => cambiarHero('fechaDesde', e.target.value)}
-                    placeholder="23"
-                  />
-                </Field>
-                <Field label="Desde (mes)">
-                  <Input
-                    value={contenido.hero.fechaDesdeMes}
-                    onChange={(e) => cambiarHero('fechaDesdeMes', e.target.value)}
-                    placeholder="AGT"
-                  />
-                </Field>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Hasta (día)">
-                  <Input
-                    value={contenido.hero.fechaHasta}
-                    onChange={(e) => cambiarHero('fechaHasta', e.target.value)}
-                    placeholder="27"
-                  />
-                </Field>
-                <Field label="Hasta (mes)">
-                  <Input
-                    value={contenido.hero.fechaHastaMes}
-                    onChange={(e) => cambiarHero('fechaHastaMes', e.target.value)}
-                    placeholder="SEPT"
-                  />
-                </Field>
-              </div>
-            </div>
-            <div className="mt-4 max-w-xs">
-              <CampoFoto
-                etiqueta="Fondo estático (si no hay carrusel)"
-                url={contenido.hero.fondo}
-                ocupado={subiendo === 'fondo'}
-                onArchivo={(archivo) => void subir(archivo, contenido.hero.fondo)}
-                onQuitar={() => quitarFoto()}
+            <Field label="Bajada">
+              <Textarea
+                rows={3}
+                value={contenido.hero.bajada}
+                onChange={(e) => cambiarHero('bajada', e.target.value)}
+                placeholder="Programa institucional de reconocimiento, creatividad e innovación para todos los colaboradores…"
               />
-            </div>
+            </Field>
           </Tarjeta>
 
           <Tarjeta
-            titulo="Carrusel del hero"
-            descripcion="Imágenes y videos que rotan detrás del hero. Cada archivo se convierte al subirlo (WebP las imágenes, WebM los videos) y los videos quedan sin sonido: el carrusel es de fondo."
+            titulo="Cosechas Pasadas"
+            descripcion="Fotos y videos de ediciones anteriores que rotan en la sección Cosechas Pasadas. Cada archivo se convierte al subirlo (WebP las imágenes, WebM los videos) y los videos quedan sin sonido."
           >
             {!contenido.hero.carrusel.length ? (
               <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                Sin carrusel publicado: el hero muestra su fondo estático (o el degradado por defecto).
+                Sin fotos publicadas: la sección muestra las de ejemplo que trae la página.
               </p>
             ) : (
               <ul className="space-y-3">
@@ -353,54 +271,6 @@ export function GranCosechaPaginaPage() {
             </div>
           </Tarjeta>
 
-          <Tarjeta
-            titulo="Premios"
-            descripcion="Una tarjeta con su trofeo por premio, en el orden en que se pintan."
-          >
-            <div className="flex justify-end">
-              <Button
-                variant="secondary"
-                className="min-h-[34px] px-3 py-1.5 text-xs"
-                onClick={agregarPremio}
-              >
-                <Plus className="h-4 w-4" />
-                Agregar premio
-              </Button>
-            </div>
-            <ul className="mt-3 space-y-3">
-              {contenido.premios.map((p, i) => (
-                <li
-                  key={i}
-                  className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3 sm:grid-cols-[9rem_1fr_auto]"
-                >
-                  <Field label="Puesto">
-                    <Input
-                      value={p.puesto}
-                      onChange={(e) => cambiarPremio(i, 'puesto', e.target.value)}
-                      placeholder="1° PUESTO"
-                    />
-                  </Field>
-                  <Field label="Descripción">
-                    <Input
-                      value={p.descripcion}
-                      onChange={(e) => cambiarPremio(i, 'descripcion', e.target.value)}
-                      placeholder="Qué se gana"
-                    />
-                  </Field>
-                  <div className="flex items-end">
-                    <ButtonIcon
-                      variant="danger"
-                      onClick={() => quitarPremio(i)}
-                      title="Quitar premio"
-                      aria-label={`Quitar premio ${i + 1}`}
-                    >
-                      <Trash2 className="h-5 w-5" />
-                    </ButtonIcon>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </Tarjeta>
         </>
       ) : null}
     </div>
