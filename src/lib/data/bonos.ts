@@ -90,6 +90,13 @@ export interface BonoCargo {
    */
   departamento: string | null
   /**
+   * El PROGRAMA que le da la nota (módulos o actividades), si lo tiene.
+   * `null` = la nota se carga a mano en `bonos_pago`, como siempre.
+   * Es la columna nueva de `bonos-programas.sql`; en una base sin ese
+   * bloque aplicado no viene y se lee como `null`.
+   */
+  bono_programa_id?: string | null
+  /**
    * El alcance: SÓLO estas sucursales. **Vacío = aplica a todas** con el
    * monto base. No es un campo de la tabla: son las filas de
    * `bonos_cargo_sucursal`, leídas con la plantilla.
@@ -150,6 +157,12 @@ export interface BonoCargoEntrada {
   periodicidad: Periodicidad
   /** Departamento al que acota; vacío o null = cualquier departamento. */
   departamento: string | null
+  /**
+   * El programa que le da la nota. `null` = sin programa (nota a mano).
+   * Opcional: si no viene, el campo NO se toca — así apagar un cargo desde
+   * la lista no borra el programa que tenía.
+   */
+  bono_programa_id?: string | null
   /** El alcance elegido: vacío = todas las sucursales. */
   sucursales: BonoCargoSucursal[]
 }
@@ -622,6 +635,11 @@ export async function guardarBonoCargo(entrada: BonoCargoEntrada): Promise<void>
     nota_minima: entrada.nota_minima,
     periodicidad: entrada.periodicidad,
     departamento,
+    // Sólo si viene: un llamado que no lo trae (p. ej. «apagar el cargo»)
+    // no debería pisar el programa que el cargo ya tenía.
+    ...(entrada.bono_programa_id !== undefined
+      ? { bono_programa_id: entrada.bono_programa_id }
+      : {}),
     updated_at: new Date().toISOString()
   }
 

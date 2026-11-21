@@ -5884,10 +5884,12 @@ end $$;
 --    servidor con `auth.uid()`: no se puede crear un proyecto "de otro").
 --  * CREA y EDITA su propio proyecto: el equipo reporta sus avances.
 --  * JUEZ y LÍDER editan EL DE CUALQUIERA: son los que dan seguimiento.
---  * NADIE BORRA. Borrar un proyecto tiraría su bitácora por `on delete
---    cascade` y con ella el historial del concurso: se CANCELA con `estado`,
---    que es reversible y queda registrado. Sin política de `delete`, RLS no
---    deja pasar ningún borrado por más rol que se tenga.
+--  * BORRAR: el equipo que lo creó y JUEZ/LÍDER (la MISMA cerradura que
+--    editar). Es un borrado completo: el `on delete cascade` de la bitácora
+--    y el de los riegos se llevan historia y «me gusta» con la fila, y la
+--    app retira las dos fotos del bucket. Quien sólo quiera SACARLO del
+--    concurso sin borrar nada lo CANCELA con `estado`, que es reversible y
+--    queda registrado en esa misma bitácora.
 --
 -- Cómo se registra: POR UN TRIGGER, no desde la app. Un `update` del proyecto
 -- (cualquiera que lo haga) dispara `gran_cosecha_registrar_cambio`, que en la
@@ -5958,6 +5960,17 @@ alter table public.gran_cosecha_proyecto
   add column if not exists imagen text not null default '',
   add column if not exists foto   text not null default '';
 
+-- LOS ADJUNTOS DE LA PRESENTACIÓN: documentos y videos que el equipo sube
+-- para presentar el proyecto (PDF, Word, Excel, PowerPoint y video). Va en
+-- jsonb y no en tabla aparte porque es UNA lista por proyecto que sólo se
+-- lee entera — misma decisión que `miembros`. Cada elemento es
+-- `{ ruta, nombre, tipo, bytes, url, subido_at }`: la `ruta` es la del
+-- bucket `gran-cosecha` bajo `proyectos/<id>/…`, que la MISMA política de
+-- las fotos ya cubre (`gran_cosecha_fotos_proyecto`), así que subir y borrar
+-- no necesita regla nueva. Lo público lo decide la RPC de la landing.
+alter table public.gran_cosecha_proyecto
+  add column if not exists adjuntos jsonb not null default '[]';
+
 create table if not exists public.gran_cosecha_bitacora (
   id uuid primary key default gen_random_uuid(),
   proyecto_id uuid not null references public.gran_cosecha_proyecto(id) on delete cascade,
@@ -6013,9 +6026,17 @@ create policy gran_cosecha_proyecto_update on public.gran_cosecha_proyecto
   using (public.puede_gran_cosecha() or creador_id = auth.uid())
   with check (public.puede_gran_cosecha() or creador_id = auth.uid());
 
--- SIN POLÍTICA DE DELETE, A PROPÓSITO: no borra nadie. Un delete en cascata
--- se llevaría la bitácora y con ella el historial del concurso. El camino es
--- `estado = 'CANCELADO'`, que además queda registrado.
+-- BORRAR UN PROYECTO: el equipo que lo creó y JUEZ/LÍDER —la MISMA
+-- cerradura que el update, así no conviven dos reglas para «quién puede con
+-- éste». Es un borrado DE VERDAD: el `on delete cascade` de la bitácora y el
+-- de la tabla de riegos se llevan historial y «me gusta» junto con la fila,
+-- y las dos fotos del participante las retira la app del bucket.
+-- Para sacar un proyecto del concurso SIN borrar su historia sigue estando
+-- `estado = 'CANCELADO'`, que además queda registrado en esa misma bitácora.
+drop policy if exists gran_cosecha_proyecto_delete on public.gran_cosecha_proyecto;
+create policy gran_cosecha_proyecto_delete on public.gran_cosecha_proyecto
+  for delete to authenticated
+  using (public.puede_gran_cosecha() or creador_id = auth.uid());
 
 -- LA BITÁCORA LA ESCRIBE UN TRIGGER, NO LA APP
 --
@@ -6290,6 +6311,51 @@ $$;
 revoke execute on function public.regar_proyecto(uuid) from public, anon;
 grant  execute on function public.regar_proyecto(uuid) to authenticated;
 
+-- 1b) Quitar el PROPIO riego, con sesión: el "deshacer" del me gusta. Va en
+--     espejo con `regar_proyecto`: la identidad NO es parámetro — la arma la
+--     función con `profiles.usuario` de quien aprieta—, así que sólo se
+--     deshace el riego propio y el de nadie más. Devuelve el conteo nuevo
+--     para que la consola repinte el chip sin volver a leer el mapa.
+create or replace function public.quitar_riego(p_proyecto_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_clave text;
+  v_filas integer;
+  v_riegos integer;
+begin
+  -- Quién quita: el usuario ACTIVO de la sesión, con el MISMO criterio que
+  -- `regar_proyecto` — misma clave, mismo normalizado.
+  select u.usuario into v_clave
+    from public.profiles u
+   where u.id = auth.uid() and u.activo;
+  v_clave := coalesce(trim(v_clave), '');
+  if v_clave = '' then
+    raise exception 'Tu perfil no tiene usuario de EvaLuxor: no se puede quitar el riego.';
+  end if;
+
+  -- Sólo la fila PROPIA: el `where` lleva la clave de la sesión, así que el
+  -- riego de los demás queda intacto con cualquier proyecto que se mande.
+  delete from public.gran_cosecha_riego
+   where proyecto_id = p_proyecto_id and usuario = v_clave;
+  get diagnostics v_filas = row_count;
+
+  select count(*) into v_riegos
+    from public.gran_cosecha_riego
+   where proyecto_id = p_proyecto_id;
+
+  -- `quitado: false` = no había riego propio (doble clic, o el proyecto no
+  -- existe): sin error y con el conteo VERDADERO, para no pintar un mentira.
+  return jsonb_build_object('quitado', v_filas > 0, 'riegos', v_riegos);
+end;
+$$;
+
+revoke execute on function public.quitar_riego(uuid) from public, anon;
+grant  execute on function public.quitar_riego(uuid) to authenticated;
+
 -- 2) El conteo para la consola: por proyecto, cuántas veces se regó y si YO
 --    ya lo regué (`mio`), para pintar el botón. Saliendo de acá sólo el
 --    número y el booleano mío: NINGÚN `usuario` se expone, ni con sesión.
@@ -6432,7 +6498,12 @@ as $$
           -- Las dos fotos, guardadas EN EL PROYECTO (las edita la consola de
           -- Proyectos): vacías, la tarjeta usa la inicial del título.
           'imagen', pr.imagen,
-          'foto', pr.foto
+          'foto', pr.foto,
+          -- Los archivos de la presentación (documentos y videos): van
+          -- enteros, que la página los pinta tal cual. La tabla de proyectos
+          -- es pública de lectura por esta función; nada de acá da permiso
+          -- sobre el bucket (el bucket es público para lectura).
+          'adjuntos', pr.adjuntos
         )
         order by pr.avance desc, pr.created_at
       ), '[]'::jsonb)
@@ -6774,5 +6845,246 @@ drop function if exists public.ver_concurso_publico(text);
 -- Única baja de datos de este archivo: la tabla guardaba bases, calendario,
 -- premios, jurado, FAQ y ganadores de una landing que ya no existe.
 drop table if exists public.gran_cosecha_contenido;
+
+-- Archivo consolidado: compartir-inspeccion.sql
+-- ###########################################################################
+-- ============================================================================
+-- ENLACE PÚBLICO DE UNA INSPECCIÓN DE VEHÍCULO / PRE-ENTREGA
+--
+-- POR QUÉ EXISTE
+-- -------------
+-- El PDF ya NO pega las fotos de evidencia: el papel no es el mejor lugar
+-- para mirar material visual (y una hoja con veinte fotos es un ladrillo).
+-- En su lugar lleva un QR que apunta a ESTE enlace, que sí muestra el
+-- detalle entero —la tabla de puntos con sus comentarios y el material
+-- visual, fotos y videos— sin cuenta y desde cualquier teléfono.
+--
+-- Es el mismo molde que `compartir-cargos.sql` y `compartir-evaluacion.sql`:
+--
+--  * La PK es la REVISIÓN y no el token: compartir de nuevo REEMPLAZA el
+--    enlace (y su reporte congelado) en vez de acumular links viejos que
+--    nadie puede apagar. Se apaga con un `activo = false`.
+--  * `datos` es el detalle ARMADO POR LA APP, con las URLs de las fotos ya
+--    firmadas (un año, igual que en cargos): lo que no está acá, el enlace
+--    no lo muestra.
+--  * La única puerta es `ver_inspeccion_compartida(p_token)`, SECURITY
+--    DEFINER: la pantalla corre sin sesión y `anon` no tiene permiso de
+--    tabla. Token equivocado y enlace apagado devuelven lo MISMO, para que
+--    no se pueda adivinar un token comparando respuestas.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+
+create table if not exists public.inspecciones_compartidas (
+  revision_id uuid primary key
+    references public.revision_pre_entrega (id) on delete cascade,
+  token text not null unique,
+  -- El detalle armado por la app (jsonb), con las URLs firmadas de las
+  -- fotos. Es lo único que viaja al que recibe el enlace.
+  datos jsonb not null,
+  activo boolean not null default true,
+  creado_por uuid references public.profiles (id) on delete set null,
+  creado_at timestamptz not null default now()
+);
+
+alter table public.inspecciones_compartidas enable row level security;
+
+-- Quien hizo la inspección (o el Líder, que puede con todo) ve que su
+-- enlace está activo: si no, el botón no tendría memoria entre sesiones.
+drop policy if exists inspecciones_compartidas_select on public.inspecciones_compartidas;
+create policy inspecciones_compartidas_select on public.inspecciones_compartidas
+  for select to authenticated
+  using (exists (
+    select 1 from public.revision_pre_entrega r
+    where r.id = inspecciones_compartidas.revision_id
+      and (r.evaluador_id = auth.uid() or public.es_lider())
+  ));
+
+-- Generar y apagar el enlace: mismo criterio que el select de arriba.
+drop policy if exists inspecciones_compartidas_gestion on public.inspecciones_compartidas;
+create policy inspecciones_compartidas_gestion on public.inspecciones_compartidas
+  for all to authenticated
+  using (exists (
+    select 1 from public.revision_pre_entrega r
+    where r.id = inspecciones_compartidas.revision_id
+      and (r.evaluador_id = auth.uid() or public.es_lider())
+  ))
+  with check (exists (
+    select 1 from public.revision_pre_entrega r
+    where r.id = inspecciones_compartidas.revision_id
+      and (r.evaluador_id = auth.uid() or public.es_lider())
+  ));
+
+-- La única puerta: leer el detalle de un enlace, SIN sesión.
+create or replace function public.ver_inspeccion_compartida(p_token text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select case
+    when exists (
+      select 1 from public.inspecciones_compartidas i
+      where i.activo and i.token = p_token
+    )
+    then (
+      select jsonb_build_object(
+        'datos', i.datos,
+        'generado', i.creado_at
+      )
+      from public.inspecciones_compartidas i
+      where i.activo and i.token = p_token
+    )
+    else jsonb_build_object('datos', null)
+  end;
+$$;
+
+-- `anon` porque la pantalla corre sin sesión, y `authenticated` porque el
+-- enlace lo puede abrir alguien que ya tiene la app abierta (el propio
+-- evaluador mirando su link). El revoke va con PUBLIC porque los permisos
+-- en Postgres son aditivos, y DESPUÉS del `create or replace`, que reactiva
+-- ese permiso.
+revoke execute on function public.ver_inspeccion_compartida(text) from public, anon;
+grant  execute on function public.ver_inspeccion_compartida(text) to anon, authenticated;
+
+-- Archivo consolidado: bonos-programas.sql
+-- ###########################################################################
+-- ============================================================================
+-- PROGRAMAS DE BONIFICACIÓN: LA NOTA DEL BONO, SEPARADA DE LOS MÓDULOS
+--
+-- POR QUÉ EXISTE ESTE ARCHIVO
+-- ---------------------------
+-- `modulos`/`items` miden EVALUACIONES; `bonos_cargo` pagaba con una nota que
+-- se cargaba a mano. En el medio aparecían actividades concretas de un bono
+-- metidas en la pantalla de Módulos, y los dos conceptos se pisaban. Este
+-- bloque crea la entidad que faltaba:
+--
+--  * `bonos_programa` es el PROGRAMA: nombre, descripción, si está activo.
+--  * `bonos_programa_fuente` dice DE DÓNDE SALE SU NOTA, con DOS tipos, que
+--    es justamente lo que separa esto de los módulos:
+--      - MODULO → apunta a un `modulos` existente: la nota la dan las
+--        evaluaciones de ese módulo. NO se copia el nombre (renombrar el
+--        módulo no rompe el programa) y si el módulo se borra, la fuente
+--        queda sin módulo (`on delete set null`) y hay que volver a elegirlo.
+--      - ACTIVIDAD → una actividad propia del programa, con su nombre
+--        («Auditoría de precios») y su nota cargada a mano por PERSONA y
+--        PERÍODO en `bonos_programa_nota`.
+--    Cada fuente tiene PESO: la nota del programa es el promedio ponderado
+--    de las fuentes que tengan nota (el cálculo vive en la app).
+--
+--  * `bonos_cargo.bono_programa_id` ata un cargo a su programa. Sin programa
+--    el cargo sigue como hoy: la nota se carga a mano en `bonos_pago`.
+--
+-- QUIÉN ENTRA
+-- -----------
+-- La MISMA cerradura que el resto de los bonos (`puede_bonos`): LÍDER y
+-- GERENTE DE TALENTO HUMANO. Las tres tablas con select + gestión idénticos
+-- y el revoke a `anon` de segunda capa, igual que en `bonos.sql`.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+
+-- EL PROGRAMA
+create table if not exists public.bonos_programa (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null check (length(trim(nombre)) > 0),
+  descripcion text not null default '',
+  activo boolean not null default true,
+  -- Cada cuánto se paga y, por lo tanto, con qué formato de período se cargan
+  -- las notas de sus actividades: la misma pareja que los cargos.
+  periodicidad text not null default 'MENSUAL' check (periodicidad in ('MENSUAL', 'TRIMESTRAL')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- DE DÓNDE SALE LA NOTA: un módulo de evaluación O una actividad propia.
+create table if not exists public.bonos_programa_fuente (
+  id uuid primary key default gen_random_uuid(),
+  bono_programa_id uuid not null references public.bonos_programa(id) on delete cascade,
+  tipo text not null check (tipo in ('MODULO', 'ACTIVIDAD')),
+  -- MODULO: se apunta al módulo Y se le copia su NOMBRE, que es el que se
+  -- muestra. La copia no es redundante: es el respaldo que permite que el
+  -- módulo se borre SIN llevarse la fuente (`on delete set null`) — borrar un
+  -- módulo no puede borrar el programa—, y en ese caso la fuente queda
+  -- «sin módulo» y hay que volver a elegirlo desde la pantalla.
+  modulo_id uuid references public.modulos(id) on delete set null,
+  -- El nombre que se MUESTRA: el de la actividad, o el del módulo copiado al
+  -- agregar la fuente. Siempre con contenido: sin él la fila no se lee.
+  nombre text not null check (length(trim(nombre)) > 0),
+  peso numeric not null default 1 check (peso > 0),
+  orden integer not null default 0,
+  created_at timestamptz not null default now(),
+  -- Un ACTIVIDAD nunca apunta a un módulo: son las DOS formas de la nota,
+  -- no dos a la vez. (Lo contrario sí puede pasar y es el estado normal de
+  -- una fuente cuyo módulo se borró: queda sin módulo, con su nombre.)
+  constraint bonos_fuente_actividad_chk check (tipo <> 'ACTIVIDAD' or modulo_id is null)
+);
+
+create index if not exists idx_bonos_fuente_programa
+  on public.bonos_programa_fuente (bono_programa_id, orden);
+
+-- LA NOTA DE UNA ACTIVIDAD, por persona y período. La de los módulos NO vive
+-- acá: esa la calculan las evaluaciones. Mismo formato de período que los
+-- pagos (`2026-11` o `2026-T1`…`2026-T4`) y misma identidad de persona que
+-- la nómina (nacionalidad + DNI). El `nombre` va CONGELADO al cargarlo —
+-- igual que en `bonos_pago`—: la fila se lee aunque la persona salga de la
+-- nómina mañana.
+create table if not exists public.bonos_programa_nota (
+  bono_programa_fuente_id uuid not null references public.bonos_programa_fuente(id) on delete cascade,
+  periodo text not null check (periodo ~ '^\d{4}-(T[1-4]|(0[1-9]|1[0-2]))$'),
+  nacionalidad text not null default 'V',
+  dni bigint not null,
+  nombre text not null default '',
+  nota numeric not null check (nota >= 0 and nota <= 100),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint bonos_programa_nota_pkey
+    primary key (bono_programa_fuente_id, periodo, nacionalidad, dni)
+);
+
+-- EL ENLACE con el cargo: opcional. Si el cargo no tiene programa, su nota
+-- sigue cargándose a mano como hasta ahora (`bonos_pago.nota`).
+alter table public.bonos_cargo
+  add column if not exists bono_programa_id uuid
+    references public.bonos_programa(id) on delete set null;
+
+-- RLS: la misma cerradura que todo lo de bonos. El `select` TAMBIÉN va
+-- filtrado —un programa de bono es cifra de sueldo, no configuración abierta—.
+alter table public.bonos_programa enable row level security;
+
+drop policy if exists bonos_programa_select on public.bonos_programa;
+create policy bonos_programa_select on public.bonos_programa
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_programa_gestion on public.bonos_programa;
+create policy bonos_programa_gestion on public.bonos_programa
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+alter table public.bonos_programa_fuente enable row level security;
+
+drop policy if exists bonos_programa_fuente_select on public.bonos_programa_fuente;
+create policy bonos_programa_fuente_select on public.bonos_programa_fuente
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_programa_fuente_gestion on public.bonos_programa_fuente;
+create policy bonos_programa_fuente_gestion on public.bonos_programa_fuente
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+alter table public.bonos_programa_nota enable row level security;
+
+drop policy if exists bonos_programa_nota_select on public.bonos_programa_nota;
+create policy bonos_programa_nota_select on public.bonos_programa_nota
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_programa_nota_gestion on public.bonos_programa_nota;
+create policy bonos_programa_nota_gestion on public.bonos_programa_nota
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+-- Segunda capa, igual que en `bonos.sql`: si algún día RLS queda apagado en
+-- estas tablas, el grant por defecto de Supabase sería la única puerta.
+do $$
+begin
+  execute 'revoke all on public.bonos_programa from anon';
+  execute 'revoke all on public.bonos_programa_fuente from anon';
+  execute 'revoke all on public.bonos_programa_nota from anon';
+end $$;
 
 

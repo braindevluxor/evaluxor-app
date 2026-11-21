@@ -150,17 +150,34 @@ describe('gran cosecha · la landing', () => {
     expect(landing).toMatch(/<section id="equipos" class="[^"]*\btextura-cruces\b/)
     // La textura es la misma que usa el bloque rojo: una sola clase.
     expect(landing.match(/textura-cruces/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    // Las LETRAS y BOTONES azules de toda la página son el MISMO azul del
+    // fondo de equipos: el navy viejo (#0a1e5e) se unificó a #28315F —
+    // ninguno de los dos colores queda en la landing.
+    expect(landing).not.toContain('#0a1e5e')
+    expect(landing).toContain('text-[#28315F]')
+    expect(landing).toContain('bg-[#28315F]')
+    // El hover de los botones azules se apoya en el navy PROFUNDO del
+    // palette (no en un azul ajeno como `blue-900`).
+    expect(landing).not.toContain('hover:bg-blue-900')
+    expect(landing).toContain('hover:bg-[#061238]')
   })
 
-  it('cada participante lleva su avance y sus RIEGOS con regadera', () => {
+  it('cada participante lleva su avance y sus RIEGOS, sin fondo y con la planta', () => {
     // El "like" de jardín: el conteo que mandan Academia/Desarrollo Luxor,
     // pintado en el proyecto que se registró en /gran-cosecha/proyectos.
     expect(landing).toContain('function pintarParticipantes(participantes)')
-    expect(landing).toContain('class="chip-riegos"')
     expect(landing).toContain('class="chip-avance"')
+    // El riego, como el "Me gusta" de Facebook: SÓLO la planta y su número
+    // — sin la píldora blanca, sin la palabra suelta (el `title` explica
+    // qué cuenta) y con la MISMA planta sólida que la consola.
+    expect(landing).toContain('class="chip-riegos"')
     expect(landing).toContain('class="riego-ico"')
+    expect(landing).toContain('function plantaSvg()')
+    expect(landing).not.toContain('regaderaSvg')
+    expect(landing).not.toContain("riegos === 1 ? 'riego' : 'riegos'")
+    expect(landing).toContain('background: none')
+    expect(landing).toContain('color: #7dd3fc')
     // Sólo el NÚMERO cruza: quién regó vive en una tabla cerrada.
-    expect(landing).toContain("riegos === 1 ? 'riego' : 'riegos'")
   })
 
   it('la tarjeta del participante monta la imagen del proyecto y revela su foto', () => {
@@ -276,8 +293,56 @@ describe('gran cosecha · la landing', () => {
     const fotos = landing.match(/evidencia\/premios-\d+\.webp/g) || []
     expect(fotos.length).toBe(6)
     expect(landing).toContain('id="premiosCarrusel"')
-    // …girando solas con fundido, por clase de opacidad.
-    expect(landing).toContain("slides[slideActual].classList.replace('opacity-100', 'opacity-0')")
+    // De BORDE A BORDE de pantalla: sin el ancho centrado ni esquinas
+    // redondas en el marco.
+    expect(landing).toMatch(/id="premiosCarrusel" class="[^"]*-mx-4/)
+    expect(landing).not.toMatch(/id="premiosCarrusel" class="[^"]*max-w-3xl/)
+    expect(landing).not.toMatch(/id="premiosCarrusel" class="[^"]*rounded-2xl/)
+    // El ancho va EXPLÍCITO: con `width: auto` el aspect-ratio + el tope
+    // de alto le robaban el cálculo al ancho y el marco salía a la altura
+    // × 16/9 en vez de de borde a borde. OJO los guiones bajos: son los
+    // espacios del `calc` de Tailwind — sin ellos el calc es inválido y
+    // el ancho vuelve a `auto`. Y sin el override de box-sizing.
+    expect(landing).toMatch(/id="premiosCarrusel" class="[^"]*w-\[calc\(100%_\+_2rem\)\]/)
+    // Sin marco: el borde amarillo del carrusel se quitó a pedido.
+    expect(landing).not.toMatch(/id="premiosCarrusel" class="[^"]*border-\[#facc15\]/)
+    expect(landing).not.toContain('box-sizing: content-box')
+    // El motor FIEL de la referencia: escenario con perspectiva y pista
+    // con espacio 3D; las tarjetas son absolutas y se disponen en un
+    // CILINDRO CÓNCAVO —z negativo en el centro (lejos y chico) que crece
+    // hacia los extremos (cerca y grande)—.
+    expect(landing).toContain('class="carousel-stage')
+    expect(landing).toContain('id="premiosPista" class="carousel-track"')
+    expect(landing).toContain('class="video-card"')
+    expect(landing).toContain('perspective: 1100px')
+    expect(landing).toContain('transform-style: preserve-3d')
+    // La fórmula cóncava es LA de la referencia (no la convexa): el
+    // centro arranca en z -120 y los extremos se acercan al espectador.
+    expect(landing).toContain('-120 + Math.pow(absDelta, 1.85)')
+    // La caja de la tarjeta es 16:9 —el formato de la gráfica— para no
+    // recortarle el texto.
+    expect(landing).toMatch(/\.video-card \{[^}]*height: 202px/)
+    // Interacción: arrastre con inercia, rueda y auto-scroll que se pausa
+    // con el mouse encima; la vuelta circular la da
+    // `getShortestCyclicDelta` — sin copias.
+    expect(landing).toContain('function getShortestCyclicDelta(')
+    expect(landing).toContain('velocity * 10')
+    // SIN controles: los botones anterior/siguiente y el toggle de auto
+    // se quitaron a pedido (el auto sigue corriendo solo).
+    expect(landing).not.toContain('id="premiosAnterior"')
+    expect(landing).not.toContain('id="premiosSiguiente"')
+    expect(landing).not.toContain('id="premiosAuto"')
+    expect(landing).not.toContain('btnAnterior')
+    expect(landing).toContain('touchstart')
+    expect(landing).toContain('isHovered')
+    expect(landing).toContain('requestAnimationFrame(animate)')
+    // Sin fundido: el de premios ya no tiene su ciclo de opacidad (el del
+    // HERO sigue con el suyo —es otro carrusel, el de fondo del hero—).
+    expect(landing).not.toContain('slides[slideActual]')
+    // Quien pidió menos movimiento: el auto-scroll arranca PAUSADO. (El
+    // regex lleva DOS paréntesis: el de la llamada y el de la consulta
+    // `(prefers-reduced-motion: reduce)`.)
+    expect(landing).toMatch(/autoScroll = !window\.matchMedia\('\(prefers-reduced-motion/)
   })
 
   it('el CTA dice INSCRÍBETE AHORA y late de forma constante', () => {
@@ -346,9 +411,10 @@ describe('gran cosecha · la landing', () => {
     expect((landing.match(/absolute inset-x-0 -bottom-px h-10 w-full/g) || []).length).toBe(3)
     // El grosor no se deforma con el estiramiento horizontal.
     expect((landing.match(/vector-effect="non-scaling-stroke"/g) || []).length).toBe(3)
-    // La línea va en un color que se lea en cada frontera.
+    // La línea va en un color que se lea en cada frontera: el mismo
+    // primario del resto de la página.
     expect(landing).toContain('stroke="#ffffff"')
-    expect(landing).toContain('stroke="#0a1e5e"')
+    expect(landing).toContain('stroke="#28315F"')
     expect(landing).not.toContain('stroke="#facc15"')
   })
 
@@ -356,11 +422,27 @@ describe('gran cosecha · la landing', () => {
     expect(landing).not.toContain('data-modal="itch"')
     expect(landing).not.toContain('data-modal="discord"')
     // Y sus contenidos, que ya no tienen botón que los abra (términos
-    // y privacidad siguen, desde el menú, el footer y el formulario).
+    // y privacidad siguen, desde el footer y el formulario).
     expect(landing).not.toContain('Guía operativa')
     expect(landing).not.toContain('Soporte y Coordinación')
     expect(landing).toContain("data-modal=\"terms\"")
     expect(landing).toContain("data-modal=\"privacy\"")
+  })
+
+  it('la barra de navegación se quedó sólo con las tres secciones', () => {
+    const nav = landing.match(/<nav[\s\S]*?<\/nav>/)?.[0] ?? ''
+    // Contacto / Política de privacidad / Términos se fueron de la barra
+    // (escritorio y menú móvil) a pedido; en el footer y en el formulario
+    // de inscripción siguen.
+    expect(nav).toContain('#inscripcion')
+    expect(nav).toContain('#como-participar')
+    expect(nav).toContain('#premios')
+    expect(nav).not.toContain('Contacto')
+    expect(nav).not.toContain('data-modal=')
+    expect(landing).not.toMatch(/id="mobileMenu"[\s\S]{0,600}#contacto/)
+    expect(landing).not.toMatch(/id="mobileMenu"[\s\S]{0,600}data-modal=/)
+    expect(landing).toContain('data-modal="terms"')
+    expect(landing).toContain('data-modal="privacy"')
   })
 
   it('el hero ya no tiene los círculos bokeh', () => {

@@ -8,6 +8,7 @@ import { buscarVehiculo, type Vehiculo } from '../../lib/data/vehicles'
 import { listarColaboradores, type ColaboradorAPI } from '../../lib/data/colaboradores'
 import { nombreColaborador } from '../../lib/data/apis'
 import { exportarRevisionPreEntrega } from '../../lib/pdf/exportarRevisionPreEntrega'
+import { armarDetalleInspeccion, asegurarEnlaceInspeccion } from '../../lib/data/compartirInspeccion'
 import { resolverPregunta } from '../../lib/pdf/preguntasRevision'
 import { getPreEntregaAbierta, putPreEntrega, type PreEntregaRecord } from '../../lib/offline/db'
 import { subirRevisionPreEntrega } from '../../lib/offline/syncPreEntrega'
@@ -324,10 +325,13 @@ export default function RevisionPreEntrega() {
    */
   const filasPdf = useMemo(
     () =>
-      preguntas.flatMap((p) => [
-        ...p.filas.map((f) => ({ etiqueta: `${p.texto} · ${f.etiqueta}`, valor: f.valor })),
-        ...(p.veredicto ? [{ etiqueta: `${p.texto} · Nota`, valor: p.veredicto }] : [])
-      ]),
+      preguntas.flatMap((p) =>
+        p.filas.map((f) => ({
+          etiqueta: `${p.texto} · ${f.etiqueta}`,
+          valor: f.valor,
+          observacion: f.observacion ?? null
+        }))
+      ),
     [preguntas]
   )
 
@@ -336,6 +340,47 @@ export default function RevisionPreEntrega() {
     if (!r || !modulo) return
     setExportando(true)
     try {
+      // El QR de la hoja apunta al enlace PÚBLICO del detalle (tabla,
+      // comentarios y material visual): se asegura ANTES de generar el PDF.
+      // Si no se puede —sin permiso, sin red, bloque sin aplicar— el
+      // documento sale sin QR y se avisa: un problema con el enlace no deja
+      // a nadie sin su revisión.
+      let urlDetalle: string | null = null
+      try {
+        const detalle = armarDetalleInspeccion({
+          titulo: modulo.nombre,
+          fecha: r.fecha,
+          evaluador: profile?.nombre ?? null,
+          observaciones: r.observaciones.trim() || null,
+          vehiculo: {
+            placa: r.placa,
+            marca: typeof r.vehiculo.marca === 'string' ? r.vehiculo.marca : null,
+            modelo: typeof r.vehiculo.modelo === 'string' ? r.vehiculo.modelo : null,
+            color: typeof r.vehiculo.color === 'string' ? r.vehiculo.color : null,
+            anio: r.vehiculo.anio == null ? null : String(r.vehiculo.anio),
+            flota: typeof r.vehiculo.flota === 'string' ? r.vehiculo.flota : null,
+            kilometraje: r.vehiculo.kilometraje == null ? null : String(r.vehiculo.kilometraje),
+            combustible: typeof r.vehiculo.combustible === 'string' ? r.vehiculo.combustible : null
+          },
+          persona: {
+            cedula: (r.chofer.cedula as string) || null,
+            nombre: (r.chofer.nombre as string) || null,
+            apellido: (r.chofer.apellido as string) || null,
+            telefono: null,
+            firma: r.chofer_firma
+          },
+          items: filasPdf,
+          itemsEvaluables,
+          respuestas: r.respuestas
+        })
+        urlDetalle = await asegurarEnlaceInspeccion(r.id, detalle, profile?.id ?? null)
+      } catch (e) {
+        setAviso({
+          texto: `El PDF sale sin QR: ${e instanceof Error ? e.message : 'no se pudo crear el enlace público'}`,
+          ok: false
+        })
+      }
+
       await exportarRevisionPreEntrega({
         titulo: modulo.nombre,
         fecha: r.fecha,
@@ -350,7 +395,8 @@ export default function RevisionPreEntrega() {
           cargo: (r.chofer.cargo as string) || null,
           firma: r.chofer_firma
         },
-        items: filasPdf
+        items: filasPdf,
+        urlDetalle
       })
       // La entrega quedó hecha: se marca finalizada y se sube en el acto si hay
       // señal. Si no, la cola la sube sola y la borra de local al confirmarla.

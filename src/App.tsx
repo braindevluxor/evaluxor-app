@@ -33,6 +33,12 @@ const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ defau
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
 // Bonos por desempeño: qué cargos gozan de bono y el pago de los mismos.
 const BonosPage = lazy(() => import('./pages/config/Bonos').then((m) => ({ default: m.BonosPage })))
+// Programas de bonificación: de dónde sale la nota del bono (módulos de
+// evaluación o actividades propias). Separado de la pantalla de Módulos y
+// con la MISMA cerradura que los bonos.
+const ProgramasBonosPage = lazy(() =>
+  import('./pages/config/ProgramasBonos').then((m) => ({ default: m.ProgramasPage }))
+)
 // Gran Cosecha: el concurso trimestral de proyectos. Sin `RequireRol` —lo
 // crean los trabajadores y lo siguen los jueces— pero con lazy, porque es la
 // única pantalla que no entra nadie si no entra a la consola.
@@ -51,6 +57,11 @@ const ConciliacionPublica = lazy(() =>
 // trabajador), también con lazy.
 const CargosPublicos = lazy(() =>
   import('./pages/publico/CargosPublicos').then((m) => ({ default: m.CargosPublicos }))
+)
+// Lo que muestra el QR del PDF de la inspección: detalle público con el
+// material visual, sin cuenta. Como las otras pantallas de invitado.
+const InspeccionCompartida = lazy(() =>
+  import('./pages/publico/InspeccionPublica').then((m) => ({ default: m.InspeccionPublica }))
 )
 // El menú de cada sucursal: pantalla de CLIENTES que se abre sin sesión
 // (el QR de la tienda), igual que los enlaces de invitado.
@@ -117,6 +128,9 @@ function Rutas() {
                         token, y sólo da lectura — ver `supabase/compartir-evaluacion.sql`. */}
                     {/* Enlace de INVITADO: la otra pantalla pública, con su
                         propia ruta para no pisar el de conciliación. */}
+                    {/* Lo que lleva el QR del PDF de la inspección: el
+                        detalle con sus fotos y videos, sin cuenta. */}
+                    <Route path="/compartir/inspeccion/:token" element={<InspeccionCompartida />} />
                     <Route path="/compartir/cargos/:token" element={<CargosPublicos />} />
                     <Route path="/compartir/:token" element={<ConciliacionPublica />} />
                     {/* La dirección obvia de la cosecha: manda a la landing
@@ -325,6 +339,17 @@ function Rutas() {
                         element={
                           <RequireRol roles={['LIDER', 'GERENTE_TH']}>
                             <BonosPage />
+                          </RequireRol>
+                        }
+                      />
+                      {/* Programas de bonificación: misma cerradura que los
+                          bonos (ruta + RLS `puede_bonos`), pero pantalla
+                          aparte: los MÓDULOS no se tocan acá. */}
+                      <Route
+                        path="/config/programas-bono"
+                        element={
+                          <RequireRol roles={['LIDER', 'GERENTE_TH']}>
+                            <ProgramasBonosPage />
                           </RequireRol>
                         }
                       />

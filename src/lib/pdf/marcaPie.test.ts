@@ -55,10 +55,15 @@ describe('los tres reportes quedan con la misma familia de pie', () => {
   })
 
   it('el de revisión, que se pinta en HTML antes de volcarse al PDF, también', () => {
+    // ACTUALIZADO: el pie con el logo vivía en el HTML y generaba una HOJA
+    // DE SOBRA con sólo el logo (la ventana de corte se achicó por la banda
+    // de firmas). Ahora la marca va en la banda de CADA hoja, con el mismo
+    // helper que los otros dos reportes.
     const revision = fuente('./exportarRevisionPreEntrega.ts')
-    expect(revision).toContain('src="${logoPie}"')
-    expect(revision).toContain('width:104px')
-    // El pie era de texto centrado: ahora es una fila con la marca a la izquierda.
-    expect(revision).not.toContain('text-align:center;font-size:10px')
+    expect(revision).toContain('ponerLogoAlPie(')
+    expect(revision).toContain('pie = `Generado automáticamente por EvaLuxor')
+    // Y el pie del HTML desapareció entero.
+    expect(revision).not.toContain('</footer>')
+    expect(revision).not.toContain('src="${logoPie}"')
   })
 })

@@ -163,30 +163,66 @@ describe('Inspección de vehículo · el PDF', () => {
   // historial): ahí vive el pedido, las filas y las fotos.
   const exportador = fuente('../../lib/pdf/exportarInspeccion.ts')
 
-  it('habla de propietario y trae el sistema de combustible del vehículo', () => {
-    expect(exportador).toContain("etiquetaPersona: 'propietario'")
+  it('habla de conductor, trae el sistema de combustible y el nombre en MAYÚSCULAS', () => {
+    expect(exportador).toContain("etiquetaPersona: 'conductor'")
     expect(exportador).toContain('personaCampos: [')
     expect(exportador).toContain('combustible:')
+    // MAYÚSCULAS: es lo que se firma en papel.
+    expect(exportador).toContain('mayus(p.persona.nombre)')
+    expect(exportador).toContain('mayus(p.persona.apellido)')
     expect(pdf).toContain('Sistema de combustible')
     expect(pdf).toContain('etiquetaPersona')
     // Sin sucursal no hay renglón de unidad en la hoja (ni en la llamada).
     expect(exportador).not.toMatch(/^\s+sucursal: /m)
   })
 
+  it('las firmas van en CADA hoja, vacías, dibujadas con jsPDF', () => {
+    // El HTML se rasteriza una sola vez y se corta: el bloque no puede vivir
+    // ahí si tiene que repetirse en todas las hojas.
+    expect(pdf).toContain('function pintarFirmas(')
+    expect(pdf).toContain('pintarFirmas(pdf, pdfWidth, pdfHeight, etiqueta, pie)')
+    // La ventana se achica por la banda: el contenido deja libre el pie.
+    expect(pdf).toContain('ALTO_BANDA_FIRMA_MM')
+    // Y la firma capturada en la app no se imprime: se firma en papel.
+    expect(pdf).not.toContain('datos.chofer?.firma')
+  })
+
+  it('la ficha es del CONDUCTOR y se autocompleta por cédula con la nómina', () => {
+    // El rótulo: era «Propietario».
+    expect(pagina).toContain('>Conductor</h2>')
+    expect(pagina).toContain('Firma del conductor (opcional)')
+    expect(pagina).toContain('nombre del conductor para exportar')
+    expect(pagina).not.toContain('del propietario')
+
+    // Autocompletar: al salir del campo, contra la API de TRABAJADORES, que
+    // recorre TODA la nómina — le es indiferente el cargo y la sucursal.
+    expect(pagina).toContain('autocompletarConductor')
+    expect(pagina).toContain('listarTrabajadoresEquipo')
+    expect(pagina).toContain('onBlur={() => void autocompletarConductor()}')
+    expect(pagina).toContain('digitos.length < 6')
+  })
+
   it('abre una banda por sección sobre sus filas', () => {
     expect(exportador).toMatch(/grupo: g\.seccion \?\? 'Dictamen'/)
-    expect(pdf).toContain('colspan="2"')
+    // TRES columnas: Ítem, Valor/Estado y Observación (la del punto, en su fila).
+    expect(pdf).toContain('Observación')
+    expect(pdf).toContain('colspan="3"')
     expect(pdf).toContain('filasTabla(')
   })
 
-  it('imprime las evidencias con su pie y las toma de las dos procedencias', () => {
-    expect(pdf).toContain('Evidencias fotográficas')
-    expect(exportador).toContain('createSignedUrls(paths, 3600)')
-    expect(exportador).toMatch(/getPhotos\(ev\.photoIds\)/)
-    // Se revocan: si no, cada exportación deja blob: colgados en la pestaña.
-    expect(exportador).toMatch(/for \(const u of urls\) URL\.revokeObjectURL\(u\)/)
-    // Y la pantalla sigue avisando con el texto de siempre según el resultado.
-    expect(pagina).toContain('exportarInspeccion({')
+  it('no imprime las evidencias: lleva el QR al detalle público', () => {
+    // El papel no es el mejor lugar para mirar fotos. El PDF dejó de pegarlas
+    // y en su lugar lleva el enlace público al detalle completo (tabla,
+    // comentarios y material visual), que se arma ANTES de generar la hoja.
+    expect(pdf).not.toContain('Evidencias fotográficas')
+    expect(pdf).toContain('Detalle completo en línea')
+    expect(pdf).toContain('datos.qr')
+    expect(pdf).toContain('datos.urlDetalle')
+    expect(exportador).toContain('enlaceDelDetalle(')
+    expect(exportador).toContain('urlDetalle')
+    // Si el enlace no se puede crear, el documento sale igual y se avisa:
+    // un problema con el QR no puede dejar a nadie sin su inspección.
+    expect(exportador).toContain('El PDF sale sin QR')
   })
 
   it('pagina la hoja: ninguna A4 se corta con el contenido entero dentro', () => {

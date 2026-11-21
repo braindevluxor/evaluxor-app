@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf'
 import html2canvas from 'html2canvas'
-import { logoPie } from './marcaPie'
+import QRCode from 'qrcode'
+import { ANCHO_LOGO_PIE, ponerLogoAlPie } from './marcaPie'
 import { cortesDePagina } from './paginarRevision'
 
 /**
@@ -10,6 +11,17 @@ import { cortesDePagina } from './paginarRevision'
  */
 const MARGEN_INFERIOR_MM = 10
 const MARGEN_CONTINUACION_MM = 12
+
+/**
+ * Alto de la banda de FIRMAS que lleva CADA hoja, en mm.
+ *
+ * El documento se imprime y se firma en papel, así que cada hoja tiene que
+ * traer su renglón — no sólo la última. El contenido se corta más arriba
+ * para dejarle el lugar, y la banda se dibuja con jsPDF después de pegar
+ * cada porción: el HTML se rasteriza UNA sola vez, repetir el bloque acá
+ * exigiría dos pasadas por el canvas.
+ */
+const ALTO_BANDA_FIRMA_MM = 26
 
 export interface DatosChofer {
   cedula?: string | null
@@ -38,13 +50,6 @@ export interface CampoPersona {
   valor?: string | number | null
 }
 
-export interface FotoPdf {
-  /** data: o blob: URL — `html2canvas` las volca igual. */
-  src: string
-  /** Pie impreso bajo la foto: qué se miró. */
-  pie?: string | null
-}
-
 export interface DatosRevision {
   titulo?: string
   numeroRevision?: string | null
@@ -60,11 +65,22 @@ export interface DatosRevision {
   personaCampos?: CampoPersona[]
   /**
    * Filas de la tabla. `grupo` abre una banda con el nombre de la sección
-   * (Estética / Mecánica / Gas vehicular) cada vez que cambia.
+   * (Estética / Mecánica / Gas vehicular) cada vez que cambia, y
+   * `observacion` es el comentario del PUNTO, en SU fila.
    */
-  items?: Array<{ etiqueta: string; valor: string | null; grupo?: string | null }>
-  /** Evidencias fotográficas, en la grilla que va debajo del checklist. */
-  fotos?: FotoPdf[]
+  items?: Array<{ etiqueta: string; valor: string | null; grupo?: string | null; observacion?: string | null }>
+  /**
+   * El enlace PÚBLICO al detalle completo (fotos y videos): el QR de la
+   * hoja apunta acá. Las evidencias NO se imprimen —el papel no es el
+   * mejor lugar para mirar material visual— y ésta es la salida.
+   */
+  urlDetalle?: string | null
+  /**
+   * El QR ya dibujado (data URL). Lo genera `exportarRevisionPreEntrega`
+   * desde `urlDetalle` antes de volcar el HTML: `htmlRevision` es puro y
+   * sincrónico, y un encoder de QR no lo es.
+   */
+  qr?: string | null
 }
 
 function formatearFecha(f?: string | null): string {
@@ -169,6 +185,7 @@ export function htmlRevision(datos: DatosRevision, enc: Encabezado = encabezadoD
             <tr style="background:#0f766e;color:#ffffff">
               <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700">Ítem</th>
               <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700">Valor / Estado</th>
+              <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700">Observación</th>
             </tr>
           </thead>
           <tbody>
@@ -181,20 +198,19 @@ export function htmlRevision(datos: DatosRevision, enc: Encabezado = encabezadoD
       }
 
       ${
-        datos.fotos && datos.fotos.length > 0
+        datos.qr
           ? `
       <section>
-        <h2 style="margin:0 0 8px 0;font-size:14px;font-weight:700;color:#0f766e;border-left:4px solid #0f766e;padding-left:8px">Evidencias fotográficas</h2>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-          ${datos.fotos
-            .map(
-              (f) => `
-          <figure style="margin:0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#ffffff">
-            <img src="${f.src}" alt="${escapeHtml(f.pie ?? 'Evidencia')}" style="display:block;width:100%;height:150px;object-fit:cover" />
-            <figcaption style="padding:6px 8px;font-size:10px;line-height:1.35;color:#475569">${escapeHtml(f.pie ?? '')}</figcaption>
-          </figure>`
-            )
-            .join('')}
+        <h2 style="margin:0 0 8px 0;font-size:14px;font-weight:700;color:#0f766e;border-left:4px solid #0f766e;padding-left:8px">Detalle completo en línea</h2>
+        <div style="display:flex;gap:16px;align-items:center;padding:12px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc">
+          <img src="${datos.qr}" alt="Código QR con el enlace al detalle de esta inspección" style="width:132px;height:132px;flex:none;background:#ffffff;padding:6px;border:1px solid #e2e8f0;border-radius:8px" />
+          <div style="min-width:0">
+            <p style="margin:0;font-size:12px;font-weight:700;color:#0f766e">Escaneá el código para ver las evidencias</p>
+            <p style="margin:6px 0 0 0;font-size:11px;color:#475569;line-height:1.45">
+              Las fotos y los videos NO se imprimen: se ven en línea, junto con la tabla de puntos y los comentarios de cada uno.
+            </p>
+            <p style="margin:6px 0 0 0;font-size:10px;color:#64748b;word-break:break-all">${escapeHtml(datos.urlDetalle ?? '')}</p>
+          </div>
         </div>
       </section>
       `
@@ -204,7 +220,12 @@ export function htmlRevision(datos: DatosRevision, enc: Encabezado = encabezadoD
       ${
         datos.observaciones
           ? `
-      <section>
+      <!-- data-partible: el texto largo NO entra en la selección de bloques
+           atómicos del paginador. Si no cabiera entero, la hoja se corta en
+           el tope y el bloque sigue en la siguiente — mudarlo entero dejaba
+           las observaciones en una página aparte con la hoja de arriba a medio
+           llena, debajo del QR. -->
+      <section data-partible>
         <h2 style="margin:0 0 8px 0;font-size:14px;font-weight:700;color:#0f766e;border-left:4px solid #0f766e;padding-left:8px">Observaciones</h2>
         <div style="padding:12px;border:1px solid #e2e8f0;border-radius:12px;white-space:pre-wrap;background:#f8fafc">${escapeHtml(datos.observaciones)}</div>
       </section>
@@ -212,37 +233,38 @@ export function htmlRevision(datos: DatosRevision, enc: Encabezado = encabezadoD
           : ''
       }
 
-      <section style="margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end;gap:24px">
-        <div style="flex:1">
-          <p style="margin:0 0 6px 0;font-size:11px;font-weight:600;color:#475569">Firma del ${escapeHtml(etiquetaPersona)}</p>
-          <div style="border:1px dashed #cbd5e1;border-radius:12px;padding:8px;min-height:90px;display:flex;align-items:center;justify-content:center;background:#ffffff">
-            ${
-              datos.chofer?.firma
-                ? `<img src="${datos.chofer.firma}" alt="Firma del ${escapeHtml(etiquetaPersona)}" style="max-width:100%;max-height:90px;object-fit:contain"/>`
-                : `<span style="color:#94a3b8;font-size:11px">Sin firma</span>`
-            }
-          </div>
-          <p style="margin:6px 0 0 0;font-size:10px;color:#64748b">Acepto las condiciones y el resultado de esta revisión.</p>
-        </div>
-        <div style="text-align:right;min-width:180px">
-          <div style="border-top:1px solid #1f2937;margin-top:40px;padding-top:6px">
-            <p style="margin:0;font-size:11px;font-weight:600">Firma y sello del evaluador</p>
-          </div>
-        </div>
-      </section>
-
-      <!-- La misma marca al pie que en los informes: a la izquierda y al lado
-           del texto, para que los tres reportes se lean como una familia. -->
-      <footer style="margin-top:16px;display:flex;align-items:center;gap:12px;font-size:10px;color:#94a3b8">
-        <img src="${logoPie}" alt="EvaLuxor" style="width:104px;height:auto;flex:none" />
-        <span>Generado automáticamente por EvaLuxor · ${fecha}</span>
-      </footer>
+      <!-- Las firmas Y la marca van en la banda de CADA hoja, dibujadas con
+           jsPDF (ver pintarFirmas): el HTML se rasteriza una sola vez y se
+           corta, así que un bloque acá sólo podía aparecer una vez — y este
+           pie terminaba en una HOJA DE SOBRA con sólo el logo. Las firmas
+           quedan vacías: el documento se imprime y se firma en papel. -->
     </div>
   `
 }
 
 export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<void> {
   const enc = encabezadoDe(datos)
+  /** Quién firma en el pie de cada hoja: «conductor» en la inspección. */
+  const etiqueta = datos.etiquetaPersona || 'chofer'
+  /** El pie de la marca: el mismo texto que tenían los otros reportes. */
+  const pie = `Generado automáticamente por EvaLuxor · ${enc.fecha}`
+
+  // El QR al detalle público: se genera ACÁ y no en `htmlRevision` porque
+  // esa función es pura y sincrónica, y el encoder de QR no lo es. Sin
+  // enlace no hay QR, y el documento sale igual (sin la sección).
+  let qr: string | null = null
+  if (datos.urlDetalle) {
+    try {
+      qr = await QRCode.toDataURL(datos.urlDetalle, {
+        margin: 1,
+        width: 240,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#0f2937ff', light: '#ffffffff' }
+      })
+    } catch {
+      qr = null
+    }
+  }
 
   const contenedor = document.createElement('div')
   contenedor.style.position = 'absolute'
@@ -256,7 +278,7 @@ export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<
   contenedor.style.fontSize = '12px'
   contenedor.style.lineHeight = '1.5'
 
-  contenedor.innerHTML = htmlRevision(datos, enc)
+  contenedor.innerHTML = htmlRevision({ ...datos, qr }, enc)
   document.body.appendChild(contenedor)
 
   try {
@@ -270,19 +292,39 @@ export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<
     const pdfHeight = pdf.internal.pageSize.getHeight()
     const pxPorMm = canvas.width / pdfWidth
 
-    // Cortes seguros: el borde de cada bloque, fila de la tabla o foto, para
-    // que ninguna quede partida en dos hojas.
+    // Cortes seguros: los DOS bordes de cada bloque atómico —fila de la
+    // tabla, ficha, QR—, para que ninguno quede partido en dos hojas. Lo que
+    // queda fuera de la selección (Observaciones, marcada `data-partible`) es
+    // material que se corta donde haga falta: mudarla entera dejaba la hoja
+    // con un hueco grande debajo del QR. La ventana se achica por la banda de
+    // FIRMAS: cada hoja deja libre su pie para que se firme en papel — por
+    // eso el alto útil se descuenta en las dos ventanas.
     const caja = contenedor.getBoundingClientRect()
     const escala = canvas.width / (caja.width || 1)
-    const limitesPx = Array.from(contenedor.querySelectorAll('section, tr, figure, footer')).map(
-      (el) => (el.getBoundingClientRect().top - caja.top) * escala
-    )
+    const limitesPx = Array.from(
+      contenedor.querySelectorAll('section:not([data-partible]), tr, figure, footer')
+    ).map((el) => {
+      const cajaEl = el.getBoundingClientRect()
+      return {
+        top: (cajaEl.top - caja.top) * escala,
+        bottom: (cajaEl.bottom - caja.top) * escala
+      }
+    })
+    // El fin VISUAL del documento: el padding de abajo del contenedor es
+    // papel en blanco y no puede abrir una hoja por sí solo.
+    const raiz = contenedor.firstElementChild
+    const contenidoPx = raiz
+      ? (raiz.getBoundingClientRect().bottom - caja.top) * escala
+      : canvas.height
     const cortes = cortesDePagina(
-      canvas.height,
+      contenidoPx,
       pxPorMm,
       limitesPx,
-      { altoMm: pdfHeight - MARGEN_INFERIOR_MM, topMm: 0 },
-      { altoMm: pdfHeight - MARGEN_INFERIOR_MM - MARGEN_CONTINUACION_MM, topMm: MARGEN_CONTINUACION_MM }
+      { altoMm: pdfHeight - MARGEN_INFERIOR_MM - ALTO_BANDA_FIRMA_MM, topMm: 0 },
+      {
+        altoMm: pdfHeight - MARGEN_INFERIOR_MM - MARGEN_CONTINUACION_MM - ALTO_BANDA_FIRMA_MM,
+        topMm: MARGEN_CONTINUACION_MM
+      }
     )
     if (!cortes.length) cortes.push(canvas.height)
 
@@ -303,6 +345,11 @@ export async function exportarRevisionPreEntrega(datos: DatosRevision): Promise<
       }
       if (i > 0) pdf.addPage()
       pdf.addImage(porcion, 'PNG', 0, topMm, pdfWidth, altoPx / pxPorMm)
+      // Las firmas y la marca, en el pie de CADA hoja: el documento se
+      // imprime y se firma en papel, y una hoja sin renglón de firma no
+      // sirve. (La marca va acá y no en un `<footer>` del HTML: ese pie
+      // terminaba en una hoja de sobra con sólo el logo.)
+      pintarFirmas(pdf, pdfWidth, pdfHeight, etiqueta, pie)
       inicio = cortes[i]
     }
 
@@ -338,16 +385,77 @@ function filasTabla(items: NonNullable<DatosRevision['items']>): string {
       const grupo = it.grupo ?? null
       const banda =
         grupo && grupo !== grupoActual
-          ? `<tr><td colspan="2" style="padding:7px 10px;background:#ccfbf1;border-top:1px solid #e2e8f0;font-size:11px;font-weight:700;color:#0f766e;letter-spacing:0.4px;text-transform:uppercase">${escapeHtml(grupo)}</td></tr>`
+          ? `<tr><td colspan="3" style="padding:7px 10px;background:#ccfbf1;border-top:1px solid #e2e8f0;font-size:11px;font-weight:700;color:#0f766e;letter-spacing:0.4px;text-transform:uppercase">${escapeHtml(grupo)}</td></tr>`
           : ''
       grupoActual = grupo
       const fondo = fila % 2 === 0 ? '#ffffff' : '#f8fafc'
       fila++
       return `${banda}
               <tr style="background:${fondo}">
-                <td style="padding:8px 10px;border-top:1px solid #f1f5f9;font-size:11px">${escapeHtml(it.etiqueta)}</td>
-                <td style="padding:8px 10px;border-top:1px solid #f1f5f9;font-size:11px;font-weight:600">${escapeHtml(it.valor || '-')}</td>
+                <td style="padding:8px 10px;border-top:1px solid #f1f5f9;font-size:11px;width:38%">${escapeHtml(it.etiqueta)}</td>
+                <td style="padding:8px 10px;border-top:1px solid #f1f5f9;font-size:11px;font-weight:600;width:22%">${escapeHtml(it.valor || '-')}</td>
+                <td style="padding:8px 10px;border-top:1px solid #f1f5f9;font-size:11px;color:#475569;white-space:pre-wrap">${escapeHtml(it.observacion || '—')}</td>
               </tr>`
     })
     .join('')
+}
+
+/**
+ * Las DOS firmas al pie de CADA hoja, dibujadas con primitivas de jsPDF.
+ *
+ * Por qué jsPDF y no el HTML: el HTML se rasteriza UNA vez y se corta en
+ * páginas, así que un bloque ahí sólo podía aparecer una vez, al final.
+ * Dibujarlo después de pegar cada porción lo repite en todas las hojas,
+ * sin una segunda pasada por el canvas.
+ *
+ * Las dos cajas van VACÍAS a propósito: el documento se imprime y se firma
+ * en papel. La firma capturada en la app no se imprime —se ve en la página
+ * pública que abre el QR—, porque lo que vale acá es la de tinta.
+ */
+export function pintarFirmas(
+  pdf: jsPDF,
+  ancho: number,
+  alto: number,
+  etiqueta: string,
+  pie: string
+): void {
+  const margen = 10
+  // El mismo corte que se le descuentó a la ventana: la banda vive ahí.
+  const y0 = alto - MARGEN_INFERIOR_MM - ALTO_BANDA_FIRMA_MM
+  const mitad = ancho / 2 + 4
+  const yNota = y0 + 23.5
+
+  // Separador de la banda (el teal del documento).
+  pdf.setDrawColor(15, 118, 110)
+  pdf.setLineWidth(0.5)
+  pdf.line(margen, y0 + 1, ancho - margen, y0 + 1)
+
+  pdf.setFont('helvetica', 'bold')
+  pdf.setFontSize(7.5)
+  pdf.setTextColor(71, 85, 105)
+  pdf.text(`Firma del ${etiqueta}`, margen, y0 + 6)
+  pdf.text('Firma y sello del evaluador', mitad, y0 + 6)
+
+  // La caja del conductor: vacía, para firmar al imprimir.
+  pdf.setDrawColor(203, 213, 225)
+  pdf.setLineWidth(0.3)
+  pdf.rect(margen, y0 + 8, mitad - margen - 8, 12)
+
+  // La línea del evaluador: también vacía.
+  pdf.setDrawColor(31, 41, 55)
+  pdf.setLineWidth(0.4)
+  pdf.line(mitad, y0 + 18, ancho - margen, y0 + 18)
+
+  pdf.setFont('helvetica', 'normal')
+  pdf.setFontSize(6)
+  pdf.setTextColor(100, 116, 139)
+  pdf.text('Acepto las condiciones y el resultado de esta revisión.', margen, yNota)
+
+  // La marca de la familia, a la derecha sobre la MISMA línea que la nota:
+  // el mismo pie que los otros reportes (logo + texto), ahora en cada hoja.
+  pdf.setFontSize(7)
+  pdf.setTextColor(148, 163, 184)
+  const xTexto = ancho - margen - pdf.getTextWidth(pie)
+  pdf.text(pie, xTexto, yNota)
+  ponerLogoAlPie(pdf, xTexto - 3 - ANCHO_LOGO_PIE, yNota)
 }

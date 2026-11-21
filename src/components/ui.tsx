@@ -186,6 +186,7 @@ export function CampoFoto({
   etiqueta,
   url,
   vacio = 'Sin foto todavía',
+  cuadrada = false,
   ocupado,
   onArchivo,
   onQuitar
@@ -194,6 +195,13 @@ export function CampoFoto({
   url: string
   /** Qué dice el hueco cuando NO hay foto propia. */
   vacio?: string
+  /**
+   * Vista previa CUADRADA (1:1) en vez de la banda ancha. Van las fotos del
+   * participante: la tarjeta de la landing es cuadrada (`aspect-ratio: 1/1`),
+   * así que enseñarlas así es enseñar lo que se publica, sin recorte
+   * sorpresa. El defecto ancho sigue para los fondos de hero.
+   */
+  cuadrada?: boolean
   ocupado: boolean
   onArchivo: (archivo: File | undefined) => void
   onQuitar: () => void
@@ -204,13 +212,23 @@ export function CampoFoto({
         {etiqueta}
       </span>
       {url ? (
-        <img
-          src={url}
-          alt={etiqueta}
-          className="h-28 w-full rounded-xl border border-slate-200 bg-slate-50 object-cover"
+        <FotoAmpliable
+          url={url}
+          etiqueta={etiqueta}
+          className={cn(
+            'border-slate-200 bg-slate-50',
+            // La cuadrada va CHICA a propósito: ocupaba media columna del
+            // formulario. La mirada grande la da el modal, al tocarla.
+            cuadrada ? 'aspect-square w-40' : 'h-28 w-full'
+          )}
         />
       ) : (
-        <div className="grid h-28 place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 text-center text-xs text-slate-400">
+        <div
+          className={cn(
+            'grid place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 text-center text-xs text-slate-400',
+            cuadrada ? 'aspect-square w-40' : 'h-28'
+          )}
+        >
           {vacio}
         </div>
       )}
@@ -238,6 +256,56 @@ export function CampoFoto({
       </div>
       {ocupado ? <span className="block text-xs text-slate-500">Subiendo foto…</span> : null}
     </div>
+  )
+}
+
+/**
+ * Una foto con vista previa CHICA que se amplía en un modal al tocarla.
+ *
+ * Ocupar media pantalla en el formulario no deja ver nada más, y una
+ * miniatura de 160px no alcanza para mirar el detalle: las dos cosas se
+ * resuelven acá —preview pequeña, modal grande—. Va en `ui` porque la
+ * comparten el formulario, el detalle y el editor de la Página.
+ */
+export function FotoAmpliable({
+  url,
+  etiqueta,
+  className,
+  alt
+}: {
+  url: string
+  /** El título del modal: la etiqueta del campo. */
+  etiqueta: string
+  /** Clases de la vista previa (tamaño y recorte). */
+  className?: string
+  /** Texto alternativo; por defecto, la etiqueta. */
+  alt?: string
+}) {
+  const [ampliada, setAmpliada] = useState(false)
+  const texto = alt ?? etiqueta
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setAmpliada(true)}
+        aria-label={`Ampliar ${texto}`}
+        title="Tocá para verla más grande"
+        className="block cursor-zoom-in overflow-hidden rounded-xl transition-opacity hover:opacity-85"
+      >
+        <img
+          src={url}
+          alt={texto}
+          className={cn('block border border-slate-200 bg-slate-50 object-cover', className)}
+        />
+      </button>
+      <Modal open={ampliada} onClose={() => setAmpliada(false)} title={etiqueta}>
+        <img
+          src={url}
+          alt={texto}
+          className="mx-auto max-h-[70vh] w-auto max-w-full rounded-xl object-contain"
+        />
+      </Modal>
+    </>
   )
 }
 

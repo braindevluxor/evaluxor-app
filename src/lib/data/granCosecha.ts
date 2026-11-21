@@ -2,7 +2,6 @@ import { supabase } from '../supabase'
 import { convertirImagenAWebP } from '../convertirMedia'
 import { BUCKET } from './granCosechaPagina'
 import type { ColaboradorAPI } from './colaboradores'
-import { listarUsuarios, type ProfileVista } from './usuarios'
 
 /**
  * GRAN COSECHA: EL CONCURSO INTERNO DE PROYECTOS
@@ -86,6 +85,12 @@ export interface ProyectoGranCosecha {
    */
   imagen: string
   foto: string
+  /**
+   * Los archivos de la presentación (documentos y videos). Opcional: es la
+   * última columna agregada y una base con el bloque sin reaplicar no la
+   * trae — por eso la pantalla usa `?? []`.
+   */
+  adjuntos?: AdjuntoProyecto[]
   creador_id: string | null
   created_at: string
   updated_at: string
@@ -198,11 +203,6 @@ export function validarEquipo(miembros: readonly MiembroEquipo[]): string | null
  */
 export function historialAvances(filas: readonly FilaBitacora[]): FilaBitacora[] {
   return filas.filter((f) => f.tipo === 'AVANCE')
-}
-
-/** Candidatos a integrantes del equipo: los usuarios activos con rol asignado. */
-export function candidatosDeEquipo(perfiles: readonly ProfileVista[]): ProfileVista[] {
-  return perfiles.filter((p) => p.activo && p.rol !== 'SIN_ROL')
 }
 
 // --- La red -----------------------------------------------------------------
@@ -336,6 +336,8 @@ export interface CambiosProyecto {
   avance_nota?: string
   imagen?: string
   foto?: string
+  /** Los archivos de la presentación (documentos y videos). */
+  adjuntos?: AdjuntoProyecto[]
 }
 
 /**
@@ -355,14 +357,54 @@ export async function actualizarProyecto(id: string, cambios: CambiosProyecto): 
 }
 
 /**
- * Los posibles integrantes del equipo, listos para elegir.
+ * Borra el proyecto DE VERDAD: la fila sale sola y con ella, por
+ * `on delete cascade`, su bitácora y sus riegos. Acá sólo se retiran las DOS
+ * fotos del bucket —no viven en la fila— y a pérdida: si el `remove` falla
+ * queda un archivo huérfano, pero el proyecto ya borrado no vuelve por eso.
  *
- * Se reusa `listarUsuarios` (trae el nombre y la sucursal) y acá sólo se
- * recorta a los activos con rol: SIN_ROL todavía no puede entrar a la app, y
- * meterlo en un equipo sería sumar a alguien que no va a ver el concurso.
+ * QUIÉN: la RLS `gran_cosecha_proyecto_delete` es la misma cerradura que
+ * editar (el equipo que lo creó, o JUEZ/LÍDER). Un `delete` filtrado por RLS
+ * NO da error: devuelve cero filas, así que el `select` posterior es el que
+ * distingue «borrado» de «no te corresponde» — sin él, el aviso mentiría.
+ *
+ * Para sacar un proyecto del concurso sin borrar su historia no se borra:
+ * se CANCELA con `estado`.
  */
-export async function candidatosDeEquipoAsync(): Promise<ProfileVista[]> {
-  return candidatosDeEquipo(await listarUsuarios())
+export async function eliminarProyecto(
+  proyecto: Pick<ProyectoGranCosecha, 'id' | 'imagen' | 'foto'>
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('gran_cosecha_proyecto')
+    .delete()
+    .eq('id', proyecto.id)
+    .select('id')
+  if (error) throw errorDeTabla(error, 'No se pudo borrar el proyecto.')
+  if (!data?.length) {
+    // Con el botón puesto (la pantalla sólo lo ofrece a quien puede editar),
+    // cero filas casi siempre es la política de borrado que todavía no existe
+    // en la base: decirlo ahorra una búsqueda de culpables.
+    throw new Error(
+      'No se pudo borrar el proyecto. Si recién actualizaste la app, reaplicá el bloque gran-cosecha.sql en el SQL Editor de Supabase (crea la política de borrado); si no, este proyecto no te corresponde borrarlo.'
+    )
+  }
+
+  const rutas = [proyecto.imagen, proyecto.foto].map(rutaDeObjeto).filter(Boolean)
+  if (rutas.length) await supabase.storage.from(BUCKET).remove(rutas).catch(() => null)
+}
+
+/**
+ * La ruta dentro del bucket a partir de la URL pública
+ * (`…/object/public/gran-cosecha/proyectos/<uuid>.webp?v=123`).
+ *
+ * Vacío si la URL no es de ESTE bucket o no está bajo `proyectos/`: esas
+ * fotos no las borra nadie por acá, que es lo que quiere el prefijo de la
+ * política del bucket.
+ */
+function rutaDeObjeto(url: string | null | undefined): string {
+  if (!url) return ''
+  const marca = `/object/public/${BUCKET}/`
+  const ruta = url.includes(marca) ? (url.split(marca)[1]?.split('?')[0] ?? '') : ''
+  return ruta.startsWith('proyectos/') ? ruta : ''
 }
 
 /* -------------------------------------------------------------------------
@@ -422,6 +464,30 @@ export async function regarProyecto(
 }
 
 /**
+ * Quitar el PROPIO riego de un proyecto: el "deshacer" del me gusta.
+ *
+ * En espejo con `regarProyecto`: la función no acepta identidad — arma el
+ * `usuario` con la sesión—, así que sólo se deshace el mío y el de los demás
+ * queda intacto. Idempotente: si ya no había riego, `quitado` sale en
+ * `false` y el conteo sigue siendo el verdadero.
+ */
+export async function quitarRiego(
+  proyectoId: string
+): Promise<{ quitado: boolean; riegos: number }> {
+  const { data, error } = await supabase.rpc('quitar_riego', { p_proyecto_id: proyectoId })
+  if (error) {
+    if (error.code === '42883' || /quitar_riego/.test(error.message)) {
+      throw new Error(
+        'El SQL de riegos todavía no está aplicado en la base: pegá el bloque en el SQL Editor de Supabase y recargá esta pantalla.'
+      )
+    }
+    throw new Error(error.message)
+  }
+  const r = data as { quitado?: boolean; riegos?: number } | null
+  return { quitado: Boolean(r?.quitado), riegos: Number(r?.riegos ?? 0) }
+}
+
+/**
  * Sube una de las DOS fotos del proyecto (la imagen o la del equipo) y
  * devuelve su URL pública.
  *
@@ -443,12 +509,152 @@ export async function subirFotoProyecto(archivo: File, urlActual: string): Promi
   if (error) throw error
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
   const url = `${data.publicUrl}?v=${Date.now()}`
-  const marca = `/object/public/${BUCKET}/`
-  const anterior = urlActual.includes(marca) ? urlActual.split(marca)[1]?.split('?')[0] : ''
-  if (anterior && anterior.startsWith('proyectos/')) {
+  const anterior = rutaDeObjeto(urlActual)
+  if (anterior) {
     await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
   }
   return url
+}
+
+/* -------------------------------------------------------------------------
+ * LOS ADJUNTOS DE LA PRESENTACIÓN: documentos y videos del proyecto
+ * ------------------------------------------------------------------------- */
+
+/** Un archivo de la presentación, en la forma que queda guardada. */
+export interface AdjuntoProyecto {
+  /** Ruta en el bucket (`proyectos/<proyecto>/<archivo>`). */
+  ruta: string
+  /** Nombre con el que se subió: es el que se muestra. */
+  nombre: string
+  /** MIME type: decide si la página lo reproduce o lo ofrece para bajar. */
+  tipo: string
+  /** Tamaño en bytes. */
+  bytes: number
+  /** URL pública (el bucket de la landing es público). */
+  url: string
+  /** ISO de cuándo se subió. */
+  subido_at: string
+}
+
+/** Lo que admite el input: video y documentos de lectura/oficina. */
+export const ACEPTA_ADJUNTOS =
+  'video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt'
+
+/**
+ * Límite por archivo: 50 MB, que es además el `file_size_limit` por
+ * defecto de un bucket de Supabase. Subir de más falla del lado del
+ * servidor con un mensaje que no explica nada, así que se corta ACÁ, en
+ * castellano y antes de subir un megabyte.
+ */
+export const MAX_ADJUNTO_BYTES = 50 * 1024 * 1024
+
+/** MIME types que entran. El prefijo `video/` cubre mp4, webm, mov… */
+const TIPOS_ADJUNTO = [
+  'video/',
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/csv'
+]
+
+/**
+ * Por qué NO entra este archivo, o `null` si entra.
+ *
+ * Se rechaza en el cliente con mensaje propio: ni el tipo desconocido ni el
+ * límite del bucket dicen nada útiles en el error crudo del servidor.
+ */
+export function rechazoDeAdjunto(archivo: File): string | null {
+  const tipo = (archivo.type || '').toLowerCase()
+  const permitido = TIPOS_ADJUNTO.some((p) => (p.endsWith('/') ? tipo.startsWith(p) : tipo === p))
+  if (!permitido) {
+    return `«${archivo.name}» no es un formato permitido: subí videos o documentos (PDF, Word, Excel, PowerPoint).`
+  }
+  if (archivo.size > MAX_ADJUNTO_BYTES) {
+    return `«${archivo.name}» pesa ${formatoBytes(archivo.size)} y el máximo por archivo es ${formatoBytes(MAX_ADJUNTO_BYTES)}.`
+  }
+  return null
+}
+
+/** `1234567` → `1.2 MB`, sin depender del locale. */
+export function formatoBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const kb = bytes / 1024
+  if (kb < 1024) return `${kb.toFixed(kb < 10 ? 1 : 0)} KB`
+  const mb = kb / 1024
+  return `${mb.toFixed(mb < 10 ? 1 : 0)} MB`
+}
+
+/** El nombre que va al bucket: sin acentos, sin separadores de ruta. */
+function nombreSano(nombre: string): string {
+  const limpio = nombre
+    .normalize('NFD')
+    // Con la NFD los acentos salen como combinantes detrás de la letra
+    // (U+0300 a U+036F): sin esto, «presentación.pdf» viajaría con un byte
+    // raro en medio del nombre.
+    .split('')
+    .filter((c) => {
+      const codigo = c.charCodeAt(0)
+      return codigo < 0x0300 || codigo > 0x036f
+    })
+    .join('')
+    .replace(/[/\\:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '_')
+    // Se corta por el FINAL: así se conserva la extensión, que es lo que
+    // decide cómo la abre el navegador.
+    .slice(-80)
+  return limpio || 'archivo'
+}
+
+/**
+ * Sube un archivo de la presentación y devuelve su descriptor.
+ *
+ * Va al MISMO prefijo que las fotos (`proyectos/<id>/…`), que la política
+ * del bucket ya abre para el que puede editar el proyecto. El nombre se
+ * sanea y se le antepone un timestamp: dos subidas del mismo archivo no
+ * pisan la URL ni el navegador sirve una versión vieja desde su caché.
+ *
+ * Se sube TAL CUAL —sin conversión ni recorte—: es material de
+ * presentación, no una foto de la tarjeta.
+ */
+export async function subirAdjunto(proyectoId: string, archivo: File): Promise<AdjuntoProyecto> {
+  const ruta = `proyectos/${proyectoId}/${Date.now()}-${nombreSano(archivo.name)}`
+  const tipo = archivo.type || 'application/octet-stream'
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, archivo, {
+    contentType: tipo,
+    upsert: false
+  })
+  if (error) {
+    if (/size|large|413/i.test(error.message ?? '')) {
+      throw new Error(`«${archivo.name}» supera el límite de ${formatoBytes(MAX_ADJUNTO_BYTES)}.`)
+    }
+    throw new Error(`No se pudo subir «${archivo.name}»: ${error.message}`)
+  }
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  return {
+    ruta,
+    nombre: archivo.name,
+    tipo,
+    bytes: archivo.size,
+    url: data.publicUrl,
+    subido_at: new Date().toISOString()
+  }
+}
+
+/**
+ * Saca el archivo del bucket.
+ *
+ * El llamador borra PRIMERO la fila (la columna `adjuntos`) y después llama
+ * acá sin esperar su resultado: si esto falla queda un archivo huérfano —que
+ * no molesta— y nunca un enlace roto apuntando a algo que ya no está.
+ */
+export async function quitarAdjunto(adjunto: AdjuntoProyecto): Promise<void> {
+  const { error } = await supabase.storage.from(BUCKET).remove([adjunto.ruta])
+  if (error) throw new Error(`No se pudo borrar «${adjunto.nombre}» del almacenamiento: ${error.message}`)
 }
 
 /* -------------------------------------------------------------------------

@@ -49,6 +49,7 @@ import {
   type OcupanteExcepcion,
   type Periodicidad
 } from '../../lib/data/bonos'
+import { listarProgramas, type BonoPrograma } from '../../lib/data/bonosProgramas'
 import { cedula, esActivo, nombreCompleto, type ColaboradorAPI } from '../../lib/data/colaboradores'
 import { claveNormalizada, listarResponsables, type ResponsableCatalogo } from '../../lib/data/responsables'
 import { BRANCH_CENTRAL } from '../../lib/data/responsablesIncidencia'
@@ -104,7 +105,9 @@ const FORM_VACIO = {
   nota_minima: '70',
   periodicidad: 'MENSUAL' as Periodicidad,
   activo: true,
-  departamento: ''
+  departamento: '',
+  /** El programa que le da la nota; vacío = la nota se carga a mano. */
+  bono_programa_id: ''
 }
 
 /**
@@ -137,6 +140,19 @@ export function BonosPage() {
   const [editando, setEditando] = useState<BonoCargo | null>(null)
   const [form, setForm] = useState(FORM_VACIO)
   const [guardandoCargo, setGuardandoCargo] = useState(false)
+  /**
+   * Los programas de bonificación: de dónde puede salir la nota del cargo.
+   * Si el bloque `bonos-programas.sql` no está aplicado, la lista queda vacía
+   * y el select ofrece sólo «Sin programa» — el resto del formulario sigue
+   * funcionando igual.
+   */
+  const [programas, setProgramas] = useState<BonoPrograma[]>([])
+
+  useEffect(() => {
+    void listarProgramas()
+      .then(setProgramas)
+      .catch(() => setProgramas([]))
+  }, [])
   const [aBorrar, setABorrar] = useState<BonoCargo | null>(null)
   /** El cargo cuyo listado de ocupantes se está mirando (el «¿quiénes son?»). */
   const [detalleCargos, setDetalleCargos] = useState<BonoCargo | null>(null)
@@ -321,7 +337,8 @@ export function BonosPage() {
       nota_minima: String(c.nota_minima),
       periodicidad: c.periodicidad,
       activo: c.activo,
-      departamento: c.departamento ?? ''
+      departamento: c.departamento ?? '',
+      bono_programa_id: c.bono_programa_id ?? ''
     })
     // El alcance guardado manda: hay filas = «sólo estas»; sin filas = «todas».
     setEspecifico(c.sucursales.length > 0)
@@ -413,6 +430,7 @@ export function BonosPage() {
         nota_minima: notaMinima,
         periodicidad: form.periodicidad,
         departamento,
+        bono_programa_id: form.bono_programa_id || null,
         sucursales: alcance
       })
       avisar(editando ? 'Cargo actualizado.' : 'Cargo con bono creado.')
@@ -615,6 +633,8 @@ export function BonosPage() {
         nota_minima: c.nota_minima,
         periodicidad: c.periodicidad,
         departamento: c.departamento,
+        // Se conserva: apagar un cargo no lo desasigna de su programa.
+        bono_programa_id: c.bono_programa_id,
         // El alcance se reenvía tal cual: apagar un cargo no cambia DÓNDE se
         // paga, sólo si se paga.
         sucursales: c.sucursales
@@ -1563,6 +1583,36 @@ export function BonosPage() {
               <option value="TRIMESTRAL">Trimestral</option>
             </Select>
           </Field>
+
+          {/* DE DÓNDE SALE LA NOTA: un programa (módulos o actividades) o
+              nada, que es la nota a mano de siempre. Se filtran por la
+              misma periodicidad: un programa mensual no puede alimentar un
+              cargo trimestral, porque el período no tiene el mismo formato. */}
+          <Field
+            label="Programa de bonificación"
+            hint="Sin programa, la nota del cargo se carga a mano en la pestaña de pagos."
+          >
+            <Select
+              value={form.bono_programa_id}
+              onChange={(e) => setForm((f) => ({ ...f, bono_programa_id: e.target.value }))}
+              aria-label="Programa de bonificación"
+            >
+              <option value="">Sin programa (nota a mano)</option>
+              {programas
+                .filter((p) => p.activo && p.periodicidad === form.periodicidad)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}
+                  </option>
+                ))}
+            </Select>
+          </Field>
+          {programas.length && !programas.some((p) => p.activo && p.periodicidad === form.periodicidad) ? (
+            <p className="text-xs text-slate-400">
+              No hay programas {form.periodicidad === 'MENSUAL' ? 'mensuales' : 'trimestrales'}: crealos en
+              Programas de bonificación.
+            </p>
+          ) : null}
 
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input

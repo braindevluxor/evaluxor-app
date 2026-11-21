@@ -6,6 +6,9 @@ import { useCatalog, useModuloHerramienta } from '../../context/CatalogContext'
 import { useOffline } from '../../context/OfflineContext'
 import { obtenerRevisionPreEntrega } from '../../lib/data/revisionPreEntrega'
 import { buscarVehiculo } from '../../lib/data/vehicles'
+// La API de TRABAJADORES vive en el data layer de Gran Cosecha (ahí nació),
+// pero es de la nómina entera: no tiene nada que ver con el concurso.
+import { listarTrabajadoresEquipo } from '../../lib/data/granCosecha'
 import { exportarInspeccion, nombresEnCarpeta } from '../../lib/pdf/exportarInspeccion'
 import {
   getPreEntrega,
@@ -228,6 +231,32 @@ export function InspeccionVehiculo() {
     [patch]
   )
 
+  /**
+   * Autocompletar el conductor al salir del campo de la cédula.
+   *
+   * Va contra la API de TRABAJADORES (`listar_trabajadores_equipo`), que
+   * busca en TODA la nómina por cédula o nombre: le es indiferente el cargo
+   * y la sucursal de la persona — a diferencia de la API de colaboradores,
+   * que sólo devuelve los de un branch. Si la cédula no es de nadie, los
+   * campos quedan como estaban (se pueden cargar a mano).
+   */
+  const autocompletarConductor = useCallback(async () => {
+    const digitos = persona.cedula.trim().replace(/^[VE]-?/i, '').trim()
+    if (digitos.length < 6) return
+    try {
+      const filas = await listarTrabajadoresEquipo(digitos)
+      const exacto = filas.find((t) => String(t.dni) === digitos)
+      if (!exacto) return
+      cambiarPersona({
+        nombre: (exacto.name ?? '').trim(),
+        apellido: (exacto.lastname ?? '').trim()
+      })
+    } catch {
+      // Sin red o sin la RPC aplicada no se autocompleta: el campo se queda
+      // como está y se carga a mano. Nunca es motivo para cortar la pantalla.
+    }
+  }, [persona.cedula, cambiarPersona])
+
   /* --- Respuestas del check list -------------------------------------------- */
 
   const cambiarRespuesta = useCallback(
@@ -303,6 +332,7 @@ export function InspeccionVehiculo() {
         persona,
         moduloNombre: modulo.nombre,
         evaluador: profile?.nombre ?? null,
+        evaluadorId: profile?.id ?? null,
         online
       })
       // El registro finalizado vuelve del exportador: se pinta acá, sin volver
@@ -512,14 +542,19 @@ export function InspeccionVehiculo() {
           </div>
         </Card>
 
-        {/* Propietario ------------------------------------------------------- */}
+        {/* Conductor ---------------------------------------------------------- */}
         <Card className="space-y-3">
-          <h2 className="text-sm font-bold text-primary-900">Propietario</h2>
+          <h2 className="text-sm font-bold text-primary-900">Conductor</h2>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Cédula / RIF">
+            <Field
+              label="Cédula / RIF"
+              hint="Al salir del campo se completa solo con la nómina."
+              hintClassName="text-[11px]"
+            >
               <Input
                 value={persona.cedula}
                 onChange={(e) => cambiarPersona({ cedula: e.target.value })}
+                onBlur={() => void autocompletarConductor()}
                 inputMode="numeric"
                 placeholder="V-12345678"
               />
@@ -543,7 +578,7 @@ export function InspeccionVehiculo() {
           <FirmaCanvas
             valor={reg.chofer_firma}
             onChange={(v) => patch({ chofer_firma: v })}
-            label="Firma del propietario (opcional)"
+            label="Firma del conductor (opcional)"
           />
         </Card>
 
@@ -585,7 +620,7 @@ export function InspeccionVehiculo() {
         <div className="sticky bottom-0 -mx-4 border-t border-slate-200 bg-slate-100/95 px-4 py-3 backdrop-blur">
           {!puedeExportar && reg.estado !== 'FINALIZADA' ? (
             <p className="mb-2 text-center text-xs text-slate-500">
-              Completa placa, cédula y nombre del propietario para exportar.
+              Completa placa, cédula y nombre del conductor para exportar.
             </p>
           ) : null}
           <div className="flex gap-2">

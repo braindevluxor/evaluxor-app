@@ -156,6 +156,7 @@ export function InspeccionHistorial() {
         persona: personaDe(registro.chofer),
         moduloNombre: modulo.nombre,
         evaluador: profile?.nombre ?? null,
+        evaluadorId: profile?.id ?? null,
         online
       })
       avisar(

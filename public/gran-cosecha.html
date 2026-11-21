@@ -14,7 +14,7 @@
       --luxor-amber: #f59e0b;
       --luxor-red: #dc2626;
       --luxor-red-dark: #b91c1c;
-      --luxor-navy: #0a1e5e;
+      --luxor-navy: #28315F;
       --luxor-navy-deep: #061238;
       --luxor-white: #ffffff;
     }
@@ -27,7 +27,7 @@
       font-family: 'Poppins', 'Inter', sans-serif;
       overflow-x: hidden;
       background-color: #ffffff;
-      color: #0a1e5e;
+      color: #28315F;
     }
 
     .font-display {
@@ -49,7 +49,7 @@
 
     /* Luxor Navy Display Title on Light/Yellow Badge */
     .luxor-title-shadow {
-      color: #0a1e5e;
+      color: #28315F;
       text-shadow:
         -3px 0 0 #facc15,
         3px 0 0 #ffffff;
@@ -200,10 +200,15 @@
       color: var(--luxor-navy);
     }
 
-    /* Azul de AGUA para que no se confunda con los chips de otra cosa. */
+    /* El riego, como el "Me gusta" de Facebook: SÓLO la planta y su
+       número, SIN la píldora blanca (el `title` explica qué cuenta) y sin
+       la palabra suelta. Azul agua claro: el mismo tono de agua de antes,
+       ahora legible directo sobre la tarjeta. */
     .tarjeta-equipo .chip-riegos {
-      background: #ffffff;
-      color: #0a4a75;
+      background: none;
+      padding: 0;
+      border-radius: 0;
+      color: #7dd3fc;
     }
 
     .tarjeta-equipo .chip-riegos .riego-ico {
@@ -272,31 +277,102 @@
     #inscripcion:target {
       display: flex;
     }
+
+    /* CARRUSEL DE PREMIOS — port fiel del escenario de referencia
+       Escenario con perspectiva y tarjetas ABSOLUTAS centradas por el flex
+       del track: el motor las mueve con `translate3d(x, 0, z) + rotateY +
+       scale` formando un CILINDRO CÓNCAVO —z negativo en el centro (lejos
+       y chico) que crece hacia los extremos (cerca y grande)—. La caja de
+       la tarjeta va 16:9 —el formato de la gráfica— para no recortarle el
+       texto (la referencia usa retratos 9:16 porque son videos); el resto
+       —radio 22, sombra, hover— es el suyo. El ancho del marco va
+       EXPLÍCITO (`calc(100% + 2rem)` con el `-mx-4` de la clase): con
+       `width: auto` un aspect-ratio le roba el cálculo al ancho. */
+    .carousel-stage {
+      position: relative;
+      width: 100%;
+      height: 340px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      perspective: 1100px;
+      perspective-origin: 50% 50%;
+      cursor: grab;
+      touch-action: pan-y; /* el dedo arrastra en horizontal y sigue haciendo scroll en vertical */
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .carousel-stage:active {
+      cursor: grabbing;
+    }
+    .carousel-track {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      transform-style: preserve-3d;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .video-card {
+      position: absolute;
+      width: 360px;
+      height: 202px; /* 16:9: la gráfica entera, sin recortar el texto */
+      border-radius: 22px;
+      overflow: hidden;
+      box-shadow: 0 18px 38px -12px rgba(10, 30, 94, 0.25);
+      will-change: transform, opacity;
+      transition: box-shadow 0.3s ease;
+      background-color: #e9e0d6;
+      backface-visibility: hidden;
+    }
+    .video-card:hover {
+      box-shadow: 0 24px 48px -10px rgba(10, 30, 94, 0.35);
+    }
+    .video-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      pointer-events: none;
+      transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .video-card:hover img {
+      transform: scale(1.06);
+    }
+    @media (max-width: 640px) {
+      .carousel-stage {
+        height: 280px;
+        perspective: 850px;
+      }
+      .video-card {
+        width: 230px;
+        height: 129px;
+        border-radius: 18px;
+      }
+    }
   </style>
 </head>
 <body class="antialiased">
 
   <!-- HEADER / NAVBAR -->
-  <header class="sticky top-0 z-50 w-full bg-white text-[#0a1e5e] shadow-md border-b-4 border-[#facc15]">
+  <header class="sticky top-0 z-50 w-full bg-white text-[#28315F] shadow-md border-b-4 border-[#facc15]">
     <div class="mx-auto flex max-w-6xl items-center justify-end px-4 py-2.5 sm:px-6">
-      <!-- Desktop Two-Row Navigation: sin logo — el lockup con el nombre
+      <!-- Desktop Navigation: sin logo — el lockup con el nombre
            de la marca se quitó de la página entera; los links quedan a
-           la derecha (justify-end), como estaban con el logo. -->
+           la derecha (justify-end), como estaban con el logo. Sólo las
+           TRES secciones: Contacto / privacidad / términos se fueron de
+           la barra a pedido (en el footer y el formulario siguen). -->
       <nav class="hidden md:flex flex-col items-center gap-1 text-xs lg:text-sm font-semibold">
         <div class="flex items-center gap-6">
           <a href="#inscripcion" class="hover:text-[#dc2626] transition-colors">Inscripción</a>
           <a href="#como-participar" class="hover:text-[#dc2626] transition-colors">Cómo participar</a>
           <a href="#premios" class="hover:text-[#dc2626] transition-colors">Premios</a>
         </div>
-        <div class="flex items-center gap-6 text-[11px] lg:text-xs font-medium text-[#0a1e5e]/70">
-          <a href="#contacto" class="hover:text-[#dc2626] transition-colors">Contacto</a>
-          <button type="button" data-modal="privacy" class="hover:text-[#dc2626] transition-colors cursor-pointer">Política de privacidad</button>
-          <button type="button" data-modal="terms" class="hover:text-[#dc2626] transition-colors cursor-pointer">Términos y condiciones</button>
-        </div>
       </nav>
 
       <!-- Mobile Menu Button -->
-      <button id="mobileMenuBtn" type="button" aria-label="Abrir menú" class="md:hidden rounded-lg p-2 text-[#0a1e5e] hover:bg-slate-100 focus:outline-none">
+      <button id="mobileMenuBtn" type="button" aria-label="Abrir menú" class="md:hidden rounded-lg p-2 text-[#28315F] hover:bg-slate-100 focus:outline-none">
         <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
         </svg>
@@ -309,9 +385,6 @@
         <a href="#inscripcion" class="mobile-nav-link py-1 hover:text-[#dc2626]">Inscripción</a>
         <a href="#como-participar" class="mobile-nav-link py-1 hover:text-[#dc2626]">Cómo participar</a>
         <a href="#premios" class="mobile-nav-link py-1 hover:text-[#dc2626]">Premios</a>
-        <a href="#contacto" class="mobile-nav-link py-1 hover:text-[#dc2626]">Contacto</a>
-        <button type="button" data-modal="privacy" class="mobile-nav-link text-left py-1 hover:text-[#dc2626]">Política de privacidad</button>
-        <button type="button" data-modal="terms" class="mobile-nav-link text-left py-1 hover:text-[#dc2626]">Términos y condiciones</button>
       </div>
     </div>
   </header>
@@ -375,7 +448,7 @@
       <div>
         <h2 class="font-display glitch-title text-3xl sm:text-5xl uppercase text-white leading-tight">
           ¿QUÉ ES
-          <span class="inline-block rounded-full bg-[#facc15] border-2 border-[#dc2626] px-5 py-1 text-[#0a1e5e]">
+          <span class="inline-block rounded-full bg-[#facc15] border-2 border-[#dc2626] px-5 py-1 text-[#28315F]">
             GRAN COSECHA LUXOR
           </span>
           ?
@@ -418,7 +491,7 @@
   >
     <div class="my-auto w-full max-w-xl rounded-2xl border-t-8 border-[#dc2626] bg-white p-6 text-left shadow-2xl">
       <div class="flex items-center justify-between border-b border-gray-200 pb-3">
-        <h2 id="inscripcionTitulo" class="font-display text-2xl uppercase tracking-wide text-[#0a1e5e]">
+        <h2 id="inscripcionTitulo" class="font-display text-2xl uppercase tracking-wide text-[#28315F]">
           FORMULARIO DE INSCRIPCIÓN
         </h2>
         <button id="cerrarInscripcion" type="button" aria-label="Cerrar" class="cursor-pointer rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-black">
@@ -439,7 +512,7 @@
             id="teamName"
             placeholder="Nombre del equipo o sucursal *"
             required
-            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+            class="w-full rounded-full border-2 border-[#28315F]/80 bg-white px-5 py-3 text-sm text-[#28315F] placeholder-[#28315F]/60 focus:border-[#dc2626] focus:outline-none"
           />
         </div>
 
@@ -449,7 +522,7 @@
             id="gameName"
             placeholder="Nombre de la propuesta o área *"
             required
-            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+            class="w-full rounded-full border-2 border-[#28315F]/80 bg-white px-5 py-3 text-sm text-[#28315F] placeholder-[#28315F]/60 focus:border-[#dc2626] focus:outline-none"
           />
         </div>
 
@@ -459,7 +532,7 @@
             id="email"
             placeholder="Email corporativo o personal *"
             required
-            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+            class="w-full rounded-full border-2 border-[#28315F]/80 bg-white px-5 py-3 text-sm text-[#28315F] placeholder-[#28315F]/60 focus:border-[#dc2626] focus:outline-none"
           />
         </div>
 
@@ -468,7 +541,7 @@
             <select
               id="prefix"
               aria-label="Prefijo telefónico"
-              class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-4 py-3 text-sm font-medium text-[#0a1e5e] focus:border-[#dc2626] focus:outline-none"
+              class="w-full rounded-full border-2 border-[#28315F]/80 bg-white px-4 py-3 text-sm font-medium text-[#28315F] focus:border-[#dc2626] focus:outline-none"
             >
               <option value="+58" selected>VE +58</option>
               <option value="+57">CO +57</option>
@@ -486,7 +559,7 @@
               id="phone"
               placeholder="Teléfono *"
               required
-              class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+              class="w-full rounded-full border-2 border-[#28315F]/80 bg-white px-5 py-3 text-sm text-[#28315F] placeholder-[#28315F]/60 focus:border-[#dc2626] focus:outline-none"
             />
           </div>
         </div>
@@ -497,9 +570,9 @@
             type="date"
             id="birthDate"
             required
-            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] focus:border-[#dc2626] focus:outline-none"
+            class="w-full rounded-full border-2 border-[#28315F]/80 bg-white px-5 py-3 text-sm text-[#28315F] focus:border-[#dc2626] focus:outline-none"
           />
-          <span class="block mt-1 pl-5 text-[11px] font-medium text-[#0a1e5e]/70">Fecha de nacimiento * obligatorio</span>
+          <span class="block mt-1 pl-5 text-[11px] font-medium text-[#28315F]/70">Fecha de nacimiento * obligatorio</span>
         </div>
 
         <div>
@@ -507,7 +580,7 @@
             type="text"
             id="discordUser"
             placeholder="Departamento o Cargo (Ej. Fruver, Cajas, Pasillos)"
-            class="w-full rounded-full border-2 border-[#0a1e5e]/80 bg-white px-5 py-3 text-sm text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:border-[#dc2626] focus:outline-none"
+            class="w-full rounded-full border-2 border-[#28315F]/80 bg-white px-5 py-3 text-sm text-[#28315F] placeholder-[#28315F]/60 focus:border-[#dc2626] focus:outline-none"
           />
         </div>
 
@@ -515,9 +588,9 @@
           <input
             type="checkbox"
             id="acceptTerms"
-            class="h-5 w-5 rounded-full border-2 border-[#0a1e5e] text-[#dc2626] focus:ring-[#dc2626]"
+            class="h-5 w-5 rounded-full border-2 border-[#28315F] text-[#dc2626] focus:ring-[#dc2626]"
           />
-          <label for="acceptTerms" class="text-xs sm:text-sm font-semibold text-[#0a1e5e]">
+          <label for="acceptTerms" class="text-xs sm:text-sm font-semibold text-[#28315F]">
             1. <button type="button" data-modal="terms" class="underline hover:text-[#dc2626] cursor-pointer">Acepto los términos y condiciones</button>
           </label>
         </div>
@@ -533,7 +606,7 @@
       </form>
 
       <!-- Feedback Box -->
-      <div id="formFeedback" class="hidden mt-6 rounded-2xl border-2 border-[#facc15] bg-yellow-50 p-4 text-sm text-[#0a1e5e]">
+      <div id="formFeedback" class="hidden mt-6 rounded-2xl border-2 border-[#facc15] bg-yellow-50 p-4 text-sm text-[#28315F]">
         <p id="formFeedbackTitle" class="font-bold">¡Registro recibido para GRAN COSECHA LUXOR!</p>
         <p id="formFeedbackText" class="mt-1 text-xs">
           Tu equipo ha sido preinscrito. Un coordinador de Talento Humano confirmará los detalles de tu sucursal.
@@ -543,16 +616,16 @@
   </div>
 
   <!-- ¿CÓMO PARTICIPAR? -->
-  <section id="como-participar" class="bg-[#facc15] text-[#0a1e5e] py-16 px-4 relative">
+  <section id="como-participar" class="bg-[#facc15] text-[#28315F] py-16 px-4 relative">
     <div class="mx-auto max-w-6xl text-center">
-      <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#0a1e5e] tracking-wide">
+      <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#28315F] tracking-wide">
         ¿CÓMO PARTICIPAR?
       </h2>
 
       <div class="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
         <!-- Paso 1 -->
         <div class="flex flex-col items-center">
-          <span class="font-display glitch-step-num text-5xl text-[#0a1e5e] mb-3">1</span>
+          <span class="font-display glitch-step-num text-5xl text-[#28315F] mb-3">1</span>
           <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#dc2626]">
             <svg class="h-12 w-12 text-[#dc2626]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -565,9 +638,9 @@
 
         <!-- Paso 2 -->
         <div class="flex flex-col items-center">
-          <span class="font-display glitch-step-num text-5xl text-[#0a1e5e] mb-3">2</span>
-          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#0a1e5e]">
-            <svg class="h-12 w-12 text-[#0a1e5e]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+          <span class="font-display glitch-step-num text-5xl text-[#28315F] mb-3">2</span>
+          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#28315F]">
+            <svg class="h-12 w-12 text-[#28315F]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
           </div>
@@ -578,7 +651,7 @@
 
         <!-- Paso 3 -->
         <div class="flex flex-col items-center">
-          <span class="font-display glitch-step-num text-5xl text-[#0a1e5e] mb-3">3</span>
+          <span class="font-display glitch-step-num text-5xl text-[#28315F] mb-3">3</span>
           <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#dc2626]">
             <svg class="h-12 w-12 text-[#dc2626]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -591,9 +664,9 @@
 
         <!-- Paso 4 -->
         <div class="flex flex-col items-center">
-          <span class="font-display glitch-step-num text-5xl text-[#0a1e5e] mb-3">4</span>
-          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#0a1e5e]">
-            <svg class="h-12 w-12 text-[#0a1e5e]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
+          <span class="font-display glitch-step-num text-5xl text-[#28315F] mb-3">4</span>
+          <div class="flex h-24 w-24 items-center justify-center rounded-full bg-white shadow-lg border-4 border-[#28315F]">
+            <svg class="h-12 w-12 text-[#28315F]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
             </svg>
           </div>
@@ -615,32 +688,41 @@
          el amarillo de arriba como sobre el relleno blanco. -->
     <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" class="pointer-events-none absolute inset-x-0 -bottom-px h-10 w-full">
       <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20 L1200,40 L0,40 Z" fill="#ffffff" />
-      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#0a1e5e" stroke-width="4" vector-effect="non-scaling-stroke" />
+      <path d="M0,20 C200,0 400,0 600,20 C800,40 1000,40 1200,20" fill="none" stroke="#28315F" stroke-width="4" vector-effect="non-scaling-stroke" />
     </svg>
   </section>
 
   <!-- PREMIOS -->
   <section id="premios" class="bg-white py-16 px-4 relative overflow-hidden">
-    <!-- Carrusel de premios: las seis gráficas 13…18 de public/evidencia
-         reemplazan al marquee de "PREMIOS". Gira sola con fundido cada
-         4 s; va en aspect-video para verlas COMPLETAS —son flyers con
-         texto y recortarlos en una franja larga los arruinaría—. Las
-         imágenes van convertidas a WebP a resolución natural (39,4 MB
-         de PNG → 2,7 MB). -->
-    <div id="premiosCarrusel" class="relative z-10 mx-auto mb-12 aspect-video w-full max-w-3xl overflow-hidden rounded-2xl border-4 border-[#facc15] shadow-xl bg-white">
-      <img src="evidencia/premios-13.webp" alt="Gráfica de premios 13" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-100" />
-      <img src="evidencia/premios-14.webp" alt="Gráfica de premios 14" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
-      <img src="evidencia/premios-15.webp" alt="Gráfica de premios 15" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
-      <img src="evidencia/premios-16.webp" alt="Gráfica de premios 16" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
-      <img src="evidencia/premios-17.webp" alt="Gráfica de premios 17" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
-      <img src="evidencia/premios-18.webp" alt="Gráfica de premios 18" loading="lazy" decoding="async" class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700 opacity-0" />
+    <!-- Carrusel de premios: las seis gráficas 13…18 de public/evidencia,
+         de borde a borde de la pantalla (el `-mx-4` compensa el padding de
+         la sección). Port FIEL del carrusel de referencia: escenario con
+         perspectiva y tarjetas absolutas dispuestas en un CILINDRO CÓNCAVO
+         —el centro queda lejos (z negativo) y chico, los extremos se
+         acercan al espectador y crecen—, con física de inercia, arrastre
+         con mouse o dedo, rueda horizontal y auto-scroll que se pausa con
+         el mouse encima (SIN botones de control: se quitaron a pedido).
+         La vuelta circular la da `getShortestCyclicDelta` sobre los
+         índices: no hay principio ni fin. Las imágenes van convertidas a
+         WebP a resolución natural (39,4 MB de PNG → 2,7 MB) y la caja de
+         la tarjeta es 16:9 —el formato de la gráfica— para no recortarle
+         el texto (la referencia usa retratos 9:16 porque son videos). -->
+    <div id="premiosCarrusel" class="carousel-stage relative z-10 -mx-4 mb-12 w-[calc(100%_+_2rem)] shadow-xl bg-white">
+      <div id="premiosPista" class="carousel-track">
+        <div class="video-card"><img src="evidencia/premios-13.webp" alt="Gráfica de premios 13" loading="lazy" decoding="async" draggable="false" /></div>
+        <div class="video-card"><img src="evidencia/premios-14.webp" alt="Gráfica de premios 14" loading="lazy" decoding="async" draggable="false" /></div>
+        <div class="video-card"><img src="evidencia/premios-15.webp" alt="Gráfica de premios 15" loading="lazy" decoding="async" draggable="false" /></div>
+        <div class="video-card"><img src="evidencia/premios-16.webp" alt="Gráfica de premios 16" loading="lazy" decoding="async" draggable="false" /></div>
+        <div class="video-card"><img src="evidencia/premios-17.webp" alt="Gráfica de premios 17" loading="lazy" decoding="async" draggable="false" /></div>
+        <div class="video-card"><img src="evidencia/premios-18.webp" alt="Gráfica de premios 18" loading="lazy" decoding="async" draggable="false" /></div>
+      </div>
     </div>
 
     <div class="relative z-10 mx-auto max-w-5xl text-center">
       <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#dc2626] tracking-wide">
         PREMIOS
       </h2>
-      <p class="mt-4 text-sm sm:text-base font-medium leading-relaxed text-[#0a1e5e] max-w-2xl mx-auto">
+      <p class="mt-4 text-sm sm:text-base font-medium leading-relaxed text-[#28315F] max-w-2xl mx-auto">
         En GRAN COSECHA LUXOR, reconocemos la dedicación, el compromiso y la calidad de servicio de nuestros colaboradores con premios pensados para celebrar el esfuerzo de cada equipo.
       </p>
 
@@ -651,26 +733,26 @@
         <div class="flex flex-col items-center">
           <img src="regalo-1.png" data-regalo="1" alt="Regalo del 1° PUESTO" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain transition-transform duration-300 hover:scale-110" />
           <span class="font-display text-3xl text-[#dc2626]">1° PUESTO</span>
-          <p class="mt-2 text-base font-bold text-[#0a1e5e]">Gran Premio Corporativo y Trofeo Luxor</p>
+          <p class="mt-2 text-base font-bold text-[#28315F]">Gran Premio Corporativo y Trofeo Luxor</p>
         </div>
 
         <!-- 2° PUESTO -->
         <div class="flex flex-col items-center">
           <img src="regalo-2.png" data-regalo="2" alt="Regalo del 2° PUESTO" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain transition-transform duration-300 hover:scale-110" />
           <span class="font-display text-3xl text-[#dc2626]">2° PUESTO</span>
-          <p class="mt-2 text-base font-bold text-[#0a1e5e]">Incentivo Especial para Todo el Equipo</p>
+          <p class="mt-2 text-base font-bold text-[#28315F]">Incentivo Especial para Todo el Equipo</p>
         </div>
 
         <!-- 3° PUESTO -->
         <div class="flex flex-col items-center">
           <img src="regalo-3.png" data-regalo="3" alt="Regalo del 3° PUESTO" loading="lazy" decoding="async" class="mb-4 h-40 w-40 object-contain transition-transform duration-300 hover:scale-110" />
           <span class="font-display text-3xl text-[#dc2626]">3° PUESTO</span>
-          <p class="mt-2 text-base font-bold text-[#0a1e5e]">Reconocimiento Destacado y Cesta Luxor</p>
+          <p class="mt-2 text-base font-bold text-[#28315F]">Reconocimiento Destacado y Cesta Luxor</p>
         </div>
       </div>
 
       <div class="mt-12">
-        <a href="#inscripcion" class="inline-block rounded-full bg-[#0a1e5e] hover:bg-blue-900 px-8 py-3.5 text-sm sm:text-base font-extrabold uppercase tracking-wider text-white shadow-lg transition-transform hover:scale-105">
+        <a href="#inscripcion" class="inline-block rounded-full bg-[#28315F] hover:bg-[#061238] px-8 py-3.5 text-sm sm:text-base font-extrabold uppercase tracking-wider text-white shadow-lg transition-transform hover:scale-105">
           INSCRÍBETE AHORA
         </a>
       </div>
@@ -703,15 +785,30 @@
     </div>
   </section>
 
+  <!-- PRESENTACIÓN: los videos y documentos que cada equipo sube desde la
+       consola para presentar su proyecto. Oculta por defecto: se muestra
+       sólo si AL MENOS un proyecto trae archivos. -->
+  <section id="presentacion" class="bg-white py-16 px-4 relative">
+    <div class="mx-auto max-w-5xl text-center">
+      <h2 class="font-display text-4xl sm:text-5xl uppercase text-[#28315F] tracking-wide">
+        PRESENTACIÓN POR PROYECTO
+      </h2>
+      <p class="mt-4 text-sm sm:text-base font-medium leading-relaxed text-[#28315F] max-w-2xl mx-auto">
+        Los videos y documentos con los que cada equipo presenta su proyecto.
+      </p>
+    </div>
+    <div id="presentacionLista" class="mx-auto mt-10 max-w-4xl space-y-6"></div>
+  </section>
+
   <!-- FOOTER -->
   <footer id="contacto" class="bg-white border-t-4 border-[#facc15] pt-14 pb-8 px-4 text-center">
     <div class="mx-auto max-w-5xl">
-      <p class="mt-4 text-sm sm:text-base font-medium text-[#0a1e5e]">
+      <p class="mt-4 text-sm sm:text-base font-medium text-[#28315F]">
         Frescura, calidad y compromiso en cada una de nuestras sucursales.
       </p>
 
       <!-- Social Links -->
-      <div class="mt-5 flex items-center justify-center gap-5 text-[#0a1e5e]">
+      <div class="mt-5 flex items-center justify-center gap-5 text-[#28315F]">
         <a href="#contacto" aria-label="Instagram" class="hover:text-[#dc2626] transition-colors font-bold text-xs">Instagram</a>
         <a href="#contacto" aria-label="Facebook" class="hover:text-[#dc2626] transition-colors font-bold text-xs">Facebook</a>
         <a href="#contacto" aria-label="LinkedIn" class="hover:text-[#dc2626] transition-colors font-bold text-xs">LinkedIn</a>
@@ -720,7 +817,7 @@
       </div>
 
       <!-- Footer Links -->
-      <div class="mt-6 space-y-1.5 text-xs sm:text-sm font-semibold text-[#0a1e5e]">
+      <div class="mt-6 space-y-1.5 text-xs sm:text-sm font-semibold text-[#28315F]">
         <div class="flex flex-wrap justify-center gap-5">
           <a href="#inscripcion" class="hover:text-[#dc2626] hover:underline">Inscripción</a>
           <a href="#como-participar" class="hover:text-[#dc2626] hover:underline">Cómo participar</a>
@@ -742,7 +839,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
           <h3 class="text-xs font-extrabold uppercase tracking-widest text-[#dc2626]">COBERTURA</h3>
-          <p class="mt-2 text-xs sm:text-sm text-[#0a1e5e] font-medium">
+          <p class="mt-2 text-xs sm:text-sm text-[#28315F] font-medium">
             Sucursales Supermercados Luxor<br />Aragua, Venezuela
           </p>
         </div>
@@ -753,12 +850,12 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
           <h3 class="text-xs font-extrabold uppercase tracking-widest text-[#dc2626]">CONTACTO</h3>
-          <a href="mailto:evaluaciones@supermercadosluxor.com" class="mt-2 text-xs sm:text-sm text-[#0a1e5e] font-medium hover:underline">
+          <a href="mailto:evaluaciones@supermercadosluxor.com" class="mt-2 text-xs sm:text-sm text-[#28315F] font-medium hover:underline">
             evaluaciones@supermercadosluxor.com
           </a>
           <div class="mt-4 flex flex-wrap justify-center gap-2">
-            <span class="rounded-lg bg-[#0a1e5e] px-3 py-1.5 text-[11px] font-bold text-white shadow">Programa Interno Luxor</span>
-            <span class="rounded-lg bg-[#facc15] px-3 py-1.5 text-[11px] font-bold text-[#0a1e5e] shadow">Edición 2026</span>
+            <span class="rounded-lg bg-[#28315F] px-3 py-1.5 text-[11px] font-bold text-white shadow">Programa Interno Luxor</span>
+            <span class="rounded-lg bg-[#facc15] px-3 py-1.5 text-[11px] font-bold text-[#28315F] shadow">Edición 2026</span>
           </div>
         </div>
 
@@ -774,7 +871,7 @@
               id="newsletterEmail"
               placeholder="Escribe tu email aquí"
               required
-              class="w-full rounded-full border-2 border-[#0a1e5e] px-4 py-2 text-xs text-[#0a1e5e] placeholder-[#0a1e5e]/60 focus:outline-none"
+              class="w-full rounded-full border-2 border-[#28315F] px-4 py-2 text-xs text-[#28315F] placeholder-[#28315F]/60 focus:outline-none"
             />
             <button
               type="submit"
@@ -790,7 +887,7 @@
       </div>
 
       <!-- Bottom Copyright -->
-      <div class="mt-12 pt-5 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[#0a1e5e] font-medium">
+      <div class="mt-12 pt-5 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[#28315F] font-medium">
         <span>2026 © Todos los Derechos reservados.</span>
         <span>Supermercados Luxor, C.A. — GRAN COSECHA LUXOR</span>
       </div>
@@ -801,7 +898,7 @@
   <div id="infoModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 px-4">
     <div class="w-full max-w-lg rounded-2xl bg-white p-6 text-left shadow-2xl border-t-8 border-[#dc2626]">
       <div class="flex items-center justify-between border-b border-gray-200 pb-3">
-        <h3 id="modalTitle" class="font-display text-2xl uppercase text-[#0a1e5e]">Información</h3>
+        <h3 id="modalTitle" class="font-display text-2xl uppercase text-[#28315F]">Información</h3>
         <button id="closeModalBtn" type="button" aria-label="Cerrar" class="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-black cursor-pointer">
           <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -810,7 +907,7 @@
       </div>
       <div id="modalBody" class="mt-4 text-sm text-gray-700 space-y-3 max-h-[60vh] overflow-y-auto"></div>
       <div class="mt-6 text-right">
-        <button id="modalConfirmBtn" type="button" class="rounded-full bg-[#0a1e5e] px-6 py-2 text-xs font-bold uppercase text-white hover:bg-blue-900 cursor-pointer">
+        <button id="modalConfirmBtn" type="button" class="rounded-full bg-[#28315F] px-6 py-2 text-xs font-bold uppercase text-white hover:bg-[#061238] cursor-pointer">
           Entendido
         </button>
       </div>
@@ -870,21 +967,158 @@
         });
       }
 
-      // Carrusel de premios: las seis gráficas giran solas con fundido
-      // cada 4 s. El cambio es por CLASE de opacidad (no por src): así
-      // las seis se cargan con lazy cuando la sección se acerca y el
-      // slide activo nunca queda en blanco esperando descarga.
-      const premiosCarrusel = document.getElementById('premiosCarrusel');
-      if (premiosCarrusel) {
-        const slides = Array.from(premiosCarrusel.querySelectorAll('img'));
-        let slideActual = 0;
-        if (slides.length > 1) {
-          setInterval(() => {
-            slides[slideActual].classList.replace('opacity-100', 'opacity-0');
-            slideActual = (slideActual + 1) % slides.length;
-            slides[slideActual].classList.replace('opacity-0', 'opacity-100');
-          }, 4000);
+      // Carrusel de premios — port FIEL del motor de referencia
+      // Geometría de CILINDRO CÓNCAVO: `z = -120 + |Δ|^1.85 × k` deja el
+      // centro lejos (z negativo) y chico, y acerca los extremos al
+      // espectador (z positivo) donde además crecen y giran hacia adentro
+      // con `rotateY`. Física con inercia: el arrastre mueve el offset en
+      // AL MOMENTO y al soltar queda un impulso (`velocity × 10`); el
+      // auto-scroll avanza el objetivo y el render lo persigue con el
+      // amortiguación 0.09. Se pausa con el mouse encima y la rueda
+      // horizontal también mueve — SIN botones de control: se quitaron a
+      // pedido. Quien pidió
+      // menos movimiento arranca con el auto PAUSADO (el arrastre y los
+      // botones siguen siendo del usuario: eso no se anima).
+      const premiosStage = document.getElementById('premiosCarrusel');
+      const premiosTrack = document.getElementById('premiosPista');
+      const tarjetas = premiosTrack ? Array.from(premiosTrack.querySelectorAll('.video-card')) : [];
+
+      if (premiosStage && premiosTrack && tarjetas.length) {
+        const total = tarjetas.length;
+        let currentOffset = 0;
+        let targetOffset = 0;
+        let velocity = 0;
+        let isDragging = false;
+        let startX = 0;
+        let lastX = 0;
+        let dragDistance = 0;
+        let autoScroll = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        let isHovered = false;
+
+        /**
+         * Distancia cíclica más corta entre un índice y el offset actual:
+         * es la que hace infinito el carrusel sin duplicar tarjetas.
+         */
+        function getShortestCyclicDelta(index, offset, count) {
+          let delta = ((index - offset) % count + count) % count;
+          if (delta > count / 2) delta -= count;
+          return delta;
         }
+
+        function updateCarouselGeometry() {
+          const isMobile = window.innerWidth < 640;
+          const spacing = isMobile ? 256 : 400;
+
+          tarjetas.forEach((card, index) => {
+            const delta = getShortestCyclicDelta(index, currentOffset, total);
+            const absDelta = Math.abs(delta);
+
+            // Fuera de pantalla: sin eventos ni opacidad.
+            if (absDelta > 4.5) {
+              card.style.opacity = '0';
+              card.style.pointerEvents = 'none';
+              return;
+            }
+            card.style.opacity = '1';
+            card.style.pointerEvents = 'auto';
+
+            // 1) X, ligeramente comprimido en los extremos (proyección circular).
+            const x = delta * spacing * (1 - Math.min(absDelta, 3.5) * 0.032);
+            // 2) Profundidad: el centro queda lejos (negativo) y los
+            //    extremos se acercan (positivo) — el cóncavo envolvente.
+            const z = -120 + Math.pow(absDelta, 1.85) * (isMobile ? 38 : 48);
+            // 3) Rotación: los bordes miran hacia el centro de la pantalla.
+            const maxAngle = isMobile ? 28 : 32;
+            const rotateY = Math.max(-maxAngle, Math.min(maxAngle, -delta * 10.5));
+            // 4) Escala: el centro es más chico y los laterales crecen.
+            const scale = 0.86 + Math.pow(Math.min(absDelta, 3.2), 1.45) * 0.058;
+            // Superposición en perspectiva: los extremos (más cerca) van arriba.
+            const zIndex = Math.round(100 + absDelta * 10);
+
+            card.style.zIndex = zIndex;
+            card.style.transform =
+              `translate3d(${x}px, 0px, ${z}px) rotateY(${rotateY}deg) scale(${scale})`;
+          });
+        }
+
+        function animate() {
+          if (!isDragging) {
+            if (autoScroll && !isHovered) {
+              targetOffset += 0.0032;
+            }
+            currentOffset += (targetOffset - currentOffset) * 0.09;
+          }
+          updateCarouselGeometry();
+          requestAnimationFrame(animate);
+        }
+
+        // --- Arrastre (mouse y touch): el offset se mueve EN EL MOMENTO ---
+        function handlePointerDown(clientX) {
+          isDragging = true;
+          startX = clientX;
+          lastX = clientX;
+          dragDistance = 0;
+          velocity = 0;
+        }
+        function handlePointerMove(clientX) {
+          if (!isDragging) return;
+          const dx = clientX - lastX;
+          lastX = clientX;
+          dragDistance += Math.abs(dx);
+          const sensitivity = window.innerWidth < 640 ? 0.0065 : 0.0048;
+          currentOffset -= dx * sensitivity;
+          targetOffset = currentOffset;
+          velocity = -dx * sensitivity;
+        }
+        function handlePointerUp() {
+          if (!isDragging) return;
+          isDragging = false;
+          // Impulso de inercia; con auto apagado, cuadra en la tarjeta más cercana.
+          targetOffset = currentOffset + velocity * 10;
+          if (!autoScroll) {
+            targetOffset = Math.round(targetOffset);
+          }
+        }
+
+        premiosStage.addEventListener('mousedown', (e) => handlePointerDown(e.clientX));
+        window.addEventListener('mousemove', (e) => handlePointerMove(e.clientX));
+        window.addEventListener('mouseup', handlePointerUp);
+        premiosStage.addEventListener('touchstart', (e) => handlePointerDown(e.touches[0].clientX), { passive: true });
+        window.addEventListener('touchmove', (e) => handlePointerMove(e.touches[0].clientX), { passive: true });
+        window.addEventListener('touchend', handlePointerUp);
+
+        // Pausar auto-scroll al pasar el ratón por encima.
+        premiosStage.addEventListener('mouseenter', () => { isHovered = true; });
+        premiosStage.addEventListener('mouseleave', () => { isHovered = false; });
+
+        // Rueda horizontal o Shift+rueda.
+        premiosStage.addEventListener('wheel', (e) => {
+          if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) {
+            e.preventDefault();
+            const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            targetOffset += delta * 0.0025;
+          }
+        }, { passive: false });
+
+        // Clic en una tarjeta: la centra (si antes no hubo arrastre —un
+        // arrastre termina en click—). Sin modal: las gráficas no son video.
+        tarjetas.forEach((card, idx) => {
+          card.addEventListener('click', () => {
+            if (dragDistance > 8) return;
+            const diff = getShortestCyclicDelta(idx, currentOffset, total);
+            if (Math.abs(diff) >= 0.35) targetOffset += diff;
+          });
+        });
+
+        // Arranque: geometría + bucle. `readyState` por si el `load` ya
+        // pasó (con assets pesados el timing no es el de la referencia).
+        window.addEventListener('resize', updateCarouselGeometry);
+        const arrancarPremios = () => {
+          updateCarouselGeometry();
+          animate();
+        };
+        if (document.readyState === 'complete') arrancarPremios();
+        else window.addEventListener('load', arrancarPremios);
       }
 
       // Los regalos de premios se ABREN al pasar el mouse: la caja
@@ -1082,7 +1316,7 @@
       var PALETAS = [
         { cuerpo: '#facc15', tope: '#fde047', franja: '#dc2626', asa: '#dc2626' },
         { cuerpo: '#dc2626', tope: '#ef4444', franja: '#facc15', asa: '#facc15' },
-        { cuerpo: '#0a1e5e', tope: '#1e3a8a', franja: '#facc15', asa: '#dc2626' }
+        { cuerpo: '#28315F', tope: '#1e3a8a', franja: '#facc15', asa: '#dc2626' }
       ];
 
       function trofeo(i) {
@@ -1115,24 +1349,21 @@
           html += '<div class="flex flex-col items-center">'
             + media
             + '<span class="font-display text-3xl text-[#dc2626]">' + esc(puesto) + '</span>'
-            + '<p class="mt-2 text-base font-bold text-[#0a1e5e]">' + esc(descripcion) + '</p>'
+            + '<p class="mt-2 text-base font-bold text-[#28315F]">' + esc(descripcion) + '</p>'
             + '</div>';
         });
         // Una lista vacía o ilegible no tapa los premios del HTML.
         if (html) cont.innerHTML = html;
       }
 
-      // La regadera del "regar": el like de jardín, con la temática de la
-      // cosecha en vez del pulgar de Facebook. Sólo dibuja —el número lo dice
-      // el chip que la contiene.
-      function regaderaSvg() {
-        return '<svg viewBox="0 0 32 32" class="riego-ico" aria-hidden="true" focusable="false">'
-          + '<path d="M12 13h11a2 2 0 0 1 2 2v7a4 4 0 0 1-4 4h-7a4 4 0 0 1-4-4v-9z" fill="currentColor"/>'
-          + '<path d="M15 13a4.5 4.5 0 0 1 9 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
-          + '<path d="M12 15 6 11.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>'
-          + '<circle cx="4.5" cy="10.5" r="3" fill="currentColor"/>'
-          + '<circle cx="5" cy="18" r="1.4" fill="currentColor"/>'
-          + '<circle cx="8" cy="21.5" r="1.1" fill="currentColor"/>'
+      // La planta del riego: el "like" de jardín, en SÓLIDO —la MISMA que
+      // la consola— en vez del pulgar de Facebook. Sólo dibuja el ícono:
+      // el número lo pone el span que la contiene.
+      function plantaSvg() {
+        return '<svg viewBox="0 0 24 24" class="riego-ico" aria-hidden="true" focusable="false">'
+          + '<path d="M12 21C12 17.5 12.2 13.5 13 10.2" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>'
+          + '<path d="M13 10.2C13.5 6.7 16.5 4.2 20.5 4.2C20.5 8.2 17.5 11.1 13 10.2Z" fill="currentColor"/>'
+          + '<path d="M11.4 14.2C10.9 10.7 7.9 8.2 3.9 8.2C3.9 12.2 6.9 15.1 11.4 14.2Z" fill="currentColor"/>'
           + '</svg>';
       }
 
@@ -1178,7 +1409,7 @@
           var datos = '<span class="datos-participante">'
             + '<span class="chip-avance">Avance ' + avance + '%</span>'
             + '<span class="chip-riegos" title="Veces que regaron este proyecto">'
-            + regaderaSvg() + '<b>' + riegos + '</b> ' + (riegos === 1 ? 'riego' : 'riegos')
+            + plantaSvg() + '<b>' + riegos + '</b>'
             + '</span></span>';
           var rotulo = '<span class="rotulo">'
             + '<span class="block font-display text-lg uppercase text-[#facc15]">' + esc(titulo) + '</span>'
@@ -1199,6 +1430,53 @@
           // La invitación a pasar el mouse sólo aparece si AL MENOS una
           // tarjeta trae foto: sin fotos, prometería un gesto inútil.
           if (pistaSeccion) pistaSeccion.classList.toggle('hidden', !algunaConFoto);
+        }
+      }
+
+      /**
+       * Los archivos de la PRESENTACIÓN, por proyecto.
+       *
+       * Los videos van embebidos (se reproducen en la página) y los
+       * documentos como enlaces para abrirlos o bajarlos: el bucket es
+       * público de lectura, así que la URL directa alcanza. La sección
+       * queda OCULTA si ningún proyecto trae archivos — enseñar un bloque
+       * vacío prometería material que no existe.
+       */
+      function pintarPresentacion(participantes) {
+        var seccion = document.getElementById('presentacion');
+        var cont = document.getElementById('presentacionLista');
+        if (!seccion || !cont || !Array.isArray(participantes)) return;
+        var html = '';
+        participantes.forEach(function (p) {
+          if (!p || typeof p.titulo !== 'string' || !p.titulo.trim()) return;
+          var adjuntos = Array.isArray(p.adjuntos)
+            ? p.adjuntos.filter(function (a) { return a && typeof a.url === 'string' && a.url; })
+            : [];
+          if (!adjuntos.length) return;
+          var bloque = '<article class="rounded-2xl border border-gray-200 bg-[#f8fafc] p-5">'
+            + '<h3 class="font-display text-xl uppercase text-[#28315F]">' + esc(p.titulo) + '</h3>';
+          adjuntos.forEach(function (a) {
+            var url = esc(a.url);
+            var nombre = esc(typeof a.nombre === 'string' && a.nombre ? a.nombre : 'Archivo');
+            var esVideo = typeof a.tipo === 'string' && a.tipo.indexOf('video/') === 0;
+            if (esVideo) {
+              bloque += '<div class="mt-4">'
+                + '<p class="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Video · ' + nombre + '</p>'
+                + '<video src="' + url + '" controls preload="metadata" playsinline class="w-full rounded-xl bg-black"></video>'
+                + '</div>';
+            } else {
+              bloque += '<a href="' + url + '" target="_blank" rel="noreferrer" '
+                + 'class="mt-3 flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-[#28315F] transition-colors hover:border-[#facc15]">'
+                + '<span class="min-w-0 flex-1 truncate">' + nombre + '</span>'
+                + '<span class="shrink-0 text-xs font-bold uppercase tracking-wide text-[#dc2626]">Abrir</span>'
+                + '</a>';
+            }
+          });
+          html += bloque + '</article>';
+        });
+        if (html) {
+          cont.innerHTML = html;
+          seccion.classList.remove('hidden');
         }
       }
 
@@ -1294,6 +1572,7 @@
         }
         pintarPremios(contenido.premios);
         pintarParticipantes(contenido.participantes);
+        pintarPresentacion(contenido.participantes);
       }
 
       fetch(URL_BASE + '/rest/v1/rpc/ver_contenido_gran_cosecha', {

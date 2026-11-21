@@ -705,3 +705,51 @@ html.dark {
     clip-path: none;
   }
 }
+
+/* --- Riego de Gran Cosecha: la secuencia GOTA → PLANTA ---------------------
+   Al apretar «Regar» el ícono (la Sprout del menú «Proyectos») se cambia por
+   una GOTA que entra cayendo con un rebote, y al retirarse la planta vuelve
+   con un pequeño pop. La gota la retira el componente (no esta hoja): dura
+   mientras la RPC contesta y, como mínimo, el tiempo de la animación. */
+.riego-gota {
+  animation: riego-gota 0.9s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+@keyframes riego-gota {
+  0% {
+    opacity: 0;
+    transform: translateY(-7px) scale(0.5);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(0) scale(1.15);
+  }
+  55% {
+    transform: translateY(3px) scale(0.95);
+  }
+  75% {
+    transform: translateY(-2px) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.riego-planta {
+  animation: riego-planta 0.35s ease-out both;
+}
+@keyframes riego-planta {
+  from {
+    opacity: 0.3;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .riego-gota,
+  .riego-planta {
+    animation: none;
+  }
+}

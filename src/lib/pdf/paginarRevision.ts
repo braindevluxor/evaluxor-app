@@ -6,10 +6,24 @@
  * una página y está incompleta»—, así que el canvas se parte en porciones y
  * cada porción va a su página.
  *
- * Los cortes se pegan a los `limitesPx` (el borde de una fila de la tabla, de
- * una foto o de un bloque) que queden dentro de la ventana de la página, para
- * que ninguna quede partida en dos hojas. Si la ventana no contiene ningún
- * límite, se corta en la ventana misma.
+ * CÓMO SE ELIGE EL CORTE
+ * ---------------------
+ * Cada bloque atómico de la hoja (una fila de la tabla, una ficha, el QR) va
+ * con SUS DOS bordes. La regla por página es:
+ *
+ *  1. Si algún bloque ATÓMICO cruza el tope de la ventana —empezó antes del
+ *     tope y termina después—, el corte va en su borde superior: ese bloque
+ *     entero se muda a la siguiente hoja. Nunca se parte un bloque atómico.
+ *  2. Si nada cruza el tope y ya terminó todo el contenido, se corta en el
+ *     fin del documento: una sola hoja, sin saltos de sobra.
+ *  3. Si nada cruza el tope y el contenido sigue, lo que está en el tope es
+ *     material PARTIBLE (texto largo o el hueco entre bloques): la hoja se
+ *     llena hasta el tope.
+ *
+ * Ése era el síntoma que arregla: antes el corte se pegaba al borde SUPERIOR
+ * del último bloque que arrancaba dentro de la ventana, así que un bloque que
+ * CABÍA entero se mudaba igual y la hoja quedaba con un hueco grande debajo
+ * del QR (las Observaciones aisladas en una página aparte).
  *
  * Lógica pura: recibe números y devuelve números, y por eso se prueba sola.
  */
@@ -22,6 +36,14 @@ export interface VentanaPagina {
   topMm: number
 }
 
+/** Los DOS bordes de un bloque atómico, en píxeles del canvas. */
+export interface LimitePx {
+  /** Borde superior: si el bloque no entra entero, el corte va acá. */
+  top: number
+  /** Borde inferior: con él se sabe si el bloque CABE en la ventana. */
+  bottom: number
+}
+
 /**
  * Fin de cada página, en píxeles del canvas (el último elemento es el fin del
  * contenido). Siempre creciente y terminado: el dibujo avanza aunque la ventana
@@ -30,13 +52,19 @@ export interface VentanaPagina {
 export function cortesDePagina(
   altoTotalPx: number,
   pxPorMm: number,
-  limitesPx: number[],
+  limitesPx: LimitePx[],
   primera: VentanaPagina,
   resto: VentanaPagina
 ): number[] {
-  const limites = [...new Set(limitesPx)]
-    .filter((v) => Number.isFinite(v) && v > 0)
-    .sort((a, b) => a - b)
+  const limites = limitesPx
+    .filter(
+      (l) =>
+        Number.isFinite(l.top) &&
+        Number.isFinite(l.bottom) &&
+        l.top >= 0 &&
+        l.bottom > l.top
+    )
+    .sort((a, b) => a.top - b.top)
 
   const cortes: number[] = []
   let y = 0
@@ -46,17 +74,30 @@ export function cortesDePagina(
     const ventana = pagina === 0 ? primera : resto
     const techo = y + Math.max(ventana.altoMm, 0) * pxPorMm
 
-    // El último límite que todavía cabe en esta página: el corte más abajo
-    // posible sin partir el elemento siguiente.
-    let fin = 0
+    // El bloque atómico que CRUZA el tope: el de mayor arranque que empieza
+    // antes del techo y termina después. Sólo uno manda el corte a su borde
+    // superior; los que ya entraron enteros se quedan.
+    let corte = -1
     for (const limite of limites) {
-      if (limite > techo) break
-      if (limite > y) fin = limite
+      if (limite.top > techo) break
+      if (limite.bottom > techo && limite.top > corte) corte = limite.top
     }
-    if (!fin) fin = Math.min(altoTotalPx, techo)
+
+    let fin: number
+    if (corte > y) {
+      // El que no cabe entero se muda entero, sin partirse.
+      fin = corte
+    } else if (altoTotalPx <= techo) {
+      // Entra todo el contenido: se corta en el fin del documento y no se
+      // abre una hoja de sobra con sólo el padding de abajo.
+      fin = altoTotalPx
+    } else {
+      // Lo que está en el tope es material partible (texto largo, el hueco
+      // entre bloques): la hoja se llena hasta el tope.
+      fin = Math.min(altoTotalPx, techo)
+    }
     // Progreso garantizado: nunca un corte que no avance.
     if (fin <= y) fin = Math.min(altoTotalPx, y + 1)
-    fin = Math.min(fin, altoTotalPx)
 
     cortes.push(fin)
     y = fin

@@ -1,21 +1,33 @@
 import type { Item, Opcion } from '../types'
 import type { ValorChecklist, ValorCumple } from '../scoring'
+import { leerComentario } from '../comentariosPunto'
 
 /**
  * Resolución de un ítem del catálogo al texto que se imprime en el PDF de la
- * Revisión Pre-Entrega.
+ * Revisión Pre-Entrega (y en la pantalla pública que abre su QR).
  *
  * Vive aparte de `exportarRevisionPreEntrega.ts` a propósito: es lógica pura
  * (sin jsPDF ni html2canvas) y así se puede probar sola.
  */
 
+/** Una fila de la tabla: ítem, valor/estado y SU observación. */
+export interface FilaPregunta {
+  etiqueta: string
+  valor: string
+  /**
+   * El comentario libre del PUNTO al que pertenece, en SU fila.
+   *
+   * Antes todos los comentarios del ítem se juntaban en una sola fila
+   * «· Nota» al final, con todos adentro: ilegible y fuera de lugar. Cada
+   * punto lleva el suyo, en la columna Observación.
+   */
+  observacion?: string | null
+}
+
 /** Un ítem del check list ya resuelto a texto (el PDF no necesita los ids). */
 export interface PreguntaResuelta {
   texto: string
-  /** Filas: etiqueta + estado. En CHECKLIST es una por opción. */
-  filas: { etiqueta: string; valor: string }[]
-  /** Nota al pie (dictamen cumple / no cumple). */
-  veredicto?: string | null
+  filas: FilaPregunta[]
 }
 
 /** Opción cumplida: marcada en las dos marcas del doble check (si la respuesta las trae), o que alcanza el mínimo si es un rango. */
@@ -46,14 +58,22 @@ export function resolverPregunta(item: Item, valor: unknown): PreguntaResuelta {
     return {
       texto: item.texto,
       filas: opciones.map((o) => {
-        if (informativos.has(o.id)) return { etiqueta: o.etiqueta, valor: 'Informativo' }
+        // El comentario del punto vive en SU fila: es lo que escribe el
+        // evaluador al lado de cada uno, no una nota aparte del ítem. Se
+        // recorta al leer: un comentario en blanco no es una observación.
+        const observacion = leerComentario(v?.comentarios, o.id).trim() || null
+        if (informativos.has(o.id)) return { etiqueta: o.etiqueta, valor: 'Informativo', observacion }
         const cumplida = opcionCumplida(o, v)
         const valorRango = o.tipo_respuesta === 'RANGO' ? v?.valores?.[o.id] : undefined
         const sufijo =
           o.tipo_respuesta === 'RANGO' && typeof valorRango === 'number'
             ? ` (${valorRango}${o.unidad ? ` ${o.unidad}` : ''})`
             : ''
-        return { etiqueta: o.etiqueta, valor: `${cumplida ? 'Cumple' : 'No cumple'}${sufijo}` }
+        return {
+          etiqueta: o.etiqueta,
+          valor: `${cumplida ? 'Cumple' : 'No cumple'}${sufijo}`,
+          observacion
+        }
       })
     }
   }
@@ -67,12 +87,12 @@ export function resolverPregunta(item: Item, valor: unknown): PreguntaResuelta {
       .filter((c): c is string => !!c)
     return {
       texto: item.texto,
-      filas: [{ etiqueta: 'Estado', valor: estado }],
-      veredicto: notas.length ? notas.join(' · ') : null
+      // Un solo renglón: su observación es la de SU dictamen.
+      filas: [{ etiqueta: 'Estado', valor: estado, observacion: notas.length ? notas.join(' · ') : null }]
     }
   }
 
   // Tipos que la herramienta no usa (CONCILIACION, PLANO_XY, secciones…): se
   // listan igual, para que el PDF no pierda preguntas silenciosamente.
-  return { texto: item.texto, filas: [{ etiqueta: 'Detalle', valor: 'No aplica a esta herramienta' }] }
+  return { texto: item.texto, filas: [{ etiqueta: 'Detalle', valor: 'No aplica a esta herramienta', observacion: null }] }
 }

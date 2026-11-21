@@ -249,6 +249,9 @@ describe('schema.sql · corrige lo que sí está expuesto', () => {
       'email_por_usuario',
       'ver_conciliacion_compartida',
       'ver_cargos_compartidos',
+      // El QR que lleva el PDF de la inspección: la pantalla pública
+      // `/compartir/inspeccion/:token` corre sin cuenta.
+      'ver_inspeccion_compartida',
       // El menú público de cada sucursal: la pantalla `/menu/:sucursalId`
       // corre sin cuenta (el QR que escanea el cliente) — lee, cuenta su
       // propia apertura y ofrece el selector de sucursales.
@@ -276,9 +279,9 @@ describe('schema.sql · los enlaces públicos', () => {
   /**
    * Son las únicas aperturas a `anon` que existen después del login, y son
    * deliberadas: hay pantallas públicas (`/compartir/:token`,
-   * `/compartir/cargos/:token` y la landing `/gran-cosecha.html`) para quien
-   * ver algo sin tener cuenta. Estos tests existen para que la próxima
-   * apertura tenga que venir con su motivo.
+   * `/compartir/cargos/:token`, `/compartir/inspeccion/:token` y la landing
+   * `/gran-cosecha.html`) para quien quiere ver algo sin tener cuenta. Estos
+   * tests existen para que la próxima apertura tenga que venir con su motivo.
    */
   it('las únicas funciones abiertas a anon, además de las del login, son las pantallas públicas', () => {
     // Se mira el ARCHIVO ENTERO y no sólo `permisos-funcion.sql`: los grants
@@ -298,6 +301,8 @@ describe('schema.sql · los enlaces públicos', () => {
       'ver_cargos_compartidos',
       'ver_conciliacion_compartida',
       'ver_contenido_gran_cosecha',
+      // El QR del PDF de la inspección: detalle con sus fotos y videos.
+      'ver_inspeccion_compartida',
       'ver_menu_publico',
       'ver_sucursales_menu'
     ])
