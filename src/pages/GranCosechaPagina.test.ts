@@ -121,90 +121,99 @@ describe('gran cosecha · el módulo de datos', () => {
   })
 })
 
-describe('gran cosecha · la landing', () => {
-  it('trae los ids que el script de contenido pinta', () => {
-    for (const id of [
-      'heroLema',
-      'heroBajada',
-      'heroCarrusel',
-      'premiosLista',
-      'equiposLista'
-    ]) {
-      expect(landing, id).toContain(`id="${id}"`)
+describe('gran cosecha · la landing (Arena)', () => {
+  it('la landing es la ARENA: secciones de una sola página con su nav', () => {
+    // Una sola página con anclas: qué es, cosechas, categorías, podio y
+    // proyectos — cada una con su enlace en la barra y en el menú móvil.
+    for (const ancla of ['inicio', 'que-es', 'carrusel-cosechas', 'categorias', 'podio', 'proyectos']) {
+      expect(landing, ancla).toContain(`id="${ancla}"`)
+      expect(landing, ancla).toContain(`href="#${ancla}"`)
     }
+    expect(landing).toContain('<title>GRAN COSECHA LUXOR')
+    expect(landing).toContain('GRAN COSECHA')
   })
 
-  it('la sección de participantes nace oculta: sin proyectos registrados no aparece', () => {
-    expect(landing).toMatch(/<section id="equipos" class="[^"]*\bhidden\b/)
-    // La lista sale de los proyectos REGISTRADOS en la consola, no de nada
-    // escrito a mano en la landing.
-    expect(landing).toContain('pintarParticipantes(contenido.participantes)')
-    expect(landing).toContain("seccion.classList.remove('hidden')")
+  it('las tres categorías, cada una con su tarjeta y su filtro', () => {
+    for (const categoria of ['Cosecha en Equipo', 'Cultivando Ideas', 'Premiamos tu Compra']) {
+      expect(landing, categoria).toContain(categoria)
+    }
+    expect(landing).toContain('luxor-card')
+    expect(landing).toContain('function filterByModalityFromCard(')
+    // El botón de la tarjeta filtra y baja hasta la galería.
+    expect(landing).toContain("scrollIntoView({ behavior: 'smooth' })")
+    expect(landing).toContain("filterByModalityFromCard('Cosecha en Equipo')")
   })
 
-  it('la sección de participantes va en el azul primario y con la textura de fondo.svg', () => {
-    // Azul #28315F —el mismo de los botones de EvaLuxor (HEX_PRIMARY)— y la
-    // MISMA retícula de cruces que el bloque rojo de «¿QUÉ ES?»: fondo.svg
-    // pintado SOBRE el color de fondo de la sección.
-    expect(landing).toMatch(/<section id="equipos" class="[^"]*\bbg-\[#28315F\]/)
-    expect(landing).toMatch(/<section id="equipos" class="[^"]*\btextura-cruces\b/)
-    // La textura es la misma que usa el bloque rojo: una sola clase.
-    expect(landing.match(/textura-cruces/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
-    // Las LETRAS y BOTONES azules de toda la página son el MISMO azul del
-    // fondo de equipos: el navy viejo (#0a1e5e) se unificó a #28315F —
-    // ninguno de los dos colores queda en la landing.
-    expect(landing).not.toContain('#0a1e5e')
-    expect(landing).toContain('text-[#28315F]')
-    expect(landing).toContain('bg-[#28315F]')
-    // El hover de los botones azules se apoya en el navy PROFUNDO del
-    // palette (no en un azul ajeno como `blue-900`).
-    expect(landing).not.toContain('hover:bg-blue-900')
-    expect(landing).toContain('hover:bg-[#061238]')
+  it('el podio sale del ranking de votos, con el 1° en el centro elevado', () => {
+    expect(landing).toContain('function renderPodium(')
+    expect(landing).toContain('id="podium-container"')
+    // Orden visual: 2° a la izquierda, 1° al centro (y más alto), 3° a la derecha.
+    expect(landing).toContain('order-1 lg:order-2 lg:-translate-y-4')
+    expect(landing).toContain('1° LUGAR • LÍDER')
+    expect(landing).toContain('2° LUGAR')
+    expect(landing).toContain('3° LUGAR')
   })
 
-  it('cada participante lleva su avance y sus RIEGOS, sin fondo y con la planta', () => {
-    // El "like" de jardín: el conteo que mandan Academia/Desarrollo Luxor,
-    // pintado en el proyecto que se registró en /gran-cosecha/proyectos.
-    expect(landing).toContain('function pintarParticipantes(participantes)')
-    expect(landing).toContain('class="chip-avance"')
-    // El riego, como el "Me gusta" de Facebook: SÓLO la planta y su número
-    // — sin la píldora blanca, sin la palabra suelta (el `title` explica
-    // qué cuenta) y con la MISMA planta sólida que la consola.
-    expect(landing).toContain('class="chip-riegos"')
-    expect(landing).toContain('class="riego-ico"')
-    expect(landing).toContain('function plantaSvg()')
-    expect(landing).not.toContain('regaderaSvg')
-    expect(landing).not.toContain("riegos === 1 ? 'riego' : 'riegos'")
-    expect(landing).toContain('background: none')
-    expect(landing).toContain('color: #7dd3fc')
-    // Sólo el NÚMERO cruza: quién regó vive en una tabla cerrada.
+  it('votar es un like con confeti y memoria local', () => {
+    expect(landing).toContain('function toggleLike(')
+    // El pop del botón y el confeti con los cinco colores de la paleta.
+    expect(landing).toContain('animate-vote-pop')
+    expect(landing).toContain('function triggerLuxorConfetti(')
+    expect(landing).toContain("['#F4B915', '#F39200', '#C41E2E', '#182348', '#FFFFFF']")
+    // Votos, apoyos y fotos de cosechas viven en el equipo (tres llaves
+    // versionadas en localStorage).
+    expect(landing).toContain('luxor_oficial_projects_v3')
+    expect(landing).toContain('luxor_oficial_liked_v3')
+    expect(landing).toContain('luxor_oficial_carousel_v3')
+    // El like alterna: también se puede retirar el apoyo.
+    expect(landing).toContain('Has retirado tu apoyo')
   })
 
-  it('la tarjeta del participante monta la imagen del proyecto y revela su foto', () => {
-    // Cada tarjeta lleva DOS caras: la imagen del proyecto (con la inicial
-    // pintada debajo por si la URL no carga)…
-    expect(landing).toContain('class="inicial"')
-    expect(landing).toContain('class="cara"')
-    // …y la foto del equipo, que se revela al pasar el mouse, al enfocar
-    // la tarjeta con el teclado o al tocarla en el celular.
-    expect(landing).toContain('class="foto-equipo"')
-    expect(landing).toContain('.tarjeta-equipo:hover .foto-equipo')
-    expect(landing).toContain('.tarjeta-equipo:focus-visible .foto-equipo')
-    // El clic alterna la clase (una sola abierta por vez): en táctil no
-    // hay hover, y en escritorio el clic deja la foto fija.
-    expect(landing).toContain("querySelectorAll('.tarjeta-equipo.esta-activa')")
-    expect(landing).toContain("classList.remove('esta-activa')")
-    // Sólo con foto la tarjeta es un botón: sin nada que revelar no hay
-    // acción que ofrecer. Con `\r?\n` porque el fin de línea del HTML
-    // depende del checkout (autocrlf en Windows) y no del contenido.
-    expect(landing).toMatch(/foto\r?\n {12}\? '<button type="button" class="tarjeta-equipo con-foto">/)
-    // La invitación a pasar el mouse sólo aparece si algún equipo trae foto.
-    expect(landing).toContain('id="equiposPista"')
-    expect(landing).toContain('pistaSeccion.classList.toggle')
-    // Quien pidió menos movimiento ve sólo el cambio de opacidad.
-    expect(landing).toMatch(/\.tarjeta-equipo \.foto-equipo \{\r?\n {8}transition: opacity 0\.2s linear;/)
-    // El rótulo del participante va con velo navy: se lee sobre cualquier foto.
-    expect(landing).toContain('rgba(6, 18, 56, 0.96)')
+  it('la galería se filtra, busca y ordena', () => {
+    expect(landing).toContain('function setFilter(')
+    expect(landing).toContain('function handleSearch(')
+    expect(landing).toContain('function handleSort(')
+    expect(landing).toContain('class="filter-btn')
+    expect(landing).toContain('id="search-input"')
+    expect(landing).toContain('id="sort-select"')
+    // Estado vacío con la salida de vuelta a todos los proyectos.
+    expect(landing).toContain('id="empty-state"')
+    expect(landing).toContain('function resetFilters(')
+  })
+
+  it('los modales de ficha e inscripción, con su toast', () => {
+    expect(landing).toContain('id="detail-modal"')
+    expect(landing).toContain('id="submit-modal"')
+    expect(landing).toContain('function handleProjectSubmit(')
+    expect(landing).toContain('id="toast"')
+    // Inscribir crea el proyecto con el primer voto del propio autor.
+    expect(landing).toContain('likes: 1')
+  })
+
+  it('el hero trae la marca y sus marcadores en vivo', () => {
+    // La marca en tres bloques (GRAN / COSECHA / LUXOR) y los contadores
+    // que `updateStats` refresca al vuelo con cada voto.
+    expect(landing).toContain('>GRAN<')
+    expect(landing).toContain('>COSECHA<')
+    expect(landing).toContain('>LUXOR<')
+    expect(landing).toContain('id="hero-project-count"')
+    expect(landing).toContain('id="hero-total-likes"')
+    expect(landing).toContain('function updateStats(')
+    // Fondo con la textura de papel de la marca (sin partículas: esa
+    // versión no llegó al archivo final).
+    expect(landing).toContain('paper-texture-ivory')
+  })
+
+  it('la landing ya NO lee el contenido de la consola', () => {
+    // La Arena trae sus propios datos (semilla + localStorage): ni la RPC
+    // pública de la página ni los píntores del contenido viejo existen.
+    expect(landing).not.toContain('ver_contenido_gran_cosecha')
+    expect(landing).not.toContain('__SUPABASE_URL__')
+    expect(landing).not.toContain('pintarParticipantes')
+    expect(landing).not.toContain('pintarPremios')
+    expect(landing).not.toContain('premiosCarrusel')
+    expect(landing).not.toContain('id="equipos"')
+    expect(landing).not.toContain('id="inscripcion"')
   })
 
   it('el editor ya no ofrece participantes: esos datos salen de Proyectos', () => {
@@ -214,278 +223,6 @@ describe('gran cosecha · la landing', () => {
     // …ni el campo ni su helper en el data layer.
     expect(datos).not.toContain('EquipoPagina')
     expect(datos).not.toContain('subirFotoEquipo')
-  })
-
-  it('el hero tiene su carrusel, con velo y videos en mudo', () => {
-    expect(landing).toContain('id="heroCarrusel"')
-    expect(landing).toContain('function pintarCarrusel(')
-    expect(landing).toContain('pintarCarrusel(hero.carrusel)')
-    // Mudo y con playsinline: autoplay de fondo en cualquier navegador.
-    expect(landing).toContain('muted loop playsinline')
-    // El velo navy que hace legible el texto blanco sobre cualquier medio.
-    expect(landing).toContain('rgba(6,18,56,0.55)')
-    // Un medio que no se pueda reproducir se oculta en vez de girar en negro.
-    expect(landing).toContain("paso.classList.add('hidden')")
-  })
-
-  it('el hero está en cero: sin título, fechas ni botón, sólo huecos', () => {
-    // Sólo el bloque del hero: el resto de la página tiene su propio copy
-    // (su "INSCRÍBETE" de la sección de inscripción sigue ahí). El corte
-    // es el primer </section> después del inicio del hero — el hero no
-    // tiene secciones anidadas—: cortar por un comentario era frágil.
-    const inicio = landing.indexOf('<!-- HERO BANNER -->')
-    const hero = landing.slice(inicio, landing.indexOf('</section>', inicio))
-    // Se quitó todo el texto para rediseñar el hero desde cero.
-    expect(hero).not.toContain('id="heroGran"')
-    expect(hero).not.toContain('INSCRÍBETE AHORA')
-    expect(hero).not.toContain('heroFechaDesde')
-    // Los huecos de lema y bajada existen pero SIN contenido en el HTML:
-    // los llena la consola al Guardar (sin JS o sin conexión, el hero
-    // sale vacío a propósito, a diferencia del resto de la página).
-    expect(hero).toMatch(/<p id="heroLema"[^>]*><\/p>/)
-    expect(hero).toMatch(/<p id="heroBajada"[^>]*><\/p>/)
-    // Y la sección no se colapsa mientras no hay nada adentro.
-    expect(hero).toContain('min-h-[60vh]')
-  })
-
-  it('el formulario de inscripción es un modal que se abre con :target', () => {
-    // Los enlaces de la página apuntan a #inscripcion: con CSS puro el
-    // modal se abre sin JavaScript y el botón "atrás" lo cierra.
-    expect(landing).toContain('href="#inscripcion"')
-    expect(landing).toContain('#inscripcion:target')
-    // Ya no es una sección en el flujo de la página.
-    expect(landing).not.toMatch(/<section id="inscripcion"/)
-    // Diálogo con su nombre para lectores de pantalla, su cierre con la X
-    // y Escape (primero el modal de información si está encima).
-    expect(landing).toMatch(/id="inscripcion"[^>]*role="dialog"/)
-    expect(landing).toContain('id="cerrarInscripcion"')
-    expect(landing).toContain("e.key !== 'Escape'")
-    // El cierre apaga el modal con display inline: medido en Chrome,
-    // replaceState vacía el hash pero NO recalcula `:target`, y con un
-    // id en la regla ninguna clase le gana. El bloqueo del fondo va
-    // por el mismo JS (sin :has, que habría quedado trabado igual).
-    expect(landing).toContain("inscripcion.style.display = 'none'")
-    expect(landing).toContain("document.body.style.overflow = bloqueado ? 'hidden' : ''")
-    expect(landing).not.toContain('body:has(')
-  })
-
-  it('los regalos de premios se abren al pasar el mouse', () => {
-    // Cada caja cerrada sabe cuál es su abierta (regalo-N ↔ open-N)…
-    expect((landing.match(/data-regalo="/g) || []).length).toBe(4)
-    // …el swap va por delegación en la lista y no por listener en cada
-    // imagen: así también aplica a los premios que pintarPremios rehace
-    // desde la base al Guardar desde la consola.
-    expect(landing).toContain("addEventListener('mouseover'")
-    expect(landing).toContain("'open-' + img.dataset.regalo + '.png'")
-    expect(landing).toContain("'regalo-' + img.dataset.regalo + '.png'")
-    // Pequeño zoom al pasar el mouse: en las tres imágenes estáticas y
-    // en las que pinta pintarPremios (misma clase en las cuatro).
-    expect((landing.match(/transition-transform duration-300 hover:scale-110/g) || []).length).toBeGreaterThanOrEqual(4)
-    expect(landing).toContain(`data-regalo="' + (i + 1) + '"`)
-  })
-
-  it('la sección de premios lleva el carrusel de las gráficas 13…18', () => {
-    // El marquee de "PREMIOS" se fue con su CSS y sus keyframes.
-    expect(landing).not.toContain('animate-marquee')
-    expect(landing).not.toContain('premios-watermark')
-    expect(landing).not.toContain('marqueeScroll')
-    // Las seis gráficas convertidas a WebP (13…18)…
-    const fotos = landing.match(/evidencia\/premios-\d+\.webp/g) || []
-    expect(fotos.length).toBe(6)
-    expect(landing).toContain('id="premiosCarrusel"')
-    // De BORDE A BORDE de pantalla: sin el ancho centrado ni esquinas
-    // redondas en el marco.
-    expect(landing).toMatch(/id="premiosCarrusel" class="[^"]*-mx-4/)
-    expect(landing).not.toMatch(/id="premiosCarrusel" class="[^"]*max-w-3xl/)
-    expect(landing).not.toMatch(/id="premiosCarrusel" class="[^"]*rounded-2xl/)
-    // El ancho va EXPLÍCITO: con `width: auto` el aspect-ratio + el tope
-    // de alto le robaban el cálculo al ancho y el marco salía a la altura
-    // × 16/9 en vez de de borde a borde. OJO los guiones bajos: son los
-    // espacios del `calc` de Tailwind — sin ellos el calc es inválido y
-    // el ancho vuelve a `auto`. Y sin el override de box-sizing.
-    expect(landing).toMatch(/id="premiosCarrusel" class="[^"]*w-\[calc\(100%_\+_2rem\)\]/)
-    // Sin marco: el borde amarillo del carrusel se quitó a pedido.
-    expect(landing).not.toMatch(/id="premiosCarrusel" class="[^"]*border-\[#facc15\]/)
-    expect(landing).not.toContain('box-sizing: content-box')
-    // El motor FIEL de la referencia: escenario con perspectiva y pista
-    // con espacio 3D; las tarjetas son absolutas y se disponen en un
-    // CILINDRO CÓNCAVO —z negativo en el centro (lejos y chico) que crece
-    // hacia los extremos (cerca y grande)—.
-    expect(landing).toContain('class="carousel-stage')
-    expect(landing).toContain('id="premiosPista" class="carousel-track"')
-    expect(landing).toContain('class="video-card"')
-    expect(landing).toContain('perspective: 1100px')
-    expect(landing).toContain('transform-style: preserve-3d')
-    // La fórmula cóncava es LA de la referencia (no la convexa): el
-    // centro arranca en z -120 y los extremos se acercan al espectador.
-    expect(landing).toContain('-120 + Math.pow(absDelta, 1.85)')
-    // La caja de la tarjeta es 16:9 —el formato de la gráfica— para no
-    // recortarle el texto.
-    expect(landing).toMatch(/\.video-card \{[^}]*height: 202px/)
-    // Interacción: arrastre con inercia, rueda y auto-scroll que se pausa
-    // con el mouse encima; la vuelta circular la da
-    // `getShortestCyclicDelta` — sin copias.
-    expect(landing).toContain('function getShortestCyclicDelta(')
-    expect(landing).toContain('velocity * 10')
-    // SIN controles: los botones anterior/siguiente y el toggle de auto
-    // se quitaron a pedido (el auto sigue corriendo solo).
-    expect(landing).not.toContain('id="premiosAnterior"')
-    expect(landing).not.toContain('id="premiosSiguiente"')
-    expect(landing).not.toContain('id="premiosAuto"')
-    expect(landing).not.toContain('btnAnterior')
-    expect(landing).toContain('touchstart')
-    expect(landing).toContain('isHovered')
-    expect(landing).toContain('requestAnimationFrame(animate)')
-    // Sin fundido: el de premios ya no tiene su ciclo de opacidad (el del
-    // HERO sigue con el suyo —es otro carrusel, el de fondo del hero—).
-    expect(landing).not.toContain('slides[slideActual]')
-    // Quien pidió menos movimiento: el auto-scroll arranca PAUSADO. (El
-    // regex lleva DOS paréntesis: el de la llamada y el de la consulta
-    // `(prefers-reduced-motion: reduce)`.)
-    expect(landing).toMatch(/autoScroll = !window\.matchMedia\('\(prefers-reduced-motion/)
-  })
-
-  it('el CTA dice INSCRÍBETE AHORA y late de forma constante', () => {
-    expect(landing).not.toContain('INICIAR INSCRIPCIÓN')
-    // Dos botones con el texto, pero el pulso sólo en el de «cómo
-    // participar», que es el que pide la animación.
-    expect((landing.match(/INSCRÍBETE AHORA/g) || []).length).toBe(2)
-    expect(landing).toMatch(/<a href="#inscripcion"[^>]*cta-inscripcion[^>]*>[\s\S]{0,40}INSCRÍBETE AHORA/)
-    expect(landing).toContain('@keyframes pulsoCta')
-    // Sin hover:scale en el animado —la animación lo pisa— y respetando
-    // a quien pidió menos movimiento en el sistema.
-    expect(landing).not.toMatch(/cta-inscripcion[^"]*hover:scale/)
-    expect(landing).toContain('prefers-reduced-motion')
-  })
-
-  it('el bloque «¿QUÉ ES?» va sobre fondo vinotinto y sin logos', () => {
-    // Vinotinto (el tono salió de la imagen de referencia: crimson, más
-    // oscuro y frío que el rojo de marca) con la textura de cruces del
-    // sitio corporativo encima: fondo.svg en public/ y su clase, que va
-    // con background-image para no pisar el color de Tailwind.
-    expect(landing).toContain('bg-[#a81e3e] py-12 sm:py-16')
-    expect(landing).toContain('textura-cruces')
-    expect(landing).toContain(`background-image: url('fondo.svg')`)
-    // El mismo tratamiento que en el sitio corporativo: cover sin repetir
-    // y attachment fixed, para que la retícula quede quieta al scrollear.
-    expect(landing).toContain('background-attachment: fixed')
-    expect(landing).toContain('background-size: cover')
-    // El asset vive en public/ (se sirve tal cual, sin pasar por el router).
-    expect(fuente('../../public/fondo.svg')).toContain('<svg')
-    // El texto va en blanco: navy sobre rojo no pasa AA en el párrafo.
-    expect(landing).toMatch(/<h2 class="font-display glitch-title[^"]*text-white/)
-    // Se fueron los tres lockups con el nombre de la marca (navbar,
-    // este bloque y footer). La etiqueta "PRESENTADO POR" volvió después,
-    // con el logo real de la marca en su propio test.
-    expect(landing).not.toContain('>SUPERMERCADOS<')
-    // El navbar queda sólo con links, alineados a la derecha.
-    expect(landing).toContain('items-center justify-end px-4 py-2.5')
-  })
-
-  it('la sección ¿QUÉ ES? presenta la marca: etiqueta arriba y logo debajo', () => {
-    // La etiqueta sobre el logo, y ambos ANTES del título.
-    expect(landing).toMatch(/PRESENTADO POR[\s\S]{0,400}supermercados-luxor\.png[\s\S]{0,400}¿QUÉ ES/)
-    expect(landing).toContain('alt="Supermercados Luxor"')
-    // El logo va sobre chip blanco: el PNG trae letras rojas que sobre
-    // el vinotinto de la sección se perderían.
-    expect(landing).toMatch(/rounded-2xl bg-white[\s\S]{0,160}supermercados-luxor\.png/)
-  })
-
-  it('los separadores entre segmentos son una onda de dos curvas, sin cuadros', () => {
-    // Se fueron los bordes de cuadros tipo creayera.
-    expect(landing).not.toContain('pixel-border')
-    // Los tres que quedan —la dinámica se eliminó— llevan DOS paths (el
-    // cerrado con relleno y la línea): la curva aparece seis veces.
-    const ondas = landing.match(/C200,0 400,0 600,20 C800,40 1000,40 1200,20/g) || []
-    expect(ondas.length).toBe(6)
-    // Todos cierran hasta las esquinas inferiores y se rellenan con el
-    // color de la sección de ABAJO (rojo→amarillo, amarillo→blanco y
-    // hero→vinotinto).
-    for (const relleno of ['#a81e3e', '#facc15', '#ffffff']) {
-      expect(landing, relleno).toContain(`L1200,40 L0,40 Z" fill="${relleno}"`)
-    }
-    // Los tres absolutos al fondo de su sección con -1px, y con
-    // w-full: el svg es un elemento reemplazado y con sólo inset-x-0
-    // no estira —usa su tamaño intrínseco— y la línea no llegaba
-    // de lado a lado.
-    expect((landing.match(/absolute inset-x-0 -bottom-px h-10 w-full/g) || []).length).toBe(3)
-    // El grosor no se deforma con el estiramiento horizontal.
-    expect((landing.match(/vector-effect="non-scaling-stroke"/g) || []).length).toBe(3)
-    // La línea va en un color que se lea en cada frontera: el mismo
-    // primario del resto de la página.
-    expect(landing).toContain('stroke="#ffffff"')
-    expect(landing).toContain('stroke="#28315F"')
-    expect(landing).not.toContain('stroke="#facc15"')
-  })
-
-  it('se fueron los botones flotantes de guía operativa y soporte', () => {
-    expect(landing).not.toContain('data-modal="itch"')
-    expect(landing).not.toContain('data-modal="discord"')
-    // Y sus contenidos, que ya no tienen botón que los abra (términos
-    // y privacidad siguen, desde el footer y el formulario).
-    expect(landing).not.toContain('Guía operativa')
-    expect(landing).not.toContain('Soporte y Coordinación')
-    expect(landing).toContain("data-modal=\"terms\"")
-    expect(landing).toContain("data-modal=\"privacy\"")
-  })
-
-  it('la barra de navegación se quedó sólo con las tres secciones', () => {
-    const nav = landing.match(/<nav[\s\S]*?<\/nav>/)?.[0] ?? ''
-    // Contacto / Política de privacidad / Términos se fueron de la barra
-    // (escritorio y menú móvil) a pedido; en el footer y en el formulario
-    // de inscripción siguen.
-    expect(nav).toContain('#inscripcion')
-    expect(nav).toContain('#como-participar')
-    expect(nav).toContain('#premios')
-    expect(nav).not.toContain('Contacto')
-    expect(nav).not.toContain('data-modal=')
-    expect(landing).not.toMatch(/id="mobileMenu"[\s\S]{0,600}#contacto/)
-    expect(landing).not.toMatch(/id="mobileMenu"[\s\S]{0,600}data-modal=/)
-    expect(landing).toContain('data-modal="terms"')
-    expect(landing).toContain('data-modal="privacy"')
-  })
-
-  it('el hero ya no tiene los círculos bokeh', () => {
-    expect(landing).not.toContain('bokeh-dot')
-    expect(landing).not.toContain('Decorative Bokeh Circles')
-  })
-
-  it('la sección de dinámica se eliminó, con sus enlaces y acordeones', () => {
-    expect(landing).not.toContain('id="dinamica"')
-    expect(landing).not.toContain('href="#dinamica"')
-    expect(landing).not.toContain('Dinámica del concurso')
-    // Los acordeones sólo vivían ahí: se fueron con su CSS y su JS.
-    expect(landing).not.toContain('accordion')
-  })
-
-  it('los tres premios muestran su caja de regalo, en el HTML y en el script', () => {
-    // Una imagen por puesto, en el HTML estático…
-    for (const n of [1, 2, 3]) expect(landing).toContain(`src="regalo-${n}.png"`)
-    // …y en pintarPremios, que rehace la lista desde la base: sin la
-    // misma imagen ahí, al cargar el contenido guardado las cajas
-    // volverían a ser trofeos.
-    expect(landing).toContain('i < 3')
-    expect(landing).toContain("regalo-' + (i + 1) + '.png")
-    // Un premio 4° en adelante se queda con el trofeo de colores.
-    expect(landing).toContain('trofeo(i)')
-  })
-
-  it('lee el contenido por la RPC pública, con la config del build', () => {
-    expect(landing).toContain('ver_contenido_gran_cosecha')
-    expect(landing).toContain('__SUPABASE_URL__')
-    expect(landing).toContain('__SUPABASE_ANON_KEY__')
-    expect(landing).toContain('apikey')
-    // Siempre fresca: el contenido cambia desde la consola.
-    expect(landing).toContain("cache: 'no-store'")
-  })
-
-  it('sin JavaScript o sin conexión, sigue mostrando sus valores', () => {
-    // Los mismos que `CONTENIDO_BASE`: si cambia uno, cambian los dos.
-    // (El hero queda fuera: está en cero a propósito, ver el test de arriba.)
-    for (const premio of CONTENIDO_BASE.premios) expect(landing).toContain(premio.descripcion)
-    // (Las fotos de rounds se eliminaron con la sección de dinámica.)
-    // Y lo que viene de la base se escapa antes de pintarlo.
-    expect(landing).toContain('function esc(')
   })
 })
 
