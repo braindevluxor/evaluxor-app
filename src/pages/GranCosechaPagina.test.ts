@@ -211,7 +211,7 @@ describe('gran cosecha · la landing (Arena)', () => {
     expect(landing).toContain('function resetFilters(')
   })
 
-  it('la ficha se abre en modal y la postulación arma el correo a Coordinación', () => {
+  it('la ficha se abre en modal y la postulación se envía directo por FormSubmit', () => {
     expect(landing).toContain('id="detail-modal"')
     expect(landing).toContain('function openDetailModal(')
     expect(landing).toContain('id="toast"')
@@ -221,19 +221,28 @@ describe('gran cosecha · la landing (Arena)', () => {
     expect(landing).toContain('id="post-titulo"')
     expect(landing).toContain('id="post-integrantes"')
     expect(landing).toContain('id="post-pdf"')
-    // …que arma un mailto con destino, copias y el cuerpo pedido: los
-    // requisitos del PDF (portada, SMART, presupuesto, aporte) viajan en
-    // el correo y la validación pide 3 integrantes y un archivo .pdf.
-    expect(landing).toContain('mailto:')
-    expect(landing).toContain('croordinacion.evaluacion@supermercadoluxor.com')
+    // …que hace un POST multipart directo a FormSubmit (sin cliente de
+    // correo local): destino, copias a las dos gerencias, plantilla y
+    // redirección de vuelta a la página en #gracias.
+    expect(landing).toContain('action="https://formsubmit.co/croordinacion.evaluacion@supermercadoluxor.com"')
+    expect(landing).toContain('enctype="multipart/form-data"')
     expect(landing).toContain('gerencia.mercadeo@supermercadoluxor.com')
     expect(landing).toContain('gerencia.talentohumano@supermercadoluxor.com')
+    expect(landing).toContain('name="_next"')
+    expect(landing).toContain("'#gracias'")
+    // La validación corta el envío si falta algo, y respeta el límite de
+    // 10 MB de FormSubmit antes de mandar.
+    expect(landing).toContain('e.preventDefault()')
+    expect(landing).toContain('integrantes.length < 3')
+    expect(landing).toContain('pdf.size > 10 * 1024 * 1024')
+    // La caja «El PDF debe contener» con los requisitos del programa.
     expect(landing).toContain('método SMART')
     expect(landing).toContain('Presupuesto detallado')
-    expect(landing).toContain('integrantes.length < 3')
-    // SIN modal de guardado local: esto no escribe en la base.
+    // SIN modal de guardado local y SIN mailto: esto no escribe en la base
+    // ni depende del cliente de correo de quien postula.
     expect(landing).not.toContain('id="submit-modal"')
     expect(landing).not.toContain('function handleProjectSubmit(')
+    expect(landing).not.toContain('mailto:')
     // Los DOS botones de la página abren el formulario.
     expect((landing.match(/openPostulacion\(\)/g) || []).length).toBeGreaterThanOrEqual(2)
     expect(landing).not.toContain('href="/gran-cosecha/proyectos"')

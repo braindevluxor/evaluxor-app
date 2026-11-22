@@ -941,22 +941,35 @@
                     </button>
                 </div>
 
-                <form id="postulacion-form" onsubmit="handlePostulacion(event)" class="mt-5 space-y-4">
+                <!-- El envío es un POST multipart a FormSubmit, que reenvía
+                     el correo (con el PDF adjunto) a Coordinación — la página
+                     no necesita cliente de correo ni servidor propio. -->
+                <form id="postulacion-form" method="POST" action="https://formsubmit.co/croordinacion.evaluacion@supermercadoluxor.com" enctype="multipart/form-data" onsubmit="handlePostulacion(event)" class="mt-5 space-y-4">
+                    <!-- Campos que FormSubmit interpreta como tales: asunto,
+                         copias, plantilla de la tabla y dónde redirigir al
+                         terminar (los dos primeros se completan al enviar). -->
+                    <input type="hidden" name="_subject" id="post-asunto" value="" />
+                    <input type="hidden" name="_cc" value="gerencia.mercadeo@supermercadoluxor.com,gerencia.talentohumano@supermercadoluxor.com" />
+                    <input type="hidden" name="_template" value="table" />
+                    <input type="hidden" name="_next" id="post-next" value="" />
+                    <!-- Trampa anti-bots (junto al reCAPTCHA de FormSubmit). -->
+                    <input type="text" name="_honey" style="display:none" tabindex="-1" autocomplete="off" />
+
                     <div>
                         <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Título del Proyecto *</label>
-                        <input type="text" id="post-titulo" required maxlength="100" placeholder="Ej. Optimización de Despacho CENDIS - Euromaxx" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-luxor-crimson" />
+                        <input type="text" name="titulo" id="post-titulo" required maxlength="100" placeholder="Ej. Optimización de Despacho CENDIS - Euromaxx" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-luxor-crimson" />
                     </div>
 
                     <div>
                         <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Integrantes (nombre y cédula, uno por línea) *</label>
-                        <textarea id="post-integrantes" rows="4" required placeholder="Carlos Mendoza — V-30111222&#10;Ana Rivas — V-27333444&#10;José López — E-19555666" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-luxor-crimson resize-none"></textarea>
+                        <textarea name="integrantes" id="post-integrantes" rows="4" required placeholder="Carlos Mendoza — V-30111222&#10;Ana Rivas — V-27333444&#10;José López — E-19555666" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-luxor-crimson resize-none"></textarea>
                         <p class="mt-1 text-[11px] text-slate-500">Mínimo 3. Las cédulas se corroboran con la nómina de trabajadores al recibir la solicitud.</p>
                     </div>
 
                     <div>
                         <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Presentación en PDF *</label>
-                        <input type="file" id="post-pdf" accept="application/pdf,.pdf" class="w-full text-xs text-slate-500 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-luxor-yellow file:px-4 file:py-2 file:text-xs file:font-bold file:text-luxor-navy" />
-                        <p class="mt-1 text-[11px] text-slate-500">Se adjunta en el correo que se abre al enviar.</p>
+                        <input type="file" name="presentacion_pdf" id="post-pdf" accept="application/pdf,.pdf" class="w-full text-xs text-slate-500 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-luxor-yellow file:px-4 file:py-2 file:text-xs file:font-bold file:text-luxor-navy" />
+                        <p class="mt-1 text-[11px] text-slate-500">Se adjunta a la solicitud (máx. 10 MB).</p>
                     </div>
 
                     <!-- Lo que el archivo debe contener: lo corrobora
@@ -1841,9 +1854,11 @@
         // destino, copias y cuerpo ya cargados, y el PDF lo adjunta quien
         // presenta — esta página no sube ni guarda nada. Las cédulas viajan
         // en el cuerpo para que Coordinación las corrobore con la nómina.
+        // Valida antes de postear: si falta algo se cancela el envío; si
+        // está todo, se completan los campos de FormSubmit y el formulario
+        // sale solo (POST multipart con el PDF adjunto) — sin cliente de
+        // correo local. FormSubmit pide el reCAPTCHA y redirige a #gracias.
         function handlePostulacion(e) {
-            e.preventDefault();
-
             const titulo = document.getElementById('post-titulo').value.trim();
             const integrantes = document.getElementById('post-integrantes').value
                 .split('\n')
@@ -1852,49 +1867,39 @@
             const pdf = document.getElementById('post-pdf').files[0];
 
             if (!titulo) {
+                e.preventDefault();
                 showToast('Falta el título del proyecto.', '⚠️');
                 return;
             }
             if (integrantes.length < 3) {
+                e.preventDefault();
                 showToast('Se necesitan al menos 3 integrantes con su cédula.', '⚠️');
                 return;
             }
             if (!pdf) {
+                e.preventDefault();
                 showToast('Elegí el PDF de la presentación.', '⚠️');
                 return;
             }
             if (pdf.type !== 'application/pdf' && !/\.pdf$/i.test(pdf.name)) {
+                e.preventDefault();
                 showToast('El archivo tiene que ser un PDF.', '⚠️');
                 return;
             }
+            // FormSubmit admite hasta 10 MB en total por envío: cortar acá
+            // evita que el formulario falle del otro lado sin aviso.
+            if (pdf.size > 10 * 1024 * 1024) {
+                e.preventDefault();
+                showToast('El PDF no puede superar 10 MB.', '⚠️');
+                return;
+            }
 
-            const cuerpo = [
-                'SOLICITUD DE PROYECTO — GRAN COSECHA LUXOR',
-                '',
-                'Título: ' + titulo,
-                '',
-                'Integrantes (nombre y cédula):',
-                integrantes.map((linea, i) => `${i + 1}. ${linea}`).join('\n'),
-                '',
-                'Requisitos del PDF (adjuntá ESTE archivo en el correo):',
-                '• Portada con el logotipo del proyecto.',
-                '• Desarrollo del proyecto según el método SMART.',
-                '• Presupuesto detallado de todo lo necesario para su ejecución (si requiere inversión).',
-                '• Aporte significativo y perdurable en el tiempo para la empresa.',
-                '',
-                'Archivo a adjuntar: ' + pdf.name
-            ].join('\n');
-
-            const destino = 'croordinacion.evaluacion@supermercadoluxor.com';
-            const copias = 'gerencia.mercadeo@supermercadoluxor.com,gerencia.talentohumano@supermercadoluxor.com';
-            const asunto = 'Solicitud de proyecto — ' + titulo;
-            window.location.href =
-                `mailto:${destino}?subject=${encodeURIComponent(asunto)}` +
-                `&cc=${copias}` +
-                `&body=${encodeURIComponent(cuerpo)}`;
-
-            closePostulacion();
-            showToast('Se abrió tu correo con la solicitud: revisá los datos, ADJUNTÁ el PDF y enviá.', '📬');
+            document.getElementById('post-asunto').value = 'Solicitud de proyecto — ' + titulo;
+            // Absoluta en el momento: funciona en cualquier dominio donde
+            // esté publicada la página.
+            document.getElementById('post-next').value =
+                window.location.origin + window.location.pathname + '#gracias';
+            // Si no se cancela, el submit sigue su curso normal.
         }
 
         function toggleMobileMenu() {
@@ -2038,6 +2043,12 @@
       document.addEventListener('DOMContentLoaded', function () {
         domListo = true;
         aplicar();
+        // FormSubmit redirige acá cuando la solicitud salió bien: avisamos
+        // y limpiamos el hash para que no se repita al recargar.
+        if (window.location.hash === '#gracias') {
+          showToast('¡Solicitud enviada! Coordinación la recibirá con el PDF.', '✅');
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
       });
 
       fetch(URL_BASE + '/rest/v1/rpc/ver_contenido_gran_cosecha', {
