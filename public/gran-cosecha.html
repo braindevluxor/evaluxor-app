@@ -200,12 +200,12 @@
                         <span id="nav-live-votes" class="font-condensed font-bold text-base text-luxor-crimson">0</span>
                     </div>
 
-                    <!-- El registro REAL vive en la consola (Proyectos):
-                         acá sólo se enlaza, con el mismo look. -->
-                    <a href="/gran-cosecha/proyectos" class="inline-flex items-center gap-2 bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold tracking-wide uppercase text-xs sm:text-sm px-4 sm:px-5 py-2.5 rounded-xl shadow-md shadow-red-700/20 hover:-translate-y-0.5 transition-all cursor-pointer">
+                    <!-- La postulación abre el formulario que arma el
+                         correo a Coordinación, con copia a Gerencias. -->
+                    <button onclick="openPostulacion()" class="inline-flex items-center gap-2 bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold tracking-wide uppercase text-xs sm:text-sm px-4 sm:px-5 py-2.5 rounded-xl shadow-md shadow-red-700/20 hover:-translate-y-0.5 transition-all cursor-pointer">
                         <i data-lucide="plus-circle" class="w-4 h-4 text-luxor-yellow"></i>
                         <span>Postular Idea</span>
-                    </a>
+                    </button>
 
                     <button onclick="toggleMobileMenu()" class="lg:hidden p-2 rounded-xl text-luxor-navy hover:bg-luxor-ivory transition-colors" aria-label="Abrir menú">
                         <i data-lucide="menu" class="w-6 h-6"></i>
@@ -751,10 +751,10 @@
                     </p>
                 </div>
 
-                <a href="/gran-cosecha/proyectos" class="self-start md:self-auto inline-flex items-center gap-2 bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold uppercase tracking-wider text-sm px-6 py-3.5 rounded-2xl shadow-lg transition-all cursor-pointer">
+                <button onclick="openPostulacion()" class="self-start md:self-auto inline-flex items-center gap-2 bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold uppercase tracking-wider text-sm px-6 py-3.5 rounded-2xl shadow-lg transition-all cursor-pointer">
                     <i data-lucide="plus-circle" class="w-5 h-5 text-luxor-yellow"></i>
                     <span>Inscribir Proyecto</span>
-                </a>
+                </button>
             </div>
 
             <!-- Barra de Filtros, Buscador y Orden -->
@@ -923,6 +923,62 @@
         </div>
     </div>
 
+    <!-- ================= MODAL DE POSTULACIÓN (se envía por correo) =================
+         La solicitud NO se guarda en la base: el formulario arma un mailto
+         con destino, copias y cuerpo ya cargados y abre el cliente de
+         correo de quien presenta — el PDF lo adjunta ahí mismo. -->
+    <div id="postulacion-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-luxor-navyDark/80 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl max-w-xl w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200">
+            <div class="h-2 w-full bg-gradient-to-r from-luxor-yellow via-luxor-orange to-luxor-crimson"></div>
+            <div class="p-6 sm:p-8">
+                <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+                    <div>
+                        <h3 class="font-condensed font-bold text-2xl uppercase text-luxor-navy">Postular Proyecto</h3>
+                        <p class="text-xs text-slate-500">Se envía por correo a Coordinación de Evaluación, con copia a Gerencia de Mercadeo y Talento Humano</p>
+                    </div>
+                    <button onclick="closePostulacion()" class="p-2 rounded-xl text-slate-400 hover:bg-slate-100 cursor-pointer">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+                <form id="postulacion-form" onsubmit="handlePostulacion(event)" class="mt-5 space-y-4">
+                    <div>
+                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Título del Proyecto *</label>
+                        <input type="text" id="post-titulo" required maxlength="100" placeholder="Ej. Optimización de Despacho CENDIS - Euromaxx" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-luxor-crimson" />
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Integrantes (nombre y cédula, uno por línea) *</label>
+                        <textarea id="post-integrantes" rows="4" required placeholder="Carlos Mendoza — V-30111222&#10;Ana Rivas — V-27333444&#10;José López — E-19555666" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-luxor-crimson resize-none"></textarea>
+                        <p class="mt-1 text-[11px] text-slate-500">Mínimo 3. Las cédulas se corroboran con la nómina de trabajadores al recibir la solicitud.</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Presentación en PDF *</label>
+                        <input type="file" id="post-pdf" accept="application/pdf,.pdf" class="w-full text-xs text-slate-500 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-luxor-yellow file:px-4 file:py-2 file:text-xs file:font-bold file:text-luxor-navy" />
+                        <p class="mt-1 text-[11px] text-slate-500">Se adjunta en el correo que se abre al enviar.</p>
+                    </div>
+
+                    <!-- Lo que el archivo debe contener: lo corrobora
+                         Coordinación al recibirlo. -->
+                    <div class="bg-luxor-ivory border border-slate-200 rounded-2xl p-4">
+                        <span class="block text-[11px] font-extrabold uppercase tracking-wider text-luxor-crimson mb-2">El PDF debe contener</span>
+                        <ul class="space-y-1.5 text-xs text-slate-600">
+                            <li>• Portada con el logotipo del proyecto.</li>
+                            <li>• Desarrollo del proyecto según el método SMART.</li>
+                            <li>• Presupuesto detallado de todo lo necesario para su ejecución (si requiere inversión).</li>
+                            <li>• Aporte significativo y perdurable en el tiempo para la empresa.</li>
+                        </ul>
+                    </div>
+
+                    <div class="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                        <button type="button" onclick="closePostulacion()" class="px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 cursor-pointer">Cancelar</button>
+                        <button type="submit" class="px-6 py-3 rounded-xl text-sm font-condensed font-bold uppercase tracking-wider bg-luxor-crimson hover:bg-luxor-darkRed text-white shadow-lg shadow-red-500/25 transition-all cursor-pointer">Enviar solicitud</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
     <!-- ================= TOAST FLOTANTE ================= -->
     <div id="toast" class="fixed bottom-5 right-5 z-50 translate-y-24 opacity-0 transition-all duration-300 pointer-events-none">
@@ -1178,6 +1234,7 @@
             if (e.key === 'Escape') {
                 closeLightbox();
                 closeDetailModal();
+                closePostulacion();
                 closePhotoModal();
             }
         });
@@ -1767,6 +1824,79 @@
             modal.classList.remove('flex');
         }
 
+        function openPostulacion() {
+            const modal = document.getElementById('postulacion-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            lucide.createIcons();
+        }
+
+        function closePostulacion() {
+            const modal = document.getElementById('postulacion-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        // La solicitud se arma como CORREO: el mailto abre el cliente con
+        // destino, copias y cuerpo ya cargados, y el PDF lo adjunta quien
+        // presenta — esta página no sube ni guarda nada. Las cédulas viajan
+        // en el cuerpo para que Coordinación las corrobore con la nómina.
+        function handlePostulacion(e) {
+            e.preventDefault();
+
+            const titulo = document.getElementById('post-titulo').value.trim();
+            const integrantes = document.getElementById('post-integrantes').value
+                .split('\n')
+                .map((linea) => linea.trim())
+                .filter(Boolean);
+            const pdf = document.getElementById('post-pdf').files[0];
+
+            if (!titulo) {
+                showToast('Falta el título del proyecto.', '⚠️');
+                return;
+            }
+            if (integrantes.length < 3) {
+                showToast('Se necesitan al menos 3 integrantes con su cédula.', '⚠️');
+                return;
+            }
+            if (!pdf) {
+                showToast('Elegí el PDF de la presentación.', '⚠️');
+                return;
+            }
+            if (pdf.type !== 'application/pdf' && !/\.pdf$/i.test(pdf.name)) {
+                showToast('El archivo tiene que ser un PDF.', '⚠️');
+                return;
+            }
+
+            const cuerpo = [
+                'SOLICITUD DE PROYECTO — GRAN COSECHA LUXOR',
+                '',
+                'Título: ' + titulo,
+                '',
+                'Integrantes (nombre y cédula):',
+                integrantes.map((linea, i) => `${i + 1}. ${linea}`).join('\n'),
+                '',
+                'Requisitos del PDF (adjuntá ESTE archivo en el correo):',
+                '• Portada con el logotipo del proyecto.',
+                '• Desarrollo del proyecto según el método SMART.',
+                '• Presupuesto detallado de todo lo necesario para su ejecución (si requiere inversión).',
+                '• Aporte significativo y perdurable en el tiempo para la empresa.',
+                '',
+                'Archivo a adjuntar: ' + pdf.name
+            ].join('\n');
+
+            const destino = 'croordinacion.evaluacion@supermercadoluxor.com';
+            const copias = 'gerencia.mercadeo@supermercadoluxor.com,gerencia.talentohumano@supermercadoluxor.com';
+            const asunto = 'Solicitud de proyecto — ' + titulo;
+            window.location.href =
+                `mailto:${destino}?subject=${encodeURIComponent(asunto)}` +
+                `&cc=${copias}` +
+                `&body=${encodeURIComponent(cuerpo)}`;
+
+            closePostulacion();
+            showToast('Se abrió tu correo con la solicitud: revisá los datos, ADJUNTÁ el PDF y enviá.', '📬');
+        }
+
         function toggleMobileMenu() {
             const menu = document.getElementById('mobile-menu');
             menu.classList.toggle('hidden');
@@ -1774,6 +1904,7 @@
 
         window.addEventListener('click', (e) => {
             if (e.target === document.getElementById('detail-modal')) closeDetailModal();
+            if (e.target === document.getElementById('postulacion-modal')) closePostulacion();
             if (e.target === document.getElementById('lightbox-modal')) closeLightbox();
             if (e.target === document.getElementById('photo-modal')) closePhotoModal();
         });

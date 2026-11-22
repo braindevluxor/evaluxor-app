@@ -211,15 +211,32 @@ describe('gran cosecha · la landing (Arena)', () => {
     expect(landing).toContain('function resetFilters(')
   })
 
-  it('la ficha se abre en modal y el registro se enlaza a la consola', () => {
+  it('la ficha se abre en modal y la postulación arma el correo a Coordinación', () => {
     expect(landing).toContain('id="detail-modal"')
     expect(landing).toContain('function openDetailModal(')
     expect(landing).toContain('id="toast"')
-    // SIN modal de postulado local: el registro REAL es en la consola de
-    // Proyectos y los dos botones de la página sólo enlazan allá.
+    // El formulario de postulación: título, integrantes con cédula y PDF…
+    expect(landing).toContain('id="postulacion-modal"')
+    expect(landing).toContain('function handlePostulacion(')
+    expect(landing).toContain('id="post-titulo"')
+    expect(landing).toContain('id="post-integrantes"')
+    expect(landing).toContain('id="post-pdf"')
+    // …que arma un mailto con destino, copias y el cuerpo pedido: los
+    // requisitos del PDF (portada, SMART, presupuesto, aporte) viajan en
+    // el correo y la validación pide 3 integrantes y un archivo .pdf.
+    expect(landing).toContain('mailto:')
+    expect(landing).toContain('croordinacion.evaluacion@supermercadoluxor.com')
+    expect(landing).toContain('gerencia.mercadeo@supermercadoluxor.com')
+    expect(landing).toContain('gerencia.talentohumano@supermercadoluxor.com')
+    expect(landing).toContain('método SMART')
+    expect(landing).toContain('Presupuesto detallado')
+    expect(landing).toContain('integrantes.length < 3')
+    // SIN modal de guardado local: esto no escribe en la base.
     expect(landing).not.toContain('id="submit-modal"')
     expect(landing).not.toContain('function handleProjectSubmit(')
-    expect((landing.match(/href="\/gran-cosecha\/proyectos"/g) || []).length).toBe(2)
+    // Los DOS botones de la página abren el formulario.
+    expect((landing.match(/openPostulacion\(\)/g) || []).length).toBeGreaterThanOrEqual(2)
+    expect(landing).not.toContain('href="/gran-cosecha/proyectos"')
   })
 
   it('no hay semilla estática: los proyectos los manda la consola', () => {
