@@ -143,6 +143,18 @@ describe('gran cosecha · la landing (Arena)', () => {
     expect(landing).toContain('GRAN COSECHA')
   })
 
+  it('el Podio y el «¿QUÉ ES?» llevan la retícula de fondo.svg', () => {
+    // La misma textura de la landing clásica, pintada SOBRE el fondo de
+    // cada sección: el Podio sobre su navy y el «¿QUÉ ES?» apilada sobre
+    // sus puntos de papel (que siguen debajo).
+    expect(landing).toMatch(/<section id="podio" class="[^"]*\btextura-cruces\b/)
+    expect(landing).toMatch(/<section id="que-es" class="[^"]*\btextura-cruces\b/)
+    expect(landing).toContain("url('fondo.svg')")
+    expect(landing).toContain('#que-es.textura-cruces')
+    // La trama queda quieta mientras la página scrollea, como antes.
+    expect(landing).toMatch(/\.textura-cruces \{[^}]*background-attachment: fixed/)
+  })
+
   it('las tres categorías, cada una con su tarjeta y su filtro', () => {
     for (const categoria of ['Cosecha en Equipo', 'Cultivando Ideas', 'Premiamos tu Compra']) {
       expect(landing, categoria).toContain(categoria)
