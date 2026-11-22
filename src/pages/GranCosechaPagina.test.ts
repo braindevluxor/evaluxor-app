@@ -155,15 +155,23 @@ describe('gran cosecha · la landing (Arena)', () => {
     expect(landing).toMatch(/\.textura-cruces \{[^}]*background-attachment: fixed/)
   })
 
-  it('las tres categorías, cada una con su tarjeta y su filtro', () => {
-    for (const categoria of ['Cosecha en Equipo', 'Cultivando Ideas', 'Premiamos tu Compra']) {
-      expect(landing, categoria).toContain(categoria)
+  it('las tres piezas del programa: dos categorías para proyectos y el premio', () => {
+    // Las tres tarjetas siguen contando el programa…
+    for (const pieza of ['Cosecha en Equipo', 'Cultivando Ideas', 'Premiamos tu Compra']) {
+      expect(landing, pieza).toContain(pieza)
     }
     expect(landing).toContain('luxor-card')
     expect(landing).toContain('function filterByModalityFromCard(')
     // El botón de la tarjeta filtra y baja hasta la galería.
     expect(landing).toContain("scrollIntoView({ behavior: 'smooth' })")
-    expect(landing).toContain("filterByModalityFromCard('Cosecha en Equipo')")
+    // SÓLO las dos categorías de proyecto filtran: «Cosecha en Equipo» es
+    // el PREMIO por KPI — su tarjeta baja con «Todas» y su chip ya no
+    // existe, porque ningún proyecto puede tener esa categoría.
+    expect(landing).toContain("filterByModalityFromCard('Cultivando Ideas')")
+    expect(landing).toContain("filterByModalityFromCard('Premiamos tu Compra')")
+    expect(landing).toContain("filterByModalityFromCard('Todos')")
+    expect(landing).not.toContain("filterByModalityFromCard('Cosecha en Equipo')")
+    expect(landing).not.toContain('data-filter="Cosecha en Equipo"')
   })
 
   it('el podio sale del ranking de votos, con el 1° en el centro elevado', () => {

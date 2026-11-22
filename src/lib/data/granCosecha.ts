@@ -67,15 +67,13 @@ export function claveDeMiembro(m: MiembroEquipo): string {
 }
 
 /**
- * Las tres categorías oficiales del programa — las mismas que la landing
- * Arena usa para el badge, la franja de color y sus filtros. Sin
+ * Las categorías en las que se REGISTRA un proyecto — las mismas que la
+ * landing Arena usa para el badge, la franja de color y sus filtros.
+ * «Cosecha en Equipo» NO va acá: es el PREMIO al departamento con los KPI
+ * más altos, no una categoría en la que se presente un proyecto. Sin
  * categoría (NULL) la web muestra la tarjeta en «Sin categoría».
  */
-export const CATEGORIAS_GRAN_COSECHA = [
-  'Cosecha en Equipo',
-  'Cultivando Ideas',
-  'Premiamos tu Compra'
-] as const
+export const CATEGORIAS_GRAN_COSECHA = ['Cultivando Ideas', 'Premiamos tu Compra'] as const
 
 export interface ProyectoGranCosecha {
   id: string

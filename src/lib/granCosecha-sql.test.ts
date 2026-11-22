@@ -248,8 +248,16 @@ describe('gran-cosecha.sql · las reglas del proyecto', () => {
     await expect(presentar({ titulo: '   ' })).rejects.toThrow(/check/i)
   })
 
-  it('la categoría es una de las tres oficiales (o está vacía)', async () => {
-    const id = await presentar({ titulo: 'Con categoría', categoria: 'Cosecha en Equipo' })
+  it('la categoría es Cultivando Ideas o Premiamos tu Compra (o vacía)', async () => {
+    const id = await presentar({ titulo: 'Con categoría', categoria: 'Cultivando Ideas' })
+    await expect(
+      db.query(`update public.gran_cosecha_proyecto set categoria = 'Premiamos tu Compra' where id = $1`, [id])
+    ).resolves.toBeTruthy()
+    // «Cosecha en Equipo» NO es categoría de proyecto: es el PREMIO al
+    // departamento con los KPI de puntuación más altos.
+    await expect(
+      db.query(`update public.gran_cosecha_proyecto set categoria = 'Cosecha en Equipo' where id = $1`, [id])
+    ).rejects.toThrow(/categoria/i)
     await expect(
       db.query(`update public.gran_cosecha_proyecto set categoria = 'Categoría inventada' where id = $1`, [id])
     ).rejects.toThrow(/categoria/i)

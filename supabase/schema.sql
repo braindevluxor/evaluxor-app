@@ -5973,16 +5973,29 @@ alter table public.gran_cosecha_proyecto
 
 -- LAS CATEGORÍAS Y EL ÁREA DEL PROGRAMA: lo que la landing Arena pinta en
 -- cada tarjeta (badge, franja de color, filtro) y en su ficha. `categoria`
--- es una de las tres categorías oficiales —nullable: los proyectos viejos
--- quedan «Sin categoría» hasta que se editen— y `sucursal` es la etiqueta
+-- es una de las DOS categorías en las que se PRESENTA un proyecto —
+-- «Cosecha en Equipo» no: es el PREMIO al departamento con los KPI más
+-- altos, no algo en lo que se postule—. Nullable: los proyectos viejos
+-- quedan «Sin categoría» hasta que se editen. `sucursal` es la etiqueta
 -- libre «Sucursal o Área» que muestra el pin del mapa.
 alter table public.gran_cosecha_proyecto
   add column if not exists categoria text
     check (categoria is null or categoria in (
-      'Cosecha en Equipo', 'Cultivando Ideas', 'Premiamos tu Compra'
+      'Cultivando Ideas', 'Premiamos tu Compra'
     ));
 alter table public.gran_cosecha_proyecto
   add column if not exists sucursal text not null default '';
+
+-- En una base donde la columna YA existiera con las tres (el `add column
+-- if not exists` se saltea), el check se rehace con las DOS que sí se
+-- registran. Idempotente: dropear un constraint inexistente no falla.
+alter table public.gran_cosecha_proyecto
+  drop constraint if exists gran_cosecha_proyecto_categoria_check;
+alter table public.gran_cosecha_proyecto
+  add constraint gran_cosecha_proyecto_categoria_check
+    check (categoria is null or categoria in (
+      'Cultivando Ideas', 'Premiamos tu Compra'
+    ));
 
 create table if not exists public.gran_cosecha_bitacora (
   id uuid primary key default gen_random_uuid(),

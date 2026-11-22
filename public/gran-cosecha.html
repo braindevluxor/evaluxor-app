@@ -550,7 +550,11 @@
                     </div>
 
                     <div class="px-6 pb-6">
-                        <button onclick="filterByModalityFromCard('Cosecha en Equipo')" class="w-full py-3.5 px-5 rounded-2xl bg-luxor-navy hover:bg-luxor-crimson text-white font-condensed font-bold uppercase tracking-wider text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer">
+                        <!-- Este es el PREMIO al departamento con los KPI más
+                             altos, no una categoría en la que se presente
+                             algo: el botón baja a la galería con el filtro
+                             «Todas» (ningún proyecto puede ser de ésta). -->
+                        <button onclick="filterByModalityFromCard('Todos')" class="w-full py-3.5 px-5 rounded-2xl bg-luxor-navy hover:bg-luxor-crimson text-white font-condensed font-bold uppercase tracking-wider text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer">
                             <span>Ver Equipos Participantes</span>
                             <i data-lucide="arrow-right" class="w-4 h-4 text-luxor-yellow"></i>
                         </button>
@@ -759,9 +763,6 @@
                     <div id="filter-tabs" class="flex flex-wrap items-center gap-2">
                         <button data-filter="Todos" onclick="setFilter('Todos')" class="filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-luxor-navy text-white shadow-sm">
                             Todas (6)
-                        </button>
-                        <button data-filter="Cosecha en Equipo" onclick="setFilter('Cosecha en Equipo')" class="filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-luxor-yellow/25 text-luxor-navy hover:bg-luxor-yellow/40">
-                            Cosecha en Equipo
                         </button>
                         <button data-filter="Cultivando Ideas" onclick="setFilter('Cultivando Ideas')" class="filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-luxor-crimson/10 text-luxor-crimson hover:bg-luxor-crimson/20">
                             Cultivando Ideas
@@ -1336,13 +1337,6 @@
 
         function getModalityTheme(modality) {
             switch (modality) {
-                case 'Cosecha en Equipo':
-                    return {
-                        badge: 'bg-luxor-yellow/25 text-luxor-navy border-luxor-yellow',
-                        bar: 'bg-luxor-yellow',
-                        topStripe: 'from-luxor-yellow to-luxor-orange',
-                        icon: 'users'
-                    };
                 case 'Cultivando Ideas':
                     return {
                         badge: 'bg-luxor-crimson/15 text-luxor-crimson border-luxor-crimson/30',
@@ -1640,8 +1634,6 @@
                 const f = btn.dataset.filter;
                 if (f === modality) {
                     btn.className = 'filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-luxor-navy text-white shadow-sm';
-                } else if (f === 'Cosecha en Equipo') {
-                    btn.className = 'filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-luxor-yellow/25 text-luxor-navy hover:bg-luxor-yellow/40';
                 } else if (f === 'Cultivando Ideas') {
                     btn.className = 'filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-luxor-crimson/10 text-luxor-crimson hover:bg-luxor-crimson/20';
                 } else if (f === 'Premiamos tu Compra') {

@@ -214,11 +214,14 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(pagina).toContain('label="Sucursal o área"')
     expect(pagina).toContain('CATEGORIAS_GRAN_COSECHA')
 
-    // El data layer: la constante de las tres oficiales y los dos campos
-    // en los tipos que viajan al INSERT y al UPDATE.
+    // El data layer: la constante con las DOS categorías de proyecto y los
+    // dos campos en los tipos que viajan al INSERT y al UPDATE.
     expect(datos).toContain('CATEGORIAS_GRAN_COSECHA')
     expect(datos).toContain('categoria?: string | null')
     expect(datos).toContain('sucursal?: string')
+    // «Cosecha en Equipo» NO es opción de proyecto: es el premio al
+    // departamento con los KPI más altos.
+    expect(datos).not.toMatch(/CATEGORIAS_GRAN_COSECHA = \[[\s\S]{0,80}Cosecha en Equipo/)
 
     // La RPC pública de la landing los publica junto a cada proyecto.
     expect(sql).toContain("'categoria', pr.categoria")
