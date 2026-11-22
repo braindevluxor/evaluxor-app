@@ -280,9 +280,10 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(pagina).not.toContain('Editar proyecto')
   })
 
-  it('los archivos de la presentación: se suben en el detalle y quedan guardados', () => {
+  it('los archivos de la presentación: se suben en el detalle y salen en la landing', () => {
     const pagina = fuente('../pages/GranCosecha.tsx')
     const datos = fuente('./data/granCosecha.ts')
+    const landing = fuente('../../public/gran-cosecha.html')
     const sql = schemaSql()
 
     // En la consola: el bloque vive en el DETALLE (no en un modal), sube
@@ -305,8 +306,12 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(sql).toContain('add column if not exists adjuntos jsonb')
     expect(sql).toContain("'adjuntos', pr.adjuntos")
 
-    // (La pública es ahora la ARENA y no pinta la presentación: subir y
-    // guardar sigue siendo contrato de la consola y de la base.)
+    // En la landing: su sección, con los videos embebidos y los documentos
+    // como enlaces - oculta si ningún proyecto trae archivos.
+    expect(landing).toContain('id="presentacion"')
+    expect(landing).toContain('function pintarPresentacion')
+    expect(landing).toContain('<video src="')
+    expect(landing).toContain('pintarPresentacion(contenido.participantes)')
   })
 })
 
