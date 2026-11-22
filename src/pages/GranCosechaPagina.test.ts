@@ -224,20 +224,26 @@ describe('gran cosecha · la landing (Arena)', () => {
     // …que hace un POST multipart directo a FormSubmit (sin cliente de
     // correo local): destino, copias a las dos gerencias, plantilla y
     // redirección de vuelta a la página en #gracias.
-    expect(landing).toContain('action="https://formsubmit.co/croordinacion.evaluacion@supermercadoluxor.com"')
+    expect(landing).toContain('action="https://formsubmit.co/coordinacion.evaluacion@supermercadoluxor.com"')
     expect(landing).toContain('enctype="multipart/form-data"')
     expect(landing).toContain('gerencia.mercadeo@supermercadoluxor.com')
     expect(landing).toContain('gerencia.talentohumano@supermercadoluxor.com')
     expect(landing).toContain('name="_next"')
     expect(landing).toContain("'#gracias'")
+    // El modal explica, al abrirse, qué debe contener la postulación y
+    // muestra los correos (destino y copias) a la vista.
+    expect(landing).toContain('Qué debe contener tu postulación')
+    expect(landing).toContain('mínimo 3')
     // La validación corta el envío si falta algo, y respeta el límite de
     // 10 MB de FormSubmit antes de mandar.
     expect(landing).toContain('e.preventDefault()')
     expect(landing).toContain('integrantes.length < 3')
     expect(landing).toContain('pdf.size > 10 * 1024 * 1024')
-    // La caja «El PDF debe contener» con los requisitos del programa.
+    // Los requisitos del PDF dentro de la caja de la postulación.
     expect(landing).toContain('método SMART')
     expect(landing).toContain('Presupuesto detallado')
+    // Sin restos de la dirección vieja con la «r» extra.
+    expect(landing).not.toContain('croordinacion')
     // SIN modal de guardado local y SIN mailto: esto no escribe en la base
     // ni depende del cliente de correo de quien postula.
     expect(landing).not.toContain('id="submit-modal"')

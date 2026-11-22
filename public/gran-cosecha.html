@@ -934,17 +934,49 @@
                 <div class="flex items-center justify-between pb-4 border-b border-slate-100">
                     <div>
                         <h3 class="font-condensed font-bold text-2xl uppercase text-luxor-navy">Postular Proyecto</h3>
-                        <p class="text-xs text-slate-500">Se envía por correo a Coordinación de Evaluación, con copia a Gerencia de Mercadeo y Talento Humano</p>
+                        <p class="text-xs text-slate-500">Completá los datos y adjuntá la presentación: la solicitud sale por correo con el PDF.</p>
                     </div>
                     <button onclick="closePostulacion()" class="p-2 rounded-xl text-slate-400 hover:bg-slate-100 cursor-pointer">
                         <i data-lucide="x" class="w-5 h-5"></i>
                     </button>
                 </div>
 
+                <!-- Quién la recibe: los correos quedan a la vista para
+                     que no haya dudas dónde llega y a quién se copia. -->
+                <div class="mt-4 bg-luxor-navy rounded-2xl p-4 text-xs space-y-2">
+                    <p class="flex flex-wrap items-baseline gap-x-2">
+                        <span class="text-luxor-yellow font-extrabold uppercase tracking-wider shrink-0">Para</span>
+                        <span class="text-white font-bold break-all">coordinacion.evaluacion@supermercadoluxor.com</span>
+                    </p>
+                    <p class="flex flex-wrap items-baseline gap-x-2">
+                        <span class="text-luxor-yellow font-extrabold uppercase tracking-wider shrink-0">Con copia</span>
+                        <span class="text-white font-bold break-all">gerencia.mercadeo@supermercadoluxor.com · gerencia.talentohumano@supermercadoluxor.com</span>
+                    </p>
+                </div>
+
+                <!-- Qué debe traer quien postula, resumido ANTES de los
+                     campos: título, integrantes con cédula y el PDF con los
+                     requisitos del programa. -->
+                <div class="mt-4 bg-luxor-ivory border border-slate-200 rounded-2xl p-4">
+                    <span class="block text-[11px] font-extrabold uppercase tracking-wider text-luxor-crimson mb-2">Qué debe contener tu postulación</span>
+                    <ul class="space-y-1.5 text-xs text-slate-600">
+                        <li>• Título del proyecto.</li>
+                        <li>• Integrantes: nombre y cédula de cada uno (mínimo 3).</li>
+                        <li>• Presentación en PDF con:
+                            <ul class="mt-1 ml-4 space-y-1 text-slate-500">
+                                <li>– Portada con el logotipo del proyecto.</li>
+                                <li>– Desarrollo del proyecto según el método SMART.</li>
+                                <li>– Presupuesto detallado de todo lo necesario para su ejecución (si requiere inversión).</li>
+                                <li>– Aporte significativo y perdurable en el tiempo para la empresa.</li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+
                 <!-- El envío es un POST multipart a FormSubmit, que reenvía
                      el correo (con el PDF adjunto) a Coordinación — la página
                      no necesita cliente de correo ni servidor propio. -->
-                <form id="postulacion-form" method="POST" action="https://formsubmit.co/croordinacion.evaluacion@supermercadoluxor.com" enctype="multipart/form-data" onsubmit="handlePostulacion(event)" class="mt-5 space-y-4">
+                <form id="postulacion-form" method="POST" action="https://formsubmit.co/coordinacion.evaluacion@supermercadoluxor.com" enctype="multipart/form-data" onsubmit="handlePostulacion(event)" class="mt-5 space-y-4">
                     <!-- Campos que FormSubmit interpreta como tales: asunto,
                          copias, plantilla de la tabla y dónde redirigir al
                          terminar (los dos primeros se completan al enviar). -->
@@ -970,18 +1002,6 @@
                         <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Presentación en PDF *</label>
                         <input type="file" name="presentacion_pdf" id="post-pdf" accept="application/pdf,.pdf" class="w-full text-xs text-slate-500 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-luxor-yellow file:px-4 file:py-2 file:text-xs file:font-bold file:text-luxor-navy" />
                         <p class="mt-1 text-[11px] text-slate-500">Se adjunta a la solicitud (máx. 10 MB).</p>
-                    </div>
-
-                    <!-- Lo que el archivo debe contener: lo corrobora
-                         Coordinación al recibirlo. -->
-                    <div class="bg-luxor-ivory border border-slate-200 rounded-2xl p-4">
-                        <span class="block text-[11px] font-extrabold uppercase tracking-wider text-luxor-crimson mb-2">El PDF debe contener</span>
-                        <ul class="space-y-1.5 text-xs text-slate-600">
-                            <li>• Portada con el logotipo del proyecto.</li>
-                            <li>• Desarrollo del proyecto según el método SMART.</li>
-                            <li>• Presupuesto detallado de todo lo necesario para su ejecución (si requiere inversión).</li>
-                            <li>• Aporte significativo y perdurable en el tiempo para la empresa.</li>
-                        </ul>
                     </div>
 
                     <div class="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
