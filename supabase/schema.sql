@@ -6466,6 +6466,16 @@ create table if not exists public.gran_cosecha_pagina (
   actualizado_en timestamptz not null default now()
 );
 
+-- LAS GUÍAS DE LA POSTULACIÓN: los dos archivos que el Líder sube desde la
+-- consola (Página) y que la landing ofrece como descarga dentro del modal
+-- «Postular Proyecto». Sección nueva en la MISMA fila: el `add column if
+-- not exists` cubre las bases donde la tabla ya existe —mismo criterio que
+-- las columnas de `gran_cosecha_proyecto`—, y el `check` de forma es el de
+-- todas las secciones: un objeto no puede entrar donde va la lista.
+alter table public.gran_cosecha_pagina
+  add column if not exists guias jsonb not null default '[]'::jsonb
+    constraint gran_cosecha_pagina_guias check (jsonb_typeof(guias) = 'array');
+
 alter table public.gran_cosecha_pagina enable row level security;
 
 -- Con sesión se lee —el form de la consola tiene que mostrar lo que ya está
@@ -6498,6 +6508,10 @@ as $$
   select jsonb_build_object(
     'hero', g.hero,
     'premios', g.premios,
+    -- LAS GUÍAS DE LA POSTULACIÓN: nombre y URL pública de cada archivo,
+    -- para el enlace de descarga del modal guía. Se suben desde la
+    -- consola; vacía la lista, la landing oculta la sección.
+    'guias', g.guias,
     -- LOS PARTICIPANTES: los proyectos REGISTRADOS en la consola, del
     -- trimestre en curso y sin cancelados («los que ya están compitiendo»).
     -- Cada uno trae SU conteo de riegos: sólo el número, la tabla está

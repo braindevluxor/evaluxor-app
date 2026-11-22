@@ -6,9 +6,11 @@ import { PortalCabecera } from '../components/PortalCabecera'
 import {
   cargarContenidoPagina,
   guardarContenidoPagina,
+  subirGuiaPagina,
   subirMediaCarrusel,
   validarContenido,
   type ContenidoPagina,
+  type GuiaPagina,
   type HeroPagina
 } from '../lib/data/granCosechaPagina'
 
@@ -20,11 +22,13 @@ import {
  * de sólo LÍDER tres veces —el item del menú, el guard de la ruta
  * (`SoloLider`) y la política `for all ... es_lider()` de la tabla—.
  *
- * DOS tarjetas, un solo botón «Guardar»: sólo lo que la landing ARENA sí
- * pinta —la bajada del hero y el carrusel de Cosechas Pasadas—. Todo se
+ * TRES tarjetas, un solo botón «Guardar»: sólo lo que la landing ARENA sí
+ * pinta —la bajada del hero, las guías de la postulación y el carrusel de
+ * Cosechas Pasadas—. Todo se
  * publica de una vez, con la validación de `validarContenido` explicando en
  * pantalla lo que el `check` de la base rechazaría. Los archivos del
- * carrusel se suben solos al bucket público —convertidos a WebP/WebM—, pero
+ * carrusel y las guías se suben solos al bucket público —los primeros
+ * convertidos a WebP/WebM—, pero
  * su URL recién se guarda en la base al tocar Guardar.
  */
 export function GranCosechaPaginaPage() {
@@ -139,6 +143,48 @@ export function GranCosechaPaginaPage() {
         : c
     )
 
+  /** El texto de una guía: sólo el nombre (la URL la pone la subida). */
+  const cambiarGuia = (i: number, campo: keyof GuiaPagina, valor: string) =>
+    setContenido((c) =>
+      c ? { ...c, guias: c.guias.map((g, j) => (j === i ? { ...g, [campo]: valor } : g)) } : c
+    )
+
+  /**
+   * Sube el archivo de una guía: la ruta es FIJA por slot, así que una
+   * nueva subida reemplaza a la anterior. Si el slot estaba vacío, el
+   * nombre nace del archivo —se puede editar después— y «Guardar» es lo
+   * que publica la URL en la página.
+   */
+  const subirGuia = async (i: number, archivo: File | undefined) => {
+    if (!archivo) return
+    try {
+      const url = await subirGuiaPagina(i as 0 | 1, archivo, contenido?.guias[i]?.url ?? '')
+      setContenido((c) =>
+        c
+          ? {
+              ...c,
+              guias: c.guias.map((g, j) =>
+                j === i ? { ...g, nombre: g.nombre || archivo.name.replace(/\.[^.]+$/, ''), url } : g
+              )
+            }
+          : c
+      )
+      avisar('Guía subida. Tocá «Guardar» para publicarla.')
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo subir la guía.', 'error')
+    }
+  }
+
+  /**
+   * Vacía el slot: el archivo YA SUBIDO no se borra del bucket — si estaba
+   * publicado, la landing sigue apuntando a esa URL hasta el próximo
+   * «Guardar», y borrarlo acá dejaría la página con un enlace roto.
+   */
+  const quitarGuia = (i: number) =>
+    setContenido((c) =>
+      c ? { ...c, guias: c.guias.map((g, j) => (j === i ? { nombre: '', url: '' } : g)) } : c
+    )
+
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       {/* Ver y guardar viven en la barra, igual que en el resto de la consola:
@@ -190,6 +236,60 @@ export function GranCosechaPaginaPage() {
                 placeholder="Programa institucional de reconocimiento, creatividad e innovación para todos los colaboradores…"
               />
             </Field>
+          </Tarjeta>
+
+          <Tarjeta
+            titulo="Guías del proyecto"
+            descripcion="Los dos archivos que la landing ofrece como descarga dentro del modal «Postular Proyecto»: la plantilla y la guía que quien postula debe seguir. El nombre es lo que muestra el enlace; sin archivo, la guía no aparece en la página."
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              {contenido.guias.map((guia, i) => (
+                <div key={i} className="space-y-2 rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <Field label={`Guía ${i + 1}`}>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={guia.nombre}
+                        onChange={(e) => cambiarGuia(i, 'nombre', e.target.value)}
+                        placeholder="Ej. Plantilla de presentación"
+                      />
+                      <ButtonIcon
+                        variant="danger"
+                        onClick={() => quitarGuia(i)}
+                        disabled={!guia.nombre && !guia.url}
+                        title="Quitar la guía"
+                        aria-label={`Quitar la guía ${i + 1}`}
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </ButtonIcon>
+                    </div>
+                  </Field>
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                    onChange={(e) => {
+                      void subirGuia(i, e.target.files?.[0])
+                      e.target.value = ''
+                    }}
+                    className="block w-full text-xs text-slate-500 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-primary-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-700"
+                  />
+                  {guia.url ? (
+                    <p className="truncate text-xs text-slate-400">
+                      Archivo subido:{' '}
+                      <a
+                        href={guia.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-primary-700 hover:underline"
+                      >
+                        {guia.nombre || 'ver guía'}
+                      </a>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-400">Sin archivo: la guía no aparece en la página.</p>
+                  )}
+                </div>
+              ))}
+            </div>
           </Tarjeta>
 
           <Tarjeta

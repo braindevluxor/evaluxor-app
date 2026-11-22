@@ -296,6 +296,12 @@ describe('gran-cosecha-pagina.sql · la tabla', () => {
          values (true, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb)`
       )
     ).rejects.toThrow(/check/i)
+
+    // Un objeto donde va la lista de guías (con UPDATE: la fila ya existe
+    // —la creó el Líder en el arranque—).
+    await expect(
+      db.query(`update public.gran_cosecha_pagina set guias = '{}'::jsonb where id`)
+    ).rejects.toThrow(/check/i)
   })
 
   it('lee con sesión y no sin ella', async () => {
@@ -375,13 +381,33 @@ describe('gran-cosecha-pagina.sql · la función pública', () => {
       )
       const contenido = r.rows[0].r
       expect(contenido).not.toBeNull()
-      expect(Object.keys(contenido ?? {}).sort()).toEqual(['hero', 'participantes', 'premios'])
+      expect(Object.keys(contenido ?? {}).sort()).toEqual(['guias', 'hero', 'participantes', 'premios'])
       expect((contenido?.hero as { lema: string }).lema).toBe('LEMA NUEVO')
 
       // La función no es una puerta atrás a la tabla.
       await expect(db.query(`select id from public.gran_cosecha_pagina`)).rejects.toThrow(
         /permission denied/i
       )
+    })
+  })
+
+  it('publica las guías que sube el Líder, tal cual las guardó', async () => {
+    const guias = [
+      { nombre: 'Plantilla de presentación', url: 'https://x.test/pagina/guias/guia-1.pdf' },
+      { nombre: '', url: '' }
+    ]
+    await conRol(LIDER, async () => {
+      await db.query(`update public.gran_cosecha_pagina set guias = $1::jsonb where id`, [
+        JSON.stringify(guias)
+      ])
+    })
+    await conAnon(async () => {
+      const r = await db.query<{ r: Record<string, unknown> | null }>(
+        `select public.ver_contenido_gran_cosecha() as r`
+      )
+      // La landing las pinta como descarga: nombre y URL, slot vacío y
+      // todo — el orden de los DOS cupos de la consola.
+      expect(r.rows[0].r?.guias).toEqual(guias)
     })
   })
 

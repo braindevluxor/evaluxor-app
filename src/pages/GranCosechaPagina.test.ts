@@ -31,9 +31,11 @@ describe('gran cosecha · la página en la consola', () => {
   })
 
   it('la página publica lo que la landing ARENA sí pinta', () => {
-    // DOS bloques: la bajada del hero y el carrusel de Cosechas Pasadas —
-    // lo único de la tabla que la landing nueva pinta.
+    // TRES bloques: la bajada del hero, las guías de la postulación y el
+    // carrusel de Cosechas Pasadas — lo único de la tabla que la landing
+    // nueva pinta.
     expect(pagina).toContain('Portada')
+    expect(pagina).toContain('Guías del proyecto')
     expect(pagina).toContain('Cosechas Pasadas')
     expect(pagina).toContain('cargarContenidoPagina')
     expect(pagina).toContain('guardarContenidoPagina')
@@ -46,6 +48,28 @@ describe('gran cosecha · la página en la consola', () => {
     // Lo que la landing ya no pinta (fechas, fondo, premios) no se edita.
     expect(pagina).not.toContain('Agregar premio')
     expect(pagina).not.toContain('Fondo estático')
+  })
+
+  it('las dos guías de la postulación se suben con su nombre', () => {
+    // Dos slots fijos en la consola; la URL sale de la subida y el nombre
+    // nace del archivo si estaba vacío (se puede editar).
+    expect(pagina).toContain('Guías del proyecto')
+    expect(pagina).toContain('subirGuiaPagina')
+    expect(pagina).toContain('cambiarGuia')
+    expect(pagina).toContain('quitarGuia')
+    // Sólo documentos, y SIN conversión: van tal cual al bucket.
+    expect(pagina).toContain('accept=".pdf,.doc')
+    expect(datos).toContain('pagina/guias/guia-')
+    // La fila se normaliza a DOS slots con su forma, aunque venga vacía.
+    expect(datos).toContain('normalizarGuias')
+    expect(CONTENIDO_BASE.guias).toHaveLength(2)
+    // Media guía no: o tiene nombre y archivo, o queda vacía.
+    const guiaRota = structuredClone(CONTENIDO_BASE)
+    guiaRota.guias[0] = { nombre: 'Plantilla', url: '' }
+    expect(validarContenido(guiaRota)).toMatch(/guía 1/)
+    const guiaSinNombre = structuredClone(CONTENIDO_BASE)
+    guiaSinNombre.guias[1] = { nombre: '  ', url: 'https://x.test/g.pdf' }
+    expect(validarContenido(guiaSinNombre)).toMatch(/guía 2/)
   })
 
   it('el carrusel de Cosechas Pasadas se edita con su conversión en pantalla', () => {
@@ -211,45 +235,40 @@ describe('gran cosecha · la landing (Arena)', () => {
     expect(landing).toContain('function resetFilters(')
   })
 
-  it('la ficha se abre en modal y la postulación se envía directo por FormSubmit', () => {
+  it('la ficha se abre en modal y la postulación es una GUÍA, sin formulario', () => {
     expect(landing).toContain('id="detail-modal"')
     expect(landing).toContain('function openDetailModal(')
     expect(landing).toContain('id="toast"')
-    // El formulario de postulación: título, integrantes con cédula y PDF…
+    // El modal de postulación: NO tiene campos ni envío — explica qué debe
+    // contener, muestra los correos (destino y copias) a la vista y ofrece
+    // copiarlos al portapapeles.
     expect(landing).toContain('id="postulacion-modal"')
-    expect(landing).toContain('function handlePostulacion(')
-    expect(landing).toContain('id="post-titulo"')
-    expect(landing).toContain('id="post-integrantes"')
-    expect(landing).toContain('id="post-pdf"')
-    // …que hace un POST multipart directo a FormSubmit (sin cliente de
-    // correo local): destino, copias a las dos gerencias, plantilla y
-    // redirección de vuelta a la página en #gracias.
-    expect(landing).toContain('action="https://formsubmit.co/coordinacion.evaluacion@supermercadoluxor.com"')
-    expect(landing).toContain('enctype="multipart/form-data"')
+    expect(landing).toContain('function openPostulacion(')
+    expect(landing).toContain('function copiarCorreos(')
+    expect(landing).toContain('coordinacion.evaluacion@supermercadoluxor.com')
     expect(landing).toContain('gerencia.mercadeo@supermercadoluxor.com')
     expect(landing).toContain('gerencia.talentohumano@supermercadoluxor.com')
-    expect(landing).toContain('name="_next"')
-    expect(landing).toContain("'#gracias'")
-    // El modal explica, al abrirse, qué debe contener la postulación y
-    // muestra los correos (destino y copias) a la vista.
     expect(landing).toContain('Qué debe contener tu postulación')
     expect(landing).toContain('mínimo 3')
-    // La validación corta el envío si falta algo, y respeta el límite de
-    // 10 MB de FormSubmit antes de mandar.
-    expect(landing).toContain('e.preventDefault()')
-    expect(landing).toContain('integrantes.length < 3')
-    expect(landing).toContain('pdf.size > 10 * 1024 * 1024')
     // Los requisitos del PDF dentro de la caja de la postulación.
     expect(landing).toContain('método SMART')
     expect(landing).toContain('Presupuesto detallado')
     // Sin restos de la dirección vieja con la «r» extra.
     expect(landing).not.toContain('croordinacion')
-    // SIN modal de guardado local y SIN mailto: esto no escribe en la base
-    // ni depende del cliente de correo de quien postula.
+    // SIN formulario, SIN FormSubmit y SIN mailto: el modal no envía nada.
+    expect(landing).not.toContain('id="postulacion-form"')
+    expect(landing).not.toContain('function handlePostulacion(')
+    expect(landing).not.toContain('formsubmit.co')
+    expect(landing).not.toContain('mailto:')
+    // Las guías que sube la consola se pintan como descarga; sin ninguna,
+    // la sección queda oculta.
+    expect(landing).toContain('id="postulacion-guias"')
+    expect(landing).toContain('function pintarGuias(')
+    expect(landing).toContain('Array.isArray(dato.guias)')
+    // SIN modal de guardado local: esto no escribe en la base.
     expect(landing).not.toContain('id="submit-modal"')
     expect(landing).not.toContain('function handleProjectSubmit(')
-    expect(landing).not.toContain('mailto:')
-    // Los DOS botones de la página abren el formulario.
+    // Los DOS botones de la página abren la guía.
     expect((landing.match(/openPostulacion\(\)/g) || []).length).toBeGreaterThanOrEqual(2)
     expect(landing).not.toContain('href="/gran-cosecha/proyectos"')
   })

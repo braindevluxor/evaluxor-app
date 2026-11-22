@@ -923,10 +923,10 @@
         </div>
     </div>
 
-    <!-- ================= MODAL DE POSTULACIÓN (se envía por correo) =================
-         La solicitud NO se guarda en la base: el formulario arma un mailto
-         con destino, copias y cuerpo ya cargados y abre el cliente de
-         correo de quien presenta — el PDF lo adjunta ahí mismo. -->
+    <!-- ================= MODAL DE POSTULACIÓN (SÓLO GUÍA) =================
+         No tiene formulario ni escribe en la base: explica qué debe
+         contener la postulación, a qué correos se envía y ofrece las
+         guías que sube la consola. Quien postula arma su correo. -->
     <div id="postulacion-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-luxor-navyDark/80 backdrop-blur-sm">
         <div class="bg-white rounded-3xl max-w-xl w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200">
             <div class="h-2 w-full bg-gradient-to-r from-luxor-yellow via-luxor-orange to-luxor-crimson"></div>
@@ -934,7 +934,7 @@
                 <div class="flex items-center justify-between pb-4 border-b border-slate-100">
                     <div>
                         <h3 class="font-condensed font-bold text-2xl uppercase text-luxor-navy">Postular Proyecto</h3>
-                        <p class="text-xs text-slate-500">Completá los datos y adjuntá la presentación: la solicitud sale por correo con el PDF.</p>
+                        <p class="text-xs text-slate-500">Guía para postular: qué enviar, a qué correos y con qué plantillas.</p>
                     </div>
                     <button onclick="closePostulacion()" class="p-2 rounded-xl text-slate-400 hover:bg-slate-100 cursor-pointer">
                         <i data-lucide="x" class="w-5 h-5"></i>
@@ -952,6 +952,10 @@
                         <span class="text-luxor-yellow font-extrabold uppercase tracking-wider shrink-0">Con copia</span>
                         <span class="text-white font-bold break-all">gerencia.mercadeo@supermercadoluxor.com · gerencia.talentohumano@supermercadoluxor.com</span>
                     </p>
+                    <button onclick="copiarCorreos()" class="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-luxor-yellow/40 px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wider text-luxor-yellow hover:bg-luxor-yellow hover:text-luxor-navy transition-colors cursor-pointer">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                        <span>Copiar correos</span>
+                    </button>
                 </div>
 
                 <!-- Qué debe traer quien postula, resumido ANTES de los
@@ -973,42 +977,20 @@
                     </ul>
                 </div>
 
-                <!-- El envío es un POST multipart a FormSubmit, que reenvía
-                     el correo (con el PDF adjunto) a Coordinación — la página
-                     no necesita cliente de correo ni servidor propio. -->
-                <form id="postulacion-form" method="POST" action="https://formsubmit.co/coordinacion.evaluacion@supermercadoluxor.com" enctype="multipart/form-data" onsubmit="handlePostulacion(event)" class="mt-5 space-y-4">
-                    <!-- Campos que FormSubmit interpreta como tales: asunto,
-                         copias, plantilla de la tabla y dónde redirigir al
-                         terminar (los dos primeros se completan al enviar). -->
-                    <input type="hidden" name="_subject" id="post-asunto" value="" />
-                    <input type="hidden" name="_cc" value="gerencia.mercadeo@supermercadoluxor.com,gerencia.talentohumano@supermercadoluxor.com" />
-                    <input type="hidden" name="_template" value="table" />
-                    <input type="hidden" name="_next" id="post-next" value="" />
-                    <!-- Trampa anti-bots (junto al reCAPTCHA de FormSubmit). -->
-                    <input type="text" name="_honey" style="display:none" tabindex="-1" autocomplete="off" />
+                <!-- Las guías que el Líder sube en la consola (Página):
+                     se pintan como descarga; sin ninguna, sección oculta. -->
+                <div id="postulacion-guias" class="mt-4 hidden">
+                    <span class="block text-[11px] font-extrabold uppercase tracking-wider text-luxor-crimson mb-2">Descargá las guías del proyecto</span>
+                    <ul id="postulacion-guias-lista" class="space-y-2"></ul>
+                </div>
 
-                    <div>
-                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Título del Proyecto *</label>
-                        <input type="text" name="titulo" id="post-titulo" required maxlength="100" placeholder="Ej. Optimización de Despacho CENDIS - Euromaxx" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-luxor-crimson" />
-                    </div>
+                <p class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
+                    Enviá tu postulación desde tu correo: adjuntá el PDF y mandalo a la casilla <strong>Para</strong>, con copia a las gerencias. Usá las guías de arriba como plantilla.
+                </p>
 
-                    <div>
-                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Integrantes (nombre y cédula, uno por línea) *</label>
-                        <textarea name="integrantes" id="post-integrantes" rows="4" required placeholder="Carlos Mendoza — V-30111222&#10;Ana Rivas — V-27333444&#10;José López — E-19555666" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-luxor-crimson resize-none"></textarea>
-                        <p class="mt-1 text-[11px] text-slate-500">Mínimo 3. Las cédulas se corroboran con la nómina de trabajadores al recibir la solicitud.</p>
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Presentación en PDF *</label>
-                        <input type="file" name="presentacion_pdf" id="post-pdf" accept="application/pdf,.pdf" class="w-full text-xs text-slate-500 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-luxor-yellow file:px-4 file:py-2 file:text-xs file:font-bold file:text-luxor-navy" />
-                        <p class="mt-1 text-[11px] text-slate-500">Se adjunta a la solicitud (máx. 10 MB).</p>
-                    </div>
-
-                    <div class="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
-                        <button type="button" onclick="closePostulacion()" class="px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 cursor-pointer">Cancelar</button>
-                        <button type="submit" class="px-6 py-3 rounded-xl text-sm font-condensed font-bold uppercase tracking-wider bg-luxor-crimson hover:bg-luxor-darkRed text-white shadow-lg shadow-red-500/25 transition-all cursor-pointer">Enviar solicitud</button>
-                    </div>
-                </form>
+                <div class="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                    <button type="button" onclick="closePostulacion()" class="px-6 py-3 rounded-xl text-sm font-condensed font-bold uppercase tracking-wider bg-luxor-navy hover:bg-luxor-crimson text-white transition-colors cursor-pointer">Cerrar</button>
+                </div>
             </div>
         </div>
     </div>
@@ -1874,52 +1856,20 @@
         // destino, copias y cuerpo ya cargados, y el PDF lo adjunta quien
         // presenta — esta página no sube ni guarda nada. Las cédulas viajan
         // en el cuerpo para que Coordinación las corrobore con la nómina.
-        // Valida antes de postear: si falta algo se cancela el envío; si
-        // está todo, se completan los campos de FormSubmit y el formulario
-        // sale solo (POST multipart con el PDF adjunto) — sin cliente de
-        // correo local. FormSubmit pide el reCAPTCHA y redirige a #gracias.
-        function handlePostulacion(e) {
-            const titulo = document.getElementById('post-titulo').value.trim();
-            const integrantes = document.getElementById('post-integrantes').value
-                .split('\n')
-                .map((linea) => linea.trim())
-                .filter(Boolean);
-            const pdf = document.getElementById('post-pdf').files[0];
-
-            if (!titulo) {
-                e.preventDefault();
-                showToast('Falta el título del proyecto.', '⚠️');
-                return;
+        // Copia los tres correos de la postulación al portapapeles: quien
+        // postula los pega en su cliente de correo (con el PDF adjunto)
+        // —este modal no envía nada por sí mismo.
+        function copiarCorreos() {
+            var correos = 'coordinacion.evaluacion@supermercadoluxor.com, gerencia.mercadeo@supermercadoluxor.com, gerencia.talentohumano@supermercadoluxor.com';
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(correos).then(function () {
+                    showToast('Correos copiados: pegálos en tu correo con el PDF adjunto.', '📋');
+                }).catch(function () {
+                    showToast('No se pudieron copiar: copialos a mano del recuadro.', '⚠️');
+                });
+            } else {
+                showToast('Copialos a mano del recuadro azul.', '⚠️');
             }
-            if (integrantes.length < 3) {
-                e.preventDefault();
-                showToast('Se necesitan al menos 3 integrantes con su cédula.', '⚠️');
-                return;
-            }
-            if (!pdf) {
-                e.preventDefault();
-                showToast('Elegí el PDF de la presentación.', '⚠️');
-                return;
-            }
-            if (pdf.type !== 'application/pdf' && !/\.pdf$/i.test(pdf.name)) {
-                e.preventDefault();
-                showToast('El archivo tiene que ser un PDF.', '⚠️');
-                return;
-            }
-            // FormSubmit admite hasta 10 MB en total por envío: cortar acá
-            // evita que el formulario falle del otro lado sin aviso.
-            if (pdf.size > 10 * 1024 * 1024) {
-                e.preventDefault();
-                showToast('El PDF no puede superar 10 MB.', '⚠️');
-                return;
-            }
-
-            document.getElementById('post-asunto').value = 'Solicitud de proyecto — ' + titulo;
-            // Absoluta en el momento: funciona en cualquier dominio donde
-            // esté publicada la página.
-            document.getElementById('post-next').value =
-                window.location.origin + window.location.pathname + '#gracias';
-            // Si no se cancela, el submit sigue su curso normal.
         }
 
         function toggleMobileMenu() {
@@ -1989,6 +1939,43 @@
       function texto(id, valor) {
         var el = document.getElementById(id);
         if (el && typeof valor === 'string' && valor.trim()) el.textContent = valor.trim();
+      }
+
+      // LAS GUÍAS: los dos archivos que sube la consola se listan como
+      // descarga dentro del modal «Postular Proyecto». Sin URLs, la sección
+      // queda oculta — la página no pide nada más.
+      function pintarGuias(guias) {
+        var caja = document.getElementById('postulacion-guias');
+        var lista = document.getElementById('postulacion-guias-lista');
+        if (!caja || !lista) return;
+        var validas = guias.filter(function (g) {
+          return g && typeof g.url === 'string' && g.url.trim();
+        });
+        lista.textContent = '';
+        if (!validas.length) {
+          caja.classList.add('hidden');
+          return;
+        }
+        validas.forEach(function (g) {
+          var li = document.createElement('li');
+          var a = document.createElement('a');
+          a.href = g.url;
+          a.target = '_blank';
+          a.rel = 'noreferrer';
+          a.setAttribute('download', '');
+          a.className = 'flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-luxor-navy hover:border-luxor-crimson transition-colors cursor-pointer';
+          var icono = document.createElement('i');
+          icono.setAttribute('data-lucide', 'download');
+          icono.className = 'w-4 h-4 shrink-0 text-luxor-crimson';
+          var nombre = document.createElement('span');
+          nombre.textContent = g.nombre || 'Guía del proyecto';
+          a.appendChild(icono);
+          a.appendChild(nombre);
+          li.appendChild(a);
+          lista.appendChild(li);
+        });
+        caja.classList.remove('hidden');
+        if (window.lucide) lucide.createIcons();
       }
 
       function aplicar() {
@@ -2063,12 +2050,6 @@
       document.addEventListener('DOMContentLoaded', function () {
         domListo = true;
         aplicar();
-        // FormSubmit redirige acá cuando la solicitud salió bien: avisamos
-        // y limpiamos el hash para que no se repita al recargar.
-        if (window.location.hash === '#gracias') {
-          showToast('¡Solicitud enviada! Coordinación la recibirá con el PDF.', '✅');
-          history.replaceState(null, '', window.location.pathname + window.location.search);
-        }
       });
 
       fetch(URL_BASE + '/rest/v1/rpc/ver_contenido_gran_cosecha', {
@@ -2082,7 +2063,13 @@
         cache: 'no-store'
       })
         .then(function (respuesta) { return respuesta.ok ? respuesta.json() : null; })
-        .then(function (dato) { contenido = dato; aplicar(); })
+        .then(function (dato) {
+          contenido = dato;
+          aplicar();
+          // LAS GUÍAS DE LA POSTULACIÓN: archivos que sube la consola
+          // (Página) — se pintan como descarga en el modal guía.
+          pintarGuias(dato && Array.isArray(dato.guias) ? dato.guias : []);
+        })
         .catch(function () { /* sin conexión, la página se queda con sus valores */ });
     })();
   </script>

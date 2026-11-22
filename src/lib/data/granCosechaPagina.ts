@@ -82,9 +82,24 @@ export interface PremioPagina {
   descripcion: string
 }
 
+/**
+ * Una guía de la postulación: uno de los DOS archivos que el Líder sube
+ * desde esta pantalla y que la landing ofrece como descarga dentro del
+ * modal «Postular Proyecto». `url` vacía = esa guía no aparece; sin
+ * ninguna, la página oculta la sección entera.
+ */
+export interface GuiaPagina {
+  /** Lo que la página muestra en el enlace de descarga. */
+  nombre: string
+  /** URL pública en el bucket. */
+  url: string
+}
+
 export interface ContenidoPagina {
   hero: HeroPagina
   premios: PremioPagina[]
+  /** Siempre DOS slots: la consola los muestra fijos, vacíos o subidos. */
+  guias: GuiaPagina[]
 }
 
 /**
@@ -108,6 +123,12 @@ export const CONTENIDO_BASE: ContenidoPagina = {
     { puesto: '1° PUESTO', descripcion: 'Gran Premio Corporativo y Trofeo Luxor' },
     { puesto: '2° PUESTO', descripcion: 'Incentivo Especial para Todo el Equipo' },
     { puesto: '3° PUESTO', descripcion: 'Reconocimiento Destacado y Cesta Luxor' }
+  ],
+  // Dos slots vacíos: la consola los muestra siempre; sin URL, la landing
+  // no pinta esa guía.
+  guias: [
+    { nombre: '', url: '' },
+    { nombre: '', url: '' }
   ]
 }
 
@@ -121,7 +142,7 @@ export const CONTENIDO_BASE: ContenidoPagina = {
 export async function cargarContenidoPagina(): Promise<ContenidoPagina> {
   const { data, error } = await supabase
     .from('gran_cosecha_pagina')
-    .select('hero, premios')
+    .select('hero, premios, guias')
     .eq('id', true)
     .maybeSingle()
   if (error) throw error
@@ -132,8 +153,28 @@ export async function cargarContenidoPagina(): Promise<ContenidoPagina> {
   if (!Array.isArray(hero.carrusel)) hero.carrusel = []
   return {
     hero,
-    premios: Array.isArray(data.premios) ? (data.premios as PremioPagina[]) : []
+    premios: Array.isArray(data.premios) ? (data.premios as PremioPagina[]) : [],
+    guias: normalizarGuias(data.guias)
   }
+}
+
+/**
+ * Las guías, siempre DOS slots con su forma.
+ *
+ * Una fila guardada antes de la columna no las trae (`guias` ausente) y una
+ * con un JSON raro no puede romper la consola: cada slot se normaliza a
+ * `{nombre, url}` de texto, y los que falten nacen vacíos — la consola
+ * muestra los dos cupos igual.
+ */
+function normalizarGuias(valor: unknown): GuiaPagina[] {
+  const lista = Array.isArray(valor) ? valor : []
+  return [0, 1].map((i) => {
+    const g = lista[i] as Partial<GuiaPagina> | undefined
+    return {
+      nombre: g && typeof g.nombre === 'string' ? g.nombre : '',
+      url: g && typeof g.url === 'string' ? g.url : ''
+    }
+  })
 }
 
 /** Guarda el contenido entero (la fila nace con el primer guardado). */
@@ -171,6 +212,14 @@ export function validarContenido(contenido: ContenidoPagina): string | null {
     if (!premio.puesto.trim() || !premio.descripcion.trim()) {
       return `El premio ${i + 1} necesita su puesto y su descripción.`
     }
+  }
+  // Las guías son opcionales, pero MEDIA guía no: o tiene archivo y nombre
+  // para el enlace, o queda vacía para que la página no la pinte.
+  for (const [i, guia] of contenido.guias.entries()) {
+    const nombre = (guia?.nombre ?? '').trim()
+    const url = (guia?.url ?? '').trim()
+    if (nombre && !url) return `La guía ${i + 1} tiene nombre pero falta subir el archivo.`
+    if (url && !nombre) return `La guía ${i + 1} necesita su nombre para el enlace de la página.`
   }
   return null
 }
@@ -220,6 +269,41 @@ export async function subirFotoPagina(slot: FotoPagina, archivo: File, urlActual
   // Los slots viejos guardaban jpg/png: al migrar a webp el archivo anterior
   // queda huérfano en el bucket. Se borra sólo si es otro distinto del recién
   // subido, y un fallo acá no deshace la subida.
+  const anterior = rutaDeUrlPublica(urlActual)
+  if (anterior && anterior !== ruta) {
+    await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
+  }
+  return url
+}
+
+/**
+ * Sube el archivo de una guía (slots fijos: la guía 1 y la 2) y devuelve
+ * su URL pública.
+ *
+ * A diferencia del carrusel, la ruta es FIJA por slot —`pagina/guias/
+ * guia-N.ext`—: subir de nuevo REEMPLAZA el archivo, que es lo que quiere
+ * quien corrige una guía ya publicada. La extensión sale del archivo
+ * elegido (los documentos van tal cual, sin convertir) y, si cambia, el
+ * archivo anterior de esa guía queda huérfano y se borra — el mismo
+ * criterio que `subirFotoPagina`. La URL lleva `?v=` con la hora porque
+ * el navegador y el CDN ya tienen la anterior cacheada: con el mismo path,
+ * la página seguiría bajando el archivo viejo.
+ */
+export async function subirGuiaPagina(
+  indice: 0 | 1,
+  archivo: File,
+  urlActual: string
+): Promise<string> {
+  const ext =
+    (archivo.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '') || 'pdf'
+  const ruta = `pagina/guias/guia-${indice + 1}.${ext}`
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, archivo, {
+    contentType: archivo.type || 'application/pdf',
+    upsert: true
+  })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  const url = `${data.publicUrl}?v=${Date.now()}`
   const anterior = rutaDeUrlPublica(urlActual)
   if (anterior && anterior !== ruta) {
     await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
