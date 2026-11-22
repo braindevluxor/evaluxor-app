@@ -51,11 +51,17 @@ describe('gran cosecha · la página en la consola', () => {
   it('el carrusel de Cosechas Pasadas se edita con su conversión en pantalla', () => {
     expect(pagina).toContain('Cosechas Pasadas')
     expect(pagina).toContain('subirMediaCarrusel')
-    // La barra de avance: convertir un video tarda lo que dura el clip.
+    // La barra de avance: convertir un archivo tarda lo que dura el proceso.
     expect(pagina).toContain('convirtiendo')
     expect(pagina).toContain('moverSlide')
-    // El selector acepta lo que traiga el navegador: la conversión es de la app.
-    expect(pagina).toContain('accept="image/*,video/*"')
+    // SÓLO fotos: el carrusel de la landing pinta imágenes — un video
+    // quedaría publicado y no pintado.
+    expect(pagina).toContain('accept="image/*"')
+    expect(pagina).not.toContain('accept="image/*,video/*"')
+    // Cada foto lleva el texto que la landing pinta a su lado.
+    expect(pagina).toContain('cambiarCampoSlide')
+    expect(pagina).toContain('label="Título"')
+    expect(pagina).toContain('label="Pie de foto"')
   })
 })
 
@@ -220,14 +226,33 @@ describe('gran cosecha · la landing (Arena)', () => {
     expect(landing).toContain('id="heroBajada"')
     expect(landing).toContain("texto('heroBajada'")
     // …y el carrusel publicado manda sobre la semilla/local del navegador.
-    expect(landing).toContain('carouselSlides = hero.carrusel')
+    expect(landing).toContain('carouselSlides = mapeados')
     expect(landing).toContain('renderCarousel()')
+    // El mapeo: el item de la consola {tipo, url…} se convierte en la forma
+    // de la pista (image/edition/title/…) — sólo las FOTOS entran.
+    expect(landing).toContain('image: m.url')
+    expect(landing).toContain("m.tipo === 'imagen'")
     // Lo que la landing ARENA no pinta sigue fuera: equipos, premios y el
     // pintor viejo del contenido.
     expect(landing).not.toContain('pintarParticipantes')
     expect(landing).not.toContain('pintarPremios')
     expect(landing).not.toContain('id="equipos"')
     expect(landing).not.toContain('id="inscripcion"')
+  })
+
+  it('el carrusel navega sin reconstruir la pista (sin recarga de fotos)', () => {
+    // El bug: cada salto del autoplay rehacía el innerHTML entero y las
+    // fotos se volvían a pedir en bucle cada 5,5 s. Ahora navegar sólo
+    // mueve el translateX y marca el punto / miniatura activos.
+    expect(landing).toContain('function updateCarouselActive(')
+    expect(landing).not.toMatch(/function nextCarouselSlide\(\) \{[\s\S]{0,120}renderCarousel\(\)/)
+    expect(landing).toMatch(
+      /function nextCarouselSlide\(\) \{[\s\S]{0,120}updateCarouselPosition\(\)/
+    )
+    // Y el onerror nunca entra en bucle: se desengancha ANTES de pintar el
+    // respaldo (el de las miniaturas pedía `undefined` y no paraba de
+    // reintentar).
+    expect((landing.match(/this\.onerror=null/g) || []).length).toBeGreaterThanOrEqual(2)
   })
 
   it('el editor ya no ofrece participantes: esos datos salen de Proyectos', () => {

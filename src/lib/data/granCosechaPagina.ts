@@ -41,6 +41,17 @@ export interface ItemCarrusel {
   tipo: 'imagen' | 'video'
   /** URL pública en el bucket. */
   url: string
+  /**
+   * Lo que la landing muestra junto a la foto: badge de edición, badge de
+   * categoría, título, pie y ubicación (el mismo set que recoge su propio
+   * modal de fotos). Todo OPCIONAL: los items viejos —sólo `tipo`+`url`—
+   * siguen siendo válidos y la landing pinta un respaldo si falta.
+   */
+  titulo?: string
+  edicion?: string
+  categoria?: string
+  pie?: string
+  ubicacion?: string
 }
 
 /** El bloque del hero: lema, bajada, fechas, fondo y carrusel. */

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp, Eye, Trash2 } from 'lucide-react'
 import { avisar } from '../lib/aviso'
-import { Button, ButtonIcon, EmptyState, Field, SkeletonFilas, Spinner, Textarea } from '../components/ui'
+import { Button, ButtonIcon, EmptyState, Field, Input, SkeletonFilas, Spinner, Textarea } from '../components/ui'
 import { PortalCabecera } from '../components/PortalCabecera'
 import {
   cargarContenidoPagina,
@@ -116,6 +116,29 @@ export function GranCosechaPaginaPage() {
       return { ...c, hero: { ...c.hero, carrusel: lista } }
     })
 
+  /**
+   * El texto de un slide —título, edición, categoría o pie—: es lo que la
+   * landing pinta al lado de la foto. La URL no se toca desde acá (sale de
+   * la subida) y todos los campos son opcionales: si faltan, la página
+   * pinta un respaldo.
+   */
+  const cambiarCampoSlide = (
+    i: number,
+    campo: 'titulo' | 'edicion' | 'categoria' | 'pie',
+    valor: string
+  ) =>
+    setContenido((c) =>
+      c
+        ? {
+            ...c,
+            hero: {
+              ...c.hero,
+              carrusel: c.hero.carrusel.map((s, j) => (j === i ? { ...s, [campo]: valor } : s))
+            }
+          }
+        : c
+    )
+
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       {/* Ver y guardar viven en la barra, igual que en el resto de la consola:
@@ -171,7 +194,7 @@ export function GranCosechaPaginaPage() {
 
           <Tarjeta
             titulo="Cosechas Pasadas"
-            descripcion="Fotos y videos de ediciones anteriores que rotan en la sección Cosechas Pasadas. Cada archivo se convierte al subirlo (WebP las imágenes, WebM los videos) y los videos quedan sin sonido."
+            descripcion="Fotos de ediciones anteriores que rotan en la sección Cosechas Pasadas, con su título, edición, categoría y pie —lo que la página pinta al lado de la foto—. Cada imagen se convierte a WebP al subirlo."
           >
             {!contenido.hero.carrusel.length ? (
               <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
@@ -235,6 +258,39 @@ export function GranCosechaPaginaPage() {
                         <Trash2 className="h-5 w-5" />
                       </ButtonIcon>
                     </div>
+                    {/* Lo que la landing pinta al lado de la foto: badges,
+                        título y pie. Todo opcional —con vacío, la página
+                        pinta su respaldo—. */}
+                    <div className="grid gap-3 sm:col-span-3 sm:grid-cols-2">
+                      <Field label="Título">
+                        <Input
+                          value={item.titulo ?? ''}
+                          onChange={(e) => cambiarCampoSlide(i, 'titulo', e.target.value)}
+                          placeholder="Premiación Departamento Ganador y Entrega del Trofeo"
+                        />
+                      </Field>
+                      <Field label="Edición (el badge de arriba)">
+                        <Input
+                          value={item.edicion ?? ''}
+                          onChange={(e) => cambiarCampoSlide(i, 'edicion', e.target.value)}
+                          placeholder="EDICIÓN TRIMESTRAL — COSECHA EN EQUIPO"
+                        />
+                      </Field>
+                      <Field label="Categoría">
+                        <Input
+                          value={item.categoria ?? ''}
+                          onChange={(e) => cambiarCampoSlide(i, 'categoria', e.target.value)}
+                          placeholder="Cosecha en Equipo"
+                        />
+                      </Field>
+                      <Field label="Pie de foto">
+                        <Input
+                          value={item.pie ?? ''}
+                          onChange={(e) => cambiarCampoSlide(i, 'pie', e.target.value)}
+                          placeholder="Qué se ve en la foto"
+                        />
+                      </Field>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -245,7 +301,7 @@ export function GranCosechaPaginaPage() {
               </span>
               <input
                 type="file"
-                accept="image/*,video/*"
+                accept="image/*"
                 disabled={convirtiendo !== null}
                 onChange={(e) => {
                   void agregarSlide(e.target.files?.[0])

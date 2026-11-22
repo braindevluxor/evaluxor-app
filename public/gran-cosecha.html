@@ -1137,7 +1137,7 @@
                 <div class="w-full shrink-0 grid grid-cols-1 lg:grid-cols-12">
                     <!-- Imagen con marco y recorte estilizado -->
                     <div class="lg:col-span-7 relative h-72 sm:h-96 lg:h-[450px] overflow-hidden bg-luxor-navy group cursor-pointer" onclick="openLightbox(${index})">
-                        <img src="${slide.image}" alt="${escapeHTML(slide.title)}" onerror="this.src='${slide.fallback || 'https://placehold.co/1200x700/C41E2E/FFFFFF?text=GRAN+COSECHA+LUXOR'}'" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700">
+                        <img src="${slide.image}" alt="${escapeHTML(slide.title)}" onerror="this.onerror=null;this.src='${slide.fallback || 'https://placehold.co/1200x700/C41E2E/FFFFFF?text=GRAN+COSECHA+LUXOR'}'" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700">
                         <div class="absolute inset-0 bg-gradient-to-t from-luxor-navyDark/80 via-transparent to-black/20"></div>
 
                         <!-- Badge superior -->
@@ -1206,7 +1206,7 @@
                 <button onclick="goToCarouselSlide(${idx})" class="w-12 h-9 rounded-lg overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${
                     idx === currentSlide ? 'border-luxor-yellow scale-105 opacity-100' : 'border-transparent opacity-55 hover:opacity-90'
                 }">
-                    <img src="${slide.image}" alt="" onerror="this.src='${slide.fallback}'" class="w-full h-full object-cover">
+                    <img src="${slide.image}" alt="" onerror="this.onerror=null;this.src='${slide.fallback || 'https://placehold.co/1200x700/C41E2E/FFFFFF?text=GRAN+COSECHA+LUXOR'}'" class="w-full h-full object-cover">
                 </button>
             `).join('');
 
@@ -1221,19 +1221,42 @@
             }
         }
 
+        // Navegar NO reconstruye la pista: sólo mueve el translateX y marca
+        // el punto / miniatura activos. Antes cada salto rehacía el
+        // innerHTML entero y las imágenes se volvían a pedir en bucle cada
+        // 5,5 s (el bug de recarga infinita). La pista se reconstruye SÓLO
+        // cuando cambia la lista (carga, contenido publicado, foto nueva).
+        function updateCarouselActive() {
+            const dotsContainer = document.getElementById('carousel-dots');
+            const thumbsContainer = document.getElementById('carousel-thumbs');
+            if (dotsContainer) {
+                Array.from(dotsContainer.children).forEach((btn, idx) => {
+                    btn.className = `h-2.5 rounded-full transition-all cursor-pointer ${idx === currentSlide ? 'w-8 bg-luxor-yellow' : 'w-2.5 bg-white/35 hover:bg-white/60'}`;
+                });
+            }
+            if (thumbsContainer) {
+                Array.from(thumbsContainer.children).forEach((btn, idx) => {
+                    btn.className = `w-12 h-9 rounded-lg overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${idx === currentSlide ? 'border-luxor-yellow scale-105 opacity-100' : 'border-transparent opacity-55 hover:opacity-90'}`;
+                });
+            }
+        }
+
         function nextCarouselSlide() {
             currentSlide = (currentSlide + 1) % carouselSlides.length;
-            renderCarousel();
+            updateCarouselPosition();
+            updateCarouselActive();
         }
 
         function prevCarouselSlide() {
             currentSlide = (currentSlide - 1 + carouselSlides.length) % carouselSlides.length;
-            renderCarousel();
+            updateCarouselPosition();
+            updateCarouselActive();
         }
 
         function goToCarouselSlide(index) {
             currentSlide = index;
-            renderCarousel();
+            updateCarouselPosition();
+            updateCarouselActive();
         }
 
         function startCarouselAutoplay() {
@@ -1955,12 +1978,33 @@
           // La bajada: el párrafo institucional del hero.
           texto('heroBajada', hero.bajada);
           // El carrusel publicado manda sobre la semilla/local del
-          // navegador; se repinta y el autoplay arranca de cero.
+          // navegador. Los items de la consola son {tipo, url, título…} y
+          // la pista necesita SU forma (image/edition/title/…) — se mapean
+          // acá; sólo las FOTOS entran (el carrusel es de imágenes) y si no
+          // queda ninguna, la página conserva lo que trae.
           if (Array.isArray(hero.carrusel) && hero.carrusel.length) {
-            carouselSlides = hero.carrusel;
-            currentSlide = 0;
-            renderCarousel();
-            startCarouselAutoplay();
+            var mapeados = hero.carrusel
+              .filter(function (m) {
+                return m && m.tipo === 'imagen' && typeof m.url === 'string' && m.url.trim();
+              })
+              .map(function (m, i) {
+                return {
+                  id: i + 1,
+                  edition: String(m.edicion || 'Cosechas Pasadas').toUpperCase(),
+                  category: m.categoria || 'Galería Histórica',
+                  title: m.titulo || 'Momento de Cosecha Pasada',
+                  caption: m.pie || '',
+                  location: m.ubicacion || 'Supermercados Luxor & Euromaxx',
+                  image: m.url,
+                  fallback: 'https://placehold.co/1200x700/C41E2E/F4B915?text=GRAN+COSECHA+LUXOR'
+                };
+              });
+            if (mapeados.length) {
+              carouselSlides = mapeados;
+              currentSlide = 0;
+              renderCarousel();
+              startCarouselAutoplay();
+            }
           }
         }
       }
