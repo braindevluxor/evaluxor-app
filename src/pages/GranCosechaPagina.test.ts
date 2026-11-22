@@ -182,11 +182,11 @@ describe('gran cosecha · la landing (Arena)', () => {
     expect(landing).toContain('animate-vote-pop')
     expect(landing).toContain('function triggerLuxorConfetti(')
     expect(landing).toContain("['#F4B915', '#F39200', '#C41E2E', '#182348', '#FFFFFF']")
-    // Votos, apoyos y fotos de cosechas viven en el equipo (tres llaves
-    // versionadas en localStorage).
-    expect(landing).toContain('luxor_oficial_projects_v3')
-    expect(landing).toContain('luxor_oficial_liked_v3')
+    // Tu voto y las fotos de cosechas viven en el equipo (dos llaves
+    // versionadas en localStorage); los proyectos NO — vienen de la consola.
+    expect(landing).toContain('luxor_oficial_liked_v4')
     expect(landing).toContain('luxor_oficial_carousel_v3')
+    expect(landing).not.toContain('luxor_oficial_projects')
     // El like alterna: también se puede retirar el apoyo.
     expect(landing).toContain('Has retirado tu apoyo')
   })
@@ -203,13 +203,33 @@ describe('gran cosecha · la landing (Arena)', () => {
     expect(landing).toContain('function resetFilters(')
   })
 
-  it('los modales de ficha e inscripción, con su toast', () => {
+  it('la ficha se abre en modal y el registro se enlaza a la consola', () => {
     expect(landing).toContain('id="detail-modal"')
-    expect(landing).toContain('id="submit-modal"')
-    expect(landing).toContain('function handleProjectSubmit(')
+    expect(landing).toContain('function openDetailModal(')
     expect(landing).toContain('id="toast"')
-    // Inscribir crea el proyecto con el primer voto del propio autor.
-    expect(landing).toContain('likes: 1')
+    // SIN modal de postulado local: el registro REAL es en la consola de
+    // Proyectos y los dos botones de la página sólo enlazan allá.
+    expect(landing).not.toContain('id="submit-modal"')
+    expect(landing).not.toContain('function handleProjectSubmit(')
+    expect((landing.match(/href="\/gran-cosecha\/proyectos"/g) || []).length).toBe(2)
+  })
+
+  it('no hay semilla estática: los proyectos los manda la consola', () => {
+    // La semilla hardcodeada se fue del HTML y el estado local ya no
+    // guarda proyectos — sólo TUS apoyos, con los uuids reales.
+    expect(landing).not.toContain('initialProjects')
+    expect(landing).not.toContain('luxor_oficial_projects')
+    expect(landing).toContain('luxor_oficial_liked_v4')
+    // Los proyectos llegan del RPC (`participantes`) mapeados a la forma
+    // de la galería: categoría, área, nota del avance y epoch.
+    expect(landing).toContain('Array.isArray(contenido.participantes)')
+    expect(landing).toContain('category: p.categoria')
+    expect(landing).toContain('likes: Number(p.riegos || 0)')
+    // Los ids son uuids: los handlers inline los llevan entrecomillados
+    // (sin comillas, `toggleLike(3f8a…)` es sintaxis inválida).
+    expect(landing).not.toMatch(/onclick="toggleLike\(\$\{/)
+    // Los proyectos sin categoría se filtran con su propio chip.
+    expect(landing).toContain("document.getElementById('filter-sin-categoria')")
   })
 
   it('el hero trae la marca y sus marcadores en vivo', () => {

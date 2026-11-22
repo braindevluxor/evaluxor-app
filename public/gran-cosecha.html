@@ -200,10 +200,12 @@
                         <span id="nav-live-votes" class="font-condensed font-bold text-base text-luxor-crimson">0</span>
                     </div>
 
-                    <button onclick="openSubmitModal()" class="inline-flex items-center gap-2 bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold tracking-wide uppercase text-xs sm:text-sm px-4 sm:px-5 py-2.5 rounded-xl shadow-md shadow-red-700/20 hover:-translate-y-0.5 transition-all cursor-pointer">
+                    <!-- El registro REAL vive en la consola (Proyectos):
+                         acá sólo se enlaza, con el mismo look. -->
+                    <a href="/gran-cosecha/proyectos" class="inline-flex items-center gap-2 bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold tracking-wide uppercase text-xs sm:text-sm px-4 sm:px-5 py-2.5 rounded-xl shadow-md shadow-red-700/20 hover:-translate-y-0.5 transition-all cursor-pointer">
                         <i data-lucide="plus-circle" class="w-4 h-4 text-luxor-yellow"></i>
                         <span>Postular Idea</span>
-                    </button>
+                    </a>
 
                     <button onclick="toggleMobileMenu()" class="lg:hidden p-2 rounded-xl text-luxor-navy hover:bg-luxor-ivory transition-colors" aria-label="Abrir menú">
                         <i data-lucide="menu" class="w-6 h-6"></i>
@@ -745,10 +747,10 @@
                     </p>
                 </div>
 
-                <button onclick="openSubmitModal()" class="self-start md:self-auto inline-flex items-center gap-2 bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold uppercase tracking-wider text-sm px-6 py-3.5 rounded-2xl shadow-lg transition-all cursor-pointer">
+                <a href="/gran-cosecha/proyectos" class="self-start md:self-auto inline-flex items-center gap-2 bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold uppercase tracking-wider text-sm px-6 py-3.5 rounded-2xl shadow-lg transition-all cursor-pointer">
                     <i data-lucide="plus-circle" class="w-5 h-5 text-luxor-yellow"></i>
                     <span>Inscribir Proyecto</span>
-                </button>
+                </a>
             </div>
 
             <!-- Barra de Filtros, Buscador y Orden -->
@@ -920,65 +922,6 @@
         </div>
     </div>
 
-    <!-- ================= MODAL REGISTRO DE NUEVO PROYECTO ================= -->
-    <div id="submit-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-luxor-navyDark/80 backdrop-blur-sm">
-        <div class="bg-white rounded-3xl max-w-xl w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200 overflow-hidden">
-            <div class="h-2 w-full bg-gradient-to-r from-luxor-yellow via-luxor-orange to-luxor-crimson"></div>
-            <div class="p-6 sm:p-8">
-                <div class="flex items-center justify-between pb-4 border-b border-slate-100">
-                    <div>
-                        <h3 class="font-condensed font-bold text-2xl uppercase text-luxor-navy">Postular Proyecto • Gran Cosecha Luxor</h3>
-                        <p class="text-xs text-slate-500">Aplica bajo metodología S.M.A.R.T. para Central Luxor y tiendas</p>
-                    </div>
-                    <button onclick="closeSubmitModal()" class="p-2 rounded-xl text-slate-400 hover:bg-slate-100 cursor-pointer">
-                        <i data-lucide="x" class="w-5 h-5"></i>
-                    </button>
-                </div>
-
-                <form id="project-form" onsubmit="handleProjectSubmit(event)" class="mt-5 space-y-4">
-                    <div>
-                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Título del Proyecto *</label>
-                        <input type="text" id="input-title" required maxlength="75" placeholder="Ej. Optimización de Despacho CENDIS - Euromaxx" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-luxor-crimson">
-                    </div>
-
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Modalidad *</label>
-                            <select id="input-modality" required class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold bg-white focus:outline-none focus:ring-2 focus:ring-luxor-crimson">
-                                <option value="Cosecha en Equipo">🟡 Cosecha en Equipo (Trimestral)</option>
-                                <option value="Cultivando Ideas">🔴 Cultivando Ideas / Extra Milla</option>
-                                <option value="Premiamos tu Compra">🟠 Premiamos tu Compra y Fidelidad</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Sucursal / Departamento *</label>
-                            <input type="text" id="input-branch" required placeholder="Ej. Central Luxor / Euromaxx / CENDIS" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-luxor-crimson">
-                        </div>
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Equipo e Integrantes (3 a 5 personas en grupal) *</label>
-                        <input type="text" id="input-team" required placeholder="Ej. Sinergia Luxor (Carlos M., Ana R., José L.)" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-luxor-crimson">
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Descripción de la Propuesta S.M.A.R.T. *</label>
-                        <textarea id="input-description" required rows="3" maxlength="320" placeholder="Detalla el objetivo específico, medible, alcanzable, relevante y temporal..." class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-luxor-crimson resize-none"></textarea>
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Resultado / Beneficio Medible *</label>
-                        <input type="text" id="input-impact" required placeholder="Ej. Ahorro del 22% en tiempos operativos" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-luxor-crimson">
-                    </div>
-
-                    <div class="pt-4 flex justify-end gap-3 border-t border-slate-100">
-                        <button type="button" onclick="closeSubmitModal()" class="px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 cursor-pointer">Cancelar</button>
-                        <button type="submit" class="px-6 py-3 rounded-xl text-sm font-condensed font-bold uppercase tracking-wider bg-luxor-crimson hover:bg-luxor-darkRed text-white shadow-lg cursor-pointer">Registrar Proyecto</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
 
     <!-- ================= TOAST FLOTANTE ================= -->
     <div id="toast" class="fixed bottom-5 right-5 z-50 translate-y-24 opacity-0 transition-all duration-300 pointer-events-none">
@@ -1034,80 +977,13 @@
             }
         ];
 
-        // 2. Proyectos Participantes (Central Luxor, CENDIS, Luxor & Euromaxx)
-        const initialProjects = [
-            {
-                id: 201,
-                title: "Sincronización Exprés CENDIS - Sucursales Luxor & Euromaxx",
-                modality: "Cosecha en Equipo",
-                branch: "CENDIS & Logística Central Luxor",
-                team: "Sinergia Total (Carlos Mendoza, Paola Rivas, Héctor Guzmán, Laura Díaz)",
-                description: "Reingeniería de ventanas de despacho y paletizado inteligente por categoría entre CENDIS y tiendas Luxor/Euromaxx, eliminando quiebres en productos de alta rotación.",
-                impact: "-38% en tiempos de recepción y 99.4% de disponibilidad en anaquel",
-                likes: 76,
-                timestamp: 1710000100
-            },
-            {
-                id: 202,
-                title: "Auditoría Digital de Precios y Ofertas en Piso de Venta",
-                modality: "Cultivando Ideas",
-                branch: "Sistemas & Operaciones Central Luxor",
-                team: "Milla Extra Tech (Andrea Morales, Luis Fernando Silva, Diego Castro)",
-                description: "Aplicación móvil interna bajo metodología S.M.A.R.T. para validar habladores de precios y promociones en tiempo real en todas las sucursales Luxor y Euromaxx.",
-                impact: "100% de exactitud entre fleje de anaquel y punto de venta",
-                likes: 84,
-                timestamp: 1710000200
-            },
-            {
-                id: 203,
-                title: "Ruta Tricolor de Fidelidad y Activación de Biombos",
-                modality: "Premiamos tu Compra",
-                branch: "Sucursal Euromaxx & La Victoria",
-                team: "Embajadores Luxor (Valeria Torres, Jorge Luis Peña, Camila Soto)",
-                description: "Dinámica semanal de motivación en tienda para colaboradores y clientes con puntos de canje rápido de cupones por compras desde $5 y exhibición temática.",
-                impact: "+42% de participación de colaboradores en biombos de sorteo",
-                likes: 91,
-                timestamp: 1710000300
-            },
-            {
-                id: 204,
-                title: "Control Preventivo de Merma en Fruver y Charcutería",
-                modality: "Cosecha en Equipo",
-                branch: "Compras & Perecederos",
-                team: "Cosecha Fresca (Mariana Díaz, Roberto Salazar, Elena Ruiz)",
-                description: "Tablero compartido entre Compras y jefes de perecederos para redistribución oportuna de inventario y activación de combos frescos.",
-                impact: "Reducción del 29% en merma trimestral",
-                likes: 64,
-                timestamp: 1710000400
-            },
-            {
-                id: 205,
-                title: "Optimización Energética en Cuartos Fríos y Climatización",
-                modality: "Cultivando Ideas",
-                branch: "Mantenimiento e Infraestructura",
-                team: "EcoLuxor SMART (Sofía Navarro, Andrés Gil, Marcos Pérez)",
-                description: "Monitoreo automatizado de ciclos térmicos y mantenimiento preventivo programado para reducir picos de consumo eléctrico sin afectar la cadena de frío.",
-                impact: "Ahorro mensual estimado del 18% en consumo energético",
-                likes: 69,
-                timestamp: 1710000500
-            },
-            {
-                id: 206,
-                title: "Experiencia Caja Rápida y Sonrisa Luxor",
-                modality: "Premiamos tu Compra",
-                branch: "Atención al Cliente & Cajas",
-                team: "Estrellas de Servicio (Ricardo Vargas, Natalia Herrera, Gabriel León)",
-                description: "Protocolo ágil de empaque y orientación sobre promociones vigentes y cupones de fidelidad en línea de cajas.",
-                impact: "-25% en tiempo de espera en horas pico",
-                likes: 58,
-                timestamp: 1710000600
-            }
-        ];
 
-        const STORAGE_PROJECTS = 'luxor_oficial_projects_v3';
-        const STORAGE_LIKED = 'luxor_oficial_liked_v3';
+        const STORAGE_LIKED = 'luxor_oficial_liked_v4';
         const STORAGE_CAROUSEL = 'luxor_oficial_carousel_v3';
 
+        // `projects` NO se guarda en el navegador: viene de la consola de
+        // Proyectos (el RPC `participantes`) cada vez que se abre la página.
+        // Lo local son tus apoyos (uuids reales) y las fotos agregadas.
         let projects = [];
         let likedIds = [];
         let carouselSlides = [];
@@ -1127,15 +1003,12 @@
 
         function loadState() {
             try {
-                const savedProjects = localStorage.getItem(STORAGE_PROJECTS);
                 const savedLikes = localStorage.getItem(STORAGE_LIKED);
                 const savedCarousel = localStorage.getItem(STORAGE_CAROUSEL);
 
-                projects = savedProjects ? JSON.parse(savedProjects) : [...initialProjects];
                 likedIds = savedLikes ? JSON.parse(savedLikes) : [];
                 carouselSlides = savedCarousel ? JSON.parse(savedCarousel) : [...initialCarouselSlides];
             } catch (e) {
-                projects = [...initialProjects];
                 likedIds = [];
                 carouselSlides = [...initialCarouselSlides];
             }
@@ -1143,7 +1016,6 @@
 
         function saveState() {
             try {
-                localStorage.setItem(STORAGE_PROJECTS, JSON.stringify(projects));
                 localStorage.setItem(STORAGE_LIKED, JSON.stringify(likedIds));
                 localStorage.setItem(STORAGE_CAROUSEL, JSON.stringify(carouselSlides));
             } catch (e) {
@@ -1305,7 +1177,6 @@
             if (e.key === 'Escape') {
                 closeLightbox();
                 closeDetailModal();
-                closeSubmitModal();
                 closePhotoModal();
             }
         });
@@ -1436,6 +1307,31 @@
         function updateFilterCounts() {
             const allBtn = document.querySelector('[data-filter="Todos"]');
             if (allBtn) allBtn.textContent = `Todas (${projects.length})`;
+
+            // El chip «Sin categoría» existe sólo si hay proyectos sin ella:
+            // los viejos (o los creados sin elegir) se filtran aparte.
+            const tabs = document.getElementById('filter-tabs');
+            if (tabs) {
+                const sin = projects.filter(p => !p.category).length;
+                let chip = document.getElementById('filter-sin-categoria');
+                if (sin > 0) {
+                    if (!chip) {
+                        chip = document.createElement('button');
+                        chip.id = 'filter-sin-categoria';
+                        chip.dataset.filter = 'Sin categoría';
+                        chip.type = 'button';
+                        chip.className = 'filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-slate-100 text-luxor-navy hover:bg-slate-200';
+                        chip.textContent = `Sin categoría (${sin})`;
+                        chip.addEventListener('click', () => setFilter('Sin categoría'));
+                        tabs.appendChild(chip);
+                    } else {
+                        chip.textContent = `Sin categoría (${sin})`;
+                    }
+                } else if (chip) {
+                    chip.remove();
+                    if (currentFilter === 'Sin categoría') setFilter('Todos');
+                }
+            }
         }
 
         function getModalityTheme(modality) {
@@ -1545,17 +1441,19 @@
                                     ${cfg.label}
                                 </span>
                                 <span class="text-[11px] font-bold text-blue-200 bg-white/10 px-2.5 py-1 rounded-lg">
-                                    ${escapeHTML(project.modality)}
+                                    ${escapeHTML(project.category || 'Sin categoría')}
                                 </span>
                             </div>
 
-                            <h3 onclick="openDetailModal(${project.id})" class="font-condensed font-bold text-xl sm:text-2xl uppercase text-white leading-snug mb-1.5 cursor-pointer hover:text-luxor-yellow transition-colors line-clamp-2">
+                            <h3 onclick="openDetailModal('${project.id}')" class="font-condensed font-bold text-xl sm:text-2xl uppercase text-white leading-snug mb-1.5 cursor-pointer hover:text-luxor-yellow transition-colors line-clamp-2">
                                 ${escapeHTML(project.title)}
                             </h3>
+                            ${project.branch ? `
                             <p class="text-xs font-semibold text-blue-200/80 mb-5 flex items-center gap-1.5">
                                 <i data-lucide="map-pin" class="w-3.5 h-3.5 text-luxor-yellow shrink-0"></i>
                                 <span class="truncate">${escapeHTML(project.branch)}</span>
                             </p>
+                            ` : ''}
 
                             <div class="flex items-center justify-between pt-4 border-t border-white/15">
                                 <div class="flex items-baseline gap-1.5">
@@ -1563,7 +1461,7 @@
                                     <span class="text-xs font-bold text-blue-200 uppercase">votos</span>
                                 </div>
 
-                                <button onclick="toggleLike(${project.id}, event)" class="px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                <button onclick="toggleLike('${project.id}', event)" class="px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
                                     isLiked
                                     ? 'bg-luxor-yellow text-luxor-navy shadow-lg'
                                     : 'bg-white/15 hover:bg-white/25 text-white border border-white/20'
@@ -1589,7 +1487,8 @@
             const maxLikes = Math.max(...projects.map(p => p.likes), 1);
 
             let filtered = projects.filter(p => {
-                const matchModality = currentFilter === 'Todos' || p.modality === currentFilter;
+                const categoria = p.category || 'Sin categoría';
+                const matchModality = currentFilter === 'Todos' || categoria === currentFilter;
                 const q = currentSearch.toLowerCase().trim();
                 const matchSearch = !q ||
                     p.title.toLowerCase().includes(q) ||
@@ -1615,7 +1514,7 @@
 
             grid.innerHTML = filtered.map(proj => {
                 const isLiked = likedIds.includes(proj.id);
-                const theme = getModalityTheme(proj.modality);
+                const theme = getModalityTheme(proj.category);
                 const popularityPct = Math.min(100, Math.max(12, Math.round((proj.likes / maxLikes) * 100)));
                 const avatarsHTML = getTeamAvatars(proj.team);
 
@@ -1628,20 +1527,22 @@
                                 <div class="flex items-center justify-between gap-2 mb-4">
                                     <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold border ${theme.badge}">
                                         <i data-lucide="${theme.icon}" class="w-3 h-3"></i>
-                                        ${escapeHTML(proj.modality)}
+                                        ${escapeHTML(proj.category || 'Sin categoría')}
                                     </span>
 
-                                    <button onclick="openDetailModal(${proj.id})" class="w-8 h-8 rounded-xl bg-luxor-ivory hover:bg-luxor-navy text-luxor-navy hover:text-white flex items-center justify-center transition-colors cursor-pointer" title="Ver propuesta completa">
+                                    <button onclick="openDetailModal('${proj.id}')" class="w-8 h-8 rounded-xl bg-luxor-ivory hover:bg-luxor-navy text-luxor-navy hover:text-white flex items-center justify-center transition-colors cursor-pointer" title="Ver propuesta completa">
                                         <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i>
                                     </button>
                                 </div>
 
+                                ${proj.branch ? `
                                 <div class="flex items-center gap-1.5 text-xs font-bold text-luxor-crimson mb-1.5">
                                     <i data-lucide="map-pin" class="w-3.5 h-3.5 shrink-0"></i>
                                     <span class="truncate">${escapeHTML(proj.branch)}</span>
                                 </div>
+                                ` : ''}
 
-                                <h3 onclick="openDetailModal(${proj.id})" class="font-condensed font-bold text-2xl uppercase text-luxor-navy group-hover:text-luxor-crimson transition-colors cursor-pointer leading-tight mb-3">
+                                <h3 onclick="openDetailModal('${proj.id}')" class="font-condensed font-bold text-2xl uppercase text-luxor-navy group-hover:text-luxor-crimson transition-colors cursor-pointer leading-tight mb-3">
                                     ${escapeHTML(proj.title)}
                                 </h3>
 
@@ -1675,7 +1576,7 @@
                                 Ver ficha →
                             </button>
 
-                            <button id="like-btn-${proj.id}" onclick="toggleLike(${proj.id}, event)" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition-all cursor-pointer select-none ${
+                            <button id="like-btn-${proj.id}" onclick="toggleLike('${proj.id}', event)" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition-all cursor-pointer select-none ${
                                 isLiked
                                 ? 'bg-luxor-crimson text-white shadow-md shadow-red-700/25'
                                 : 'bg-white border-2 border-slate-200 text-luxor-navy hover:border-luxor-crimson hover:text-luxor-crimson'
@@ -1728,7 +1629,7 @@
             }
 
             const detailModal = document.getElementById('detail-modal');
-            if (!detailModal.classList.contains('hidden') && Number(detailModal.dataset.currentId) === projectId) {
+            if (!detailModal.classList.contains('hidden') && String(detailModal.dataset.currentId) === String(projectId)) {
                 openDetailModal(projectId);
             }
         }
@@ -1785,7 +1686,7 @@
             const modal = document.getElementById('detail-modal');
             const content = document.getElementById('detail-modal-content');
             const isLiked = likedIds.includes(proj.id);
-            const theme = getModalityTheme(proj.modality);
+            const theme = getModalityTheme(proj.category);
 
             modal.dataset.currentId = proj.id;
 
@@ -1795,7 +1696,7 @@
                     <div class="flex items-center justify-between gap-3 mb-4">
                         <span class="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-extrabold bg-luxor-yellow text-luxor-navy">
                             <i data-lucide="${theme.icon}" class="w-3.5 h-3.5"></i>
-                            ${escapeHTML(proj.modality)}
+                            ${escapeHTML(proj.category || 'Sin categoría')}
                         </span>
                         <button onclick="closeDetailModal()" class="w-9 h-9 rounded-xl bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors cursor-pointer">
                             <i data-lucide="x" class="w-5 h-5"></i>
@@ -1805,10 +1706,12 @@
                     <h3 class="font-condensed font-bold text-3xl sm:text-4xl uppercase text-white leading-tight mb-2">
                         ${escapeHTML(proj.title)}
                     </h3>
+                    ${proj.branch ? `
                     <div class="flex items-center gap-2 text-xs sm:text-sm font-bold text-luxor-yellow">
                         <i data-lucide="map-pin" class="w-4 h-4"></i>
                         <span>${escapeHTML(proj.branch)}</span>
                     </div>
+                    ` : ''}
                 </div>
 
                 <div class="p-6 sm:p-8 space-y-6 bg-white">
@@ -1829,17 +1732,16 @@
                         </p>
                     </div>
 
-                    ${proj.impact ? `
-                        <div class="bg-luxor-yellow/20 border-2 border-luxor-yellow rounded-2xl p-4 flex items-center gap-3.5">
-                            <div class="w-11 h-11 rounded-xl bg-luxor-navy text-luxor-yellow flex items-center justify-center shrink-0">
-                                <i data-lucide="trending-up" class="w-6 h-6"></i>
-                            </div>
-                            <div>
-                                <span class="text-[11px] font-extrabold uppercase tracking-wider text-luxor-crimson block">Resultado Medible</span>
-                                <span class="text-sm sm:text-base font-extrabold text-luxor-navy">${escapeHTML(proj.impact)}</span>
-                            </div>
+                    <div class="bg-blue-50 border-2 border-blue-200 rounded-2xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-[11px] font-extrabold uppercase tracking-wider text-luxor-crimson">Avance del proyecto</span>
+                            <span class="font-condensed font-bold text-lg text-luxor-navy">${proj.avance}%</span>
                         </div>
-                    ` : ''}
+                        <div class="w-full h-2 bg-white rounded-full overflow-hidden">
+                            <div class="h-2 bg-luxor-crimson rounded-full transition-all duration-500" style="width: ${proj.avance}%"></div>
+                        </div>
+                        ${proj.nota ? `<p class="mt-2 text-sm text-slate-600 mt-2">${escapeHTML(proj.nota)}</p>` : ''}
+                    </div>
 
                     <div class="pt-5 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
                         <div class="text-center sm:text-left">
@@ -1847,7 +1749,7 @@
                             <span class="text-sm font-extrabold text-luxor-navy">Apoya esta iniciativa con tu voto</span>
                         </div>
 
-                        <button onclick="toggleLike(${proj.id}, event)" class="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-2xl text-sm font-extrabold transition-all cursor-pointer ${
+                        <button onclick="toggleLike('${proj.id}', event)" class="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-2xl text-sm font-extrabold transition-all cursor-pointer ${
                             isLiked
                             ? 'bg-luxor-crimson text-white shadow-lg'
                             : 'bg-luxor-yellow hover:bg-luxor-orange text-luxor-navy shadow-md'
@@ -1873,60 +1775,6 @@
             modal.classList.remove('flex');
         }
 
-        function openSubmitModal() {
-            const modal = document.getElementById('submit-modal');
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
-            lucide.createIcons();
-        }
-
-        function closeSubmitModal() {
-            const modal = document.getElementById('submit-modal');
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-        }
-
-        function handleProjectSubmit(e) {
-            e.preventDefault();
-
-            const title = document.getElementById('input-title').value.trim();
-            const modality = document.getElementById('input-modality').value;
-            const branch = document.getElementById('input-branch').value.trim();
-            const team = document.getElementById('input-team').value.trim();
-            const description = document.getElementById('input-description').value.trim();
-            const impact = document.getElementById('input-impact').value.trim();
-
-            if (!title || !branch || !team || !description) return;
-
-            const newProject = {
-                id: Date.now(),
-                title,
-                modality,
-                branch,
-                team,
-                description,
-                impact,
-                likes: 1,
-                timestamp: Math.floor(Date.now() / 1000)
-            };
-
-            projects.unshift(newProject);
-            likedIds.push(newProject.id);
-            saveState();
-
-            document.getElementById('project-form').reset();
-            closeSubmitModal();
-
-            currentSort = 'recent';
-            document.getElementById('sort-select').value = 'recent';
-            setFilter('Todos');
-            renderAll();
-
-            triggerLuxorConfetti(0.5, 0.5);
-            showToast("¡Propuesta registrada en Gran Cosecha Luxor!", "🏆");
-            document.getElementById('proyectos').scrollIntoView({ behavior: 'smooth' });
-        }
-
         function toggleMobileMenu() {
             const menu = document.getElementById('mobile-menu');
             menu.classList.toggle('hidden');
@@ -1934,7 +1782,6 @@
 
         window.addEventListener('click', (e) => {
             if (e.target === document.getElementById('detail-modal')) closeDetailModal();
-            if (e.target === document.getElementById('submit-modal')) closeSubmitModal();
             if (e.target === document.getElementById('lightbox-modal')) closeLightbox();
             if (e.target === document.getElementById('photo-modal')) closePhotoModal();
         });
@@ -1998,6 +1845,35 @@
 
       function aplicar() {
         if (!contenido || typeof contenido !== 'object' || !domListo) return;
+
+        // LOS PROYECTOS: lo que se registra en la consola de Proyectos (la
+        // sección `participantes` del mismo RPC). El id real manda; los
+        // votos base son los RIEGOS reales y el apoyo local sólo suma el
+        // tuyo encima.
+        if (Array.isArray(contenido.participantes)) {
+          projects = contenido.participantes.map(function (p) {
+            return {
+              id: p.id,
+              title: p.titulo || 'Proyecto sin título',
+              description: p.descripcion || '',
+              category: p.categoria || '',
+              branch: p.sucursal || '',
+              team: Array.isArray(p.miembros) ? p.miembros.filter(Boolean).join(', ') : '',
+              nota: p.avance_nota || '',
+              avance: Number(p.avance || 0),
+              likes: Number(p.riegos || 0),
+              timestamp: Number(p.created_at || 0)
+            };
+          });
+          // Los apoyos guardados contra la semilla vieja (ids numéricos) ya
+          // no coinciden con los uuids reales: se limpian.
+          likedIds = likedIds.filter(function (id) {
+            return projects.some(function (p) { return p.id === id; });
+          });
+          saveState();
+          renderAll();
+        }
+
         var hero = contenido.hero;
         if (hero && typeof hero === 'object') {
           // La bajada: el párrafo institucional del hero.

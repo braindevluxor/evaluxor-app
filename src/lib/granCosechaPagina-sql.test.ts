@@ -95,6 +95,13 @@ const DDL = `
     -- Lo mismo para los archivos de la presentación: el bloque los agrega
     -- con un alter table add column if not exists adjuntos jsonb.
     adjuntos jsonb not null default '[]',
+    -- Lo que la landing Arena pinta: descripción, el área y la nota del
+    -- último avance (en la real las cuatro existen desde el bloque; la
+    -- categoría la agrega el alter table add column if not exists).
+    descripcion text not null default '',
+    categoria text,
+    sucursal text not null default '',
+    avance_nota text,
     created_at timestamptz not null default now()
   );
 
@@ -379,6 +386,14 @@ describe('gran-cosecha-pagina.sql · la función pública', () => {
   })
 
   it('publica los proyectos REGISTRADOS del trimestre, con sus riegos y nada más', async () => {
+    // Lo que la Arena pinta junto a la tarjeta: descripción, categoría,
+    // área y la nota del último avance.
+    await db.query(
+      `update public.gran_cosecha_proyecto
+          set categoria = 'Cultivando Ideas', sucursal = 'CENDIS & Tiendas',
+              descripcion = 'Bajar los tiempos de descarga', avance_nota = 'Primera fase lista'
+        where titulo = 'Huerto vertical'`
+    )
     await conAnon(async () => {
       const r = await db.query<{ r: Record<string, unknown> | null }>(
         `select public.ver_contenido_gran_cosecha() as r`
@@ -392,6 +407,17 @@ describe('gran-cosecha-pagina.sql · la función pública', () => {
       // El conteo de riegos: número por proyecto, cero si nadie lo regó.
       expect(participantes[0].riegos).toBe(2)
       expect(participantes[1].riegos).toBe(0)
+
+      // Lo que la Arena pinta: categoría (con su fallback para las filas
+      // viejas), área, descripción, nota del avance y el epoch para
+      // ordenar por «Más recientes».
+      expect(participantes[0].categoria).toBe('Cultivando Ideas')
+      expect(participantes[0].sucursal).toBe('CENDIS & Tiendas')
+      expect(participantes[0].descripcion).toBe('Bajar los tiempos de descarga')
+      expect(participantes[0].avance_nota).toBe('Primera fase lista')
+      expect(typeof participantes[0].created_at).toBe('number')
+      expect(participantes[1].categoria).toBeNull()
+      expect(participantes[1].sucursal).toBe('')
 
       // El equipo sale como NOMBRES, y quién riego nunca es contenido
       // público. El `id` SÍ viaja: es por donde los portales hermanos

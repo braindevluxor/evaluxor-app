@@ -66,6 +66,17 @@ export function claveDeMiembro(m: MiembroEquipo): string {
   return m.usuario_id ? `u:${m.usuario_id}` : `w:${m.nacionalidad ?? ''}-${m.dni ?? ''}`
 }
 
+/**
+ * Las tres categorías oficiales del programa — las mismas que la landing
+ * Arena usa para el badge, la franja de color y sus filtros. Sin
+ * categoría (NULL) la web muestra la tarjeta en «Sin categoría».
+ */
+export const CATEGORIAS_GRAN_COSECHA = [
+  'Cosecha en Equipo',
+  'Cultivando Ideas',
+  'Premiamos tu Compra'
+] as const
+
 export interface ProyectoGranCosecha {
   id: string
   /** `2026-T1`…`2026-T4`: el trimestre en que participa. */
@@ -91,6 +102,13 @@ export interface ProyectoGranCosecha {
    * trae — por eso la pantalla usa `?? []`.
    */
   adjuntos?: AdjuntoProyecto[]
+  /**
+   * La categoría del programa (badge, franja de color y filtro de la
+   * landing Arena) y el área que muestra el pin. Opcionales como
+   * `adjuntos`: una base con el bloque sin reaplicar no las trae.
+   */
+  categoria?: string | null
+  sucursal?: string
   creador_id: string | null
   created_at: string
   updated_at: string
@@ -288,6 +306,9 @@ export interface NuevoProyecto {
   /** Las dos fotos de la landing: vacías, la tarjeta usa su inicial. */
   imagen: string
   foto: string
+  /** Categoría del programa y área: lo que la landing pinta en la tarjeta. */
+  categoria?: string | null
+  sucursal?: string
 }
 
 /**
@@ -310,6 +331,8 @@ export async function crearProyecto(entrada: NuevoProyecto, creadorId: string): 
       estado: 'PROPUESTA',
       imagen: entrada.imagen,
       foto: entrada.foto,
+      categoria: entrada.categoria ?? null,
+      sucursal: entrada.sucursal ?? '',
       creador_id: creadorId
     })
     .select('*')
@@ -336,6 +359,9 @@ export interface CambiosProyecto {
   avance_nota?: string
   imagen?: string
   foto?: string
+  /** Categoría del programa y área: lo que la landing pinta en la tarjeta. */
+  categoria?: string | null
+  sucursal?: string
   /** Los archivos de la presentación (documentos y videos). */
   adjuntos?: AdjuntoProyecto[]
 }

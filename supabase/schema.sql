@@ -5971,6 +5971,19 @@ alter table public.gran_cosecha_proyecto
 alter table public.gran_cosecha_proyecto
   add column if not exists adjuntos jsonb not null default '[]';
 
+-- LAS CATEGORÍAS Y EL ÁREA DEL PROGRAMA: lo que la landing Arena pinta en
+-- cada tarjeta (badge, franja de color, filtro) y en su ficha. `categoria`
+-- es una de las tres categorías oficiales —nullable: los proyectos viejos
+-- quedan «Sin categoría» hasta que se editen— y `sucursal` es la etiqueta
+-- libre «Sucursal o Área» que muestra el pin del mapa.
+alter table public.gran_cosecha_proyecto
+  add column if not exists categoria text
+    check (categoria is null or categoria in (
+      'Cosecha en Equipo', 'Cultivando Ideas', 'Premiamos tu Compra'
+    ));
+alter table public.gran_cosecha_proyecto
+  add column if not exists sucursal text not null default '';
+
 create table if not exists public.gran_cosecha_bitacora (
   id uuid primary key default gen_random_uuid(),
   proyecto_id uuid not null references public.gran_cosecha_proyecto(id) on delete cascade,
@@ -6484,7 +6497,17 @@ as $$
           -- concurso no da ningún permiso — la tabla de riegos está cerrada.
           'id', pr.id,
           'titulo', pr.titulo,
+          -- Lo que la landing Arena pinta en la tarjeta: la descripción,
+          -- la categoría oficial (nullable en filas viejas) y el área.
+          'descripcion', pr.descripcion,
+          'categoria', pr.categoria,
+          'sucursal', pr.sucursal,
           'avance', pr.avance,
+          -- La nota del último avance: lo que la ficha muestra debajo del
+          -- porcentaje (en la Arena reemplaza al «impacto» estático).
+          'avance_nota', pr.avance_nota,
+          -- Epoch en segundos: el orden de «Más recientes» de la Arena.
+          'created_at', extract(epoch from pr.created_at)::bigint,
           -- Sólo NOMBRES: los usuario_id no son contenido público.
           'miembros', (
             select coalesce(jsonb_agg(m -> 'nombre'), '[]'::jsonb)

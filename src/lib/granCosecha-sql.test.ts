@@ -247,6 +247,18 @@ describe('gran-cosecha.sql · las reglas del proyecto', () => {
     await expect(presentar({ avance: -1 })).rejects.toThrow(/check/i)
     await expect(presentar({ titulo: '   ' })).rejects.toThrow(/check/i)
   })
+
+  it('la categoría es una de las tres oficiales (o está vacía)', async () => {
+    const id = await presentar({ titulo: 'Con categoría', categoria: 'Cosecha en Equipo' })
+    await expect(
+      db.query(`update public.gran_cosecha_proyecto set categoria = 'Categoría inventada' where id = $1`, [id])
+    ).rejects.toThrow(/categoria/i)
+    // Las filas viejas quedan en NULL y eso es válido: la web las muestra
+    // con su chip de «Sin categoría».
+    await expect(
+      db.query(`update public.gran_cosecha_proyecto set categoria = null where id = $1`, [id])
+    ).resolves.toBeTruthy()
+  })
 })
 
 describe('gran-cosecha.sql · quién entra', () => {

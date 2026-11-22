@@ -21,6 +21,7 @@ import { PortalCabecera } from '../components/PortalCabecera'
 import { chipPastel } from '../lib/diseno'
 import { useAuth } from '../context/AuthContext'
 import {
+  CATEGORIAS_GRAN_COSECHA,
   ACEPTA_ADJUNTOS,
   ESTADOS,
   MAX_ADJUNTO_BYTES,
@@ -783,6 +784,8 @@ function DetalleProyecto({
   const [titulo, setTitulo] = useState(proyecto.titulo)
   const [descripcion, setDescripcion] = useState(proyecto.descripcion)
   const [periodo, setPeriodo] = useState(proyecto.periodo)
+  const [categoria, setCategoria] = useState(proyecto.categoria ?? '')
+  const [sucursal, setSucursal] = useState(proyecto.sucursal ?? '')
   const [elegidos, setElegidos] = useState<MiembroEquipo[]>(proyecto.miembros)
   const [guardandoEdicion, setGuardandoEdicion] = useState(false)
 
@@ -798,7 +801,9 @@ function DetalleProyecto({
       titulo: titulo.trim(),
       descripcion: descripcion.trim(),
       periodo,
-      miembros: elegidos
+      miembros: elegidos,
+      categoria: categoria || null,
+      sucursal: sucursal.trim()
     })
     setGuardandoEdicion(false)
     // Si falló (permiso, red, bloque sin aplicar) el formulario se queda con
@@ -904,6 +909,32 @@ function DetalleProyecto({
                   </option>
                 ))}
               </Select>
+            </Field>
+          </div>
+          {/* Lo que la web pinta en la tarjeta: la categoría (badge,
+              franja de color y filtro) y el área (el pin del mapa). */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Categoría" hint="La que muestra la web: badge, color y filtro.">
+              <Select
+                value={categoria}
+                onChange={(e) => setCategoria(e.target.value)}
+                aria-label="Categoría del proyecto"
+              >
+                <option value="">Sin categoría</option>
+                {CATEGORIAS_GRAN_COSECHA.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Sucursal o área" hint="El pin del mapa en la web.">
+              <Input
+                value={sucursal}
+                onChange={(e) => setSucursal(e.target.value)}
+                placeholder="Ej.: CENDIS & Sucursales"
+                aria-label="Sucursal o área del proyecto"
+              />
             </Field>
           </div>
           <Field label="Descripción" hint="Qué proponen hacer y en qué consiste el proyecto.">
@@ -1342,6 +1373,8 @@ function FormProyecto({
   const [titulo, setTitulo] = useState('')
   const [descripcion, setDescripcion] = useState('')
   const [periodo, setPeriodo] = useState(periodoDeHoy())
+  const [categoria, setCategoria] = useState('')
+  const [sucursal, setSucursal] = useState('')
   const [elegidos, setElegidos] = useState<MiembroEquipo[]>([])
   const [imagen, setImagen] = useState('')
   const [foto, setFoto] = useState('')
@@ -1388,7 +1421,9 @@ function FormProyecto({
                 periodo,
                 miembros: elegidos,
                 imagen,
-                foto
+                foto,
+                categoria: categoria || null,
+                sucursal: sucursal.trim()
               })
                 .catch(() => undefined)
                 .finally(() => setGuardando(false))
@@ -1419,6 +1454,34 @@ function FormProyecto({
             ))}
           </Select>
         </Field>
+
+        {/* Lo que la web pinta en la tarjeta: la categoría (badge, franja
+            de color y filtro) y el área (el pin del mapa). Sin categoría
+            la landing la muestra en «Sin categoría». */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Categoría" hint="La que muestra la web: badge, color y filtro.">
+            <Select
+              value={categoria}
+              onChange={(e) => setCategoria(e.target.value)}
+              aria-label="Categoría del proyecto"
+            >
+              <option value="">Sin categoría</option>
+              {CATEGORIAS_GRAN_COSECHA.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Sucursal o área" hint="El pin del mapa en la web.">
+            <Input
+              value={sucursal}
+              onChange={(e) => setSucursal(e.target.value)}
+              placeholder="Ej.: CENDIS & Sucursales"
+              aria-label="Sucursal o área del proyecto"
+            />
+          </Field>
+        </div>
 
         {/* Las DOS fotos que la landing del participante muestra: la del
             proyecto (la cara, siempre visible) y la del equipo (se revela al

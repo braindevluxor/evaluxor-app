@@ -203,6 +203,30 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(pagina).not.toContain('.delete()')
   })
 
+  it('el alta y la edición ofrecen la categoría y el área que la web pinta', () => {
+    const pagina = fuente('../pages/GranCosecha.tsx')
+    const datos = fuente('./data/granCosecha.ts')
+    const sql = schemaSql()
+
+    // Los DOS formularios del proyecto (alta y detalle en modo edición).
+    expect(pagina).toContain('label="Categoría"')
+    expect((pagina.match(/label="Categoría"/g) ?? []).length).toBe(2)
+    expect(pagina).toContain('label="Sucursal o área"')
+    expect(pagina).toContain('CATEGORIAS_GRAN_COSECHA')
+
+    // El data layer: la constante de las tres oficiales y los dos campos
+    // en los tipos que viajan al INSERT y al UPDATE.
+    expect(datos).toContain('CATEGORIAS_GRAN_COSECHA')
+    expect(datos).toContain('categoria?: string | null')
+    expect(datos).toContain('sucursal?: string')
+
+    // La RPC pública de la landing los publica junto a cada proyecto.
+    expect(sql).toContain("'categoria', pr.categoria")
+    expect(sql).toContain("'sucursal', pr.sucursal")
+    expect(sql).toContain("'descripcion', pr.descripcion")
+    expect(sql).toContain("'avance_nota', pr.avance_nota")
+  })
+
   it('las fotos del participante se previsualizan CUADRADAS y el equipo va en tabla', () => {
     const pagina = fuente('../pages/GranCosecha.tsx')
     const ui = fuente('../components/ui.tsx')
