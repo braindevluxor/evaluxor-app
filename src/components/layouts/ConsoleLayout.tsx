@@ -145,6 +145,17 @@ function ConsoleLayoutInterna() {
         { to: '/config/unidades', label: 'Unidades', icon: <Store className="h-5 w-5" /> },
         { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> },
         { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> },
+        // El menú público de las sucursales: el Líder lo edita desde
+        // cualquier tienda (la misma cerradura de RLS, `es_encargado_menu`).
+        { to: '/menu-editor', label: 'Menús', icon: <BookOpen className="h-5 w-5" /> }
+      ]
+    },
+    // COMPENSACIÓN: lo que es plata de RRHH, en SU bloque —mismo criterio
+    // que «Gran Cosecha»—. Los DOS roles que lo gestionan entran por acá
+    // (la ruta y el RLS `puede_bonos` dicen lo mismo).
+    {
+      seccion: 'Compensación',
+      items: [
         // Bonos por desempeño: acá entra también el Gerente de Talento Humano
         // (la ruta lo permite y `puede_bonos` es la misma cerradura en RLS).
         { to: '/config/bonos', label: 'Bonos', icon: <Star className="h-5 w-5" /> },
@@ -153,10 +164,7 @@ function ConsoleLayoutInterna() {
         { to: '/config/programas-bono', label: 'Programas de bono', icon: <ClipboardList className="h-5 w-5" /> },
         // La consulta del Excel de Talento Humano: misma cerradura que los
         // bonos (cifra de sueldo), sólo lectura.
-        { to: '/config/bonos/tabulador', label: 'Tabulador de paquetes', icon: <Table2 className="h-5 w-5" /> },
-        // El menú público de las sucursales: el Líder lo edita desde
-        // cualquier tienda (la misma cerradura de RLS, `es_encargado_menu`).
-        { to: '/menu-editor', label: 'Menús', icon: <BookOpen className="h-5 w-5" /> }
+        { to: '/config/bonos/tabulador', label: 'Tabulador de paquetes', icon: <Table2 className="h-5 w-5" /> }
       ]
     }
   ] : profile && profile.rol === 'GERENTE_TH' ? [
@@ -164,7 +172,7 @@ function ConsoleLayoutInterna() {
     // «Gestión» completa— pero su área es la dueña de los bonos: su menú es
     // ese módulo y nada más.
     {
-      seccion: 'Gestión',
+      seccion: 'Compensación',
       items: [
         { to: '/config/bonos', label: 'Bonos', icon: <Star className="h-5 w-5" /> },
         // Mismo dueño que los bonos: el área de Talento Humano también

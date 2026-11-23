@@ -35,7 +35,7 @@ describe('programas de bonificación · la ruta y el menú', () => {
 
   it('el menú lo ofrece a los dos roles que gestionan bonos', () => {
     expect(consola).toContain("to: '/config/programas-bono'")
-    // Aparece en las DOS ramas de `config`: la del Líder (Gestión completa)
+    // Aparece en las DOS ramas de `config`: la del Líder (bloque Compensación)
     // y la del Gerente de Talento Humano (sólo bonos).
     const apariciones = consola.split("to: '/config/programas-bono'").length - 1
     expect(apariciones).toBe(2)
