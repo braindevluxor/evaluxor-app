@@ -13,10 +13,11 @@ import { ChevronDown, ChevronUp, Search } from 'lucide-react'
  * TABULADOR DE PAQUETES: LA CONSULTA DEL EXCEL DE TALENTO HUMANO
  * -------------------------------------------------------------
  * `TABULADOR ESTRCII LUXOR` (OFICINA / SUCURSALES): por cargo, la
- * plantilla, el salario y el PAQUETE APROBADO con su desglose. La pantalla
- * es de SÓLO LECTURA —los números se ajustan en el Excel y se reemplazan
- * con el SQL de `scripts/generar_tabulador_paquetes.py`—, así que no hay
- * formularios: se busca, se filtra, se ordena y se abre el detalle.
+ * plantilla, el salario y el PAQUETE APROBADO —en USD— con su desglose.
+ * La pantalla es de SÓLO LECTURA —los números se ajustan en el Excel y se
+ * reemplazan con el SQL de `scripts/generar_tabulador_paquetes.py`—, así
+ * que no hay formularios: se busca, se filtra, se ordena y se abre el
+ * detalle.
  *
  * Quién entra: LÍDER y GERENTE TH (la ruta, el menú y el RLS
  * `puede_bonos` dicen lo mismo). Sin `RequireRol` acá: lo pone la ruta.
@@ -25,8 +26,12 @@ import { ChevronDown, ChevronUp, Search } from 'lucide-react'
  * búsqueda corren en memoria — sin una consulta por tecla.
  */
 
-/** Las tres cifras que la tabla muestra siempre. El resto, en el detalle. */
-type CampoOrden = 'cargo' | 'departamento' | 'plantilla' | 'salario' | 'paquete'
+/**
+ * Lo que la tabla principal ordena: cargo, departamento y el PAQUETE en
+ * USD. Plazas y salario NO son columnas de la tabla —se piden en el
+ * detalle—, pero siguen siendo columnas propias de la base.
+ */
+type CampoOrden = 'cargo' | 'departamento' | 'paquete'
 
 /**
  * Formato de cifras: dos decimales con separador de miles. Sin símbolo de
@@ -128,9 +133,9 @@ export function TabuladorPaquetesPage() {
     { campo: 'cargo', texto: 'Cargo', clase: 'text-left' },
     { campo: 'departamento', texto: 'Departamento', clase: 'text-left' },
     { campo: null, texto: 'Dependencia', clase: 'text-left' },
-    { campo: 'plantilla', texto: 'Plazas', clase: 'text-right' },
-    { campo: 'salario', texto: 'Salario (Bs)', clase: 'text-right' },
-    { campo: 'paquete', texto: 'Paquete aprobado (Bs)', clase: 'text-right' }
+    // El PAQUETE es la cifra que la tabla resuelve: va en DÓLARES (así lo
+    // aprueba el Excel) — plazas y salario se piden en el detalle.
+    { campo: 'paquete', texto: 'Paquete aprobado (USD)', clase: 'text-right' }
   ]
 
   if (cargando) {
@@ -274,8 +279,6 @@ export function TabuladorPaquetesPage() {
                   <td className="px-3 py-2.5 font-semibold text-slate-800">{f.cargo}</td>
                   <td className="px-3 py-2.5 text-slate-600">{f.departamento || '—'}</td>
                   <td className="px-3 py-2.5 text-slate-600">{f.dependencia || '—'}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{formato(f.plantilla)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{formato(f.salario)}</td>
                   <td className="px-3 py-2.5 text-right font-bold tabular-nums text-primary">
                     {formato(f.paquete)}
                   </td>
@@ -322,7 +325,7 @@ export function TabuladorPaquetesPage() {
 
             <div className="rounded-xl border-2 border-primary/30 bg-primary-50 p-4">
               <span className="block text-[11px] font-extrabold uppercase tracking-wide text-primary-700">
-                Paquete aprobado (Bs)
+                Paquete aprobado (USD)
               </span>
               <span className="mt-1 block text-2xl font-black tabular-nums text-primary">
                 {formato(detalle.paquete)}

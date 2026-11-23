@@ -31,9 +31,9 @@ export interface FilaTabulador {
   dependencia: string
   /** Plazas del puesto (null donde el Excel la dejó vacía). */
   plantilla: number | null
-  /** Salario en bolívares. */
+  /** Salario en bolívares (la columna SALARIO BS del Excel). */
   salario: number | null
-  /** PAQUETE APROBADO, en bolívares. */
+  /** PAQUETE APROBADO, en DÓLARES —así lo aprueba el Excel—. */
   paquete: number | null
   /**
    * El resto del renglón (bonos, cupones, BCI, CT…) con la clave

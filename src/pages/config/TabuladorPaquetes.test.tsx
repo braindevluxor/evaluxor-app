@@ -179,8 +179,18 @@ describe('tabulador de paquetes · la consulta', () => {
     expect(textoModal()).toContain('396.063,18')
     expect(textoModal()).toContain('OBSERVAVCIONES')
     expect(textoModal()).toContain('Revisión en enero')
-    expect(textoModal()).toContain('Paquete aprobado (Bs)')
+    expect(textoModal()).toContain('Paquete aprobado (USD)')
     expect(textoModal()).toContain('995,64')
+    await desmontar()
+  })
+
+  it('la tabla principal no muestra ni Plazas ni Salario: sólo el detalle', async () => {
+    await montar()
+
+    const cabecera = container.querySelector('thead')?.textContent ?? ''
+    expect(cabecera).toContain('Paquete aprobado (USD)')
+    expect(cabecera).not.toContain('Plazas')
+    expect(cabecera).not.toContain('Salario')
     await desmontar()
   })
 })

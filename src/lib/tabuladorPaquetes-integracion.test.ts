@@ -74,7 +74,12 @@ describe('tabulador de paquetes · la pantalla y sus datos', () => {
     // …y el desglose en un modal, con las etiquetas que manda el import.
     expect(pagina).toContain('<Modal')
     expect(pagina).toContain('etiquetas.get(key)')
-    expect(pagina).toContain('Paquete aprobado (Bs)')
+    // El PAQUETE está en DÓLARES (así lo aprueba el Excel), y la tabla
+    // principal NO lleva ni Plazas ni Salario —sólo el detalle.
+    expect(pagina).toContain('Paquete aprobado (USD)')
+    expect(pagina).not.toContain("texto: 'Plazas'")
+    expect(pagina).not.toContain("texto: 'Salario (Bs)'")
+    expect(pagina).not.toContain('Paquete aprobado (Bs)')
     // Sin nada de edición: ni botón de guardar ni avisos de guardado.
     expect(pagina).not.toContain('Guardar')
     expect(pagina).not.toContain('avisar(')
