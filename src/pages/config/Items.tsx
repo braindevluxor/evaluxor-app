@@ -2,7 +2,8 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FolderOpen, GripVertical, Pencil, Plus, Copy, Trash2, X, Check, ChevronDown } from 'lucide-react'
 import { useCatalog } from '../../context/CatalogContext'
-import { listarModulosAdmin, guardarItem, eliminarItem } from '../../lib/data/catalog'
+import { avisar } from '../../lib/aviso'
+import { listarModulosAdmin, guardarItem, eliminarItem, subirFotoReferencial, quitarFotoReferencial } from '../../lib/data/catalog'
 import { agruparPorDepartamento, listarResponsables, type ResponsableCatalogo } from '../../lib/data/responsables'
 import { etiquetaTipo, ETIQUETAS_TIPO, ETIQUETAS_CONTRA_DATO, pesoItem, redondear3, responsablesDeOpcion, valorPorResponsable, detallePorResponsable, type ContraDatoConciliacion } from '../../lib/scoring'
 import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
@@ -878,7 +879,7 @@ function FormItem({
               label="Lista de opciones"
               hint="El ítem cumple al marcar todas las opciones. En «Rango de valor» el punto solo cumple si el evaluador ingresa un valor mayor o igual al mínimo aceptable. Los puntos por opción admiten hasta 3 decimales (mínimo 0.001); si asignás puntos a TODAS las opciones, la puntuación del ítem se reparte."
             >
-              <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} conPuntos conRango puntosBloqueados={autoPuntaje} />
+              <EditorOpciones opciones={opciones} onChange={setOpciones} responsables={responsables} conPuntos conRango conFoto puntosBloqueados={autoPuntaje} />
             </Field>
           )}
           {rangoIncompleto ? (
@@ -983,9 +984,48 @@ function FormItem({
   )
 }
 
-function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = false, conRango = false, puntosBloqueados = false }: { opciones: Opcion[]; onChange: (o: Opcion[]) => void; responsables?: string[]; conPuntos?: boolean; conRango?: boolean; puntosBloqueados?: boolean }) {
+function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = false, conRango = false, conFoto = false, puntosBloqueados = false }: {
+  opciones: Opcion[]
+  onChange: (o: Opcion[]) => void
+  responsables?: string[]
+  conPuntos?: boolean
+  conRango?: boolean
+  /** Sólo el CHECKLIST: permite adjuntar una foto referencial por punto. */
+  conFoto?: boolean
+  puntosBloqueados?: boolean
+}) {
   const [arrastrando, setArrastrando] = useState<number | null>(null)
   const [sobre, setSobre] = useState<number | null>(null)
+  /** Índice de la opción cuya foto se está subiendo (`null` = ninguna). */
+  const [subiendoFoto, setSubiendoFoto] = useState<number | null>(null)
+
+  /**
+   * Adjunta (o reemplaza) la foto referencial de un punto. La subida es
+   * INMEDIATA y la URL queda en el estado del formulario: se publica recién
+   * al «Guardar ítem». La foto anterior se borra del bucket a pérdida —el
+   * archivo nuevo ya está—.
+   */
+  const subirFoto = async (i: number, archivo: File | undefined) => {
+    if (!archivo) return
+    setSubiendoFoto(i)
+    try {
+      const url = await subirFotoReferencial(archivo)
+      const previa = opciones[i]?.foto
+      if (previa) void quitarFotoReferencial(previa).catch(() => undefined)
+      onChange(opciones.map((o, idx) => (idx === i ? { ...o, foto: url } : o)))
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo subir la foto referencial.', 'error')
+    } finally {
+      setSubiendoFoto(null)
+    }
+  }
+
+  /** Quita la foto: borra el archivo y limpia el campo (se publica al guardar). */
+  const quitarFoto = (i: number) => {
+    const previa = opciones[i]?.foto
+    if (previa) void quitarFotoReferencial(previa).catch(() => undefined)
+    onChange(opciones.map((o, idx) => (idx === i ? { ...o, foto: undefined } : o)))
+  }
 
   const cambiar = (i: number, etiqueta: string) => {
     const nuevo = opciones.map((o, idx) => (idx === i ? { ...o, etiqueta } : o))
@@ -1072,6 +1112,48 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
             </button>
             <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold tabular-nums text-slate-600 ring-1 ring-inset ring-slate-200">{i + 1}</span>
             <Input value={o.etiqueta} onChange={(e) => cambiar(i, e.target.value)} placeholder={`Opción ${i + 1}`} className="min-w-40 flex-1" />
+            {/* Foto referencial del punto (sólo CHECKLIST): la pinta la
+                evaluación junto al check para que no se confunda. */}
+            {conFoto ? (
+              <div className="flex shrink-0 items-center gap-1 self-end pb-0.5">
+                {o.foto ? (
+                  <a href={o.foto} target="_blank" rel="noreferrer" title="Ver foto referencial" className="block">
+                    <img src={o.foto} alt="" className="h-8 w-8 rounded-lg border border-slate-200 object-cover" />
+                  </a>
+                ) : null}
+                <label
+                  className={cn(
+                    'cursor-pointer rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-500 hover:bg-slate-50',
+                    subiendoFoto !== null && 'pointer-events-none opacity-60'
+                  )}
+                  title={o.foto ? 'Reemplazar la foto referencial' : 'Adjuntar foto referencial (opcional)'}
+                >
+                  {subiendoFoto === i ? 'Subiendo…' : o.foto ? 'Cambiar foto' : 'Adjuntar foto'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={subiendoFoto !== null}
+                    onChange={(e) => {
+                      const archivo = e.target.files?.[0]
+                      e.target.value = ''
+                      void subirFoto(i, archivo)
+                    }}
+                  />
+                </label>
+                {o.foto ? (
+                  <ButtonIcon
+                    type="button"
+                    variant="ghost"
+                    onClick={() => quitarFoto(i)}
+                    title="Quitar foto referencial"
+                    aria-label={`Quitar foto de la opción ${i + 1}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </ButtonIcon>
+                ) : null}
+              </div>
+            ) : null}
             {conPuntos ? (
               <label className="flex shrink-0 flex-col gap-1">
                 <span className="px-0.5 text-[11px] font-semibold text-slate-500">{puntosBloqueados ? 'Puntos (auto)' : 'Puntos'}</span>

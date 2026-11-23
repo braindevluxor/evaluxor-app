@@ -4301,11 +4301,11 @@ create policy departamentos_centralizados_select on public.departamentos_central
 drop policy if exists "departamentos_centralizados_lider" on public.departamentos_centralizados;
 create policy departamentos_centralizados_lider on public.departamentos_centralizados for all using (public.es_lider()) with check (public.es_lider());
 
--- storage.objects (27 políticas: 11 distintas de fotos, cada una re-declarada
+-- storage.objects (29 políticas: 11 distintas de fotos, cada una re-declarada
 -- por el bloque que la trae y por `reactivar-politicas.sql` —7 de evidencias
--- e incidencias + 4 de la pre-entrega—, y 5 que sólo se declaran en su
+-- e incidencias + 4 de la pre-entrega—, y 7 que sólo se declaran en su
 -- propio bloque: 3 de la Gran Cosecha (la página y las fotos de proyecto) y
--- 2 del menú)
+-- 2 del menú y 2 de fotos de módulos)
 -- (storage.objects ya tiene RLS; solo se reponen sus polÃ­ticas)
 drop policy if exists "evidencias_select" on storage.objects;
 create policy "evidencias_select" on storage.objects for select to authenticated using (bucket_id = 'evidencias');
@@ -6941,6 +6941,44 @@ $$;
 
 revoke execute on function public.ver_sucursales_menu() from public, anon;
 grant execute on function public.ver_sucursales_menu() to anon, authenticated;
+
+-- Archivo consolidado: modulos-fotos.sql
+-- ###########################################################################
+-- ============================================================================
+-- FOTOS REFERENCIALES DE LOS PUNTOS DE UN CHECKLIST
+--
+-- Config → Ítems permite adjuntar, a CADA punto de un ítem CHECKLIST, una
+-- foto de referencia —un listado de cortes de carne con su corte
+-- fotografiado, para que el evaluador no confunda un punto con otro—. La
+-- URL vive en el propio punto (`items.opciones[].foto`, jsonb): ESTE
+-- bloque sólo abre el bucket donde se guardan los archivos.
+--
+-- `modulos-fotos` es PÚBLICO, mismo criterio que `menu-fotos`: la
+-- evaluación pinta la URL directo, sin firmar nada ni pedir sesión para
+-- verla. Escribe sólo el LÍDER —la misma cerradura que Config → Ítems— con
+-- `es_lider()` en las dos caras de la política; el resto ni siquiera la
+-- lista.
+--
+-- Aplicar en el SQL Editor de Supabase. Idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+
+insert into storage.buckets (id, name, public)
+values ('modulos-fotos', 'modulos-fotos', true)
+on conflict (id) do update set public = excluded.public;
+
+-- Ver: cualquiera que tenga la URL (la evaluación las pinta directo).
+drop policy if exists modulos_fotos_select on storage.objects;
+create policy modulos_fotos_select on storage.objects
+  for select to public
+  using (bucket_id = 'modulos-fotos');
+
+-- Subir, reemplazar y borrar: sólo el LÍDER, y sólo en ESTE bucket.
+drop policy if exists modulos_fotos_lider on storage.objects;
+create policy modulos_fotos_lider on storage.objects
+  for all to authenticated
+  using (bucket_id = 'modulos-fotos' and public.es_lider())
+  with check (bucket_id = 'modulos-fotos' and public.es_lider());
 
 -- ###########################################################################
 -- Archivo consolidado: gran-cosecha-publico.sql

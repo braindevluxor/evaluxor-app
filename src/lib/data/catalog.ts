@@ -1,4 +1,5 @@
 import { supabase } from '../supabase'
+import { convertirImagenAWebP } from '../convertirMedia'
 import { getCache, putCache, type CacheData } from '../offline/db'
 import type { Modulo, Item, Sucursal, Departamento, SucursalModulo, SucursalItem, SucursalOpcion, DepartamentoModulo, DepartamentoItem, DepartamentoOpcion } from '../types'
 
@@ -215,4 +216,42 @@ export async function configurarSucursalOpciones(sucursalId: string, opciones: {
   if (aActivar.length) ops.push(Promise.resolve(supabase.from('sucursal_opciones').update({ activa: true }).in('id', aActivar)).then(() => undefined))
   if (aDesactivar.length) ops.push(Promise.resolve(supabase.from('sucursal_opciones').update({ activa: false }).in('id', aDesactivar)).then(() => undefined))
   await Promise.all(ops)
+}
+
+const BUCKET_FOTOS_ITEM = 'modulos-fotos'
+
+/**
+ * Sube la FOTO REFERENCIAL de un punto de un CHECKLIST y devuelve su URL
+ * pública (bucket `modulos-fotos`, público: la evaluación la pinta directo).
+ *
+ * Se convierte a WebP y se sube con nombre único (uuid): REEMPLAZAR una
+ * foto sube un archivo nuevo y el anterior lo borra `quitarFotoReferencial`
+ * desde el editor — el nombre fijo por punto no es posible porque un ítem
+ * NUEVO todavía no tiene id cuando se edita. La URL recién se guarda en el
+ * ítem al «Guardar»: si el editor se cancela, queda un WebP huérfano
+ * (mismo criterio que los archivos del carrusel de la página).
+ */
+export async function subirFotoReferencial(archivo: File): Promise<string> {
+  const webp = await convertirImagenAWebP(archivo)
+  const ruta = `items/${crypto.randomUUID()}.webp`
+  const { error } = await supabase.storage.from(BUCKET_FOTOS_ITEM).upload(ruta, webp, {
+    contentType: 'image/webp'
+  })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET_FOTOS_ITEM).getPublicUrl(ruta)
+  return data.publicUrl
+}
+
+/**
+ * Borra el archivo de una foto referencial ya subida. Sólo si la URL es
+ * de ESTE bucket (una foto ajena se ignora); el llamador decide si es a
+ * pérdida o con aviso.
+ */
+export async function quitarFotoReferencial(url: string): Promise<void> {
+  const marca = `/object/public/${BUCKET_FOTOS_ITEM}/`
+  const i = url.indexOf(marca)
+  if (i < 0) return
+  const ruta = url.slice(i + marca.length).split('?')[0]
+  const { error } = await supabase.storage.from(BUCKET_FOTOS_ITEM).remove([ruta])
+  if (error) throw error
 }

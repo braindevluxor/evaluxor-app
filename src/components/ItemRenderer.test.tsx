@@ -232,6 +232,33 @@ describe('ItemRenderer · evidencia fotográfica del checklist', () => {
   })
 })
 
+describe('ItemRenderer · la foto referencial de un punto del CHECKLIST', () => {
+  it('la pinta junto al punto, como enlace que se abre más grande', () => {
+    const conFoto: Item = {
+      ...itemChecklist(),
+      opciones: [
+        { id: 'o1', etiqueta: 'Bife ancho', foto: 'https://fotos.test/items/corte-ancho.webp' },
+        { id: 'o2', etiqueta: 'Bife fino' }
+      ]
+    }
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={conFoto} valor={undefined} index={0} total={1} onChange={() => {}} />
+    )
+    expect(html).toContain('src="https://fotos.test/items/corte-ancho.webp"')
+    expect(html).toContain('alt="Referencia: Bife ancho"')
+    expect(html).toContain('title="Foto referencial del punto"')
+    // Sólo el punto que la trae: el otro no pinta referencia alguna.
+    expect(html).not.toContain('Referencia: Bife fino')
+  })
+
+  it('un checklist sin fotos no pinta ninguna referencia', () => {
+    const html = renderToStaticMarkup(
+      <ItemRenderer item={itemChecklist()} valor={undefined} index={0} total={1} onChange={() => {}} />
+    )
+    expect(html).not.toContain('Foto referencial del punto')
+  })
+})
+
 function itemConciliacion(contraDato?: 'SOH' | 'FINAL_BASE'): Item {
   return {
     id: 'it-4',

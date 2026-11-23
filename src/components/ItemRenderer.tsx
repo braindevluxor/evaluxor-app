@@ -485,6 +485,20 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                       → partía "Permiso de Bomberos" letra por letra. Con basis = contenido
                       el ancho del texto entra en el cálculo de línea: si no cabe junto a los
                       badges, ellos bajan y el título lee completo. */}
+                  {/* Foto referencial del punto (la adjunta el Líder en Config
+                      → Ítems): la referencia que evita confundir un punto con
+                      otro (p. ej. un corte de carne). Tocada, se abre en
+                      otra pestaña más grande. */}
+                  {o.foto ? (
+                    <a href={o.foto} target="_blank" rel="noreferrer" title="Foto referencial del punto" className="shrink-0">
+                      <img
+                        src={o.foto}
+                        alt={`Referencia: ${o.etiqueta}`}
+                        loading="lazy"
+                        className="h-10 w-10 rounded-lg border border-slate-200 object-cover"
+                      />
+                    </a>
+                  ) : null}
                   <span className="min-w-0 flex-auto break-words text-sm text-slate-700">{o.etiqueta}</span>
                   {badgePermiso(o)}
                   {esRango ? (

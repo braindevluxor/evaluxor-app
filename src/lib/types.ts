@@ -234,6 +234,14 @@ export interface Opcion {
   vence?: string | null
   /** Estado del permiso contra la fecha de hoy. Un permiso VENCIDO nunca cuenta como cumplido, aunque el evaluador lo marque. */
   estado_permiso?: EstadoPermiso
+  /**
+   * Foto referencial del punto (sólo CHECKLIST): URL pública en el bucket
+   * `modulos-fotos`, opcional. La adjunta el Líder en Config → Ítems y la
+   * evaluación la pinta junto al punto —un listado de cortes de carne con
+   * su corte fotografiado— para que el evaluador no confunda. Informativa:
+   * no afecta el puntaje.
+   */
+  foto?: string | null
 }
 
 export interface Item {
