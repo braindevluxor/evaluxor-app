@@ -7,7 +7,14 @@ import {
   type Tabulador
 } from '../../lib/data/tabuladorPaquetes'
 import { EmptyState, Input, Modal, Select, SkeletonFilas, Spinner } from '../../components/ui'
-import { ChevronDown, ChevronUp, Search } from 'lucide-react'
+import {
+  guardarTasaManual,
+  leerTasaManual,
+  obtenerTasaBcv,
+  type TasaBcv
+} from '../../lib/tasaBcv'
+import { avisar } from '../../lib/aviso'
+import { ChevronDown, ChevronUp, Pencil, Search } from 'lucide-react'
 
 /**
  * TABULADOR DE PAQUETES: LA CONSULTA DEL EXCEL DE TALENTO HUMANO
@@ -45,6 +52,12 @@ function formato(n: number | null | undefined): string {
   }).format(n)
 }
 
+/** Fecha corta de un ISO de la API —`· 20/11/2026`—, o '' si es ilegible. */
+function fechaCorta(iso: string): string {
+  const fecha = new Date(iso)
+  return Number.isNaN(fecha.getTime()) ? '' : ` · ${fecha.toLocaleDateString('es-VE')}`
+}
+
 export function TabuladorPaquetesPage() {
   const [tabulador, setTabulador] = useState<Tabulador | null>(null)
   const [cargando, setCargando] = useState(true)
@@ -58,6 +71,22 @@ export function TabuladorPaquetesPage() {
   })
   /** El renglón abierto en el detalle, o `null`. */
   const [detalle, setDetalle] = useState<FilaTabulador | null>(null)
+  /** La tasa BCV del día (se pide al entrar; sin red, `null`). */
+  const [tasaBcv, setTasaBcv] = useState<TasaBcv | null>(null)
+  /** La alternativa manual: cargada a mano y guardada en este navegador. */
+  const [tasaManual, setTasaManual] = useState<number | null>(() => leerTasaManual())
+  const [editandoTasa, setEditandoTasa] = useState(false)
+  const [borradorTasa, setBorradorTasa] = useState('')
+
+  // La tasa del BCV: una petición al entrar; si falla, la pantalla se
+  // queda con la manual o con la del archivo (en ese orden).
+  useEffect(() => {
+    const control = new AbortController()
+    void obtenerTasaBcv(control.signal).then((tasa) => {
+      if (!control.signal.aborted) setTasaBcv(tasa)
+    })
+    return () => control.abort()
+  }, [])
 
   const cargar = useCallback(async () => {
     setCargando(true)
@@ -128,6 +157,40 @@ export function TabuladorPaquetesPage() {
     [visibles]
   )
 
+  /**
+   * La tasa que se muestra: la MANUAL (si se cargó una) → la del BCV →
+   * la del archivo (la que trae el Excel, respaldo cuando no hay red).
+   */
+  const tasaValor = tasaManual ?? tasaBcv?.valor ?? tabulador?.config?.tasa_cambio ?? null
+  const tasaFuente =
+    tasaManual != null
+      ? 'manual'
+      : tasaBcv
+        ? `BCV${fechaCorta(tasaBcv.fecha)}`
+        : tabulador?.config?.tasa_cambio != null
+          ? 'archivo'
+          : ''
+
+  /** Aplica la tasa tecleada: sólo números mayores que cero. */
+  const aplicarTasaManual = () => {
+    const valor = Number(borradorTasa.replace(',', '.'))
+    if (!Number.isFinite(valor) || valor <= 0) {
+      avisar('La tasa tiene que ser un número mayor que cero.', 'aviso')
+      return
+    }
+    guardarTasaManual(valor)
+    setTasaManual(valor)
+    setEditandoTasa(false)
+    avisar('Tasa manual guardada en este navegador. «Volver a BCV» la restablece.')
+  }
+
+  /** Borra la manual: la pantalla vuelve a la tasa del BCV. */
+  const volverABcv = () => {
+    guardarTasaManual(null)
+    setTasaManual(null)
+    setEditandoTasa(false)
+  }
+
   const cabeceraTabla: { campo: CampoOrden | null; texto: string; clase: string }[] = [
     { campo: null, texto: 'Código', clase: 'text-left' },
     { campo: 'cargo', texto: 'Cargo', clase: 'text-left' },
@@ -173,9 +236,65 @@ export function TabuladorPaquetesPage() {
             Archivo al {new Date(config.fecha_archivo + 'T00:00:00').toLocaleDateString('es-VE')}
           </span>
         ) : null}
-        {config?.tasa_cambio != null ? (
-          <span className="rounded-full bg-slate-100 px-3 py-1">
-            Tasa de cambio: {formato(config.tasa_cambio)}
+        {tasaValor != null && !editandoTasa ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
+            Tasa de cambio: {formato(tasaValor)} ({tasaFuente})
+            <button
+              type="button"
+              onClick={() => {
+                setBorradorTasa(String(tasaValor).replace('.', ','))
+                setEditandoTasa(true)
+              }}
+              aria-label="Editar la tasa de cambio"
+              title="Cargar la tasa a mano"
+              className="rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          </span>
+        ) : null}
+
+        {/* La alternativa manual: se teclea, se aplica y queda en este
+            navegador hasta que la página vuelva a la del BCV. */}
+        {editandoTasa ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-white px-2 py-1">
+            <input
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              autoFocus
+              value={borradorTasa}
+              onChange={(e) => setBorradorTasa(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') aplicarTasaManual()
+                if (e.key === 'Escape') setEditandoTasa(false)
+              }}
+              aria-label="Tasa de cambio manual"
+              className="w-24 rounded-lg border border-slate-200 px-2 py-0.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <button
+              type="button"
+              onClick={aplicarTasaManual}
+              className="rounded-lg bg-primary px-2 py-1 text-[11px] font-bold text-white hover:opacity-90"
+            >
+              Aplicar
+            </button>
+            {tasaManual != null ? (
+              <button
+                type="button"
+                onClick={volverABcv}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-50"
+              >
+                Volver a BCV
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setEditandoTasa(false)}
+              className="rounded-lg px-2 py-1 text-[11px] font-bold text-slate-400 hover:text-slate-600"
+            >
+              Cancelar
+            </button>
           </span>
         ) : null}
         {config?.tasa_cupon != null ? (

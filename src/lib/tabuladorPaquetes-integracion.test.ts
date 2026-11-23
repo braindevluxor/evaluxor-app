@@ -59,9 +59,28 @@ describe('tabulador de paquetes · la pantalla y sus datos', () => {
     expect(datos).not.toContain('.update(')
     expect(datos).not.toContain('.delete(')
     expect(datos).not.toContain('supabase.rpc(')
-    // La pantalla no tiene formularios de edición: es consulta.
+    // La pantalla no tiene formularios de edición: es consulta (lo único
+    // que se guarda es la tasa manual, en localStorage y sin tocar la base).
     expect(pagina).not.toContain('<form')
     expect(pagina).not.toContain('onSubmit')
+  })
+
+  it('la tasa es la del BCV, con la alternativa manual en el navegador', () => {
+    const tasa = fuente('../lib/tasaBcv.ts')
+    // La API pública con CORS abierto: el navegador la pide directo, sin
+    // proxy ni función de servidor…
+    expect(tasa).toContain('ve.dolarapi.com/v1/dolares')
+    // …y sólo la OFICIAL (la del BCV), nunca la paralela.
+    expect(tasa).toContain("'oficial'")
+    // La manual vive en localStorage: el tabulador sigue de sólo lectura
+    // y el import del Excel no la pisa.
+    expect(tasa).toContain('luxor_tabulador_tasa_manual')
+
+    expect(pagina).toContain('obtenerTasaBcv')
+    expect(pagina).toContain('leerTasaManual')
+    expect(pagina).toContain('Volver a BCV')
+    // La prioridad que muestra el chip: manual → BCV → archivo.
+    expect(pagina).toContain('tasaManual ?? tasaBcv?.valor ?? tabulador?.config?.tasa_cambio')
   })
 
   it('la consulta trae las DOS hojas, con búsqueda, filtro y detalle', () => {
@@ -80,9 +99,8 @@ describe('tabulador de paquetes · la pantalla y sus datos', () => {
     expect(pagina).not.toContain("texto: 'Plazas'")
     expect(pagina).not.toContain("texto: 'Salario (Bs)'")
     expect(pagina).not.toContain('Paquete aprobado (Bs)')
-    // Sin nada de edición: ni botón de guardar ni avisos de guardado.
+    // Sin nada de edición de datos: ni botón de guardar proyectos.
     expect(pagina).not.toContain('Guardar')
-    expect(pagina).not.toContain('avisar(')
   })
 
   it('el bloque existe en el schema y el generador apunta a sus tablas', () => {

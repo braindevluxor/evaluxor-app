@@ -115,10 +115,16 @@ function botones(buscado: string): HTMLButtonElement[] {
 
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  // Sin red en las pruebas: la tasa BCV falla y la pantalla se queda con
+  // la del archivo —cada test que necesite la BCV la stubbea distinto.
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('sin red')))
+  window.localStorage.clear()
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  window.localStorage.clear()
   container?.remove()
 })
 
@@ -191,6 +197,63 @@ describe('tabulador de paquetes · la consulta', () => {
     expect(cabecera).toContain('Paquete aprobado (USD)')
     expect(cabecera).not.toContain('Plazas')
     expect(cabecera).not.toContain('Salario')
+    await desmontar()
+  })
+
+  it('la tasa es la del BCV; sin red, cae en la del archivo', async () => {
+    // Sin red (el stub del beforeEach): respaldo del Excel.
+    await montar()
+    expect(texto()).toContain('Tasa de cambio: 899,27 (archivo)')
+    await desmontar()
+
+    // Con red: manda la oficial del BCV, aunque el archivo traiga otra.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [
+          { fuente: 'oficial', promedio: 918.7662, fechaActualizacion: '2026-11-20T00:00:00-04:00' },
+          { fuente: 'paralelo', promedio: 1086.86, fechaActualizacion: '2026-11-22T21:02:02Z' }
+        ]
+      })
+    )
+    await montar()
+    expect(texto()).toContain('Tasa de cambio: 918,77 (BCV · 20/11/2026)')
+    await desmontar()
+  })
+
+  it('la tasa manual sustituye a la del BCV y se puede restablecer', async () => {
+    await montar()
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Editar la tasa de cambio"]')!
+        .click()
+    })
+    const input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Tasa de cambio manual"]'
+    )
+    expect(input).toBeTruthy()
+    await escribir(input!, '950,5')
+    await act(async () => {
+      ;[...container.querySelectorAll('button')].find((b) => b.textContent === 'Aplicar')!.click()
+    })
+
+    expect(texto()).toContain('Tasa de cambio: 950,50 (manual)')
+    expect(window.localStorage.getItem('luxor_tabulador_tasa_manual')).toBe('950.5')
+
+    // El editor, de nuevo, ofrece volver a la del BCV (acá: al archivo,
+    // porque en la prueba no hay red).
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Editar la tasa de cambio"]')!
+        .click()
+    })
+    await act(async () => {
+      ;[...container.querySelectorAll('button')].find((b) => b.textContent === 'Volver a BCV')!.click()
+    })
+    expect(window.localStorage.getItem('luxor_tabulador_tasa_manual')).toBeNull()
+    expect(texto()).toContain('Tasa de cambio: 899,27 (archivo)')
     await desmontar()
   })
 })
