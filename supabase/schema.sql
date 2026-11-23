@@ -5662,6 +5662,88 @@ end $$;
 revoke execute on function public.puede_bonos() from public, anon;
 grant execute on function public.puede_bonos() to authenticated;
 
+-- Archivo consolidado: bono-tabulador.sql
+-- ###########################################################################
+-- ============================================================================
+-- TABULADOR DE PAQUETES: EL EXCEL DE TALENTO HUMANO, EN LA CONSOLA
+--
+-- `TABULADOR ESTRCII LUXOR` viene de Excel con DOS hojas —OFICINA y
+-- SUCURSALES— y, por cada cargo, la plantilla propuesta, el salario y el
+-- desglose de bonos que componen el PAQUETE APROBADO. La pantalla es de
+-- SÓLO LECTURA: los números se ajustan en el Excel y se reemplazan pegando
+-- el SQL que genera `scripts/generar_tabulador_paquetes.py`, así que acá NO
+-- hay política de escritura — ni la consola ni ninguna sesión modifican
+-- una cifra de sueldo desde la app.
+--
+-- Cifras de sueldo: la MISMA cerradura que el resto de los bonos,
+-- `puede_bonos()` (LÍDER y GERENTE TH), y `anon` sin privilegio de tabla.
+--
+-- Cada fila guarda sus componentes en `componentes` (jsonb) porque las dos
+-- hojas no traen las MISMAS columnas —OFICINA lleva observaciones,
+-- SUCURSALES trae «diario»— y porque un ajuste puede sumar o quitar
+-- columnas sin rehacer el esquema. Lo que se busca, filtra y ordena
+-- (cargo, departamento, salario, paquete) va como columna propia.
+--
+-- Aplicar en el SQL Editor de Supabase. Idempotente: se puede correr de
+-- nuevo. El import de datos (DELETE + INSERT) vive en el SQL generado,
+-- aparte.
+-- ============================================================================
+
+create table if not exists public.bono_tabulador_paquete (
+  id bigint generated always as identity primary key,
+  -- La hoja del Excel: se consulta por separado (Oficina / Sucursales).
+  hoja text not null check (hoja in ('OFICINA', 'SUCURSALES')),
+  codigo text not null default '',
+  cargo text not null default '',
+  departamento text not null default '',
+  dependencia text not null default '',
+  -- Plazas del puesto, salario y paquete aprobado: las tres cifras que la
+  -- tabla principal muestra siempre; null donde el Excel la dejó vacía.
+  plantilla numeric,
+  salario numeric,
+  paquete numeric,
+  -- El resto del renglón, con las claves y etiquetas que manda el import.
+  componentes jsonb not null default '{}'::jsonb
+    constraint bono_tabulador_componentes check (jsonb_typeof(componentes) = 'object'),
+  creado_en timestamptz not null default now()
+);
+
+-- Las columnas que acompañan al tabulador: UNA fila, con las etiquetas por
+-- hoja (para rotular el detalle) y los datos del encabezado del archivo.
+create table if not exists public.bono_tabulador_config (
+  id boolean primary key default true,
+  constraint bono_tabulador_config_fila_unica check (id),
+  -- [{ hoja, key, etiqueta }]: lo que la pantalla usa para nombrar cada
+  -- componente; lo manda el import, que es quien lee el Excel.
+  columnas jsonb not null default '[]'::jsonb
+    constraint bono_tabulador_columnas check (jsonb_typeof(columnas) = 'array'),
+  fecha_archivo date,
+  tasa_cambio numeric,
+  tasa_cupon numeric,
+  actualizado_en timestamptz not null default now()
+);
+
+alter table public.bono_tabulador_paquete enable row level security;
+alter table public.bono_tabulador_config enable row level security;
+
+-- Sólo LECTURA y sólo para quien gestiona bonos: sin política de
+-- escritura, el tabulador sólo cambia con el SQL del nuevo archivo —el
+-- mismo criterio con que se publica cualquier dato de sueldo de acá.
+drop policy if exists bono_tabulador_paquete_select on public.bono_tabulador_paquete;
+create policy bono_tabulador_paquete_select on public.bono_tabulador_paquete
+  for select to authenticated using (public.puede_bonos());
+
+drop policy if exists bono_tabulador_config_select on public.bono_tabulador_config;
+create policy bono_tabulador_config_select on public.bono_tabulador_config
+  for select to authenticated using (public.puede_bonos());
+
+-- Cifras de sueldo: anon no llega ni a la tabla.
+do $$
+begin
+  execute 'revoke all on public.bono_tabulador_paquete from anon';
+  execute 'revoke all on public.bono_tabulador_config from anon';
+end $$;
+
 -- Archivo consolidado: nomina-trabajadores.sql
 -- ###########################################################################
 -- ============================================================================

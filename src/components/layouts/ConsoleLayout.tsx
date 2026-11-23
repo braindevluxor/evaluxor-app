@@ -1,4 +1,4 @@
-import { Star, Sprout, Gauge, Globe, FolderOpen, ClipboardList, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen } from 'lucide-react'
+import { Star, Sprout, Gauge, Globe, FolderOpen, ClipboardList, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen, Table2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -82,6 +82,11 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
     titulo: 'Programas de bonificación',
     subtitulo: 'De dónde sale la nota del bono: módulos de evaluación o actividades propias'
   },
+  // La consulta del Excel de Talento Humano: por cargo, salario y paquete.
+  '/config/bonos/tabulador': {
+    titulo: 'Tabulador de paquetes',
+    subtitulo: 'Salario y desglose de bonos por cargo — OFICINA y SUCURSALES'
+  },
   // La cuenta se configura DESDE la consola, con su barra y su menú: salirse
   // de la barra para cambiar la contraseña se sentía como otra app.
   '/perfil': { titulo: 'Configuración', subtitulo: 'Administra tus datos personales y la seguridad de tu cuenta' },
@@ -146,6 +151,9 @@ function ConsoleLayoutInterna() {
         // De dónde sale la nota del bono: pantalla aparte, porque los
         // MÓDULOS siguen siendo otra cosa (medir evaluaciones).
         { to: '/config/programas-bono', label: 'Programas de bono', icon: <ClipboardList className="h-5 w-5" /> },
+        // La consulta del Excel de Talento Humano: misma cerradura que los
+        // bonos (cifra de sueldo), sólo lectura.
+        { to: '/config/bonos/tabulador', label: 'Tabulador de paquetes', icon: <Table2 className="h-5 w-5" /> },
         // El menú público de las sucursales: el Líder lo edita desde
         // cualquier tienda (la misma cerradura de RLS, `es_encargado_menu`).
         { to: '/menu-editor', label: 'Menús', icon: <BookOpen className="h-5 w-5" /> }
@@ -161,7 +169,10 @@ function ConsoleLayoutInterna() {
         { to: '/config/bonos', label: 'Bonos', icon: <Star className="h-5 w-5" /> },
         // Mismo dueño que los bonos: el área de Talento Humano también
         // configura de dónde sale la nota.
-        { to: '/config/programas-bono', label: 'Programas de bono', icon: <ClipboardList className="h-5 w-5" /> }
+        { to: '/config/programas-bono', label: 'Programas de bono', icon: <ClipboardList className="h-5 w-5" /> },
+        // Mismo dueño que los bonos: el área de Talento Humano también
+        // consulta el tabulador de paquetes (la misma cerradura).
+        { to: '/config/bonos/tabulador', label: 'Tabulador de paquetes', icon: <Table2 className="h-5 w-5" /> }
       ]
     }
   ] : profile && profile.rol === 'EVALUADOR' ? [

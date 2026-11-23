@@ -39,6 +39,11 @@ const BonosPage = lazy(() => import('./pages/config/Bonos').then((m) => ({ defau
 const ProgramasBonosPage = lazy(() =>
   import('./pages/config/ProgramasBonos').then((m) => ({ default: m.ProgramasPage }))
 )
+// El tabulador de paquetes: la consulta del Excel de Talento Humano —sólo
+// lectura—, con la misma cerradura que los bonos.
+const TabuladorPaquetesPage = lazy(() =>
+  import('./pages/config/TabuladorPaquetes').then((m) => ({ default: m.TabuladorPaquetesPage }))
+)
 // Gran Cosecha: el concurso trimestral de proyectos. Sin `RequireRol` —lo
 // crean los trabajadores y lo siguen los jueces— pero con lazy, porque es la
 // única pantalla que no entra nadie si no entra a la consola.
@@ -350,6 +355,18 @@ function Rutas() {
                         element={
                           <RequireRol roles={['LIDER', 'GERENTE_TH']}>
                             <ProgramasBonosPage />
+                          </RequireRol>
+                        }
+                      />
+                      {/* Tabulador de paquetes: MISMA cerradura que los
+                          bonos (ruta + RLS `puede_bonos`), porque también
+                          es una cifra de sueldo. Sólo consulta: los números
+                          se ajustan en el Excel y se importan con SQL. */}
+                      <Route
+                        path="/config/bonos/tabulador"
+                        element={
+                          <RequireRol roles={['LIDER', 'GERENTE_TH']}>
+                            <TabuladorPaquetesPage />
                           </RequireRol>
                         }
                       />
