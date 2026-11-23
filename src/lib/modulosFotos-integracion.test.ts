@@ -54,10 +54,16 @@ describe('fotos referenciales · la config las adjunta en el CHECKLIST', () => {
 })
 
 describe('fotos referenciales · la evaluación las pinta', () => {
-  it('el punto con foto muestra la referencia ampliable', () => {
-    expect(renderer).toContain('title="Foto referencial del punto"')
-    expect(renderer).toContain('alt={`Referencia: ${o.etiqueta}`}')
-    expect(renderer).toContain('target="_blank"')
+  it('el punto con foto muestra la referencia y la abre en el VISOR', () => {
+    // El toque lanza `ModalImagen` (el visor con zoom del repo): no se abre
+    // en una pestaña nueva.
+    expect(renderer).toContain('ModalImagen')
+    expect(renderer).toContain('aria-label={`Ampliar foto referencial: ${o.etiqueta}`}')
+    expect(renderer).toContain('cursor-zoom-in')
+    expect(renderer).not.toContain('target="_blank"')
+    // En Config → Ítems, la miniatura usa el mismo visor.
+    expect(pagina).toContain('ModalImagen')
+    expect(pagina).not.toContain('target="_blank"')
   })
 })
 

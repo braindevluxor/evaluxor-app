@@ -16,6 +16,7 @@ import { Descripcion } from './Descripcion'
 import { COLOR_BADGE_TIPO_ITEM, EYEBROW, HEX_CUMPLE, HEX_NO_CUMPLE, HEX_RIESGO } from '../lib/diseno'
 import { SwipeAcciones } from './SwipeAcciones'
 import { guardarFotosDe, MinaFotos, PhotoCapture } from './PhotoCapture'
+import { ModalImagen } from './ModalImagen'
 import { LIMITE_SEGUNDOS_VIDEO } from '../lib/fotos'
 import { FotogaleriaRutas } from './dashboard/Fotogaleria'
 import { BarcodeScanner } from './BarcodeScanner'
@@ -292,6 +293,12 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
     }
     onChange(inyectar(v))
   }
+  /**
+   * La foto referencial de un punto del CHECKLIST, abierta en el visor
+   * (null = cerrado). El botón de la foto la lanza: el MISMO `ModalImagen`
+   * con el que se miran las evidencias, no una pestaña nueva.
+   */
+  const [fotoReferencial, setFotoReferencial] = useState<{ src: string; alt: string } | null>(null)
   switch (item.tipo) {
     case 'CUMPLE_NO_CUMPLE': {
       const v = (valor as ValorCumple | null) ?? { value: null, evidencias: [] }
@@ -439,6 +446,11 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
       }
       return (
         <>
+        <ModalImagen
+          src={fotoReferencial?.src ?? null}
+          alt={fotoReferencial?.alt ?? ''}
+          onClose={() => setFotoReferencial(null)}
+        />
         <div className="space-y-2">
           <p className="text-xs text-slate-400">
             {dobleCheck
@@ -487,17 +499,25 @@ function Contenido({ item, valor, onChange, shopId, branchId, gerente, sucursalI
                       badges, ellos bajan y el título lee completo. */}
                   {/* Foto referencial del punto (la adjunta el Líder en Config
                       → Ítems): la referencia que evita confundir un punto con
-                      otro (p. ej. un corte de carne). Tocada, se abre en
-                      otra pestaña más grande. */}
+                      otro (p. ej. un corte de carne). El toque la abre en el
+                      visor, con zoom — no en otra pestaña. */}
                   {o.foto ? (
-                    <a href={o.foto} target="_blank" rel="noreferrer" title="Foto referencial del punto" className="shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (o.foto) setFotoReferencial({ src: o.foto, alt: `Referencia: ${o.etiqueta}` })
+                      }}
+                      title="Foto referencial del punto"
+                      aria-label={`Ampliar foto referencial: ${o.etiqueta}`}
+                      className="shrink-0 cursor-zoom-in"
+                    >
                       <img
                         src={o.foto}
                         alt={`Referencia: ${o.etiqueta}`}
                         loading="lazy"
                         className="h-10 w-10 rounded-lg border border-slate-200 object-cover"
                       />
-                    </a>
+                    </button>
                   ) : null}
                   <span className="min-w-0 flex-auto break-words text-sm text-slate-700">{o.etiqueta}</span>
                   {badgePermiso(o)}

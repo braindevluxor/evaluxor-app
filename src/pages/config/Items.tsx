@@ -10,6 +10,7 @@ import { itemsEnOrdenJerarquico, hijosDe } from '../../lib/hierarchy'
 import { APIS_DISPONIBLES, apiDisponible } from '../../lib/data/apis'
 import type { FiltroColaboradores, Item, Modulo, Opcion, Sucursal, TipoItem } from '../../lib/types'
 import { Button, ButtonIcon, Field, Input, Modal, Select, Textarea, Badge, Skeleton, cn } from '../../components/ui'
+import { ModalImagen } from '../../components/ModalImagen'
 import { EditorDescripcion } from '../../components/EditorDescripcion'
 import { aTextoPlano } from '../../lib/markdown'
 import { COLOR_BADGE_TIPO_ITEM } from '../../lib/diseno'
@@ -998,6 +999,8 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
   const [sobre, setSobre] = useState<number | null>(null)
   /** Índice de la opción cuya foto se está subiendo (`null` = ninguna). */
   const [subiendoFoto, setSubiendoFoto] = useState<number | null>(null)
+  /** La foto referencial abierta en el visor (`null` = cerrado). */
+  const [fotoGrande, setFotoGrande] = useState<string | null>(null)
 
   /**
    * Adjunta (o reemplaza) la foto referencial de un punto. La subida es
@@ -1117,9 +1120,17 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
             {conFoto ? (
               <div className="flex shrink-0 items-center gap-1 self-end pb-0.5">
                 {o.foto ? (
-                  <a href={o.foto} target="_blank" rel="noreferrer" title="Ver foto referencial" className="block">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (o.foto) setFotoGrande(o.foto)
+                    }}
+                    title="Ver foto referencial"
+                    aria-label={`Ver foto referencial de la opción ${i + 1}`}
+                    className="block cursor-zoom-in"
+                  >
                     <img src={o.foto} alt="" className="h-8 w-8 rounded-lg border border-slate-200 object-cover" />
-                  </a>
+                  </button>
                 ) : null}
                 <label
                   className={cn(
@@ -1234,6 +1245,7 @@ function EditorOpciones({ opciones, onChange, responsables = [], conPuntos = fal
         </div>
       ))}
       <Button type="button" variant="secondary" onClick={agregar}>+ Agregar opción</Button>
+      <ModalImagen src={fotoGrande} alt="Foto referencial del punto" onClose={() => setFotoGrande(null)} />
     </div>
   )
 }
