@@ -31,15 +31,11 @@ describe('gran cosecha · la página en la consola', () => {
   })
 
   it('la página publica lo que la landing ARENA sí pinta', () => {
-    // TRES bloques: la bajada del hero, las guías de la postulación y el
-    // carrusel de Cosechas Pasadas — lo único de la tabla que la landing
-    // nueva pinta.
-    expect(pagina).toContain('Portada')
+    // UNA tarjeta: las guías de la postulación —lo único que esta
+    // pantalla edita—, con su carga, su guardado y su validación.
     expect(pagina).toContain('Guías del proyecto')
-    expect(pagina).toContain('Cosechas Pasadas')
     expect(pagina).toContain('cargarContenidoPagina')
     expect(pagina).toContain('guardarContenidoPagina')
-    expect(pagina).toContain('subirMediaCarrusel')
     expect(pagina).toContain('validarContenido')
     expect(pagina).toContain('PortalCabecera')
     expect(pagina).toContain('avisar(')
@@ -48,6 +44,15 @@ describe('gran cosecha · la página en la consola', () => {
     // Lo que la landing ya no pinta (fechas, fondo, premios) no se edita.
     expect(pagina).not.toContain('Agregar premio')
     expect(pagina).not.toContain('Fondo estático')
+    // Los bloques retirados de la consola: ni la bajada del hero ni el
+    // carrusel de Cosechas Pasadas se editan acá (la landing pinta lo que
+    // la tabla ya trae; el data layer lo sigue redondeando entero).
+    expect(pagina).not.toContain('Portada')
+    expect(pagina).not.toContain('titulo="Cosechas Pasadas"')
+    expect(pagina).not.toContain('subirMediaCarrusel')
+    expect(pagina).not.toContain('convirtiendo')
+    expect(pagina).not.toContain('moverSlide')
+    expect(pagina).not.toContain('cambiarCampoSlide')
   })
 
   it('las dos guías de la postulación se suben con su nombre', () => {
@@ -72,20 +77,13 @@ describe('gran cosecha · la página en la consola', () => {
     expect(validarContenido(guiaSinNombre)).toMatch(/guía 2/)
   })
 
-  it('el carrusel de Cosechas Pasadas se edita con su conversión en pantalla', () => {
-    expect(pagina).toContain('Cosechas Pasadas')
-    expect(pagina).toContain('subirMediaCarrusel')
-    // La barra de avance: convertir un archivo tarda lo que dura el proceso.
-    expect(pagina).toContain('convirtiendo')
-    expect(pagina).toContain('moverSlide')
-    // SÓLO fotos: el carrusel de la landing pinta imágenes — un video
-    // quedaría publicado y no pintado.
-    expect(pagina).toContain('accept="image/*"')
-    expect(pagina).not.toContain('accept="image/*,video/*"')
-    // Cada foto lleva el texto que la landing pinta a su lado.
-    expect(pagina).toContain('cambiarCampoSlide')
-    expect(pagina).toContain('label="Título"')
-    expect(pagina).toContain('label="Pie de foto"')
+  it('el carrusel de Cosechas Pasadas ya no se edita en la consola', () => {
+    // El bloque entero se retiró: ni la tarjeta ni sus handlers ni la
+    // subida de archivos — la landing usa el carrusel que la tabla ya trae.
+    expect(pagina).not.toContain('titulo="Cosechas Pasadas"')
+    expect(pagina).not.toContain('agregarSlide')
+    expect(pagina).not.toContain('quitarSlide')
+    expect(pagina).not.toContain('accept="image/*"')
   })
 })
 
