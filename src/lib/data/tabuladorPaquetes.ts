@@ -1,4 +1,5 @@
 import { supabase } from '../supabase'
+import { claveNormalizada } from './responsables'
 
 /**
  * EL TABULADOR DE PAQUETES: EL EXCEL DE TALENTO HUMANO, EN LA CONSOLA
@@ -91,4 +92,54 @@ export async function listarTabulador(): Promise<Tabulador> {
     filas: (filas.data ?? []) as FilaTabulador[],
     config: (config.data as ConfigTabulador | null) ?? null
   }
+}
+
+/**
+ * El PAQUETE APROBADO de un cargo de BONOS, para mostrarlo en su fila.
+ *
+ * Cruce POR NOMBRE con `claveNormalizada` —la MISMA normalización con la
+ * que Bonos ya cruza contra la nómina (`bonos_cargo.clave` vs
+ * `role_name`)—: el tabulador no expone su `codigo` en Bonos y el nombre
+ * es la llave que el resto del módulo ya usa.
+ *
+ * Devuelve `{min, max}`: iguales cuando todas las filas coinciden (el
+ * valor único), distintos cuando el cargo aparece más de una vez —misma
+ * hoja u otro departamento— y así se muestra el rango en vez de inventar
+ * un número. `null` = el cargo no está en el tabulador.
+ */
+export function paqueteDeCargo(
+  paquetes: PaqueteCargo[],
+  cargo: string
+): { min: number; max: number } | null {
+  const clave = claveNormalizada(cargo)
+  if (!clave) return null
+  const valores = paquetes
+    .filter((p) => claveNormalizada(p.cargo) === clave)
+    .map((p) => p.paquete)
+  if (!valores.length) return null
+  return { min: Math.min(...valores), max: Math.max(...valores) }
+}
+
+/** Lo que la vista de Bonos necesita del tabulador: cargo y su paquete. */
+export interface PaqueteCargo {
+  cargo: string
+  paquete: number
+}
+
+/**
+ * Los Paquetes aprobados, para la columna nueva de la vista de Bonos.
+ *
+ * Sólo lectura y con la MISMA cerradura que los bonos (`puede_bonos`): la
+ * política de select de `bono_tabulador_paquete` es ésa. Si la tabla no
+ * existe todavía (el SQL del tabulador sin correr), el error lo recibe el
+ * llamador —en Bonos se muestra la columna vacía— y no se tira abajo la
+ * pantalla.
+ */
+export async function listarPaquetesTabulador(): Promise<PaqueteCargo[]> {
+  const { data, error } = await supabase
+    .from('bono_tabulador_paquete')
+    .select('cargo, paquete')
+    .not('paquete', 'is', null)
+  if (error) throw error
+  return (data ?? []) as PaqueteCargo[]
 }

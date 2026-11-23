@@ -83,6 +83,22 @@ describe('tabulador de paquetes · la pantalla y sus datos', () => {
     expect(pagina).toContain('tasaManual ?? tasaBcv?.valor ?? tabulador?.config?.tasa_cambio')
   })
 
+  it('Bonos muestra el Paquete (USD) de cada cargo, cruzado por nombre', () => {
+    const bonos = fuente('../pages/config/Bonos.tsx')
+    // La columna en la fila del cargo…
+    expect(bonos).toContain('listarPaquetesTabulador')
+    expect(bonos).toContain('paqueteDeCargo')
+    expect(bonos).toContain('Paquete (USD)')
+    expect(bonos).toContain('title="Paquete aprobado en el Tabulador de paquetes (USD)"')
+    // …y la referencia junto al Monto, que es donde se decide el bono.
+    expect(bonos).toContain('Paquete aprobado (USD):')
+    // El data layer: otra SÓLO lectura sobre la misma tabla, sin filas
+    // cuyo paquete esté vacío.
+    expect(datos).toContain("from('bono_tabulador_paquete')")
+    expect(datos).toContain(".not('paquete', 'is', null)")
+    expect(datos).toContain('claveNormalizada')
+  })
+
   it('la consulta trae las DOS hojas, con búsqueda, filtro y detalle', () => {
     expect(pagina).toContain('HOJAS_TABULADOR')
     expect(pagina).toContain("useState<HojaTabulador>('OFICINA')")
