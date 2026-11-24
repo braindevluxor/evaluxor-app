@@ -105,11 +105,14 @@
             background-position: center, 0 0, 11px 11px;
         }
 
-        /* Recortes tipo pétalo de la identidad oficial Luxor */
-        .petal-tl { border-radius: 0 65% 0 65%; }
-        .petal-tr { border-radius: 65% 0 65% 0; }
-        .petal-bl { border-radius: 65% 0 65% 0; }
-        .petal-br { border-radius: 0 65% 0 65%; }
+        /* Recortes tipo pétalo de la identidad oficial Luxor: la MISMA
+           forma y el MISMO radio del isotipo SVG —puntas duras en la
+           esquina exterior y en la interna, arco de ~43% en las otras—.
+           A 65% las fotos se comían el texto de los títulos. */
+        .petal-tl { border-radius: 0 43% 0 43%; }
+        .petal-tr { border-radius: 43% 0 43% 0; }
+        .petal-bl { border-radius: 43% 0 43% 0; }
+        .petal-br { border-radius: 0 43% 0 43%; }
 
         /* Cinta adhesiva estilo lámina oficial "Cosecha en Equipo" */
         .tape-strip {
@@ -174,7 +177,7 @@
 
                     <div>
                         <div class="font-condensed font-bold text-xl sm:text-2xl tracking-tight leading-none flex items-center gap-1.5">
-                            <span class="text-luxor-yellow drop-shadow-[0_1px_1px_rgba(24,35,72,0.4)]">GRAN COSECHA</span>
+                            <span class="text-luxor-yellow">GRAN COSECHA</span>
                             <span class="text-luxor-crimson">LUXOR</span>
                         </div>
                         <span class="text-[10px] sm:text-[11px] font-extrabold text-luxor-navy tracking-wider uppercase block mt-0.5">
