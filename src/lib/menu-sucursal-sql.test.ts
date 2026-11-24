@@ -465,6 +465,61 @@ describe('menu-sucursal.sql · las categorías', () => {
   })
 })
 
+describe('menu-sucursal.sql · los turnos', () => {
+  it('los productos nacen para todo el día y sólo aceptan M, T y N en orden', async () => {
+    // 'MTN' es el default de la columna: lo que ya estaba cargado sigue
+    // disponible todo el día sin que nadie vuelva a tocar la sucursal.
+    const nacidos = await db.query<{ turnos: string }>(
+      `select turnos from public.menu_productos where sku = '7790001'`
+    )
+    expect(nacidos.rows[0].turnos).toBe('MTN')
+
+    // La forma canónica pasa…
+    await expect(
+      db.query(`update public.menu_productos set turnos = 'TN' where sku = '7790001'`)
+    ).resolves.toBeDefined()
+    // …y el check mata el otro orden, la repetida y la cadena vacía (que
+    // escondería el producto de TODA la carta).
+    await expect(
+      db.query(`update public.menu_productos set turnos = 'NM' where sku = '7790001'`)
+    ).rejects.toThrow(/menu_productos_turnos_chk/)
+    await expect(
+      db.query(`update public.menu_productos set turnos = 'MM' where sku = '7790001'`)
+    ).rejects.toThrow(/menu_productos_turnos_chk/)
+    await expect(
+      db.query(`update public.menu_productos set turnos = '' where sku = '7790001'`)
+    ).rejects.toThrow(/menu_productos_turnos_chk/)
+  })
+
+  it('la RPC manda el turno del momento y las letras de cada producto', async () => {
+    await conAnon(async () => {
+      const r = await db.query<{ r: { turno: string; productos: { turnos: string }[] } }>(
+        `select public.ver_menu_publico('${SUC_A}') as r`
+      )
+      const menu = r.rows[0].r
+      // El turno lo calcula la base con la hora de Venezuela: sólo puede
+      // ser una de las tres letras, nunca el reloj del celular.
+      expect(['M', 'T', 'N']).toContain(menu.turno)
+      expect(menu.productos.length).toBeGreaterThan(0)
+      // Cada producto trae su cadena en la forma canónica del check.
+      for (const p of menu.productos) {
+        expect(p.turnos).toMatch(/^M?T?N?$/)
+        expect(p.turnos).not.toBe('')
+      }
+    })
+  })
+
+  it('los horarios son 6–12, 12–18 y 18–6 en la hora de Venezuela', () => {
+    // El `case` vive adentro de la RPC, así que se chequea por texto —que
+    // es lo que hay— además de por comportamiento.
+    const bloque = bloqueSql('menu-sucursal.sql')
+    expect(bloque).toContain("when h between 6 and 11 then 'M'")
+    expect(bloque).toContain("when h between 12 and 17 then 'T'")
+    expect(bloque).toContain("extract(hour from now() at time zone 'America/Caracas')")
+    expect(bloque).toContain("'turnos', m.turnos")
+  })
+})
+
 describe('menu-sucursal.sql · las visitas', () => {
   it('anon registra su apertura, pero sólo de sucursales existentes y activas', async () => {
     const antes = await contar(`select count(*)::int as n from public.menu_visitas`)

@@ -7,25 +7,22 @@ import {
   cargarMenu,
   guardarCategoria,
   guardarDescripcion,
+  guardarTurnos,
   precioDeMenu,
   quitarProducto,
   reordenarMenu,
   subirFotoMenu,
   sucursalesActivas,
-  visitasMenu,
+  turnosDe,
+  TURNOS,
   type ProductoMenu,
-  type SucursalMenu,
-  type VisitaPorHora
+  type SucursalMenu
 } from '../lib/data/menuSucursal'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { formatearPrecioBase } from '../lib/scoring'
 import { Button, ButtonIcon, Field, Input, SkeletonFilas, Spinner } from '../components/ui'
 import { PortalCabecera } from '../components/PortalCabecera'
-
-/** Fecha local en clave 'YYYY-MM-DD': el formato que espera la RPC. */
-function isoDe(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
+import { VisitasMenu } from '../components/VisitasMenu'
 
 /**
  * EL EDITOR DEL MENÚ
@@ -38,6 +35,10 @@ function isoDe(d: Date): string {
  *  2. Agrega: nombre, PVP (`finalBase + finalTax`) y departamento quedan en
  *     `menu_productos`; re-agregar el mismo SKU refresca esos datos.
  *  3. Sube la foto (se convierte a WebP antes de subir) y reordena.
+ *  4. Marca los TURNOS (M/T/N) en los que cada producto aparece.
+ *
+ * Las VISITAS viven aparte, en `VisitasMenu`: una tarjeta que abre el
+ * modal con la curva de los 7 días y el detalle por hora de cada uno.
  *
  * La ruta pide `LIDER` o `GERENTE_S`, y la RLS vuelve a pedir lo mismo:
  * el encargado sólo escribe en SU sucursal (`es_encargado_menu`).
@@ -56,8 +57,6 @@ export function MenuEditorPage() {
   /** La categoría que se le asigna al agregar (con las ya usadas en el list). */
   const [categoriaNueva, setCategoriaNueva] = useState('')
   const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
-  /** Las aperturas de la página, de los últimos 7 días (`null` = cargando). */
-  const [visitas, setVisitas] = useState<VisitaPorHora[] | null>(null)
 
   const sucursal = sucursales?.find((s) => s.id === sucursalId) ?? null
   // Las categorías que ya se están usando: son las sugerencias del input
@@ -110,27 +109,6 @@ export function MenuEditorPage() {
         if (!vivo) return
         setProductos([])
         avisar(e instanceof Error ? e.message : 'No se pudo cargar el menú.', 'error')
-      })
-    return () => {
-      vivo = false
-    }
-  }, [sucursalId])
-
-  // Las aperturas de la página del menú: los últimos 7 días, por hora.
-  useEffect(() => {
-    if (!sucursalId) return
-    let vivo = true
-    setVisitas(null)
-    const hoy = new Date()
-    const desde = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 6)
-    visitasMenu(sucursalId, isoDe(desde), isoDe(hoy))
-      .then((v) => {
-        if (vivo) setVisitas(v)
-      })
-      .catch((e) => {
-        if (!vivo) return
-        setVisitas([])
-        avisar(e instanceof Error ? e.message : 'No se pudieron cargar las visitas.', 'error')
       })
     return () => {
       vivo = false
@@ -248,23 +226,29 @@ export function MenuEditorPage() {
     }
   }
 
-  /** Hoy y los 6 días previos, de mayor a menor, para el reporte. */
-  const ultimos7Dias = (): { clave: string; etiqueta: string }[] => {
-    const hoy = new Date()
-    const dias: { clave: string; etiqueta: string }[] = []
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - i)
-      dias.push({
-        clave: isoDe(d),
-        etiqueta:
-          i === 0
-            ? 'Hoy'
-            : i === 1
-              ? 'Ayer'
-              : d.toLocaleDateString('es-VE', { day: 'numeric', month: 'short' })
-      })
+  // Los TURNOS: se marca con un toque (no hay nada que escribir) y se
+  // guarda al instante. La carta pública sólo lo muestra si su cadena
+  // contiene el turno del momento (hora de Venezuela), así que dejarlo
+  // sin turnos lo escondería de TODA la carta — por eso `turnosDe` tira
+  // error con la lista vacía y acá se avisa en vez de guardar.
+  const marcarTurno = async (producto: ProductoMenu, letra: string) => {
+    const actuales = new Set((producto.turnos || 'MTN').split(''))
+    if (actuales.has(letra)) actuales.delete(letra)
+    else actuales.add(letra)
+    let turnos: string
+    try {
+      turnos = turnosDe(actuales)
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'Marcá al menos un turno.', 'aviso')
+      return
     }
-    return dias
+    setProductos((l) => (l ?? []).map((p) => (p.id === producto.id ? { ...p, turnos } : p)))
+    try {
+      await guardarTurnos(producto.id, turnos)
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudieron guardar los turnos.', 'error')
+      await recargar()
+    }
   }
 
   if (!sucursales) {
@@ -480,6 +464,36 @@ export function MenuEditorPage() {
                   onBlur={() => void persistirCategoria(p)}
                   className="mt-1.5 w-full rounded-lg border border-transparent bg-slate-50 px-2 py-1 text-xs text-slate-600 placeholder:text-slate-400 focus:border-[#dc2626]/40 focus:bg-white focus:outline-none"
                 />
+
+                {/* Los TURNOS en los que está disponible: M, T y N con su
+                    horario en el title. La carta pública sólo lo muestra si
+                    le toca —hora de Venezuela—, así que esto decide en qué
+                    horario aparece el producto. Nace en los tres. */}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="mr-0.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Turnos
+                  </span>
+                  {TURNOS.map((t) => {
+                    const marcado = (p.turnos || 'MTN').includes(t.letra)
+                    return (
+                      <button
+                        key={t.letra}
+                        type="button"
+                        onClick={() => void marcarTurno(p, t.letra)}
+                        aria-pressed={marcado}
+                        aria-label={`${t.nombre} de ${p.nombre}`}
+                        title={`${t.nombre} · ${t.horario}`}
+                        className={`h-6 w-6 rounded-full border text-[11px] font-black transition-colors ${
+                          marcado
+                            ? 'border-[#0a1e5e] bg-[#0a1e5e] text-white'
+                            : 'border-slate-300 bg-white text-slate-400 hover:border-[#0a1e5e]/50'
+                        }`}
+                      >
+                        {t.letra}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
 
               <div className="flex items-center gap-1">
@@ -532,83 +546,11 @@ export function MenuEditorPage() {
         </ul>
       )}
 
-      {/* Las aperturas de la página: por día y por hora (hora de
-          Venezuela), que es lo que el encargado quiere ver para saber si
-          su carta se está abriendo. Las horas futuras de hoy salen
-          atenuadas —todavía no transcurrieron. */}
-      {sucursalId ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-            <h3 className="text-sm font-black uppercase tracking-wider text-[#0a1e5e]">
-              Visitas al menú
-            </h3>
-            <span className="text-[11px] text-slate-400">
-              Últimos 7 días · hora de Venezuela
-            </span>
-          </div>
-
-          {visitas === null ? (
-            <p className="mt-3 text-xs text-slate-400">Cargando visitas…</p>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {ultimos7Dias().map(({ clave, etiqueta }) => {
-                const delDia = visitas.filter((v) => v.fecha === clave)
-                const total = delDia.reduce((s, v) => s + v.visitas, 0)
-                const mapa = new Map(delDia.map((v) => [v.hora, v.visitas]))
-                const esHoy = clave === isoDe(new Date())
-                const horaAhora = new Date().getHours()
-                return (
-                  <div key={clave} className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-xs font-black uppercase tracking-wider text-[#0a1e5e]">
-                        {etiqueta}
-                      </span>
-                      <span
-                        className={
-                          total > 0
-                            ? 'rounded-full bg-[#facc15] px-2 py-0.5 text-[11px] font-black text-[#0a1e5e]'
-                            : 'text-[11px] font-bold text-slate-400'
-                        }
-                      >
-                        {total} {total === 1 ? 'apertura' : 'aperturas'}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-12 gap-1">
-                      {Array.from({ length: 24 }, (_, h) => {
-                        const n = mapa.get(h) ?? 0
-                        const futuro = esHoy && h > horaAhora
-                        return (
-                          <span
-                            key={h}
-                            title={`${String(h).padStart(2, '0')}:00 — ${n} ${
-                              n === 1 ? 'apertura' : 'aperturas'
-                            }`}
-                            className={`flex h-6 items-center justify-center rounded text-[10px] font-black tabular-nums ${
-                              n > 0 ? 'bg-[#facc15] text-[#0a1e5e]' : 'bg-slate-100 text-slate-300'
-                            } ${futuro ? 'opacity-40' : ''}`}
-                          >
-                            {n > 0 ? n : '·'}
-                          </span>
-                        )
-                      })}
-                    </div>
-                    <div
-                      className="mt-1 flex justify-between text-[9px] font-bold text-slate-400"
-                      aria-hidden="true"
-                    >
-                      <span>00</span>
-                      <span>06</span>
-                      <span>12</span>
-                      <span>18</span>
-                      <span>23</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      ) : null}
+      {/* Las VISITAS: una tarjeta que abre el modal con la curva de los
+          7 días y, al elegir uno, sus 24 horas en barras —todo el detalle
+          vive en `VisitasMenu`, que además hace el pedido recién al
+          abrirse. Sin sucursal no hay reporte que mostrar. */}
+      {sucursalId ? <VisitasMenu sucursalId={sucursalId} /> : null}
     </div>
   )
 }

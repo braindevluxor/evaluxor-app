@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Check, ChevronDown, Package, RefreshCw, Store } from 'lucide-react'
+import { Check, ChevronDown, Clock, Package, RefreshCw, Store } from 'lucide-react'
 import {
   cargarMenuPublico,
   esUuid,
   registrarVisita,
   sucursalesPublicas,
+  TURNOS,
   type MenuPublicoDatos
 } from '../../lib/data/menuSucursal'
 import { formatearPrecioBase } from '../../lib/scoring'
@@ -22,8 +23,12 @@ import { formatearPrecioBase } from '../../lib/scoring'
  * Organización: las CATEGORÍAS que armó el encargado (Entradas, Bebidas…)
  * se pegan arriba como pestañas —como en una carta moderna— y filtran la
  * lista; con una sola categoría (o ninguna) no hay pestañas y todo va
- * plano. Cada apertura se cuenta para el reporte del editor: una por hora
- * por navegador (`registrarVisita`), sin romper nunca la carta.
+ * plano. Además la carta FILTRA POR TURNO: la RPC manda el turno del
+ * momento (M 06–12, T 12–18, N 18–06, en la hora de Venezuela) y cada
+ * producto trae sus letras, así se acomoda sola a lo que corresponde en
+ * este horario y un chip de cabecera lo dice. Cada apertura se cuenta para
+ * el reporte del editor: una por hora por navegador (`registrarVisita`),
+ * sin romper nunca la carta.
  *
  * Presentación: identidad corporativa de Supermercados Luxor —navy,
  * amarillo y rojo— con aire de carta gourmet: la tapa navy con el nombre
@@ -107,6 +112,16 @@ export function MenuPublico() {
   const productos = (estado === 'listo' && menu?.productos) || []
   const sucursalActual = estado === 'listo' && menu?.sucursal ? menu.sucursal.nombre : ''
 
+  // El TURNO del momento, con la hora de VENEZUELA que manda la RPC (no la
+  // del celular): la carta sólo muestra lo disponible en él. Sin turno en
+  // la respuesta —una base que todavía no tiene la columna— se ve todo,
+  // que es exactamente la carta de antes.
+  const turno = menu?.turno ?? ''
+  const disponibles = turno
+    ? productos.filter((p) => (p.turnos || 'MTN').includes(turno))
+    : productos
+  const infoTurno = TURNOS.find((t) => t.letra === turno) ?? null
+
   // El selector de la cabecera: la lista de las sucursales activas, una
   // sola vez por visita.
   useEffect(() => {
@@ -137,11 +152,13 @@ export function MenuPublico() {
   // Las pestañas salen de las categorías que armó el encargado, en el
   // orden en que aparecen los productos (la RPC ya los manda por `orden`);
   // sin categoría va a "Otros". Si hay UNA sola, no hay pestañas: se ve
-  // todo plano, que es exactamente la carta de siempre.
-  const categorias = [...new Set(productos.map((p) => p.categoria?.trim() || SIN_CATEGORIA))]
+  // todo plano, que es exactamente la carta de siempre. Salen de los
+  // DISPONIBLES en el turno: una pestaña que quedó sin nada en este
+  // horario no se pinta.
+  const categorias = [...new Set(disponibles.map((p) => p.categoria?.trim() || SIN_CATEGORIA))]
   const pestana =
     categoriaActiva && categorias.includes(categoriaActiva) ? categoriaActiva : categorias[0]
-  const filtrados = productos.filter(
+  const filtrados = disponibles.filter(
     (p) => (p.categoria?.trim() || SIN_CATEGORIA) === pestana
   )
   const hayPestanas = categorias.length > 1
@@ -182,6 +199,19 @@ export function MenuPublico() {
         <h1 className="sr-only">
           Menú{sucursalActual ? ` de ${sucursalActual}` : ''} — Supermercados Luxor
         </h1>
+
+        {/* El turno del momento: la carta se acomoda sola con la hora de
+            Venezuela y este chip le dice al cliente en qué horario está
+            parada la tienda. Sin turno cargado no se pinta (la carta se ve
+            entera, como antes). */}
+        {infoTurno ? (
+          <div className="mx-auto max-w-3xl px-4 pb-3 text-center">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-[#facc15]">
+              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+              Ahora: {infoTurno.nombre} · {infoTurno.horario}
+            </span>
+          </div>
+        ) : null}
 
         {selectorAbierto ? (
           <>
@@ -257,6 +287,15 @@ export function MenuPublico() {
             <Aviso
               titulo="Este menú todavía no tiene productos"
               detalle="El encargado de la sucursal está cargando la carta. Volvé a mirar en un rato."
+            />
+          ) : disponibles.length === 0 ? (
+            // Hay productos, pero NINGUNO le corresponde a este turno: la
+            // carta no está vacía, está en su horario de la otra parte del
+            // día — el aviso lo dice con el horario, para que no parezca
+            // un error de la página.
+            <Aviso
+              titulo="No hay productos en este horario"
+              detalle={`Esta tienda no tiene nada disponible en el turno de ${infoTurno?.nombre ?? ''}${infoTurno ? ` (${infoTurno.horario})` : ''}. La carta cambia con los turnos: volvé más tarde.`}
             />
           ) : (
             <div className="pt-6">

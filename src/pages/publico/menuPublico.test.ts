@@ -69,6 +69,21 @@ describe('menú público · la pantalla', () => {
     expect(pagina).toContain('<button')
   })
 
+  it('la carta filtra por el turno del momento y lo dice en la cabecera', () => {
+    // La RPC manda el turno del momento (hora de Venezuela) y cada
+    // producto sus letras…
+    expect(datos).toContain('turno: string')
+    expect(datos).toContain('turnos: string')
+    // …la lista y las pestañas salen de lo disponible en ESTE turno…
+    expect(pagina).toContain('disponibles')
+    expect(pagina).toContain('p.turnos')
+    // …el chip de cabecera lo dice…
+    expect(pagina).toContain('Ahora: {infoTurno.nombre}')
+    // …y si no queda nada en el horario, un aviso con el horario en vez
+    // de una carta que parezca rota.
+    expect(pagina).toContain('No hay productos en este horario')
+  })
+
   it('cuenta su apertura para el reporte del editor', () => {
     expect(pagina).toContain('registrarVisita')
     expect(datos).toContain("supabase.rpc('registrar_visita_menu'")

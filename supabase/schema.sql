@@ -6729,6 +6729,25 @@ alter table public.menu_productos add column if not exists descripcion text;
 -- con la descripción por la misma razón: la tabla ya existe en producción.
 alter table public.menu_productos add column if not exists categoria text;
 
+-- Los TURNOS en los que el producto está disponible: M (mañana, 06–12),
+-- T (tarde, 12–18) y N (noche, 18–06), siempre en ese orden y sin repetir.
+-- Va con el mismo `alter idempotente` que descripcion y categoria — la tabla
+-- ya existe en producción— y NACE EN 'MTN': lo que ya está cargado sigue
+-- disponible todo el día hasta que el encargado lo acote. La carta pública
+-- filtra con el turno del momento (ver `ver_menu_publico`).
+alter table public.menu_productos
+  add column if not exists turnos text not null default 'MTN';
+
+-- El `check` con drop + add para que el bloque se pueda correr de nuevo (el
+-- SQL Editor lo aplica entero y el test lo corre dos veces). La expresión
+-- acepta sólo la forma canónica: '' queda fuera por el `and`, y 'NM' o 'MM'
+-- porque las letras no pueden venir en otro orden ni repetidas.
+alter table public.menu_productos
+  drop constraint if exists menu_productos_turnos_chk;
+alter table public.menu_productos
+  add constraint menu_productos_turnos_chk
+  check (turnos ~ '^M?T?N?$' and turnos <> '');
+
 -- Quién puede con esta sucursal: su encargado (Gerente de Sucursal con esa
 -- sucursal en el perfil) o el Líder. `security definer` para leer `profiles`
 -- sin que sus políticas se interpongan, igual que `es_lider` y `puede_bonos`.
@@ -6779,6 +6798,18 @@ as $$
         from public.sucursales s
        where s.id = p_sucursal and s.activa
     ),
+    -- El turno del momento en Venezuela (06–12 M, 12–18 T, 18–06 N). Lo
+    -- manda la BASE y no el reloj del celular: un cliente con el teléfono
+    -- en otra zona horaria ve la misma carta que el de la puerta. La página
+    -- filtra con esto y con el `turnos` de cada producto.
+    'turno', (
+      select case
+               when h between 6 and 11 then 'M'
+               when h between 12 and 17 then 'T'
+               else 'N'
+             end
+        from (select extract(hour from now() at time zone 'America/Caracas')::int as h) t
+    ),
     'productos', coalesce((
       select jsonb_agg(
                jsonb_build_object(
@@ -6787,7 +6818,8 @@ as $$
                  'categoria', m.categoria,
                  'precio', m.precio,
                  'departamento', m.departamento,
-                 'foto', m.foto_url
+                 'foto', m.foto_url,
+                 'turnos', m.turnos
                )
                order by m.orden, m.created_at
              )

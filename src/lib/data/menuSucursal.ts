@@ -44,10 +44,36 @@ export interface ProductoMenu {
   departamento: string | null
   fotoUrl: string | null
   orden: number
+  /**
+   * Los TURNOS en los que está disponible: letras en el orden M, T, N —
+   * 'MTN' (todo el día, con lo que nacen las filas ya cargadas), 'TN',
+   * 'M'… La carta pública sólo muestra el producto si su cadena contiene
+   * el turno del momento (ver `ver_menu_publico`).
+   */
+  turnos: string
 }
+
+/** Los tres turnos de la carta, en el orden en que se pintan. */
+export interface TurnoInfo {
+  letra: 'M' | 'T' | 'N'
+  nombre: string
+  /** El horario que cubre, en hora de Venezuela. */
+  horario: string
+}
+
+export const TURNOS: TurnoInfo[] = [
+  { letra: 'M', nombre: 'Mañana', horario: '06:00 a 11:59' },
+  { letra: 'T', nombre: 'Tarde', horario: '12:00 a 17:59' },
+  { letra: 'N', nombre: 'Noche', horario: '18:00 a 05:59' }
+]
 
 /** Lo que devuelve `ver_menu_publico` para la página de clientes. */
 export interface MenuPublicoDatos {
+  /**
+   * El turno del momento según la hora de VENEZUELA (lo calcula la base,
+   * no el reloj del celular): 'M', 'T' o 'N'. La página filtra con él.
+   */
+  turno: string
   sucursal: { nombre: string } | null
   productos: {
     nombre: string
@@ -56,6 +82,8 @@ export interface MenuPublicoDatos {
     precio: number | null
     departamento: string | null
     foto: string | null
+    /** Las letras de los turnos en los que aparece ('MTN' = todo el día). */
+    turnos: string
   }[]
 }
 
@@ -96,7 +124,7 @@ export async function cargarMenu(sucursalId: string): Promise<ProductoMenu[]> {
   const { data, error } = await supabase
     .from('menu_productos')
     .select(
-      'id, sku, productoId:producto_id, nombre, descripcion, categoria, precio, departamento, fotoUrl:foto_url, orden'
+      'id, sku, productoId:producto_id, nombre, descripcion, categoria, precio, departamento, fotoUrl:foto_url, orden, turnos'
     )
     .eq('sucursal_id', sucursalId)
     // Los dados de baja quedan fuera: siguen en la base (con su foto) para
@@ -141,6 +169,8 @@ export async function agregarProducto(
       nombre: r.nombre,
       // Sin `descripcion` acá a propósito: en una fila NUEVA nace en null y
       // en una EXISTENTE (re-selección) conserva lo que ya se escribió.
+      // Lo MISMO con `turnos`: una fila NUEVA nace en 'MTN' (todo el día,
+      // el default de la columna) y una EXISTENTE conserva sus marcas.
       categoria: categoria.trim() || null,
       precio: precioDeMenu(r),
       departamento: r.departamento ?? null,
@@ -177,6 +207,35 @@ export async function guardarCategoria(id: string, categoria: string): Promise<v
   const { error } = await supabase
     .from('menu_productos')
     .update({ categoria: categoria.trim() || null })
+    .eq('id', id)
+  if (error) throw error
+}
+
+/**
+ * La cadena de turnos a partir de las letras que el encargado marcó:
+ * SIEMPRE en el orden M, T, N y sin repetir — la forma canónica que
+ * acepta el `check` de la tabla (`^M?T?N?$`).
+ *
+ * Sin letras tira error: un producto sin turnos no aparecería en ninguna
+ * parte de la carta, que es peor que no haberlo cargado.
+ */
+export function turnosDe(letras: Iterable<string>): string {
+  const set = new Set([...letras].filter((c) => 'MTN'.includes(c)))
+  const cadena = TURNOS.filter((t) => set.has(t.letra)).map((t) => t.letra).join('')
+  if (!cadena) throw new Error('El producto necesita al menos un turno disponible.')
+  return cadena
+}
+
+/**
+ * Los TURNOS en los que el producto está disponible, por renglón — igual
+ * que la descripción y la categoría. El que filtra la carta pública es
+ * `ver_menu_publico` con la hora de Venezuela; acá sólo se guarda lo que
+ * el encargado marcó.
+ */
+export async function guardarTurnos(id: string, turnos: string): Promise<void> {
+  const { error } = await supabase
+    .from('menu_productos')
+    .update({ turnos: turnosDe(turnos) })
     .eq('id', id)
   if (error) throw error
 }
