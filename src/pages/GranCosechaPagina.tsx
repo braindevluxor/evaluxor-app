@@ -262,8 +262,9 @@ export function GranCosechaPaginaPage() {
                 </div>
               ) : null}
               <p className="text-[11px] text-slate-400">
-                Se convierte a WebM al subir: un video largo tarda lo que dura el clip. Corre sin
-                sonido y en bucle, detrás de todo el hero.
+                Se convierte a WebM al subir, achicado a 720p y sin sonido para que la página no se
+                trabe: un video largo tarda lo que dura el clip. Corre en bucle, detrás de todo el
+                hero.
               </p>
             </div>
 
