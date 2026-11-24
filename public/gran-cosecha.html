@@ -229,6 +229,13 @@
 
     <!-- ================= HERO PRINCIPAL (INSPIRADO EN LÁMINA 1) ================= -->
     <section id="inicio" class="relative overflow-hidden paper-texture-ivory pt-12 pb-16 sm:pt-16 sm:pb-24 border-b-4 border-luxor-crimson">
+        <!-- Video de fondo del hero: lo publica la consola (Página). Sin
+             video quedan la textura de papel y los pétalos decorativos. -->
+        <video id="hero-video" class="absolute inset-0 z-0 hidden h-full w-full object-cover" autoplay muted loop playsinline preload="metadata"></video>
+        <!-- Velo claro: el texto del hero es oscuro y tiene que seguir
+             leyéndose encima del video (el contenido va en z-10). -->
+        <div id="hero-video-velo" class="absolute inset-0 z-0 hidden bg-white/70"></div>
+
         <!-- Pétalos decorativos flotantes en bordes -->
         <div class="hidden xl:block absolute -left-16 bottom-8 w-44 h-44 bg-gradient-to-br from-luxor-yellow to-luxor-orange petal-bl opacity-90 pointer-events-none"></div>
         <div class="hidden xl:block absolute -right-14 top-10 w-36 h-36 bg-gradient-to-bl from-luxor-lightRed to-luxor-crimson petal-tr opacity-90 pointer-events-none"></div>
@@ -304,7 +311,7 @@
                     <div class="grid grid-cols-2 gap-4 sm:gap-5 max-w-lg mx-auto">
                         <!-- Pétalo 1: Amarillo / Naranja con Imagen de Sede -->
                         <div class="relative aspect-square petal-tl overflow-hidden shadow-xl border-4 border-white group">
-                            <img src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80" alt="Supermercados Luxor" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onerror="this.src='https://placehold.co/500x500/F4B915/182348?text=LUXOR'">
+                            <img id="petalo-img-0" src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80" alt="Supermercados Luxor" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onerror="this.src='https://placehold.co/500x500/F4B915/182348?text=LUXOR'">
                             <div class="absolute inset-0 bg-gradient-to-br from-luxor-yellow/85 via-luxor-orange/75 to-transparent mix-blend-multiply"></div>
                             <div class="absolute bottom-4 left-4 right-4 text-white">
                                 <span class="text-[10px] font-extrabold uppercase tracking-wider bg-luxor-navy/80 px-2.5 py-1 rounded-full">Central & Tiendas</span>
@@ -314,7 +321,7 @@
 
                         <!-- Pétalo 2: Carmesí con Equipo -->
                         <div class="relative aspect-square petal-tr overflow-hidden shadow-xl border-4 border-white group">
-                            <img src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=600&q=80" alt="Trabajo en Equipo" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onerror="this.src='https://placehold.co/500x500/C41E2E/FFFFFF?text=EQUIPO'">
+                            <img id="petalo-img-1" src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=600&q=80" alt="Trabajo en Equipo" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onerror="this.src='https://placehold.co/500x500/C41E2E/FFFFFF?text=EQUIPO'">
                             <div class="absolute inset-0 bg-gradient-to-bl from-luxor-crimson/85 via-luxor-darkRed/75 to-transparent mix-blend-multiply"></div>
                             <div class="absolute bottom-4 left-4 right-4 text-white text-right">
                                 <span class="text-[10px] font-extrabold uppercase tracking-wider bg-luxor-yellow text-luxor-navy px-2.5 py-1 rounded-full">Trimestral</span>
@@ -324,7 +331,7 @@
 
                         <!-- Pétalo 3: Naranja / Amarillo con Innovación -->
                         <div class="relative aspect-square petal-bl overflow-hidden shadow-xl border-4 border-white group">
-                            <img src="https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=600&q=80" alt="Cultivando Ideas SMART" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onerror="this.src='https://placehold.co/500x500/F39200/FFFFFF?text=IDEAS'">
+                            <img id="petalo-img-2" src="https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=600&q=80" alt="Cultivando Ideas SMART" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onerror="this.src='https://placehold.co/500x500/F39200/FFFFFF?text=IDEAS'">
                             <div class="absolute inset-0 bg-gradient-to-tr from-luxor-orange/85 via-luxor-yellow/70 to-transparent mix-blend-multiply"></div>
                             <div class="absolute top-4 left-4 right-4 text-white">
                                 <span class="text-[10px] font-extrabold uppercase tracking-wider bg-luxor-navy/80 px-2.5 py-1 rounded-full">Metodología SMART</span>
@@ -334,7 +341,7 @@
 
                         <!-- Pétalo 4: Carmesí con Premiamos tu Compra -->
                         <div class="relative aspect-square petal-br overflow-hidden shadow-xl border-4 border-white group">
-                            <img src="https://images.unsplash.com/photo-1534452203293-494d7ddbf7e0?auto=format&fit=crop&w=600&q=80" alt="Premiamos tu Compra" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onerror="this.src='https://placehold.co/500x500/B51726/FFFFFF?text=PREMIOS'">
+                            <img id="petalo-img-3" src="https://images.unsplash.com/photo-1534452203293-494d7ddbf7e0?auto=format&fit=crop&w=600&q=80" alt="Premiamos tu Compra" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onerror="this.src='https://placehold.co/500x500/B51726/FFFFFF?text=PREMIOS'">
                             <div class="absolute inset-0 bg-gradient-to-tl from-luxor-darkRed/90 via-luxor-crimson/75 to-transparent mix-blend-multiply"></div>
                             <div class="absolute top-4 left-4 right-4 text-white text-right">
                                 <span class="text-[10px] font-extrabold uppercase tracking-wider bg-white text-luxor-crimson px-2.5 py-1 rounded-full">Sorteo Carro 0km</span>
@@ -2105,6 +2112,31 @@
               currentSlide = 0;
               renderCarousel();
               startCarouselAutoplay();
+            }
+          }
+          // LAS FOTOS DE LOS PÉTALOS: si la consola publicó las suyas,
+          // mandan sobre las de ejemplo del mosaico.
+          if (Array.isArray(hero.petalos)) {
+            hero.petalos.forEach(function (url, i) {
+              if (typeof url === 'string' && url) {
+                var petalo = document.getElementById('petalo-img-' + i);
+                if (petalo) petalo.src = url;
+              }
+            });
+          }
+          // EL VIDEO DE FONDO: con video, la textura queda tapada por el
+          // velo claro; sin video, todo vuelve a la textura.
+          var videoHero = document.getElementById('hero-video');
+          var veloHero = document.getElementById('hero-video-velo');
+          if (videoHero && veloHero) {
+            if (typeof hero.video === 'string' && hero.video) {
+              if (videoHero.getAttribute('src') !== hero.video) videoHero.src = hero.video;
+              videoHero.classList.remove('hidden');
+              veloHero.classList.remove('hidden');
+            } else {
+              videoHero.classList.add('hidden');
+              videoHero.removeAttribute('src');
+              veloHero.classList.add('hidden');
             }
           }
         }

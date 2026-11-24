@@ -6,11 +6,17 @@ import { PortalCabecera } from '../components/PortalCabecera'
 import {
   cargarContenidoPagina,
   guardarContenidoPagina,
+  subirFotoPetalo,
   subirGuiaPagina,
+  subirVideoHero,
   validarContenido,
   type ContenidoPagina,
-  type GuiaPagina
+  type GuiaPagina,
+  type HeroPagina
 } from '../lib/data/granCosechaPagina'
+
+/** Los cuatro pétalos del mosaico, en el orden en que los pinta la landing. */
+const PETALOS = ['Arriba izquierda', 'Arriba derecha', 'Abajo izquierda', 'Abajo derecha']
 
 /**
  * LA PÁGINA DE LA GRAN COSECHA, EDITABLE DESDE LA CONSOLA
@@ -35,6 +41,8 @@ export function GranCosechaPaginaPage() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
+  /** Avance (0 a 1) de la conversión del VIDEO del hero, o `null`. */
+  const [convirtiendoHero, setConvirtiendoHero] = useState<number | null>(null)
 
   const cargar = useCallback(async () => {
     setCargando(true)
@@ -69,6 +77,49 @@ export function GranCosechaPaginaPage() {
       setGuardando(false)
     }
   }
+
+  /** Actualiza campos del hero (pétalos, video…) preservando el resto. */
+  const actualizarHero = (cambios: Partial<HeroPagina>) =>
+    setContenido((c) => (c ? { ...c, hero: { ...c.hero, ...cambios } } : c))
+
+  /**
+   * Sube la foto de un pétalo (slot fijo: reemplaza la anterior) o la
+   * quita. La URL se publica recién al «Guardar», como el resto.
+   */
+  const subirPetalo = async (i: number, archivo: File | undefined) => {
+    if (!archivo) return
+    try {
+      const url = await subirFotoPetalo(i as 0 | 1 | 2 | 3, archivo)
+      const petalos = [0, 1, 2, 3].map((j) => (j === i ? url : (contenido?.hero.petalos[j] ?? '')))
+      actualizarHero({ petalos })
+      avisar('Foto subida. Tocá «Guardar» para publicarla.')
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo subir la foto del pétalo.', 'error')
+    }
+  }
+
+  const quitarPetalo = (i: number) =>
+    actualizarHero({ petalos: [0, 1, 2, 3].map((j) => (j === i ? '' : (contenido?.hero.petalos[j] ?? ''))) })
+
+  /**
+   * Sube el VIDEO de fondo: se convierte a WebM (barra de avance) y queda
+   * pendiente de «Guardar», igual que todo lo demás.
+   */
+  const subirVideo = async (archivo: File | undefined) => {
+    if (!archivo) return
+    setConvirtiendoHero(0)
+    try {
+      const url = await subirVideoHero(archivo, (f) => setConvirtiendoHero(f))
+      actualizarHero({ video: url })
+      avisar('Video subido. Tocá «Guardar» para publicarlo.')
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo subir el video.', 'error')
+    } finally {
+      setConvirtiendoHero(null)
+    }
+  }
+
+  const quitarVideo = () => actualizarHero({ video: '' })
 
   /** El texto de una guía: sólo el nombre (la URL la pone la subida). */
   const cambiarGuia = (i: number, campo: keyof GuiaPagina, valor: string) =>
@@ -151,6 +202,123 @@ export function GranCosechaPaginaPage() {
         </div>
       ) : contenido ? (
         <>
+          <Tarjeta
+            titulo="Hero"
+            descripcion="Lo primero que se ve en /gran-cosecha.html: el video de fondo y las cuatro fotos del mosaico de pétalos. Todo es opcional —vacío = lo que trae la página de ejemplo— y se publica con «Guardar»."
+          >
+            {/* El video de fondo: se convierte a WebM al subir, con avance. */}
+            <div className="space-y-2">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Video de fondo
+              </span>
+              {contenido.hero.video ? (
+                <video
+                  src={contenido.hero.video}
+                  controls
+                  muted
+                  preload="metadata"
+                  className="h-44 w-full rounded-xl border border-slate-200 bg-black object-contain"
+                />
+              ) : (
+                <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                  Sin video: el hero muestra su textura de papel.
+                </p>
+              )}
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  accept="video/*"
+                  disabled={convirtiendoHero !== null}
+                  onChange={(e) => {
+                    void subirVideo(e.target.files?.[0])
+                    e.target.value = ''
+                  }}
+                  className="block w-full text-xs text-slate-500 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-primary-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
+                />
+                {contenido.hero.video ? (
+                  <ButtonIcon
+                    variant="danger"
+                    onClick={quitarVideo}
+                    title="Quitar el video de fondo"
+                    aria-label="Quitar el video de fondo"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </ButtonIcon>
+                ) : null}
+              </div>
+              {convirtiendoHero !== null ? (
+                <div className="space-y-1">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all"
+                      style={{ width: `${Math.max(4, Math.round(convirtiendoHero * 100))}%` }}
+                    />
+                  </div>
+                  <span className="block text-xs text-slate-500">
+                    {convirtiendoHero > 0
+                      ? `Convirtiendo… ${Math.round(convirtiendoHero * 100)}%`
+                      : 'Convirtiendo…'}
+                  </span>
+                </div>
+              ) : null}
+              <p className="text-[11px] text-slate-400">
+                Se convierte a WebM al subir: un video largo tarda lo que dura el clip. Corre sin
+                sonido y en bucle, detrás de todo el hero.
+              </p>
+            </div>
+
+            {/* Las cuatro fotos del mosaico, en el orden de la landing. */}
+            <div className="mt-6 space-y-2">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Fotos de los pétalos
+              </span>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {PETALOS.map((nombre, i) => {
+                  const foto = contenido.hero.petalos[i] ?? ''
+                  return (
+                    <div
+                      key={nombre}
+                      className="space-y-1.5 rounded-xl border border-slate-100 bg-slate-50 p-3"
+                    >
+                      <span className="block text-[11px] font-extrabold uppercase tracking-wide text-slate-400">
+                        {nombre}
+                      </span>
+                      {foto ? (
+                        <img
+                          src={foto}
+                          alt={`Pétalo ${nombre}`}
+                          className="h-24 w-full rounded-lg border border-slate-200 object-cover"
+                        />
+                      ) : (
+                        <div className="grid h-24 place-items-center rounded-lg border border-dashed border-slate-200 text-[11px] text-slate-400">
+                          Sin foto
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          void subirPetalo(i, e.target.files?.[0])
+                          e.target.value = ''
+                        }}
+                        className="block w-full text-[11px] text-slate-500 file:mr-2 file:cursor-pointer file:rounded-full file:border-0 file:bg-primary-50 file:px-2.5 file:py-1 file:text-[11px] file:font-semibold file:text-primary-700"
+                      />
+                      {foto ? (
+                        <button
+                          type="button"
+                          onClick={() => quitarPetalo(i)}
+                          className="text-[11px] font-semibold text-slate-400 hover:text-red-600"
+                        >
+                          Quitar foto
+                        </button>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </Tarjeta>
+
           <Tarjeta
             titulo="Guías del proyecto"
             descripcion="Los dos archivos que la landing ofrece como descarga dentro del modal «Postular Proyecto»: la plantilla y la guía que quien postula debe seguir. El nombre es lo que muestra el enlace; sin archivo, la guía no aparece en la página."

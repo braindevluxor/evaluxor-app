@@ -74,6 +74,17 @@ export interface HeroPagina {
    * Vive dentro del jsonb `hero`, así que no pide ningún cambio de esquema.
    */
   carrusel: ItemCarrusel[]
+  /**
+   * Las CUATRO fotos del mosaico de pétalos del hero, en el orden en que se
+   * pintan (arriba-izq, arriba-der, aba-izq, aba-der). Una posición vacía =
+   * la foto de ejemplo que trae la landing. Vive en el jsonb `hero`.
+   */
+  petalos: string[]
+  /**
+   * Video de fondo del hero (WebM, subido desde la consola). Vacío = la
+   * textura de papel estática. Vive en el jsonb `hero`.
+   */
+  video: string
 }
 
 /** Un premio de la sección «PREMIOS»: "1° PUESTO" y qué se gana. */
@@ -117,7 +128,9 @@ export const CONTENIDO_BASE: ContenidoPagina = {
     fechaHasta: '27',
     fechaHastaMes: 'SEPT',
     fondo: '',
-    carrusel: []
+    carrusel: [],
+    petalos: ['', '', '', ''],
+    video: ''
   },
   premios: [
     { puesto: '1° PUESTO', descripcion: 'Gran Premio Corporativo y Trofeo Luxor' },
@@ -151,6 +164,9 @@ export async function cargarContenidoPagina(): Promise<ContenidoPagina> {
   // Una fila guardada antes del carrusel no lo trae, y una con un JSON raro
   // no puede romper la consola: se normaliza a lista, igual que `premios`.
   if (!Array.isArray(hero.carrusel)) hero.carrusel = []
+  // Lo mismo para los pétalos (4 fotos) y el video del hero.
+  if (!Array.isArray(hero.petalos)) hero.petalos = ['', '', '', '']
+  if (typeof hero.video !== 'string') hero.video = ''
   return {
     hero,
     premios: Array.isArray(data.premios) ? (data.premios as PremioPagina[]) : [],
@@ -309,6 +325,46 @@ export async function subirGuiaPagina(
     await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
   }
   return url
+}
+
+/**
+ * Sube la foto de UN pétalo del mosaico del hero (slots fijos `pagina/
+ * petalo-N.webp`): reemplazar sube el MISMO path con `upsert`, y la URL
+ * nueva lleva `?v=` para que el navegador y el CDN no sigan sirviendo la
+ * anterior. Se convierte a WebP como el resto de las fotos de la página.
+ */
+export async function subirFotoPetalo(indice: 0 | 1 | 2 | 3, archivo: File): Promise<string> {
+  const webp = await convertirImagenAWebP(archivo)
+  const ruta = `pagina/petalo-${indice + 1}.webp`
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, webp, {
+    contentType: 'image/webp',
+    upsert: true
+  })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  return `${data.publicUrl}?v=${Date.now()}`
+}
+
+/**
+ * Sube el VIDEO de fondo del hero: se convierte a WebM como los videos del
+ * carrusel (`convertirParaCarrusel`, con su barra de avance) y va a un slot
+ * fijo —reemplazar pisa el anterior—. La conversión tarda lo que dura el
+ * clip, por eso el avance lo lleva el llamador.
+ */
+export async function subirVideoHero(
+  archivo: File,
+  alAvanzar?: (fraccion: number) => void
+): Promise<string> {
+  const { blob, tipo } = await convertirParaCarrusel(archivo, alAvanzar)
+  if (tipo !== 'video') throw new Error('El fondo del hero tiene que ser un archivo de video.')
+  const ruta = 'pagina/hero-video.webm'
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, blob, {
+    contentType: blob.type || 'video/webm',
+    upsert: true
+  })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  return `${data.publicUrl}?v=${Date.now()}`
 }
 
 /**

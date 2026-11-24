@@ -41,6 +41,14 @@ describe('gran cosecha · la página en la consola', () => {
     expect(pagina).toContain('avisar(')
     // «Ver página» abre la landing en otra pestaña.
     expect(pagina).toContain('href="/gran-cosecha.html"')
+    // El HERO se edita acá: video de fondo (convertido a WebM, con avance)
+    // y las cuatro fotos del mosaico de pétalos.
+    expect(pagina).toContain('titulo="Hero"')
+    expect(pagina).toContain('subirVideoHero')
+    expect(pagina).toContain('subirFotoPetalo')
+    expect(pagina).toContain('accept="video/*"')
+    expect(pagina).toContain('Video de fondo')
+    expect(pagina).toContain('Fotos de los pétalos')
     // Lo que la landing ya no pinta (fechas, fondo, premios) no se edita.
     expect(pagina).not.toContain('Agregar premio')
     expect(pagina).not.toContain('Fondo estático')
@@ -50,7 +58,8 @@ describe('gran cosecha · la página en la consola', () => {
     expect(pagina).not.toContain('Portada')
     expect(pagina).not.toContain('titulo="Cosechas Pasadas"')
     expect(pagina).not.toContain('subirMediaCarrusel')
-    expect(pagina).not.toContain('convirtiendo')
+    // El avance del carrusel viejo (el del video del hero es `convirtiendoHero`).
+    expect(pagina).not.toContain('convirtiendo !== null')
     expect(pagina).not.toContain('moverSlide')
     expect(pagina).not.toContain('cambiarCampoSlide')
   })
@@ -82,8 +91,8 @@ describe('gran cosecha · la página en la consola', () => {
     // subida de archivos — la landing usa el carrusel que la tabla ya trae.
     expect(pagina).not.toContain('titulo="Cosechas Pasadas"')
     expect(pagina).not.toContain('agregarSlide')
-    expect(pagina).not.toContain('quitarSlide')
-    expect(pagina).not.toContain('accept="image/*"')
+    expect(pagina).not.toContain('subirMediaCarrusel')
+    expect(pagina).not.toContain('Agregar imagen o video')
   })
 })
 
@@ -124,6 +133,11 @@ describe('gran cosecha · el módulo de datos', () => {
     expect(CONTENIDO_BASE.hero.carrusel).toEqual([])
     // Una fila guardada antes del carrusel no lo trae: no puede romper la consola.
     expect(datos).toContain('if (!Array.isArray(hero.carrusel)) hero.carrusel = []')
+    // Los pétalos (4 fotos) y el video se normalizan igual.
+    expect(CONTENIDO_BASE.hero.petalos).toEqual(['', '', '', ''])
+    expect(CONTENIDO_BASE.hero.video).toBe('')
+    expect(datos).toContain("if (!Array.isArray(hero.petalos)) hero.petalos = ['', '', '', '']")
+    expect(datos).toContain("if (typeof hero.video !== 'string') hero.video = ''")
   })
 
   it('los valores por defecto pasan la validación', () => {
@@ -321,6 +335,14 @@ describe('gran cosecha · la landing (Arena)', () => {
     // de la pista (image/edition/title/…) — sólo las FOTOS entran.
     expect(landing).toContain('image: m.url')
     expect(landing).toContain("m.tipo === 'imagen'")
+    // Los PÉTALOS y el VIDEO del hero que publica la consola: las cuatro
+    // fotos con su id y el video con su velo, aplicados en `aplicar()`.
+    expect(landing).toContain('id="petalo-img-0"')
+    expect(landing).toContain('id="petalo-img-3"')
+    expect(landing).toContain('id="hero-video"')
+    expect(landing).toContain('id="hero-video-velo"')
+    expect(landing).toContain("petalo-img-' + i")
+    expect(landing).toContain("videoHero.getAttribute('src') !== hero.video")
     // Lo que la landing ARENA no pinta sigue fuera: equipos, premios y el
     // pintor viejo del contenido.
     expect(landing).not.toContain('pintarParticipantes')
