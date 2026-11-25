@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowDown, ArrowUp, ExternalLink, Plus, Search, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowUp, Download, ExternalLink, FileSpreadsheet, Plus, Search, Trash2, Upload } from 'lucide-react'
 import { avisar } from '../lib/aviso'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -8,6 +8,8 @@ import {
   guardarCategoria,
   guardarDescripcion,
   guardarTurnos,
+  importarMenuExcel,
+  leerFilasMenuExcel,
   precioDeMenu,
   quitarProducto,
   reordenarMenu,
@@ -15,14 +17,21 @@ import {
   sucursalesActivas,
   turnosDe,
   TURNOS,
+  type FilaImportMenu,
   type ProductoMenu,
+  type ResumenImportMenu,
   type SucursalMenu
 } from '../lib/data/menuSucursal'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { formatearPrecioBase } from '../lib/scoring'
-import { Button, ButtonIcon, Field, Input, SkeletonFilas, Spinner } from '../components/ui'
+import { Button, ButtonIcon, Confirmar, Input, Modal, ProgressBar, SkeletonFilas, Spinner } from '../components/ui'
 import { PortalCabecera } from '../components/PortalCabecera'
 import { VisitasMenu } from '../components/VisitasMenu'
+
+/** 1 → "1 creado", 2 → "2 creados": el resumen de la importación. */
+function contar(n: number, uno: string, varios: string): string {
+  return `${n} ${n === 1 ? uno : varios}`
+}
 
 /**
  * EL EDITOR DEL MENÚ
@@ -57,6 +66,16 @@ export function MenuEditorPage() {
   /** La categoría que se le asigna al agregar (con las ya usadas en el list). */
   const [categoriaNueva, setCategoriaNueva] = useState('')
   const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
+  /** La importación desde Excel: filas leídas esperando la confirmación. */
+  const [pendienteImport, setPendienteImport] = useState<FilaImportMenu[] | null>(null)
+  /** ¿Está corriendo una importación? (barra de avance) */
+  const [importando, setImportando] = useState(false)
+  /** Avance de la importación: IDs procesados sobre el total. */
+  const [avanceImport, setAvanceImport] = useState<{ hecho: number; total: number } | null>(null)
+  /** El resumen de la última importación, para el recuadro con los detalles. */
+  const [resumenImport, setResumenImport] = useState<ResumenImportMenu | null>(null)
+  /** El modal de importación: instrucciones, plantilla y archivo. */
+  const [importAbierto, setImportAbierto] = useState(false)
 
   const sucursal = sucursales?.find((s) => s.id === sucursalId) ?? null
   // Las categorías que ya se están usando: son las sugerencias del input
@@ -174,6 +193,64 @@ export function MenuEditorPage() {
     }
   }
 
+  /* ------------------------- IMPORTAR DESDE EXCEL ------------------------- */
+
+  /** Lee el archivo elegido y deja las filas esperando la confirmación. */
+  const elegirArchivoImport = async (archivo: File | undefined) => {
+    if (!archivo) return
+    try {
+      const filas = await leerFilasMenuExcel(archivo)
+      if (!filas.length) {
+        avisar('El archivo no trae filas para importar.', 'aviso')
+        return
+      }
+      setResumenImport(null)
+      setPendienteImport(filas)
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo leer el archivo.', 'error')
+    }
+  }
+
+  /**
+   * Corre la importación con la decisión de la pantalla: los TRES
+   * movimientos (crear, actualizar y eliminar) o sólo los dos primeros.
+   * La confirmación ya se mostró —este es el botón que se apretó—.
+   */
+  const importar = async (eliminarFaltantes: boolean) => {
+    const filas = pendienteImport
+    setPendienteImport(null)
+    if (!filas || !sucursalId || !sucursal?.shopId) return
+    setImportando(true)
+    setAvanceImport({ hecho: 0, total: filas.length })
+    try {
+      const resumen = await importarMenuExcel({
+        sucursalId,
+        shopId: sucursal.shopId,
+        filas,
+        eliminarFaltantes,
+        alAvanzar: (hecho, total) => setAvanceImport({ hecho, total })
+      })
+      setResumenImport(resumen)
+      await recargar()
+      avisar(
+        `Menú importado: ${contar(resumen.creados, 'creado', 'creados')}, ${contar(
+          resumen.actualizados,
+          'actualizado',
+          'actualizados'
+        )}${
+          resumen.dadosDeBaja
+            ? `, ${contar(resumen.dadosDeBaja, 'dado de baja', 'dados de baja')}`
+            : ''
+        }.`
+      )
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo importar el menú.', 'error')
+    } finally {
+      setImportando(false)
+      setAvanceImport(null)
+    }
+  }
+
   const mover = async (i: number, delta: -1 | 1) => {
     const lista = productos ?? []
     const j = i + delta
@@ -276,6 +353,52 @@ export function MenuEditorPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <PortalCabecera>
+        {/* El selector de sucursal vive en la BARRA, no en el cuerpo: el
+            Líder cambia de tienda sin bajar de la pantalla, y el encargado
+            ve la suya como etiqueta —no la puede cambiar—. El porqué está
+            en el `title`, que era el hint del campo viejo. */}
+        {esLider ? (
+          <select
+            value={sucursalId ?? ''}
+            onChange={(e) => {
+              setSucursalId(e.target.value || null)
+              setResultado(null)
+              setCodigo('')
+            }}
+            // Mientras corre una importación no se cambia de tienda: los
+            // renglones van a la sucursal con la que arrancó.
+            disabled={importando}
+            aria-label="Sucursal que se está editando"
+            title="El encargado siempre ve la suya; el Líder elige de qué tienda editar."
+            className="h-[34px] max-w-[7rem] cursor-pointer rounded-full border border-primary-200 bg-primary-50 px-2.5 text-xs font-semibold text-primary-700 focus:border-[#dc2626] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:max-w-[13rem] sm:px-3"
+          >
+            {sucursales.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nombre}
+              </option>
+            ))}
+          </select>
+        ) : sucursalId ? (
+          <span
+            title="Tu sucursal: la tienda cuyo menú estás editando."
+            className="inline-block max-w-[9rem] truncate rounded-full bg-[#0a1e5e] px-3 py-2.5 text-[11px] font-black uppercase tracking-widest text-[#facc15] sm:max-w-[14rem]"
+          >
+            {sucursal?.nombre ?? 'Mi sucursal'}
+          </span>
+        ) : null}
+
+        {/* Importar: el botón vive en la barra y TODO el flujo pasa en el
+            modal de abajo —instrucciones, plantilla y archivo—. */}
+        <button
+          type="button"
+          onClick={() => setImportAbierto(true)}
+          title="Importar la carta desde un archivo Excel"
+          className="inline-flex min-h-[34px] items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:bg-primary-100"
+        >
+          <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
+          <span className="hidden sm:inline">Importar</span>
+        </button>
+
         {sucursalId ? (
           <a
             href={`/menu/${sucursalId}`}
@@ -297,30 +420,6 @@ export function MenuEditorPage() {
           <option key={c} value={c} />
         ))}
       </datalist>
-
-      {esLider ? (
-        <Field label="Sucursal" hint="El encargado siempre ve la suya; el Líder elige de qué tienda editar.">
-          <select
-            value={sucursalId ?? ''}
-            onChange={(e) => {
-              setSucursalId(e.target.value || null)
-              setResultado(null)
-              setCodigo('')
-            }}
-            className="w-full rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-[#0a1e5e] focus:border-[#dc2626] focus:outline-none"
-          >
-            {sucursales.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nombre}
-              </option>
-            ))}
-          </select>
-        </Field>
-      ) : (
-        <span className="inline-block rounded-full bg-[#0a1e5e] px-4 py-1.5 text-xs font-black uppercase tracking-widest text-[#facc15]">
-          {sucursal?.nombre ?? 'Mi sucursal'}
-        </span>
-      )}
 
       {/* Buscador: escanear o pegar el código, como lo pide el encargado. */}
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -546,11 +645,168 @@ export function MenuEditorPage() {
         </ul>
       )}
 
-      {/* Las VISITAS: una tarjeta que abre el modal con la curva de los
-          7 días y, al elegir uno, sus 24 horas en barras —todo el detalle
+      {/* Las VISITAS: el botón se cuelga de la barra y el modal con la
+          curva de los 7 días —y, al elegir uno, sus 24 horas en barras—
           vive en `VisitasMenu`, que además hace el pedido recién al
           abrirse. Sin sucursal no hay reporte que mostrar. */}
       {sucursalId ? <VisitasMenu sucursalId={sucursalId} /> : null}
+
+      {/* LA IMPORTACIÓN: el botón está en la barra y todo el flujo pasa
+          dentro de este modal —instrucciones, plantilla, archivo, avance
+          y resumen—. Encima se monta el Confirmar de los tres movimientos,
+          que es el único paso que puede tocar lo que ya hay. */}
+      <Modal
+        open={importAbierto}
+        onClose={() => {
+          // Mientras corre no se cierra: el avance y el resumen son lo
+          // único que está pasando, y cerrar a mitad de camino deja la
+          // lista sin recargar.
+          if (!importando) setImportAbierto(false)
+        }}
+        title="Importar desde Excel"
+        wide
+      >
+        <div className="space-y-4">
+          <section>
+            <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">
+              Las tres columnas
+            </h4>
+            <ul className="mt-2 space-y-1.5 text-sm leading-relaxed text-slate-600">
+              <li>
+                <b className="text-[#0a1e5e]">ID del producto</b> — el código de barra o el ID que
+                busca la consola.
+              </li>
+              <li>
+                <b className="text-[#0a1e5e]">comentario</b> — el texto que muestra la carta
+                (opcional).
+              </li>
+              <li>
+                <b className="text-[#0a1e5e]">configuración</b> — las letras que aplican:{' '}
+                <b>M</b> mañana (06:00 a 11:59), <b>T</b> tarde (12:00 a 17:59), <b>N</b> noche
+                (18:00 a 05:59). Juntas o separadas — «MTN», «M, N», «Noche», «Todo el día» — y
+                vacío = todo el día.
+              </li>
+            </ul>
+            <p className="mt-2 text-xs text-slate-500">
+              Los encabezados se reconocen solos, en el orden que estén y en la hoja que los
+              traiga: la primera fila puede ser sólo de datos.
+            </p>
+          </section>
+
+          <section className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">
+              Qué hace con el menú actual
+            </h4>
+            <ul className="mt-2 space-y-1 text-xs leading-relaxed text-slate-600">
+              <li>
+                • Lo que <b>no estaba</b> se crea, buscando el ID en la API de precios.
+              </li>
+              <li>
+                • Lo que <b>ya estaba</b> se actualiza y conserva su categoría y su foto.
+              </li>
+              <li>
+                • Lo que <b>no aparece en el archivo</b> se da de baja — y antes te pregunta si
+                querés.
+              </li>
+              <li>• Los IDs que la API no conoce se saltan y se listan al final.</li>
+            </ul>
+          </section>
+
+          {!sucursal?.shopId ? (
+            <p className="text-xs font-semibold text-amber-700">
+              Esta sucursal no tiene Nº de tienda (shop ID) configurado: la API de precios no se
+              puede consultar hasta que el Líder lo cargue en Unidades.
+            </p>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+            {/* La plantilla con los tres encabezados, tal cual los lee el
+                importador — está en public/ y se baja como cualquier asset. */}
+            <a
+              href="/plantilla-menu.xlsx"
+              download
+              title="Bajar la plantilla con los tres encabezados"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2.5 text-xs font-black text-slate-600 transition-colors hover:bg-slate-50"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Descargar plantilla
+            </a>
+            <label
+              className={`inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2.5 text-xs font-black text-slate-600 transition-colors hover:bg-slate-50 ${
+                importando || !sucursal?.shopId
+                  ? 'pointer-events-none cursor-not-allowed opacity-60'
+                  : 'cursor-pointer'
+              }`}
+              title="Elegir el archivo Excel con la carta"
+            >
+              <Upload className="h-4 w-4" aria-hidden="true" />
+              Elegir archivo
+              <input
+                type="file"
+                accept=".xlsx"
+                className="hidden"
+                disabled={importando || !sucursal?.shopId}
+                onChange={(e) => {
+                  void elegirArchivoImport(e.target.files?.[0])
+                  e.target.value = ''
+                }}
+              />
+            </label>
+          </div>
+
+          {importando && avanceImport ? (
+            <div className="space-y-1.5">
+              <ProgressBar value={(avanceImport.hecho / Math.max(1, avanceImport.total)) * 100} />
+              <p className="text-xs font-bold text-slate-500">
+                Importando {avanceImport.hecho} de {avanceImport.total}… no cierres esta ventana.
+              </p>
+            </div>
+          ) : null}
+
+          {resumenImport && !importando ? (
+            <div className="space-y-1.5 rounded-xl border border-primary-100 bg-primary-50 p-3">
+              <p className="text-xs font-black text-[#0a1e5e]">
+                {contar(resumenImport.creados, 'creado', 'creados')} ·{' '}
+                {contar(resumenImport.actualizados, 'actualizado', 'actualizados')}
+                {resumenImport.dadosDeBaja
+                  ? ` · ${contar(resumenImport.dadosDeBaja, 'dado de baja', 'dados de baja')}`
+                  : ''}
+              </p>
+              {resumenImport.sinId > 0 ? (
+                <p className="text-xs text-slate-600">
+                  {contar(resumenImport.sinId, 'Fila sin ID', 'Filas sin ID')} (no se importaron).
+                </p>
+              ) : null}
+              {resumenImport.noEncontrados.length > 0 ? (
+                <div className="text-xs">
+                  <p className="font-bold text-slate-600">
+                    La API no conoce{' '}
+                    {resumenImport.noEncontrados.length === 1 ? 'este ID' : 'estos IDs'} (no se
+                    importaron):
+                  </p>
+                  <p className="mt-0.5 break-all text-slate-500">
+                    {resumenImport.noEncontrados.join(', ')}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </Modal>
+
+      {/* LA PREGUNTA DE LA IMPORTACIÓN. Los tres movimientos son el camino
+          completo, pero ELIMINAR es el destructivo y va confirmado: el que
+          sólo quiere sumar productos tiene su propio botón, y Cancelar no
+          toca nada (las filas quedan leídas para volver a elegir). */}
+      <Confirmar
+        open={pendienteImport !== null}
+        texto="¿Desea crear lo que no existe, actualizar lo que existe y eliminar lo que no esté en el archivo de importación?"
+        textoConfirmar="Sí, importar todo"
+        onConfirm={() => void importar(true)}
+        textoSecundario="Sólo crear y actualizar"
+        onSecundario={() => void importar(false)}
+        onCancel={() => setPendienteImport(null)}
+      />
     </div>
   )
 }

@@ -14,7 +14,8 @@ import {
 } from 'recharts'
 import { avisar } from '../lib/aviso'
 import { visitasMenu, type VisitaPorHora } from '../lib/data/menuSucursal'
-import { Button, Modal } from './ui'
+import { Modal } from './ui'
+import { PortalCabecera } from './PortalCabecera'
 
 /** Fecha local en clave 'YYYY-MM-DD': el formato que espera la RPC. */
 function isoDe(d: Date): string {
@@ -69,6 +70,10 @@ function TooltipVisitas({ active, payload, label }: { active?: boolean; payload?
  *   2. EL DETALLE POR HORA: al hacer clic en un día (en la curva o en su
  *      chip), las 24 horas de ESE día en barras —con las horas futuras de
  *      hoy atenuadas, que todavía no pasaron—.
+ *
+ * El BOTÓN que abre el modal se cuelga de la barra de la consola
+ * (`PortalCabecera`), junto al selector de sucursal y a «Ver menú público»
+ * —el cuerpo de la pantalla queda sólo para el menú—.
  *
  * Lee con sesión por `visitasMenu` (la RPC `ver_visitas_menu`), que sólo
  * devuelve lo del encargado de esa sucursal o del Líder; sólo LEE, así que
@@ -145,27 +150,21 @@ export function VisitasMenu({ sucursalId }: { sucursalId: string }) {
 
   return (
     <>
-      {/* La tarjeta que abre el reporte: sólo el nombre, el período y el
-          botón — el gráfico vive en el modal. */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-          <h3 className="text-sm font-black uppercase tracking-wider text-[#0a1e5e]">
-            Visitas al menú
-          </h3>
-          <span className="text-[11px] text-slate-400">Últimos 7 días · hora de Venezuela</span>
-        </div>
-        <p className="mt-2 text-xs leading-relaxed text-slate-500">
-          Las aperturas de la carta: la curva por día y, al elegir uno, sus 24 horas.
-        </p>
-        <Button
+      {/* El botón vive en la BARRA de la consola (PortalCabecera), con el
+          mismo estilo que «Ver menú público»: sólo icono en el teléfono,
+          donde la barra ya va llena. El cuerpo de la pantalla queda sólo
+          para el menú. */}
+      <PortalCabecera>
+        <button
           type="button"
-          className="mt-3 min-h-0 px-4 py-2 text-xs"
           onClick={() => setAbierto(true)}
+          title="Ver las aperturas de la carta: la curva de los 7 días y el detalle por hora"
+          className="inline-flex min-h-[34px] items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:bg-primary-100"
         >
           <BarChart3 className="h-4 w-4" aria-hidden="true" />
-          Ver visitas
-        </Button>
-      </div>
+          <span className="hidden sm:inline">Ver visitas</span>
+        </button>
+      </PortalCabecera>
 
       <Modal
         open={abierto}
@@ -177,7 +176,11 @@ export function VisitasMenu({ sucursalId }: { sucursalId: string }) {
         wide
       >
         <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-          {infoDia ? 'Detalle por hora' : `Curva de los 7 días · ${total7} aperturas`}
+          {infoDia
+            ? 'Detalle por hora'
+            : `Últimos 7 días · hora de Venezuela · ${total7} ${
+                total7 === 1 ? 'apertura' : 'aperturas'
+              }`}
         </p>
 
         {visitas === null ? (

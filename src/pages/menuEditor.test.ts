@@ -116,10 +116,46 @@ describe('editor del menú · la pantalla', () => {
     expect(datos).toContain('nace en \'MTN\'')
   })
 
+  it('la carta se importa desde un Excel con ID, comentario y configuración', () => {
+    // El archivo se lee, se CONFIRMA lo destructivo y recién ahí se corre.
+    expect(datos).toContain('export async function leerFilasMenuExcel')
+    expect(datos).toContain('export async function importarMenuExcel')
+    expect(pagina).toContain('leerFilasMenuExcel')
+    expect(pagina).toContain('Importar desde Excel')
+    expect(pagina).toContain('accept=".xlsx"')
+    // El botón está en la BARRA y todo el flujo vive en un modal: las
+    // instrucciones, la plantilla, el archivo, el avance y el resumen.
+    expect(pagina).toContain('setImportAbierto(true)')
+    expect(pagina).toContain('title="Importar desde Excel"')
+    expect(pagina).toContain('Las tres columnas')
+    expect(pagina).toContain('Qué hace con el menú actual')
+    // La plantilla baja desde public/ con los mismos encabezados que lee
+    // el importador (los verifica plantillaMenu.test.ts contra el archivo).
+    expect(pagina).toContain('href="/plantilla-menu.xlsx"')
+    expect(pagina).toContain('Descargar plantilla')
+    expect(pagina).toContain('ProgressBar')
+    // La pregunta exacta, con la salida que NO borra nada.
+    expect(pagina).toContain(
+      '¿Desea crear lo que no existe, actualizar lo que existe y eliminar lo que no esté en el archivo de importación?'
+    )
+    expect(pagina).toContain('Sólo crear y actualizar')
+    // Lo que no está en el archivo se da de BAJA, nunca se borra: la fila
+    // y su foto sobreviven para la próxima selección (mismo criterio que
+    // el botón de quitar).
+    expect(datos).toContain('update({ activo: false })')
+    expect(datos).not.toContain(".from('menu_productos').delete(")
+    // Lo que la API de precios no conoce se salta y se lista al final.
+    expect(datos).toContain('noEncontrados.push(id)')
+    // Y las bajas van AL FINAL: si la consulta falla, no se elimina nada.
+    expect(datos).toContain('LAS BAJAS, al final')
+  })
+
   it('las visitas son un modal: la curva de 7 días y el detalle por hora al elegir uno', () => {
-    // El reporte vive en SU componente; la tarjeta del editor sólo lo abre
-    // — y el pedido lo hace el modal recién al abrirse.
+    // El reporte vive en SU componente: el botón se cuelga de la BARRA de
+    // la consola y el pedido lo hace el modal recién al abrirse.
     expect(pagina).toContain('VisitasMenu')
+    expect(componente).toContain('PortalCabecera')
+    expect(componente).toContain('Ver visitas')
     expect(componente).toContain('Visitas al menú')
     expect(componente).toContain('Últimos 7 días · hora de Venezuela')
     expect(componente).toContain('if (!abierto || !sucursalId || visitas !== null) return')
