@@ -213,30 +213,64 @@ export function HelpdeskPage() {
     }, 3200);
   };
 
-  // La carga inicial: casos, sucursales y equipo TI — de una sola vez.
+  // La carga inicial, con cada cosa POR SEPARADO: si una petición falla,
+  // las otras siguen (un caso roto no puede dejar el selector de sucursales
+  // vacío ni la pantalla en blanco), y el aviso dice CUÁL falló.
   useEffect(() => {
     let vivo = true;
+    const aviso = (que: string, e: unknown) => {
+      if (!vivo) return;
+      // El error de Supabase NO es una instancia de Error: es un objeto
+      // { message, code, hint }. Sin esto el aviso diría "[object Object]".
+      const detalle =
+        e instanceof Error
+          ? e.message
+          : e && typeof e === 'object' && typeof (e as { message?: unknown }).message === 'string'
+            ? (e as { message: string }).message
+            : JSON.stringify(e);
+      showToast(`${que} — ${detalle}`);
+    };
+
+    // 1) Sucursales: la RPC pública, que es la que usa la carta y no
+    //    depende de ninguna tabla nueva. Va primero porque es lo que llena
+    //    el selector del «Nuevo Caso».
     void (async () => {
       try {
-        const casos = await listarTicketsHelpdesk();
-        const suc = (await sucursalesPublicas().catch(() => [])) as { id: string; nombre: string }[];
-        const tec = await listarTecnicosHelpdesk();
+        const suc = await sucursalesPublicas();
         if (!vivo) return;
-        setTickets(casos);
         setSucursales(suc);
-        setTecnicos(tec);
-        // El modal de «Nuevo Caso» nace con la SUCURSAL DEL QUE REPORTA (la
-        // del perfil) y con su nombre: así no se cuelga un caso en la
-        // sucursal equivocada por costumbre de dejar siempre la primera.
+        // El modal nace con la SUCURSAL DEL QUE REPORTA (la del perfil) y
+        // con su nombre: así no se cuelga un caso en la sucursal equivocada.
         const mia = suc.find((s) => s.id === profile?.sucursal_id);
         setNewBranch((actual) => actual || mia?.nombre || suc[0]?.nombre || '');
         setNewReporter((actual) => actual || profile?.nombre || '');
-      } catch {
-        if (vivo) showToast('No se pudo cargar la Mesa de Ayuda.');
+      } catch (e) {
+        aviso('No se pudieron cargar las sucursales', e);
+      }
+    })();
+
+    // 2) Los casos: de acá depende sólo el spinner de la lista.
+    void (async () => {
+      try {
+        const casos = await listarTicketsHelpdesk();
+        if (vivo) setTickets(casos);
+      } catch (e) {
+        aviso('No se pudieron cargar los casos', e);
       } finally {
         if (vivo) setCargandoCasos(false);
       }
     })();
+
+    // 3) El equipo TI: de acá dependen los selectores de asignación.
+    void (async () => {
+      try {
+        const tec = await listarTecnicosHelpdesk();
+        if (vivo) setTecnicos(tec);
+      } catch (e) {
+        aviso('No se pudo cargar el equipo TI', e);
+      }
+    })();
+
     return () => {
       vivo = false;
     };
