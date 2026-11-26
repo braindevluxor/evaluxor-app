@@ -1,18 +1,18 @@
 /**
- * LA TASA DE CAMBIO DEL TABULADOR: BCV, CON ALTERNATIVA MANUAL
+ * LA TASA DE CAMBIO: BCV, CON ALTERNATIVA MANUAL
  * ------------------------------------------------------------
- * La tasa que muestra el tabulador es la DEL BCV —DolarAPI la publica con
- * CORS abierto (`Access-Control-Allow-Origin: *`), así que el navegador la
- * pide directo, sin proxy ni función de servidor— y, como ALTERNATIVA, la
- * que se cargue a mano.
+ * La tasa oficial es la DEL BCV —DolarAPI la publica con CORS abierto
+ * (`Access-Control-Allow-Origin: *`), así que el navegador la pide directo,
+ * sin proxy ni función de servidor— y, como ALTERNATIVA, la que se cargue a
+ * mano.
  *
- * El orden de la pantalla: **manual → BCV → tasa del archivo** (la que
- * trae el Excel y queda como respaldo cuando no hay red ni valor cargado).
+ * El orden de uso: **manual → BCV**, y si no hay red ni valor cargado queda
+ * la tasa que traiga la fuente que la consulte.
  *
  * La manual vive en `localStorage` (no en la base): es una preferencia de
- * visualización de quien consulta, el tabulador sigue siendo de SÓLO
- * LECTURA y así no hace falta ni política de escritura ni SQL nuevo —y
- * tampoco la pisa el import del Excel.
+ * visualización de quien consulta, así que no hace falta ni política de
+ * escritura ni SQL nuevo. La clave sigue siendo `luxor_tabulador_tasa_manual`
+ * —nació con el tabulador— para no perder lo que ya esté guardado.
  */
 
 /** Lo que la pantalla muestra: el valor y de dónde salió. */

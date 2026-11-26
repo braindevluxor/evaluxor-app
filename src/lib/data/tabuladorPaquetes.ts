@@ -2,144 +2,228 @@ import { supabase } from '../supabase'
 import { claveNormalizada } from './responsables'
 
 /**
- * EL TABULADOR DE PAQUETES: EL EXCEL DE TALENTO HUMANO, EN LA CONSOLA
+ * EL TABULADOR DE PAQUETES: LAS CIFRAS DE TALENTO HUMANO, EN LA CONSOLA
  * ---------------------------------------------------------------
- * `TABULADOR ESTRCII LUXOR` (Excel con hojas OFICINA y SUCURSALES) dice,
- * por cargo, la plantilla propuesta, el salario y el desglose de bonos que
- * componen el PAQUETE APROBADO. Los datos NO se editan desde acá: se
- * ajustan en el Excel y se reemplazan pegando el SQL que genera
- * `scripts/generar_tabulador_paquetes.py` (DELETE + INSERT), por eso este
- * módulo sólo LEE.
+ * Por cargo: código, departamento, dependencia, plantilla (plazas) y las
+ * cifras del paquete, cada una en su moneda de declaración:
  *
- * Acá se lee con la sesión de la consola y la política `puede_bonos`
- * (LÍDER y GERENTE TH) —una cifra de sueldo no es contenido de todo el
- * mundo—; `anon` ni privilegio de tabla. Son ~195 filas: se cargan ENTERAS
- * de una y la pantalla busca, filtra y ordena en memoria.
+ *  - `salario_bs`, `bono_traslado_bs`        → BS
+ *  - `bono_asistencia_usd`, `cestatickets_usd`,
+ *    `paquete_aprobado_usd`                  → USD
+ *
+ * El BONO COMPENSATORIO no se guarda: es `bonoCompensatorio()`, la resta
+ * PAQUETE − (SALARIO + TRASLADO + ASISTENCIA + CESTATICKETS) hecha en USD
+ * con la tasa del BCV —así no puede quedar desfasado si mañana cambia un
+ * salario o la tasa—. Si falta el paquete o falta la tasa, no hay número:
+ * la celda queda «—».
+ *
+ * A diferencia del tabulador anterior (foto del Excel, sólo lectura), ÉSTE
+ * se edita desde la consola: `guardarFila` da de alta o modifica y
+ * `eliminarFila` borra. Se guarda SIEMPRE en la moneda declarada —nadie
+ * convierte al escribir—; la conversión es cosa de la vista y vive en
+ * `valorParaVista`, con la tasa del BCV (`src/lib/tasaBcv.ts`).
+ *
+ * Se lee con la sesión de la consola y la política `puede_bonos` (LÍDER y
+ * GERENTE TH) —una cifra de sueldo no es contenido de todo el mundo—; `anon`
+ * sin privilegio de tabla. Son pocas filas: se cargan ENTERAS de una y la
+ * pantalla busca, filtra y ordena en memoria.
  */
 
-/** La hoja del Excel: cada una se consulta por separado. */
-export type HojaTabulador = 'OFICINA' | 'SUCURSALES'
+/** La moneda en que una cifra fue declarada (y en la que se GUARDA). */
+export type Moneda = 'BS' | 'USD'
 
-export const HOJAS_TABULADOR: readonly HojaTabulador[] = ['OFICINA', 'SUCURSALES'] as const
+/**
+ * Las tres formas de mirar la tabla:
+ *
+ *  - `DECLARADO` (según declaración): cada columna en SU moneda, sin tocar.
+ *  - `BS`: las columnas USD se convierten a bolívares con la tasa.
+ *  - `USD`: las columnas BS se convierten a dólares con la tasa.
+ */
+export type VistaMoneda = 'DECLARADO' | 'BS' | 'USD'
 
-/** Un renglón del tabulador: las columnas propias + el resto en `componentes`. */
+export const VISTAS: { valor: VistaMoneda; etiqueta: string }[] = [
+  { valor: 'DECLARADO', etiqueta: 'Según declaración' },
+  { valor: 'BS', etiqueta: 'Solo BS' },
+  { valor: 'USD', etiqueta: 'Solo USD' }
+]
+
+/** Los campos monetarios, con su moneda de declaración (el orden de la tabla). */
+export type CampoMonetario =
+  | 'salario_bs'
+  | 'bono_traslado_bs'
+  | 'bono_asistencia_usd'
+  | 'cestatickets_usd'
+  | 'paquete_aprobado_usd'
+
+export const COLUMNAS_MONEDA: { campo: CampoMonetario; etiqueta: string; moneda: Moneda }[] = [
+  { campo: 'salario_bs', etiqueta: 'Salario', moneda: 'BS' },
+  { campo: 'bono_traslado_bs', etiqueta: 'Bono traslado', moneda: 'BS' },
+  { campo: 'bono_asistencia_usd', etiqueta: 'Bono asistencia', moneda: 'USD' },
+  { campo: 'cestatickets_usd', etiqueta: 'Cestatickets', moneda: 'USD' },
+  { campo: 'paquete_aprobado_usd', etiqueta: 'Paquete aprobado', moneda: 'USD' }
+]
+
+/** Un renglón del tabulador tal como está guardado (en su moneda). */
 export interface FilaTabulador {
-  id: number
-  hoja: HojaTabulador
+  id: string
   codigo: string
   cargo: string
   departamento: string
   dependencia: string
-  /** Plazas del puesto (null donde el Excel la dejó vacía). */
+  /** Plazas del puesto. `null` = no declarado (se muestra «—»). */
   plantilla: number | null
-  /** Salario en bolívares (la columna SALARIO BS del Excel). */
-  salario: number | null
-  /** PAQUETE APROBADO, en DÓLARES —así lo aprueba el Excel—. */
-  paquete: number | null
-  /**
-   * El resto del renglón (bonos, cupones, BCI, CT…) con la clave
-   * normalizada del import. Las claves y sus etiquetas varían entre hojas
-   * y entre versiones del archivo: la pantalla las rotula con `columnas`
-   * del config, nunca con nombres fijos.
-   */
-  componentes: Record<string, number | string>
+  salario_bs: number | null
+  bono_traslado_bs: number | null
+  bono_asistencia_usd: number | null
+  cestatickets_usd: number | null
+  paquete_aprobado_usd: number | null
 }
 
-/** La etiqueta de una componente, mandada por el import (quien lee el Excel). */
-export interface ColumnaTabulador {
-  hoja: HojaTabulador
-  key: string
-  etiqueta: string
-}
+/** Lo que se escribe al crear o editar: la MISMA fila, sin `id` si es alta. */
+export type FilaTabuladorEntrada = Omit<FilaTabulador, 'id'> & { id?: string }
 
-/** La fila única de config: encabezado del archivo + etiquetas por hoja. */
-export interface ConfigTabulador {
-  columnas: ColumnaTabulador[]
-  /** Fecha del archivo (la que trae el Excel). */
-  fecha_archivo: string | null
-  tasa_cambio: number | null
-  tasa_cupon: number | null
-}
+/* --- Las vistas (pura) ---------------------------------------------------- */
 
-export interface Tabulador {
-  filas: FilaTabulador[]
-  config: ConfigTabulador | null
+/**
+ * ¿ESTA columna se pinta en otra moneda que la suya, en ESTA vista?
+ * `DECLARADO` no convierte nada; `BS` sólo las USD; `USD` sólo las BS.
+ */
+export function esConvertido(moneda: Moneda, vista: VistaMoneda): boolean {
+  return vista !== 'DECLARADO' && vista !== moneda
 }
 
 /**
- * El tabulador entero: las DOS hojas de una y la config de otra.
+ * El valor a pintar en una celda: el declarado, o su conversión a la
+ * moneda de la vista con la tasa del BCV.
+ *
+ *  - De USD a BS multiplica (valor × tasa); de BS a USD divide (valor ÷ tasa).
+ *  - `null` (no declarado) sigue siendo `null`: no se inventa cifra.
+ *  - Sin tasa (o con una tasa inválida) la conversión NO existe: devuelve
+ *    `null` y la pantalla lo pinta como «—» con su aviso, en vez de
+ *    mostrar un número de mentira.
+ */
+export function valorParaVista(
+  valor: number | null,
+  moneda: Moneda,
+  vista: VistaMoneda,
+  tasa: number | null
+): number | null {
+  if (valor == null) return null
+  if (!esConvertido(moneda, vista)) return valor
+  if (tasa == null || !Number.isFinite(tasa) || tasa <= 0) return null
+  return moneda === 'USD' ? valor * tasa : valor / tasa
+}
+
+/**
+ * EL BONO COMPENSATORIO: la única cifra que NO se guarda, porque es la
+ * RESTA de las demás.
+ *
+ *     PAQUETE APROBADO (USD) − (SALARIO + TRASLADO en BS pasados a USD
+ *     por la tasa) − ASISTENCIA − CESTATICKETS (ambos USD)
+ *
+ * Devuelve la cifra **en USD** —la moneda en que se decide—, y la pantalla
+ * la pinta como cualquier otra columna USD: en la vista «solo BS» se
+ * multiplica por la tasa al mostrarla.
+ *
+ * `null` = no hay número que calcular, y por eso la celda es «—»:
+ *
+ *  - Sin `paquete_aprobado_usd` no hay de qué restar.
+ *  - Si hay BS que convertir y no hay tasa (o es inválida), la resta
+ *    mezclaría monedas: no se hace.
+ *  - Un componente no declarado no resta (cuenta como 0).
+ */
+export function bonoCompensatorio(fila: FilaTabulador, tasa: number | null): number | null {
+  const paquete = fila.paquete_aprobado_usd
+  if (paquete == null) return null
+
+  const bs = (fila.salario_bs ?? 0) + (fila.bono_traslado_bs ?? 0)
+  let bsEnUsd = 0
+  if (bs > 0) {
+    if (tasa == null || !Number.isFinite(tasa) || tasa <= 0) return null
+    bsEnUsd = bs / tasa
+  }
+
+  return paquete - bsEnUsd - (fila.bono_asistencia_usd ?? 0) - (fila.cestatickets_usd ?? 0)
+}
+
+/* --- La regla de negocio (pura) ------------------------------------------- */
+
+/**
+ * El error de una fila, o `null` si está bien. Todo lo que se rechaza es
+ * para que no entre basura a la base: cargo sin letras, cifras negativas
+ * o no numéricas.
+ */
+export function validarFila(entrada: FilaTabuladorEntrada): string | null {
+  if (!entrada.cargo.trim()) return 'Escribí el cargo.'
+  if (!claveNormalizada(entrada.cargo)) return 'El cargo debe tener letras o números.'
+  if (entrada.plantilla != null && entrada.plantilla < 0) {
+    return 'La plantilla no puede ser negativa.'
+  }
+  const campos: { etiqueta: string; valor: number | null }[] = [
+    { etiqueta: 'Salario (BS)', valor: entrada.salario_bs },
+    { etiqueta: 'Bono traslado (BS)', valor: entrada.bono_traslado_bs },
+    { etiqueta: 'Bono asistencia (USD)', valor: entrada.bono_asistencia_usd },
+    { etiqueta: 'Cestatickets (USD)', valor: entrada.cestatickets_usd },
+    { etiqueta: 'Paquete aprobado (USD)', valor: entrada.paquete_aprobado_usd }
+  ]
+  for (const campo of campos) {
+    if (campo.valor != null && campo.valor < 0) return `${campo.etiqueta} no puede ser negativo.`
+  }
+  return null
+}
+
+/* --- La base -------------------------------------------------------------- */
+
+const COLUMNAS = 'id, codigo, cargo, departamento, dependencia, plantilla, salario_bs, bono_traslado_bs, bono_asistencia_usd, cestatickets_usd, paquete_aprobado_usd'
+
+/**
+ * El tabulador ENTERO: son pocas filas, se traen de una y todo el filtro,
+ * el orden y la búsqueda corren en pantalla — sin consulta por tecla.
  *
  * Sin sesión o sin permiso, el error de RLS sale acá y la pantalla lo
  * explica — no hay data layer que lo salve.
  */
-export async function listarTabulador(): Promise<Tabulador> {
-  const [filas, config] = await Promise.all([
-    supabase
-      .from('bono_tabulador_paquete')
-      .select(
-        'id, hoja, codigo, cargo, departamento, dependencia, plantilla, salario, paquete, componentes'
-      )
-      .order('cargo'),
-    supabase
-      .from('bono_tabulador_config')
-      .select('columnas, fecha_archivo, tasa_cambio, tasa_cupon')
-      .eq('id', true)
-      .maybeSingle()
-  ])
-  if (filas.error) throw filas.error
-  if (config.error) throw config.error
-  return {
-    filas: (filas.data ?? []) as FilaTabulador[],
-    config: (config.data as ConfigTabulador | null) ?? null
-  }
-}
-
-/**
- * El PAQUETE APROBADO de un cargo de BONOS, para mostrarlo en su fila.
- *
- * Cruce POR NOMBRE con `claveNormalizada` —la MISMA normalización con la
- * que Bonos ya cruza contra la nómina (`bonos_cargo.clave` vs
- * `role_name`)—: el tabulador no expone su `codigo` en Bonos y el nombre
- * es la llave que el resto del módulo ya usa.
- *
- * Devuelve `{min, max}`: iguales cuando todas las filas coinciden (el
- * valor único), distintos cuando el cargo aparece más de una vez —misma
- * hoja u otro departamento— y así se muestra el rango en vez de inventar
- * un número. `null` = el cargo no está en el tabulador.
- */
-export function paqueteDeCargo(
-  paquetes: PaqueteCargo[],
-  cargo: string
-): { min: number; max: number } | null {
-  const clave = claveNormalizada(cargo)
-  if (!clave) return null
-  const valores = paquetes
-    .filter((p) => claveNormalizada(p.cargo) === clave)
-    .map((p) => p.paquete)
-  if (!valores.length) return null
-  return { min: Math.min(...valores), max: Math.max(...valores) }
-}
-
-/** Lo que la vista de Bonos necesita del tabulador: cargo y su paquete. */
-export interface PaqueteCargo {
-  cargo: string
-  paquete: number
-}
-
-/**
- * Los Paquetes aprobados, para la columna nueva de la vista de Bonos.
- *
- * Sólo lectura y con la MISMA cerradura que los bonos (`puede_bonos`): la
- * política de select de `bono_tabulador_paquete` es ésa. Si la tabla no
- * existe todavía (el SQL del tabulador sin correr), el error lo recibe el
- * llamador —en Bonos se muestra la columna vacía— y no se tira abajo la
- * pantalla.
- */
-export async function listarPaquetesTabulador(): Promise<PaqueteCargo[]> {
+export async function listarTabulador(): Promise<FilaTabulador[]> {
   const { data, error } = await supabase
-    .from('bono_tabulador_paquete')
-    .select('cargo, paquete')
-    .not('paquete', 'is', null)
+    .from('tabulador_paquete')
+    .select(COLUMNAS)
+    .order('cargo')
   if (error) throw error
-  return (data ?? []) as PaqueteCargo[]
+  return (data ?? []) as FilaTabulador[]
+}
+
+/**
+ * Crea o modifica UNA fila. Con `id` actualiza; sin él, inserta. El `clave`
+ * del cargo se recalcula siempre: es lo que la pantalla usa para buscar.
+ */
+export async function guardarFila(entrada: FilaTabuladorEntrada): Promise<void> {
+  const error = validarFila(entrada)
+  if (error) throw new Error(error)
+
+  const fila = {
+    codigo: entrada.codigo.trim(),
+    cargo: entrada.cargo.trim(),
+    clave: claveNormalizada(entrada.cargo),
+    departamento: entrada.departamento.trim(),
+    dependencia: entrada.dependencia.trim(),
+    plantilla: entrada.plantilla,
+    salario_bs: entrada.salario_bs,
+    bono_traslado_bs: entrada.bono_traslado_bs,
+    bono_asistencia_usd: entrada.bono_asistencia_usd,
+    cestatickets_usd: entrada.cestatickets_usd,
+    paquete_aprobado_usd: entrada.paquete_aprobado_usd,
+    updated_at: new Date().toISOString()
+  }
+
+  const consulta = entrada.id
+    ? supabase.from('tabulador_paquete').update(fila).eq('id', entrada.id)
+    : supabase.from('tabulador_paquete').insert(fila)
+  const { error: err } = await consulta
+  if (err) throw err
+}
+
+/** Borra una fila. Si RLS no deja (rol sin `puede_bonos`), llega el error. */
+export async function eliminarFila(id: string): Promise<void> {
+  const { error } = await supabase.from('tabulador_paquete').delete().eq('id', id)
+  if (error) throw error
 }

@@ -3,22 +3,20 @@ import { PGlite } from '@electric-sql/pglite'
 import { bloqueSql } from './supabaseSql'
 
 /**
- * bono-tabulador.sql, ejecutado en un Postgres de verdad.
+ * tabulador-paquetes.sql, ejecutado en un Postgres de verdad.
  *
  * POR QUÉ EXISTE ESTE TEST
  * ------------------------
- * El tabulador es una foto del Excel de Talento Humano y las reglas que
- * sólo fallan cuando alguien consulta con el rol equivocado o intenta
- * tocar una cifra de sueldo:
+ * El tabulador son cifras de sueldo y este bloque es nuevo —se reemplazó la
+ * foto del Excel por una tabla editable—, así que lo que sólo falla cuando
+ * alguien consulta con el rol equivocado o intenta escribir una cifra vive
+ * acá:
  *
- *  1. La FORMA: sólo dos hojas (OFICINA/SUCURSALES), los componentes como
- *     objeto y UNA fila de config —el mismo `check` de fila única que el
- *     resto de las configuraciones de una sola fila.
- *  2. SÓLO LECTURA: no hay política de escritura, así que NI el Líder
- *     inserta desde la app —el tabulador cambia pegando el SQL del
- *     import—. Ése es el invariant que protege este archivo.
- *  3. RLS con `puede_bonos`: LÍDER y GERENTE TH leen, un EVALUADOR no ve
- *     una cifra de sueldo, y `anon` ni privilegio de tabla.
+ *  1. La FORMA: cargo obligatorio, cifras sin negativos y plazas enteras.
+ *  2. SE ESCRIBE: a diferencia del tabulador viejo (sólo lectura), el LÍDER
+ *     y el GERENTE TH dan de alta, editan y borran desde la consola.
+ *  3. RLS con `puede_bonos`: los DOS roles anteriores, un EVALUADOR que no
+ *     ve ni escribe una cifra de sueldo, y `anon` sin privilegio de tabla.
  *
  * Acá se corre el bloque TAL CÓMO se pega al SQL Editor, dos veces (tiene
  * que ser idempotente), sobre `bonos.sql` —del que sale `puede_bonos`— y un
@@ -90,23 +88,20 @@ beforeAll(async () => {
   // políticas… y las dos corridas prueban que el import es idempotente.
   await db.exec(bloqueSql('bonos.sql'))
   await db.exec(bloqueSql('bonos.sql'))
-  await db.exec(bloqueSql('bono-tabulador.sql'))
-  await db.exec(bloqueSql('bono-tabulador.sql'))
+  await db.exec(bloqueSql('tabulador-paquetes.sql'))
+  await db.exec(bloqueSql('tabulador-paquetes.sql'))
 
-  // Una fila de cada cosa, subida como DUEÑO (bypasea RLS): es el estado
-  // que después tienen que filtrar las políticas para los demás roles.
+  // Dos filas, subidas como DUEÑO (bypasea RLS): es el estado que después
+  // tienen que filtrar las políticas para los demás roles.
   await db.exec(
-    `insert into public.bono_tabulador_paquete
-       (hoja, codigo, cargo, departamento, dependencia, plantilla, salario, paquete, componentes)
+    `insert into public.tabulador_paquete
+       (codigo, cargo, clave, departamento, dependencia, plantilla,
+        salario_bs, bono_traslado_bs, bono_asistencia_usd, cestatickets_usd, paquete_aprobado_usd)
      values
-       ('OFICINA', '0150000', 'ASISTENTE DE GERENCIA', 'ADMINISTRACION', 'CENTRAL', 1, 457.23, 995.64,
-        '{"bci": 396063.18}'::jsonb),
-       ('SUCURSALES', '00370000', 'AUXILIAR DE PRECIOS', 'ALMACEN', 'PLANTA', 26, 143.46, 309.83,
-        '{}')`
-  )
-  await db.exec(
-    `insert into public.bono_tabulador_config (id, columnas, fecha_archivo, tasa_cambio, tasa_cupon)
-     values (true, '[{"hoja":"OFICINA","key":"bci","etiqueta":"BCI "}]'::jsonb, '2026-11-10', 899.27, 26)`
+       ('0150000', 'ASISTENTE DE GERENCIA', 'asistentedegerencia', 'ADMINISTRACION', 'CENTRAL', 1,
+        457.23, 100, 50, 30, 995.64),
+       ('00370000', 'AUXILIAR DE PRECIOS', 'auxiliardeprecios', 'ALMACEN', 'PLANTA', 26,
+        143.46, 0, 25, 15, 309.83)`
   )
 })
 
@@ -150,96 +145,97 @@ async function contar(sql: string): Promise<number> {
   return Number((r.rows[0] as { n: string | number }).n)
 }
 
-describe('bono-tabulador.sql · la forma', () => {
-  it('sólo dos hojas y componentes como objeto', async () => {
+describe('tabulador-paquetes.sql · la forma', () => {
+  it('el cargo es obligatorio y ninguna cifra admite negativos', async () => {
     await expect(
-      db.query(
-        `insert into public.bono_tabulador_paquete (hoja, codigo) values ('PRENSA', '00000000')`
-      )
-    ).rejects.toThrow(/hoja/i)
+      db.query(`insert into public.tabulador_paquete (codigo) values ('9999999')`)
+    ).rejects.toThrow(/cargo/i)
 
     await expect(
-      db.query(
-        `insert into public.bono_tabulador_paquete (hoja, codigo, componentes)
-         values ('OFICINA', '00000001', '[]'::jsonb)`
-      )
-    ).rejects.toThrow(/componentes/i)
+      db.query(`insert into public.tabulador_paquete (cargo, salario_bs) values ('X', -1)`)
+    ).rejects.toThrow(/salario_bs/i)
+
+    await expect(
+      db.query(`insert into public.tabulador_paquete (cargo, bono_asistencia_usd) values ('X', -0.5)`)
+    ).rejects.toThrow(/bono_asistencia_usd/i)
+
+    await expect(
+      db.query(`insert into public.tabulador_paquete (cargo, plantilla) values ('X', -3)`)
+    ).rejects.toThrow(/plantilla/i)
+
+    await expect(
+      db.query(`insert into public.tabulador_paquete (cargo, paquete_aprobado_usd) values ('X', -1)`)
+    ).rejects.toThrow(/paquete_aprobado_usd/i)
   })
 
-  it('la config es UNA fila, con sus columnas en array', async () => {
-    // Fila única: la segunda con id=true muere en la PK…
-    await expect(
-      db.query(`insert into public.bono_tabulador_config (id, columnas) values (true, '[]'::jsonb)`)
-    ).rejects.toThrow(/unique|duplicate/i)
-    // …y id=false en su check de fila única.
-    await expect(
-      db.query(`insert into public.bono_tabulador_config (id) values (false)`)
-    ).rejects.toThrow(/check/i)
-    // Las columnas son una LISTA (con UPDATE para que el check de arriba
-    // no se colgue primero en un id=true ya existente).
-    await expect(
-      db.query(`update public.bono_tabulador_config set columnas = '{}'::jsonb where id`)
-    ).rejects.toThrow(/check/i)
-  })
-})
-
-describe('bono-tabulador.sql · sólo lectura', () => {
-  it('NI el Líder escribe desde la app: no hay política de escritura', async () => {
-    // Ésta ES la razón de que el import venga como SQL pegado: la única
-    // forma de cambiar una cifra es reemplazar la foto del Excel.
-    await conRol(LIDER, async () => {
-      await expect(
-        db.query(
-          `insert into public.bono_tabulador_paquete (hoja, codigo, cargo) values ('OFICINA', '999', 'X')`
-        )
-      ).rejects.toThrow(/row-level security/i)
-      // UPDATE y DELETE no dan error: al no haber política de escritura,
-      // se filtran y devuelven CERO filas — nadie cambia una cifra.
-      const u = await db.query(
-        `update public.bono_tabulador_paquete set salario = 1 where id = 1`
-      )
-      expect(Number((u as { affectedRows?: number }).affectedRows ?? -1)).toBe(0)
-      const d = await db.query(`delete from public.bono_tabulador_paquete where id = 1`)
-      expect(Number((d as { affectedRows?: number }).affectedRows ?? -1)).toBe(0)
-    })
-  })
-
-  it('las dos tablas se leen con sesión y sin ella no', async () => {
-    const anon = await contar(
-      `select case when has_table_privilege('anon', 'public.bono_tabulador_paquete', 'select') then 1 else 0 end as n`
+  it('guarda el PAQUETE y NO guarda el compensatorio: ése se calcula', async () => {
+    const columnas = await contar(
+      `select count(*)::int as n from information_schema.columns
+        where table_schema = 'public' and table_name = 'tabulador_paquete'
+          and column_name in ('paquete_aprobado_usd', 'bono_compensatorio_usd')`
     )
-    expect(anon).toBe(0)
+    // Sólo el paquete: la migración baja el compensatorio que se guardaba.
+    expect(columnas).toBe(1)
+    await expect(
+      db.query(`insert into public.tabulador_paquete (cargo, bono_compensatorio_usd) values ('X', 1)`)
+    ).rejects.toThrow(/bono_compensatorio_usd/)
+  })
 
-    await conAnon(async () => {
-      await expect(
-        db.query(`select id from public.bono_tabulador_paquete`)
-      ).rejects.toThrow(/permission denied/i)
+  it('el bloque es idempotente: se puede pegar de una corrida', async () => {
+    // Si no fuera idempotente, esto revienta.
+    await db.exec(bloqueSql('tabulador-paquetes.sql'))
+  })
+})
+
+describe('tabulador-paquetes.sql · se edita desde la consola', () => {
+  it('el LÍDER da de alta, edita y borra (a diferencia del tabulador del Excel)', async () => {
+    await conRol(LIDER, async () => {
+      const alta = await db.query<{ id: string }>(
+        `insert into public.tabulador_paquete (codigo, cargo, clave, salario_bs, bono_asistencia_usd)
+         values ('9990000', 'AUXILIAR NUEVO', 'auxiliarnuevo', 500, 75)
+         returning id`
+      )
+      expect(alta.rows).toHaveLength(1)
+
+      await db.query(
+        `update public.tabulador_paquete set salario_bs = 550 where codigo = '9990000'`
+      )
+      await db.query(`delete from public.tabulador_paquete where codigo = '9990000'`)
+
+      // Y las filas de los demás las ve, porque comparten la cerradura.
+      expect(await contar(`select count(*)::int as n from public.tabulador_paquete`)).toBe(2)
     })
   })
 })
 
-describe('bono-tabulador.sql · RLS', () => {
+describe('tabulador-paquetes.sql · RLS', () => {
   it('leen LÍDER y GERENTE TH; el EVALUADOR no ve una cifra de sueldo', async () => {
     await conRol(LIDER, async () => {
-      const n = await contar(`select count(*)::int as n from public.bono_tabulador_paquete`)
-      expect(n).toBe(2)
-      const cfg = await contar(`select count(*)::int as n from public.bono_tabulador_config`)
-      expect(cfg).toBe(1)
+      expect(await contar(`select count(*)::int as n from public.tabulador_paquete`)).toBe(2)
     })
     await conRol(GERENTE_TH, async () => {
-      const n = await contar(`select count(*)::int as n from public.bono_tabulador_paquete`)
-      expect(n).toBe(2)
+      expect(await contar(`select count(*)::int as n from public.tabulador_paquete`)).toBe(2)
     })
     // Filtra (no da error): la política de select deja la consulta vacía.
     await conRol(EVALUADOR, async () => {
-      const n = await contar(`select count(*)::int as n from public.bono_tabulador_paquete`)
-      expect(n).toBe(0)
-      const cfg = await contar(`select count(*)::int as n from public.bono_tabulador_config`)
-      expect(cfg).toBe(0)
+      expect(await contar(`select count(*)::int as n from public.tabulador_paquete`)).toBe(0)
     })
   })
 
-  it('la función `puede_bonos` es la misma cerradura de siempre', async () => {
+  it('el EVALUADOR ni escribe: la política de escritura lo manda al RLS', async () => {
+    await conRol(EVALUADOR, async () => {
+      await expect(
+        db.query(`insert into public.tabulador_paquete (cargo, clave) values ('INTRUSO', 'intruso')`)
+      ).rejects.toThrow(/row-level security/i)
+      // UPDATE y DELETE no dan error: no hay fila visible, así que no tocan nada.
+      const u = await db.query(
+        `update public.tabulador_paquete set salario_bs = 1 where codigo = '0150000'`
+      )
+      expect(Number((u as { affectedRows?: number }).affectedRows ?? 0)).toBe(0)
+    })
+  })
+
+  it('la misma cerradura de los bonos: `puede_bonos` con sesión y security definer', async () => {
     const n = await contar(
       `select case when exists (
          select 1 from pg_proc p
@@ -248,5 +244,18 @@ describe('bono-tabulador.sql · RLS', () => {
        ) then 1 else 0 end as n`
     )
     expect(n).toBe(1)
+  })
+
+  it('anon no llega ni a la tabla', async () => {
+    const anon = await contar(
+      `select case when has_table_privilege('anon', 'public.tabulador_paquete', 'select') then 1 else 0 end as n`
+    )
+    expect(anon).toBe(0)
+
+    await conAnon(async () => {
+      await expect(db.query(`select id from public.tabulador_paquete`)).rejects.toThrow(
+        /permission denied/i
+      )
+    })
   })
 })

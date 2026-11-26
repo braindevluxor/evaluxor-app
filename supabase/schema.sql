@@ -5662,88 +5662,6 @@ end $$;
 revoke execute on function public.puede_bonos() from public, anon;
 grant execute on function public.puede_bonos() to authenticated;
 
--- Archivo consolidado: bono-tabulador.sql
--- ###########################################################################
--- ============================================================================
--- TABULADOR DE PAQUETES: EL EXCEL DE TALENTO HUMANO, EN LA CONSOLA
---
--- `TABULADOR ESTRCII LUXOR` viene de Excel con DOS hojas —OFICINA y
--- SUCURSALES— y, por cada cargo, la plantilla propuesta, el salario y el
--- desglose de bonos que componen el PAQUETE APROBADO. La pantalla es de
--- SÓLO LECTURA: los números se ajustan en el Excel y se reemplazan pegando
--- el SQL que genera `scripts/generar_tabulador_paquetes.py`, así que acá NO
--- hay política de escritura — ni la consola ni ninguna sesión modifican
--- una cifra de sueldo desde la app.
---
--- Cifras de sueldo: la MISMA cerradura que el resto de los bonos,
--- `puede_bonos()` (LÍDER y GERENTE TH), y `anon` sin privilegio de tabla.
---
--- Cada fila guarda sus componentes en `componentes` (jsonb) porque las dos
--- hojas no traen las MISMAS columnas —OFICINA lleva observaciones,
--- SUCURSALES trae «diario»— y porque un ajuste puede sumar o quitar
--- columnas sin rehacer el esquema. Lo que se busca, filtra y ordena
--- (cargo, departamento, salario, paquete) va como columna propia.
---
--- Aplicar en el SQL Editor de Supabase. Idempotente: se puede correr de
--- nuevo. El import de datos (DELETE + INSERT) vive en el SQL generado,
--- aparte.
--- ============================================================================
-
-create table if not exists public.bono_tabulador_paquete (
-  id bigint generated always as identity primary key,
-  -- La hoja del Excel: se consulta por separado (Oficina / Sucursales).
-  hoja text not null check (hoja in ('OFICINA', 'SUCURSALES')),
-  codigo text not null default '',
-  cargo text not null default '',
-  departamento text not null default '',
-  dependencia text not null default '',
-  -- Plazas del puesto, salario y paquete aprobado: las tres cifras que la
-  -- tabla principal muestra siempre; null donde el Excel la dejó vacía.
-  plantilla numeric,
-  salario numeric,
-  paquete numeric,
-  -- El resto del renglón, con las claves y etiquetas que manda el import.
-  componentes jsonb not null default '{}'::jsonb
-    constraint bono_tabulador_componentes check (jsonb_typeof(componentes) = 'object'),
-  creado_en timestamptz not null default now()
-);
-
--- Las columnas que acompañan al tabulador: UNA fila, con las etiquetas por
--- hoja (para rotular el detalle) y los datos del encabezado del archivo.
-create table if not exists public.bono_tabulador_config (
-  id boolean primary key default true,
-  constraint bono_tabulador_config_fila_unica check (id),
-  -- [{ hoja, key, etiqueta }]: lo que la pantalla usa para nombrar cada
-  -- componente; lo manda el import, que es quien lee el Excel.
-  columnas jsonb not null default '[]'::jsonb
-    constraint bono_tabulador_columnas check (jsonb_typeof(columnas) = 'array'),
-  fecha_archivo date,
-  tasa_cambio numeric,
-  tasa_cupon numeric,
-  actualizado_en timestamptz not null default now()
-);
-
-alter table public.bono_tabulador_paquete enable row level security;
-alter table public.bono_tabulador_config enable row level security;
-
--- Sólo LECTURA y sólo para quien gestiona bonos: sin política de
--- escritura, el tabulador sólo cambia con el SQL del nuevo archivo —el
--- mismo criterio con que se publica cualquier dato de sueldo de acá.
-drop policy if exists bono_tabulador_paquete_select on public.bono_tabulador_paquete;
-create policy bono_tabulador_paquete_select on public.bono_tabulador_paquete
-  for select to authenticated using (public.puede_bonos());
-
-drop policy if exists bono_tabulador_config_select on public.bono_tabulador_config;
-create policy bono_tabulador_config_select on public.bono_tabulador_config
-  for select to authenticated using (public.puede_bonos());
-
--- Cifras de sueldo: anon no llega ni a la tabla.
-do $$
-begin
-  execute 'revoke all on public.bono_tabulador_paquete from anon';
-  execute 'revoke all on public.bono_tabulador_config from anon';
-end $$;
-
 -- Archivo consolidado: nomina-trabajadores.sql
 -- ###########################################################################
 -- ============================================================================
@@ -7150,143 +7068,97 @@ $$;
 revoke execute on function public.ver_inspeccion_compartida(text) from public, anon;
 grant  execute on function public.ver_inspeccion_compartida(text) to anon, authenticated;
 
--- Archivo consolidado: bonos-programas.sql
+-- Archivo consolidado: tabulador-paquetes.sql
 -- ###########################################################################
 -- ============================================================================
--- PROGRAMAS DE BONIFICACIÓN: LA NOTA DEL BONO, SEPARADA DE LOS MÓDULOS
+-- TABULADOR DE PAQUETES: LAS CIFRAS DE TALENTO HUMANO, EN LA CONSOLA
 --
--- POR QUÉ EXISTE ESTE ARCHIVO
--- ---------------------------
--- `modulos`/`items` miden EVALUACIONES; `bonos_cargo` pagaba con una nota que
--- se cargaba a mano. En el medio aparecían actividades concretas de un bono
--- metidas en la pantalla de Módulos, y los dos conceptos se pisaban. Este
--- bloque crea la entidad que faltaba:
+-- Por cargo: código, departamento, dependencia, plantilla (plazas) y el
+-- desglose del PAQUETE, cada cifra en SU moneda de declaración:
 --
---  * `bonos_programa` es el PROGRAMA: nombre, descripción, si está activo.
---  * `bonos_programa_fuente` dice DE DÓNDE SALE SU NOTA, con DOS tipos, que
---    es justamente lo que separa esto de los módulos:
---      - MODULO → apunta a un `modulos` existente: la nota la dan las
---        evaluaciones de ese módulo. NO se copia el nombre (renombrar el
---        módulo no rompe el programa) y si el módulo se borra, la fuente
---        queda sin módulo (`on delete set null`) y hay que volver a elegirlo.
---      - ACTIVIDAD → una actividad propia del programa, con su nombre
---        («Auditoría de precios») y su nota cargada a mano por PERSONA y
---        PERÍODO en `bonos_programa_nota`.
---    Cada fuente tiene PESO: la nota del programa es el promedio ponderado
---    de las fuentes que tengan nota (el cálculo vive en la app).
+--   SALARIO (BS), BONO TRASLADO (BS)                    -> bolívares
+--   BONO ASISTENCIA (USD), CESTATICKETS (USD),
+--   PAQUETE APROBADO (USD)                              -> dólares
 --
---  * `bonos_cargo.bono_programa_id` ata un cargo a su programa. Sin programa
---    el cargo sigue como hoy: la nota se carga a mano en `bonos_pago`.
+--   BONO COMPENSATORIO (USD) NO se guarda: es el resultado de
+--   PAQUETE APROBADO − (SALARIO + TRASLADO + ASISTENCIA + CESTATICKETS),
+--   con SALARIO y TRASLADO pasados a USD por la tasa del BCV. Se calcula
+--   en la pantalla (`bonoCompensatorio`) y se pinta como cualquier otra
+--   cifra USD — si falta el paquete o falta la tasa, la celda es «—», no
+--   un número de mentira.
 --
--- QUIÉN ENTRA
--- -----------
--- La MISMA cerradura que el resto de los bonos (`puede_bonos`): LÍDER y
--- GERENTE DE TALENTO HUMANO. Las tres tablas con select + gestión idénticos
--- y el revoke a `anon` de segunda capa, igual que en `bonos.sql`.
+-- La fila guarda cada cifra EN SU MONEDA —nadie convierte al guardar—:
+-- la conversión es de la PANTALLA y sólo cuando se pide la vista «solo
+-- BS» o «solo USD», aplicando la tasa del BCV (`src/lib/tasaBcv.ts`: la
+-- manual si existe, si no la oficial). La vista «según declaración» pinta
+-- cada columna en la moneda con la que fue cargada, sin tocar nada.
 --
--- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- A diferencia del tabulador anterior (una foto del Excel, de sólo
+-- lectura), ESTE se edita desde la consola: alta, edición y borrado. La
+-- cerradura es la MISMA de los bonos —LÍDER y GERENTE DE TALENTO HUMANO—
+-- en el menú, en la ruta y acá (`puede_bonos`), con el RLS como segunda
+-- puerta y `anon` sin privilegio de tabla.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr
+-- de nuevo.
 -- ============================================================================
-
--- EL PROGRAMA
-create table if not exists public.bonos_programa (
+create table if not exists public.tabulador_paquete (
   id uuid primary key default gen_random_uuid(),
-  nombre text not null check (length(trim(nombre)) > 0),
-  descripcion text not null default '',
-  activo boolean not null default true,
-  -- Cada cuánto se paga y, por lo tanto, con qué formato de período se cargan
-  -- las notas de sus actividades: la misma pareja que los cargos.
-  periodicidad text not null default 'MENSUAL' check (periodicidad in ('MENSUAL', 'TRIMESTRAL')),
+  -- Código del puesto en el organigrama de Talento Humano. Texto, porque
+  -- conserva los ceros a la izquierda ('0037000').
+  codigo text not null default '',
+  cargo text not null,
+  -- El cargo normalizado (sin acentos ni mayúsculas), la MISMA que calcula
+  -- el cliente con `claveNormalizada`: es con lo que se busca en pantalla.
+  clave text not null default '',
+  departamento text not null default '',
+  dependencia text not null default '',
+  -- Plazas del puesto. NULL = no declarado (se pinta «—», no un cero).
+  plantilla integer check (plantilla is null or plantilla >= 0),
+  -- LAS CUATRO CIFRAS QUE SE GUARDAN: cada una en su moneda de declaración
+  -- y NULL cuando no está declarada. Los `check` no dejan números
+  -- negativos, y el cero sigue siendo un valor válido («declarado en cero»).
+  -- El PAQUETE APROBADO es la cifra que aprueba Talento Humano, en USD.
+  -- De ahí sale el BONO COMPENSATORIO, que NO se guarda: se resta en la
+  -- pantalla y por eso no puede quedar desfasado del salario o de la tasa.
+  salario_bs numeric check (salario_bs is null or salario_bs >= 0),
+  bono_traslado_bs numeric check (bono_traslado_bs is null or bono_traslado_bs >= 0),
+  bono_asistencia_usd numeric check (bono_asistencia_usd is null or bono_asistencia_usd >= 0),
+  cestatickets_usd numeric check (cestatickets_usd is null or cestatickets_usd >= 0),
+  paquete_aprobado_usd numeric check (paquete_aprobado_usd is null or paquete_aprobado_usd >= 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
--- DE DÓNDE SALE LA NOTA: un módulo de evaluación O una actividad propia.
-create table if not exists public.bonos_programa_fuente (
-  id uuid primary key default gen_random_uuid(),
-  bono_programa_id uuid not null references public.bonos_programa(id) on delete cascade,
-  tipo text not null check (tipo in ('MODULO', 'ACTIVIDAD')),
-  -- MODULO: se apunta al módulo Y se le copia su NOMBRE, que es el que se
-  -- muestra. La copia no es redundante: es el respaldo que permite que el
-  -- módulo se borre SIN llevarse la fuente (`on delete set null`) — borrar un
-  -- módulo no puede borrar el programa—, y en ese caso la fuente queda
-  -- «sin módulo» y hay que volver a elegirlo desde la pantalla.
-  modulo_id uuid references public.modulos(id) on delete set null,
-  -- El nombre que se MUESTRA: el de la actividad, o el del módulo copiado al
-  -- agregar la fuente. Siempre con contenido: sin él la fila no se lee.
-  nombre text not null check (length(trim(nombre)) > 0),
-  peso numeric not null default 1 check (peso > 0),
-  orden integer not null default 0,
-  created_at timestamptz not null default now(),
-  -- Un ACTIVIDAD nunca apunta a un módulo: son las DOS formas de la nota,
-  -- no dos a la vez. (Lo contrario sí puede pasar y es el estado normal de
-  -- una fuente cuyo módulo se borró: queda sin módulo, con su nombre.)
-  constraint bonos_fuente_actividad_chk check (tipo <> 'ACTIVIDAD' or modulo_id is null)
-);
+-- MIGRACIÓN: las columnas nuevas nacen en el `create table` de arriba, pero
+-- una tabla ya creada por una versión anterior no las trae —y la anterior
+-- guardaba el `bono_compensatorio_usd`, que hoy se CALCULA—. El `if not
+-- exists` / `if exists` hace que el bloque actualice sin romper nada y
+-- siga siendo idempotente.
+alter table public.tabulador_paquete
+  add column if not exists paquete_aprobado_usd numeric
+  check (paquete_aprobado_usd is null or paquete_aprobado_usd >= 0);
+alter table public.tabulador_paquete drop column if exists bono_compensatorio_usd;
 
-create index if not exists idx_bonos_fuente_programa
-  on public.bonos_programa_fuente (bono_programa_id, orden);
+create index if not exists idx_tabulador_paquete_clave on public.tabulador_paquete (clave);
+create index if not exists idx_tabulador_paquete_departamento on public.tabulador_paquete (departamento);
 
--- LA NOTA DE UNA ACTIVIDAD, por persona y período. La de los módulos NO vive
--- acá: esa la calculan las evaluaciones. Mismo formato de período que los
--- pagos (`2026-11` o `2026-T1`…`2026-T4`) y misma identidad de persona que
--- la nómina (nacionalidad + DNI). El `nombre` va CONGELADO al cargarlo —
--- igual que en `bonos_pago`—: la fila se lee aunque la persona salga de la
--- nómina mañana.
-create table if not exists public.bonos_programa_nota (
-  bono_programa_fuente_id uuid not null references public.bonos_programa_fuente(id) on delete cascade,
-  periodo text not null check (periodo ~ '^\d{4}-(T[1-4]|(0[1-9]|1[0-2]))$'),
-  nacionalidad text not null default 'V',
-  dni bigint not null,
-  nombre text not null default '',
-  nota numeric not null check (nota >= 0 and nota <= 100),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint bonos_programa_nota_pkey
-    primary key (bono_programa_fuente_id, periodo, nacionalidad, dni)
-);
+-- ROW LEVEL SECURITY: la misma cerradura que los bonos. El select TAMBIÉN
+-- va filtrado —una cifra de sueldo no la lee cualquier sesión autenticada—
+-- y la escritura es de los DOS roles que gestionan compensación.
+alter table public.tabulador_paquete enable row level security;
 
--- EL ENLACE con el cargo: opcional. Si el cargo no tiene programa, su nota
--- sigue cargándose a mano como hasta ahora (`bonos_pago.nota`).
-alter table public.bonos_cargo
-  add column if not exists bono_programa_id uuid
-    references public.bonos_programa(id) on delete set null;
-
--- RLS: la misma cerradura que todo lo de bonos. El `select` TAMBIÉN va
--- filtrado —un programa de bono es cifra de sueldo, no configuración abierta—.
-alter table public.bonos_programa enable row level security;
-
-drop policy if exists bonos_programa_select on public.bonos_programa;
-create policy bonos_programa_select on public.bonos_programa
+drop policy if exists tabulador_paquete_select on public.tabulador_paquete;
+create policy tabulador_paquete_select on public.tabulador_paquete
   for select to authenticated using (public.puede_bonos());
-drop policy if exists bonos_programa_gestion on public.bonos_programa;
-create policy bonos_programa_gestion on public.bonos_programa
+drop policy if exists tabulador_paquete_gestion on public.tabulador_paquete;
+create policy tabulador_paquete_gestion on public.tabulador_paquete
   for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
 
-alter table public.bonos_programa_fuente enable row level security;
-
-drop policy if exists bonos_programa_fuente_select on public.bonos_programa_fuente;
-create policy bonos_programa_fuente_select on public.bonos_programa_fuente
-  for select to authenticated using (public.puede_bonos());
-drop policy if exists bonos_programa_fuente_gestion on public.bonos_programa_fuente;
-create policy bonos_programa_fuente_gestion on public.bonos_programa_fuente
-  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
-
-alter table public.bonos_programa_nota enable row level security;
-
-drop policy if exists bonos_programa_nota_select on public.bonos_programa_nota;
-create policy bonos_programa_nota_select on public.bonos_programa_nota
-  for select to authenticated using (public.puede_bonos());
-drop policy if exists bonos_programa_nota_gestion on public.bonos_programa_nota;
-create policy bonos_programa_nota_gestion on public.bonos_programa_nota
-  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
-
--- Segunda capa, igual que en `bonos.sql`: si algún día RLS queda apagado en
--- estas tablas, el grant por defecto de Supabase sería la única puerta.
+-- Segunda mitad de la cerradura: si algún día RLS queda apagado, el grant
+-- por defecto de Supabase sería la única puerta. Con el revoke sigue cerrada.
 do $$
 begin
-  execute 'revoke all on public.bonos_programa from anon';
-  execute 'revoke all on public.bonos_programa_fuente from anon';
-  execute 'revoke all on public.bonos_programa_nota from anon';
+  execute 'revoke all on public.tabulador_paquete from anon';
 end $$;
-
 

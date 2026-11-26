@@ -21,18 +21,16 @@ describe('bonos · el módulo está en el menú', () => {
     const menu = fuente('../components/layouts/ConsoleLayout.tsx')
 
     // Dos entradas con la misma ruta: una en el bloque «Compensación» del
-    // menú del Líder (junto a Programas y Tabulador) y otra para el Gerente
-    // de Talento Humano, que sólo ve ese bloque.
+    // menú del Líder y otra para el Gerente de Talento Humano, que sólo ve
+    // ese bloque.
     expect(menu.match(/to: '\/config\/bonos'/g)).toHaveLength(2)
 
-    // «Compensación» agrupa los TRES módulos de plata de RRHH —como
-    // «Gran Cosecha» agrupa los suyos— en las DOS ramas del menú…
+    // «Compensación» agrupa la plata de RRHH —como «Gran Cosecha» agrupa
+    // la suya— en las DOS ramas del menú…
     const bloques = menu.match(/seccion: 'Compensación',\s*items: \[[\s\S]*?\n {6}\]/g) ?? []
     expect(bloques).toHaveLength(2)
     for (const bloque of bloques) {
       expect(bloque).toContain("'/config/bonos'")
-      expect(bloque).toContain("'/config/programas-bono'")
-      expect(bloque).toContain("'/config/bonos/tabulador'")
     }
     // …y «Gestión» ya no los contiene.
     const gestion = menu.match(/seccion: 'Gestión',\s*items: \[[\s\S]*?\n {6}\]/)?.[0] ?? ''

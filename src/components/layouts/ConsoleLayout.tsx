@@ -1,4 +1,4 @@
-import { Star, Sprout, Gauge, Globe, FolderOpen, ClipboardList, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen, Table2 } from 'lucide-react'
+import { Star, Sprout, Gauge, Globe, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen, Table2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -77,15 +77,10 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/config/unidades': { titulo: 'Unidades', subtitulo: 'Registro de sucursales y departamentos' },
   '/config/modulos': { titulo: 'Módulos', subtitulo: 'Configuración y explicación de cada módulo' },
   '/config/bonos': { titulo: 'Bonos por desempeño', subtitulo: 'Cargos que gozan de bono y pago de los mismos' },
-  // De dónde sale la nota del bono: pantalla aparte de Bonos y de Módulos.
-  '/config/programas-bono': {
-    titulo: 'Programas de bonificación',
-    subtitulo: 'De dónde sale la nota del bono: módulos de evaluación o actividades propias'
-  },
-  // La consulta del Excel de Talento Humano: por cargo, salario y paquete.
+  // Las cifras de Talento Humano por cargo: salario y bonos en BS y USD.
   '/config/bonos/tabulador': {
     titulo: 'Tabulador de paquetes',
-    subtitulo: 'Salario y desglose de bonos por cargo — OFICINA y SUCURSALES'
+    subtitulo: 'Salario y bonos por cargo, en BS y USD — según declaración o convertidos'
   },
   // La cuenta se configura DESDE la consola, con su barra y su menú: salirse
   // de la barra para cambiar la contraseña se sentía como otra app.
@@ -159,11 +154,8 @@ function ConsoleLayoutInterna() {
         // Bonos por desempeño: acá entra también el Gerente de Talento Humano
         // (la ruta lo permite y `puede_bonos` es la misma cerradura en RLS).
         { to: '/config/bonos', label: 'Bonos', icon: <Star className="h-5 w-5" /> },
-        // De dónde sale la nota del bono: pantalla aparte, porque los
-        // MÓDULOS siguen siendo otra cosa (medir evaluaciones).
-        { to: '/config/programas-bono', label: 'Programas de bono', icon: <ClipboardList className="h-5 w-5" /> },
-        // La consulta del Excel de Talento Humano: misma cerradura que los
-        // bonos (cifra de sueldo), sólo lectura.
+        // Las cifras de Talento Humano: misma cerradura que los bonos
+        // (cifra de sueldo) y los DOS roles los editan.
         { to: '/config/bonos/tabulador', label: 'Tabulador de paquetes', icon: <Table2 className="h-5 w-5" /> }
       ]
     }
@@ -176,10 +168,7 @@ function ConsoleLayoutInterna() {
       items: [
         { to: '/config/bonos', label: 'Bonos', icon: <Star className="h-5 w-5" /> },
         // Mismo dueño que los bonos: el área de Talento Humano también
-        // configura de dónde sale la nota.
-        { to: '/config/programas-bono', label: 'Programas de bono', icon: <ClipboardList className="h-5 w-5" /> },
-        // Mismo dueño que los bonos: el área de Talento Humano también
-        // consulta el tabulador de paquetes (la misma cerradura).
+        // carga y consulta el tabulador de paquetes.
         { to: '/config/bonos/tabulador', label: 'Tabulador de paquetes', icon: <Table2 className="h-5 w-5" /> }
       ]
     }

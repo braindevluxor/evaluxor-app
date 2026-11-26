@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * La tasa del tabulador: BCV en vivo y la alternativa manual.
+ * La tasa: BCV en vivo y la alternativa manual.
  *
  * `obtenerTasaBcv` se prueba con `fetch` mockeado —nada de red en los
  * tests— y sólo pide la tasa OFICIAL (la del BCV), nunca la paralela. La

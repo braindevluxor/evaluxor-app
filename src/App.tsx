@@ -33,14 +33,8 @@ const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ defau
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
 // Bonos por desempeño: qué cargos gozan de bono y el pago de los mismos.
 const BonosPage = lazy(() => import('./pages/config/Bonos').then((m) => ({ default: m.BonosPage })))
-// Programas de bonificación: de dónde sale la nota del bono (módulos de
-// evaluación o actividades propias). Separado de la pantalla de Módulos y
-// con la MISMA cerradura que los bonos.
-const ProgramasBonosPage = lazy(() =>
-  import('./pages/config/ProgramasBonos').then((m) => ({ default: m.ProgramasPage }))
-)
-// El tabulador de paquetes: la consulta del Excel de Talento Humano —sólo
-// lectura—, con la misma cerradura que los bonos.
+// Tabulador de paquetes: las cifras de Talento Humano por cargo, en BS y
+// USD, con la MISMA cerradura que los bonos.
 const TabuladorPaquetesPage = lazy(() =>
   import('./pages/config/TabuladorPaquetes').then((m) => ({ default: m.TabuladorPaquetesPage }))
 )
@@ -347,21 +341,9 @@ function Rutas() {
                           </RequireRol>
                         }
                       />
-                      {/* Programas de bonificación: misma cerradura que los
-                          bonos (ruta + RLS `puede_bonos`), pero pantalla
-                          aparte: los MÓDULOS no se tocan acá. */}
-                      <Route
-                        path="/config/programas-bono"
-                        element={
-                          <RequireRol roles={['LIDER', 'GERENTE_TH']}>
-                            <ProgramasBonosPage />
-                          </RequireRol>
-                        }
-                      />
                       {/* Tabulador de paquetes: MISMA cerradura que los
                           bonos (ruta + RLS `puede_bonos`), porque también
-                          es una cifra de sueldo. Sólo consulta: los números
-                          se ajustan en el Excel y se importan con SQL. */}
+                          es una cifra de sueldo. Los DOS roles lo editan. */}
                       <Route
                         path="/config/bonos/tabulador"
                         element={

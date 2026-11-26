@@ -49,12 +49,6 @@ import {
   type OcupanteExcepcion,
   type Periodicidad
 } from '../../lib/data/bonos'
-import { listarProgramas, type BonoPrograma } from '../../lib/data/bonosProgramas'
-import {
-  listarPaquetesTabulador,
-  paqueteDeCargo,
-  type PaqueteCargo
-} from '../../lib/data/tabuladorPaquetes'
 import { cedula, esActivo, nombreCompleto, type ColaboradorAPI } from '../../lib/data/colaboradores'
 import { claveNormalizada, listarResponsables, type ResponsableCatalogo } from '../../lib/data/responsables'
 import { BRANCH_CENTRAL } from '../../lib/data/responsablesIncidencia'
@@ -110,9 +104,7 @@ const FORM_VACIO = {
   nota_minima: '70',
   periodicidad: 'MENSUAL' as Periodicidad,
   activo: true,
-  departamento: '',
-  /** El programa que le da la nota; vacío = la nota se carga a mano. */
-  bono_programa_id: ''
+  departamento: ''
 }
 
 /**
@@ -135,46 +127,16 @@ type CandidatoExcepcion = {
 /** Cuántos candidatos se listan por búsqueda: el resto se afina escribiendo. */
 const TOPE_CANDIDATOS = 8
 
-/**
- * El Paquete aprobado para una celda: `—` si el cargo no está en el
- * tabulador, el valor si todas sus filas coinciden, o el rango `mín – máx`
- * si el cargo aparece más de una vez (otra hoja u otro departamento) —
- * nunca un número inventado.
- */
-function textoPaquete(paquete: { min: number; max: number } | null): string {
-  if (!paquete) return '—'
-  const fmt = (n: number) => n.toLocaleString('es-VE', { maximumFractionDigits: 2 })
-  return paquete.min === paquete.max ? fmt(paquete.min) : `${fmt(paquete.min)} – ${fmt(paquete.max)}`
-}
-
 export function BonosPage() {
   const [pestana, setPestana] = useState<Pestana>('cargos')
 
   // --- Cargos (configuración) ---
   const [cargos, setCargos] = useState<BonoCargo[]>([])
-  /**
-   * Los Paquetes aprobados del Tabulador (USD), para la columna de la
-   * tabla y el aviso junto al Monto. `null` mientras cargan.
-   */
-  const [paquetesTabulador, setPaquetesTabulador] = useState<PaqueteCargo[] | null>(null)
   const [cargandoCargos, setCargandoCargos] = useState(true)
   const [modalAbierto, setModalAbierto] = useState(false)
   const [editando, setEditando] = useState<BonoCargo | null>(null)
   const [form, setForm] = useState(FORM_VACIO)
   const [guardandoCargo, setGuardandoCargo] = useState(false)
-  /**
-   * Los programas de bonificación: de dónde puede salir la nota del cargo.
-   * Si el bloque `bonos-programas.sql` no está aplicado, la lista queda vacía
-   * y el select ofrece sólo «Sin programa» — el resto del formulario sigue
-   * funcionando igual.
-   */
-  const [programas, setProgramas] = useState<BonoPrograma[]>([])
-
-  useEffect(() => {
-    void listarProgramas()
-      .then(setProgramas)
-      .catch(() => setProgramas([]))
-  }, [])
   const [aBorrar, setABorrar] = useState<BonoCargo | null>(null)
   /** El cargo cuyo listado de ocupantes se está mirando (el «¿quiénes son?»). */
   const [detalleCargos, setDetalleCargos] = useState<BonoCargo | null>(null)
@@ -252,16 +214,6 @@ export function BonosPage() {
   useEffect(() => {
     void cargarCargos()
   }, [cargarCargos])
-
-  // Los Paquetes aprobados (USD) del tabulador. Falla CALLADA: si el SQL
-  // del tabulador todavía no corrió, la columna queda vacía y la pantalla
-  // de Bonos sigue siendo utilizable — una referencia no tira abajo el
-  // módulo completo.
-  useEffect(() => {
-    void listarPaquetesTabulador()
-      .then(setPaquetesTabulador)
-      .catch(() => setPaquetesTabulador([]))
-  }, [])
 
   // Las sugerencias del campo «Cargo» salen de la nómina real: lo que se
   // escribe acá es lo que después se va a cruzar contra los `role_name` de
@@ -369,8 +321,7 @@ export function BonosPage() {
       nota_minima: String(c.nota_minima),
       periodicidad: c.periodicidad,
       activo: c.activo,
-      departamento: c.departamento ?? '',
-      bono_programa_id: c.bono_programa_id ?? ''
+      departamento: c.departamento ?? ''
     })
     // El alcance guardado manda: hay filas = «sólo estas»; sin filas = «todas».
     setEspecifico(c.sucursales.length > 0)
@@ -462,7 +413,6 @@ export function BonosPage() {
         nota_minima: notaMinima,
         periodicidad: form.periodicidad,
         departamento,
-        bono_programa_id: form.bono_programa_id || null,
         sucursales: alcance
       })
       avisar(editando ? 'Cargo actualizado.' : 'Cargo con bono creado.')
@@ -665,8 +615,6 @@ export function BonosPage() {
         nota_minima: c.nota_minima,
         periodicidad: c.periodicidad,
         departamento: c.departamento,
-        // Se conserva: apagar un cargo no lo desasigna de su programa.
-        bono_programa_id: c.bono_programa_id,
         // El alcance se reenvía tal cual: apagar un cargo no cambia DÓNDE se
         // paga, sólo si se paga.
         sucursales: c.sucursales
@@ -1012,14 +960,6 @@ export function BonosPage() {
   const cargoSugerido = useMemo(() => [...new Set(catalogo.map((x) => x.cargo).filter(Boolean))], [catalogo])
 
   /**
-   * El Paquete aprobado (USD) del cargo que se está escribiendo en el
-   * formulario: se muestra junto al Monto, que es donde se decide cuánto
-   * bono colocar. Mismo cruce por nombre que la columna de la tabla.
-   */
-  const paqueteForm =
-    paquetesTabulador && form.cargo.trim() ? paqueteDeCargo(paquetesTabulador, form.cargo) : null
-
-  /**
    * Departamentos para el campo «Departamento»: si el cargo ya está escrito,
    * sólo los suyos (es el caso «Comprador/a» en dos áreas); si no, todos los
    * de la nómina.
@@ -1194,12 +1134,6 @@ export function BonosPage() {
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-wide text-slate-400">
                     <th className="px-4 py-3">Cargo</th>
-                    <th
-                      className="px-4 py-3 text-right"
-                      title="Paquete aprobado en el Tabulador de paquetes (USD)"
-                    >
-                      Paquete (USD)
-                    </th>
                     <th className="px-4 py-3 text-right">Monto</th>
                     <th className="px-4 py-3">Sucursales</th>
                     <th className="px-4 py-3 text-right" title="Personas activas con ese cargo en su alcance">
@@ -1220,9 +1154,6 @@ export function BonosPage() {
                     // cada uno por el monto de su sucursal. Sin nómina leída
                     // no se pinta un cero, se pinta «-».
                     const gasto = nomina ? gastoDeCargo(c, nomina) : null
-                    // El Paquete aprobado (USD) del tabulador para ESTE
-                    // cargo: la referencia con la que se calibra el monto.
-                    const paquete = paquetesTabulador ? paqueteDeCargo(paquetesTabulador, c.cargo) : null
                     return (
                       <tr key={c.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                         <td className="px-4 py-3 font-semibold text-slate-800">
@@ -1235,12 +1166,6 @@ export function BonosPage() {
                           {c.departamento ? (
                             <span className="block text-xs font-normal text-slate-500">{c.departamento}</span>
                           ) : null}
-                        </td>
-                        <td
-                          className="px-4 py-3 text-right tabular-nums text-slate-600"
-                          title="Paquete aprobado en el Tabulador de paquetes (USD)"
-                        >
-                          {paquetesTabulador === null ? '.' : textoPaquete(paquete)}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums text-slate-700">
                           {c.monto.toLocaleString('es-VE', { maximumFractionDigits: 2 })}
@@ -1616,12 +1541,6 @@ export function BonosPage() {
                 onChange={(e) => setForm((f) => ({ ...f, monto: e.target.value }))}
                 placeholder="0,00"
               />
-              {/* La referencia para decidir el monto: el Paquete aprobado
-                  del tabulador para el cargo que se está escribiendo. */}
-              <span className="text-xs text-slate-500">
-                Paquete aprobado (USD):{' '}
-                <span className="font-bold text-primary-700">{textoPaquete(paqueteForm)}</span>
-              </span>
             </Field>
             <Field label="Nota mínima" hint="Debajo no se cobra.">
               <Input
@@ -1644,36 +1563,6 @@ export function BonosPage() {
               <option value="TRIMESTRAL">Trimestral</option>
             </Select>
           </Field>
-
-          {/* DE DÓNDE SALE LA NOTA: un programa (módulos o actividades) o
-              nada, que es la nota a mano de siempre. Se filtran por la
-              misma periodicidad: un programa mensual no puede alimentar un
-              cargo trimestral, porque el período no tiene el mismo formato. */}
-          <Field
-            label="Programa de bonificación"
-            hint="Sin programa, la nota del cargo se carga a mano en la pestaña de pagos."
-          >
-            <Select
-              value={form.bono_programa_id}
-              onChange={(e) => setForm((f) => ({ ...f, bono_programa_id: e.target.value }))}
-              aria-label="Programa de bonificación"
-            >
-              <option value="">Sin programa (nota a mano)</option>
-              {programas
-                .filter((p) => p.activo && p.periodicidad === form.periodicidad)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre}
-                  </option>
-                ))}
-            </Select>
-          </Field>
-          {programas.length && !programas.some((p) => p.activo && p.periodicidad === form.periodicidad) ? (
-            <p className="text-xs text-slate-400">
-              No hay programas {form.periodicidad === 'MENSUAL' ? 'mensuales' : 'trimestrales'}: crealos en
-              Programas de bonificación.
-            </p>
-          ) : null}
 
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
