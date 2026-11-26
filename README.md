@@ -13,18 +13,23 @@ Vite + React 19 + TypeScript, Tailwind CSS (color primario azul oscuro `#0B2545`
 
 | Rol | Describe |
 |---|---|
-| `LIDER` | Gestiona usuarios/invitaciones, sucursales, módulos/ítems, asignaciones, los bonos por desempeño y ve el dashboard global. |
+| `LIDER` | Gestiona usuarios, sucursales, módulos/ítems, asignaciones, los bonos por desempeño y ve el dashboard global. |
 | `EVALUADOR` | Evalúa solo las sucursales asignadas, con la vista móvil. |
-| `GERENTE_S` | Gerente de sucursal: ve solo los resultados de su sucursal. |
+| `GERENTE_S` | Gerente de sucursal: ve sólo los resultados de su sucursal, consulta el menú de su tienda en **sólo lectura** (lo edita el Líder), no entra a los proyectos de Gran Cosecha y en la Mesa de Ayuda su dashboard es **sólo de su tienda** (sin el gráfico que compara sucursales). |
 | `GERENTE_C` | Gerente corporativo: ve todas las sucursales. |
 | `GERENTE_TH` | Talento Humano: ve todas las tiendas y gestiona los bonos por desempeño. |
+| `GERENTE_TI` | Gerente de TI: atiende la Mesa de Ayuda —asigna casos, cambia estados y prioridad, escribe notas internas— y administra el equipo de técnicos. Su consola es sólo la Mesa de Ayuda. |
+| `TECNICO_TI` | Técnico de TI: atiende los casos —los toma, cambia el estado, responde en el chat como TI y deja notas internas—, pero no administra el equipo de técnicos. Su consola es sólo la Mesa de Ayuda. |
 
 ### Flujo de creación de usuarios
-1. El **Líder** genera una *invitación* (correo + **usuario de acceso** + rol + sucursal) desde `/config/usuarios`.
-2. El invitado abre el enlace recibido, registra contraseña y queda habilitado; el **trigger** en Supabase le asigna rol/sucursal y usuario automáticamente.
-3. El **login usa el usuario de acceso** (el correo queda como respaldo interno; Supabase resuelve usuario→correo en segundo plano).
+1. El **Líder** crea la cuenta desde `/config/usuarios` → **Crear usuario** (nombre opcional + correo + **usuario de acceso** + contraseña + rol + sucursal). La cuenta se crea en el acto: no hay enlace que la persona tenga que abrir.
+2. Al terminar, la pantalla muestra las **credenciales** (usuario, correo y contraseña) con su botón de copiar, para mandárselas a esa persona.
+3. Esa persona entra con esas credenciales y **cambia su contraseña** cuando quiera desde *Configuración → Cambiar contraseña*.
+4. El **login usa el usuario de acceso** (el correo queda como respaldo interno; Supabase resuelve usuario→correo en segundo plano).
 
-> El registro SIN invitación está bloqueado en base de datos (trigger `validar_registro`): solo el Líder crea usuarios.
+> El registro SIN autorización sigue bloqueado en base de datos (trigger `validar_registro`): sólo el Líder crea usuarios. Internamente el alta genera la fila de `invitaciones` que ese trigger exige — la tabla quedó como mecanismo de autorización, no como flujo visible—.
+
+**Congelar / descongelar**: en cada fila de `/config/usuarios`, el botón de la nieve apaga el `activo` del usuario (lo mismo que el checkbox de *Editar usuario*). Un usuario congelado **no puede entrar** —`intento_login` ya no lo encuentra— y **su sesión se cierra en el próximo movimiento** (recarga o refresco de token), que es lo que hace `cargarPerfil` en `AuthContext`. «Descongelar» lo vuelve activo con toda su configuración intacta.
 
 ## Bonos por desempeño
 
@@ -110,7 +115,7 @@ Devuelve los `proyecto_id` que ese usuario ya regó (en TODOS los proyectos, sin
    ```
    (la anon key es pública por diseño; el `service_role`/password NO debe ir en el cliente).
 
-3. **Crear el esquema**: pegar `supabase/schema.sql` en *Supabase Dashboard → SQL Editor → Run*. Crea tablas, triggers (bloqueo de registro sin invitación, rol por invitación), políticas RLS y el bucket `evidencias`.
+3. **Crear el esquema**: pegar `supabase/schema.sql` en *Supabase Dashboard → SQL Editor → Run*. Crea tablas, triggers (bloqueo de registro sin autorización, perfil desde la invitación interna), políticas RLS y el bucket `evidencias`.
    > Si el proyecto no está activo, reactívalo primero (pausas de más de 7 días lo suspenden).
 
 3bis. **Crear el primer LÍDER**: `supabase/schema.sql` ya incluye el bootstrap del primer usuario LÍDER. Antes de ejecutarlo, edita correo, usuario y contraseña si hace falta. Registro posterior sale del menú `Usuarios` del Líder.
