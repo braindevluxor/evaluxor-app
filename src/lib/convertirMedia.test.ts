@@ -94,7 +94,7 @@ describe('convertirMedia · contra el navegador', () => {
   })
 
   it('los videos se graban con APIs nativas y sólo el track de video', () => {
-    expect(fuente).toContain('captureStream?.()')
+    expect(fuente).toContain('captureStream?.')
     expect(fuente).toContain('new MediaRecorder(stream')
     // Sin audio: el carrusel es fondo y se reproduce en mudo.
     expect(fuente).toContain('getVideoTracks()[0]')

@@ -179,6 +179,20 @@ describe('gran cosecha · la landing (Arena)', () => {
     expect(landing).toContain('GRAN COSECHA')
   })
 
+  it('el pie lleva LOS DOS logos: el de la marca y el de la cosecha', () => {
+    // Primero el de la marca corporativa y después el molinillo de la
+    // Gran Cosecha (el mismo que la barra y el hero). El de la marca va
+    // SIN fondo —así se pidió—: sus letras «luxor» son azul marino
+    // (#28315f) y sobre el navy del pie (#182348) quedan tenues
+    // (contraste ~1,2:1).
+    const pie = landing.slice(landing.indexOf('<footer'), landing.indexOf('</footer>'))
+    expect(pie).toContain('src="logo-supermercados-luxor.svg"')
+    expect(pie).not.toMatch(/logo-supermercados-luxor\.svg"[^>]*\bbg-white\b/)
+    expect(pie).toContain('M46 46 H22')
+    // El orden importa: la marca primero, la cosecha después.
+    expect(pie.indexOf('logo-supermercados-luxor.svg')).toBeLessThan(pie.indexOf('M46 46 H22'))
+  })
+
   it('el Podio y el «¿QUÉ ES?» llevan la retícula de fondo.svg', () => {
     // La misma textura de la landing clásica, pintada SOBRE el fondo de
     // cada sección: el Podio sobre su navy y el «¿QUÉ ES?» apilada sobre
@@ -315,6 +329,13 @@ describe('gran cosecha · la landing (Arena)', () => {
     // Fondo con la textura de papel de la marca (sin partículas: esa
     // versión no llegó al archivo final).
     expect(landing).toContain('paper-texture-ivory')
+    // El emblema flotante ya NO vive en el hero: la figura de PETALOS de
+    // la derecha es la que funciona como logo. La columna izquierda queda
+    // sólo con el título, la bajada y los contadores.
+    const izq = landing.slice(landing.indexOf('Columna Izquierda'), landing.indexOf('Columna Derecha'))
+    expect(izq).not.toContain('<svg')
+    expect(izq).toContain('id="heroBajada"')
+    expect(landing).not.toContain('animate-float')
   })
 
   it('la landing lee la portada y las cosechas que publica la consola', () => {

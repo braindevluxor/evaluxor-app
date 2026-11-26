@@ -18,12 +18,15 @@ import { esVideo } from './fotos'
  *    resolución NATURAL del archivo —no se achica nada, el requisito es que
  *    se vea nítida— y con la orientación EXIF aplicada (las fotos del
  *    celular no quedan rotadas).
- *  - Videos: `video.captureStream()` + `MediaRecorder`, que graba una vez
- *    mientras el navegador reproduce el archivo: es la única vía nativa de
- *    transcodificar, y por eso tarda lo que dura el video (el avance se
- *    reporta por `timeupdate`). Sólo se toma el track de VIDEO: el carrusel
- *    es FONDO del hero, la página lo reproduce en mudo y sin audio el WebM
- *    pesa menos.
+ *  - Videos: el navegador reproduce el archivo mientras dibuja cada cuadro
+ *    en un canvas YA ACHICADO (1280 px de ancho, 30 fps) y
+ *    `canvas.captureStream()` + `MediaRecorder` graba ese canvas: es la
+ *    única vía nativa de transcodificar, y por eso tarda lo que dura el
+ *    video (el avance se reporta por `timeupdate`). Sólo se toma el track
+ *    de VIDEO: el carrusel es FONDO del hero, la página lo reproduce en
+ *    mudo y sin audio el WebM pesa menos. Achicar y bajar el bitrate no es
+ *    un detalle estético: el archivo que sale es lo que la landing tiene que
+ *    bajar MIENTRAS reproduce, y sin eso el hero se trababa a mitad de clip.
  *
  * LÍMITE CONOCIDO: la conversión depende de que el navegador pueda DECODIFICAR
  * lo que llega. Todo lo que produce un celular o una cámara reciente pasa
@@ -38,7 +41,7 @@ export type MediaTipo = 'imagen' | 'video'
 /** Límite de la imagen que entra: se convierte a WebP sin achicar nada. */
 export const LIMITE_IMAGEN = 15 * 1024 * 1024
 
-/** Límite del video que entra (el que sale pesa mucho menos: se reencodea a 5 Mbps). */
+/** Límite del video que entra (el que sale pesa mucho menos: se reencodea a 720p y 1,5 Mbps). */
 export const LIMITE_VIDEO = 200 * 1024 * 1024
 
 /**
@@ -53,20 +56,32 @@ export const LIMITE_VIDEO = 200 * 1024 * 1024
 export const DURACION_MAX_VIDEO = 300
 
 /**
- * Bitrate del WebM saliente: 5 Mbps se ve nítido en 1080p y es el que
- * llevan los clips cortos (60 s × 5 Mbps ≈ 38 MB).
+ * Ancho máximo y cuadros por segundo del WebM saliente.
+ *
+ * El video es FONDO del hero: va DETRÁS de un velo blanco, así que 1280 px
+ * de ancho y 30 fps sobran —y no es sólo el peso: es lo que el navegador
+ * tiene que DECODIFICAR a pantalla completa mientras rota la página.
  */
-const BITRATE_VIDEO = 5_000_000
+const ANCHO_MAX_VIDEO = 1280
+const FPS_VIDEO = 30
+
+/**
+ * Bitrate del WebM saliente: 1,5 Mbps se ve nítido en 720p y es lo que la
+ * landing alcanza a bajar MIENTRAS reproduce (60 s × 1,5 Mbps ≈ 11 MB).
+ * A 5 Mbps un clip de 43 s salía de 21 MB y el hero se trababa a mitad.
+ */
+const BITRATE_VIDEO = 1_500_000
 
 /**
  * Techo del video YA CONVERTIDO, en bytes.
  *
- * Con el bitrate fijo, un video de la duración máxima saldría ~187 MB:
+ * Con el bitrate fijo, un video de la duración máxima saldría ~56 MB:
  * pasa el límite de subida de Storage (50 MB por archivo en el plan
  * gratuito) y nadie debería bajar semejante peso para un fondo de hero.
  * Por eso el bitrate baja SOLO cuando hace falta —min(bitrate fijo,
- * techo × 8 / duración)—: hasta ~75 s sigue saliendo con 5 Mbps y el de
- * 5 minutos queda en ~1,3 Mbps, que con VP9 y el velo encima se ve bien.
+ * techo × 8 / duración)—: hasta ~4 minutos sigue saliendo con 1,5 Mbps y
+ * el de 5 minutos queda en ~1,2 Mbps, que con VP9 y el velo encima se ve
+ * bien.
  */
 const TAM_MAX_VIDEO = 45 * 1024 * 1024
 
@@ -160,9 +175,6 @@ export async function convertirImagenAWebP(archivo: File): Promise<Blob> {
   }
 }
 
-/** `captureStream()` está en la spec de HTMLMediaElement pero no en los tipos de TS. */
-type VideoConCaptura = HTMLVideoElement & { captureStream?: () => MediaStream }
-
 /** Lee la duración del video ya cargado, o tira un error entendible. */
 function leerDuracion(video: HTMLVideoElement): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -195,7 +207,7 @@ function grabarHastaElFinal(video: HTMLVideoElement, recorder: MediaRecorder, co
 }
 
 /**
- * Video → WebM, a la resolución del archivo y sin audio.
+ * Video → WebM, ACHICADO a `ANCHO_MAX_VIDEO` / `FPS_VIDEO` y sin audio.
  *
  * `alAvanzar` recibe la fracción ya convertida (0 a 1) para la barra de la
  * consola: como la grabación es en tiempo real, la barra avanza al ritmo del
@@ -219,18 +231,43 @@ export async function convertirVideoAWebM(
   video.preload = 'auto'
   let recorder: MediaRecorder | null = null
   let stream: MediaStream | null = null
+  /** Cuadro de `requestAnimationFrame` pendiente, para soltarlo al salir. */
+  let cuadro = 0
+  /** ¿Sigue corriendo el bucle que pinta el canvas? */
+  let pintando = false
   try {
     const duracion = await leerDuracion(video)
     validarDuracionVideo(duracion)
+    if (!video.videoWidth || !video.videoHeight) {
+      throw new Error('El navegador no pudo leer este video: probá con MP4 o WEBM.')
+    }
 
-    const capturada = (video as VideoConCaptura).captureStream?.()
+    // EL LIENZO ACHICADO: el `MediaRecorder` graba lo que se le da, así que
+    // para achicar hay que pasar el video a mano por un canvas. Va la
+    // resolución del FONDO y no la del archivo: un 4K de celular pesa y
+    // decodifica de más para un video que queda tras un velo blanco.
+    const ancho = Math.min(ANCHO_MAX_VIDEO, video.videoWidth - (video.videoWidth % 2))
+    const alto = Math.round((video.videoHeight * ancho) / video.videoWidth)
+    const lienzo = document.createElement('canvas')
+    lienzo.width = ancho
+    lienzo.height = alto - (alto % 2)
+    const ctx = lienzo.getContext('2d')
+    if (!ctx) throw new Error('No se pudo preparar la conversión del video.')
+    // El primer cuadro va sobre fondo negro: sin esto el WebM arranca con
+    // transparencias, que la landing pinta como si no hubiera video.
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, lienzo.width, lienzo.height)
+
+    // `captureStream` está en la spec de HTMLCanvasElement; el `?.` es para
+    // que un navegador sin la API falle con el mensaje claro del WebM.
+    const capturada = lienzo.captureStream?.(FPS_VIDEO)
     const pista = capturada?.getVideoTracks()[0]
     if (!pista) throw new Error(MENSAJE_WEBM)
     // Sólo el track de video: el carrusel es fondo y se reproduce en mudo.
     stream = new MediaStream([pista])
     // El bitrate baja sólo si el video es largo: con el techo de tamaño,
-    // el de 5 minutos queda en ~1,3 Mbps en vez de los ~187 MB que
-    // saldrían con 5 Mbps fijos.
+    // el de 5 minutos queda en ~1,2 Mbps en vez de los ~56 MB que
+    // saldrían con 1,5 Mbps fijos.
     const duracionParaBitrate = Number.isFinite(duracion) ? duracion : DURACION_MAX_VIDEO
     const bitrate = Math.min(BITRATE_VIDEO, Math.round((TAM_MAX_VIDEO * 8) / duracionParaBitrate))
     recorder = new MediaRecorder(stream, {
@@ -246,9 +283,26 @@ export async function convertirVideoAWebM(
     })
 
     // El avance es contra la duración leída; si no se leyó (Infinity), contra
-    // el tope, que es hasta dónde va a llegar igual.
+    // el tope, que es hasta dónde va a llegar igual. Ese mismo `timeupdate`
+    // vuelve a pintar el canvas: con la pestaña OCULTA no corre
+    // `requestAnimationFrame` y sin este repintado la grabación se quedaría
+    // congelada en un cuadro mientras el video sigue corriendo.
     const tope = Number.isFinite(duracion) ? duracion : DURACION_MAX_VIDEO
-    video.ontimeupdate = () => alAvanzar?.(Math.min(1, video.currentTime / tope))
+    video.ontimeupdate = () => {
+      alAvanzar?.(Math.min(1, video.currentTime / tope))
+      ctx.drawImage(video, 0, 0, lienzo.width, lienzo.height)
+    }
+
+    // DIBUJAR CADA CUADRO: el recorder mira el canvas, no el video, así que
+    // hay que pasárselo a mano mientras corre. Entra ANTES de `play()` para
+    // que el primer cuadro ya esté pintado cuando arranca a grabar.
+    pintando = true
+    const pintar = () => {
+      if (!pintando) return
+      ctx.drawImage(video, 0, 0, lienzo.width, lienzo.height)
+      cuadro = window.requestAnimationFrame(pintar)
+    }
+    pintar()
 
     recorder.start(200)
     try {
@@ -265,6 +319,8 @@ export async function convertirVideoAWebM(
     alAvanzar?.(1)
     return webm
   } finally {
+    pintando = false
+    if (cuadro) window.cancelAnimationFrame(cuadro)
     video.ontimeupdate = null
     video.onended = null
     video.pause()

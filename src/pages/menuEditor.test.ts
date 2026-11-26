@@ -16,6 +16,7 @@ const pagina = fuente('./MenuEditor.tsx')
 const app = fuente('../App.tsx')
 const consola = fuente('../components/layouts/ConsoleLayout.tsx')
 const datos = fuente('../lib/data/menuSucursal.ts')
+const componente = fuente('../components/VisitasMenu.tsx')
 
 describe('editor del menú · rutas y consola', () => {
   it('la ruta pide Líder o Gerente de Sucursal, con su guard', () => {
@@ -100,11 +101,72 @@ describe('editor del menú · la pantalla', () => {
     expect(pagina).toContain('list="categorias-menu"')
   })
 
-  it('ve las visitas: aperturas por día y por hora de los últimos 7 días', () => {
+  it('los TURNOS se marcan con un toque y no se pueden dejar vacíos', () => {
+    // M, T y N como botones (aria-pressed) con su horario en el title: la
+    // carta pública sólo muestra el producto si le toca en esa hora.
+    expect(pagina).toContain('marcarTurno')
+    expect(pagina).toContain('aria-pressed')
+    expect(pagina).toContain('title={`${t.nombre} · ${t.horario}`}')
+    // La cadena se arma canónica (orden M, T, sin repetir) y SIN letras no
+    // se guarda: el producto se escondería de toda la carta.
+    expect(datos).toContain('export function turnosDe')
+    expect(datos).toContain('export async function guardarTurnos')
+    expect(datos).toContain('El producto necesita al menos un turno disponible.')
+    // Al agregar, el producto nace para todo el día (default de la columna).
+    expect(datos).toContain('nace en \'MTN\'')
+  })
+
+  it('la carta se importa desde un Excel con ID, comentario y configuración', () => {
+    // El archivo se lee, se CONFIRMA lo destructivo y recién ahí se corre.
+    expect(datos).toContain('export async function leerFilasMenuExcel')
+    expect(datos).toContain('export async function importarMenuExcel')
+    expect(pagina).toContain('leerFilasMenuExcel')
+    expect(pagina).toContain('Importar desde Excel')
+    expect(pagina).toContain('accept=".xlsx"')
+    // El botón está en la BARRA y todo el flujo vive en un modal: las
+    // instrucciones, la plantilla, el archivo, el avance y el resumen.
+    expect(pagina).toContain('setImportAbierto(true)')
+    expect(pagina).toContain('title="Importar desde Excel"')
+    expect(pagina).toContain('Las tres columnas')
+    expect(pagina).toContain('Qué hace con el menú actual')
+    // La plantilla baja desde public/ con los mismos encabezados que lee
+    // el importador (los verifica plantillaMenu.test.ts contra el archivo).
+    expect(pagina).toContain('href="/plantilla-menu.xlsx"')
+    expect(pagina).toContain('Descargar plantilla')
+    expect(pagina).toContain('ProgressBar')
+    // La pregunta exacta, con la salida que NO borra nada.
+    expect(pagina).toContain(
+      '¿Desea crear lo que no existe, actualizar lo que existe y eliminar lo que no esté en el archivo de importación?'
+    )
+    expect(pagina).toContain('Sólo crear y actualizar')
+    // Lo que no está en el archivo se da de BAJA, nunca se borra: la fila
+    // y su foto sobreviven para la próxima selección (mismo criterio que
+    // el botón de quitar).
+    expect(datos).toContain('update({ activo: false })')
+    expect(datos).not.toContain(".from('menu_productos').delete(")
+    // Lo que la API de precios no conoce se salta y se lista al final.
+    expect(datos).toContain('noEncontrados.push(id)')
+    // Y las bajas van AL FINAL: si la consulta falla, no se elimina nada.
+    expect(datos).toContain('LAS BAJAS, al final')
+  })
+
+  it('las visitas son un modal: la curva de 7 días y el detalle por hora al elegir uno', () => {
+    // El reporte vive en SU componente: el botón se cuelga de la BARRA de
+    // la consola y el pedido lo hace el modal recién al abrirse.
+    expect(pagina).toContain('VisitasMenu')
+    expect(componente).toContain('PortalCabecera')
+    expect(componente).toContain('Ver visitas')
+    expect(componente).toContain('Visitas al menú')
+    expect(componente).toContain('Últimos 7 días · hora de Venezuela')
+    expect(componente).toContain('if (!abierto || !sucursalId || visitas !== null) return')
+    // La curva: una línea con un punto por día…
+    expect(componente).toContain('<Line')
+    // …y el clic en un día —punto de la curva o chip— abre sus 24 horas
+    // en barras, con las horas futuras de hoy atenuadas.
+    expect(componente).toContain('setDia')
+    expect(componente).toContain('<Bar')
+    expect(componente).toContain('futuro: esHoy && h > horaAhora')
+    // El dato sigue saliendo de la RPC de siempre.
     expect(datos).toContain("supabase.rpc('ver_visitas_menu'")
-    expect(pagina).toContain('Visitas al menú')
-    expect(pagina).toContain('Últimos 7 días · hora de Venezuela')
-    // La grilla de 24 horas por día.
-    expect(pagina).toContain('grid-cols-12')
   })
 })

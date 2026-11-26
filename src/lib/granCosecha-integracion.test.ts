@@ -306,12 +306,25 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(sql).toContain('add column if not exists adjuntos jsonb')
     expect(sql).toContain("'adjuntos', pr.adjuntos")
 
-    // En la landing: su sección, con los videos embebidos y los documentos
-    // como enlaces - oculta si ningún proyecto trae archivos.
-    expect(landing).toContain('id="presentacion"')
-    expect(landing).toContain('function pintarPresentacion')
+    // En la landing: los archivos viven DENTRO de la ficha del proyecto (el
+    // modal que abre el nombre en «Proyectos y Participantes»): documentos
+    // como descarga y videos embebidos. La sección «PRESENTACIÓN POR
+    // PROYECTO» ya no existe.
+    expect(landing).not.toContain('id="presentacion"')
+    expect(landing).not.toContain('PRESENTACIÓN POR PROYECTO')
+    expect(landing).toContain('function adjuntosHtml')
+    expect(landing).toContain('adjuntosHtml(proj.adjuntos)')
     expect(landing).toContain('<video src="')
-    expect(landing).toContain('pintarPresentacion(contenido.participantes)')
+
+    // El pie de la tarjeta: el botón «Ver ficha» estaba roto (el id uuid iba
+    // sin comillas, así que el onclick ni se compilaba) y quedó reemplazado
+    // por la lista de documentos para bajar —uno por uno o todos en un .zip.
+    expect(landing).not.toContain('Ver ficha →')
+    expect(landing).toContain('function documentosDe')
+    expect(landing).toContain('function toggleMenuDescarga')
+    expect(landing).toContain('function bajarTodosDesdeData')
+    expect(landing).toContain('function armZip')
+    expect(landing).toContain('function crc32')
   })
 })
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowDown, ArrowUp, ExternalLink, Plus, Search, Trash2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowUp, Download, ExternalLink, FileSpreadsheet, Plus, Search, Trash2, Upload } from 'lucide-react'
 import { avisar } from '../lib/aviso'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -7,24 +7,30 @@ import {
   cargarMenu,
   guardarCategoria,
   guardarDescripcion,
+  guardarTurnos,
+  importarMenuExcel,
+  leerFilasMenuExcel,
   precioDeMenu,
   quitarProducto,
   reordenarMenu,
   subirFotoMenu,
   sucursalesActivas,
-  visitasMenu,
+  turnosDe,
+  TURNOS,
+  type FilaImportMenu,
   type ProductoMenu,
-  type SucursalMenu,
-  type VisitaPorHora
+  type ResumenImportMenu,
+  type SucursalMenu
 } from '../lib/data/menuSucursal'
 import { buscarProducto, type ResultadoScan } from '../lib/data/precios'
 import { formatearPrecioBase } from '../lib/scoring'
-import { Button, ButtonIcon, Field, Input, SkeletonFilas, Spinner } from '../components/ui'
+import { Button, ButtonIcon, Confirmar, Input, Modal, ProgressBar, SkeletonFilas, Spinner } from '../components/ui'
 import { PortalCabecera } from '../components/PortalCabecera'
+import { VisitasMenu } from '../components/VisitasMenu'
 
-/** Fecha local en clave 'YYYY-MM-DD': el formato que espera la RPC. */
-function isoDe(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+/** 1 → "1 creado", 2 → "2 creados": el resumen de la importación. */
+function contar(n: number, uno: string, varios: string): string {
+  return `${n} ${n === 1 ? uno : varios}`
 }
 
 /**
@@ -38,6 +44,10 @@ function isoDe(d: Date): string {
  *  2. Agrega: nombre, PVP (`finalBase + finalTax`) y departamento quedan en
  *     `menu_productos`; re-agregar el mismo SKU refresca esos datos.
  *  3. Sube la foto (se convierte a WebP antes de subir) y reordena.
+ *  4. Marca los TURNOS (M/T/N) en los que cada producto aparece.
+ *
+ * Las VISITAS viven aparte, en `VisitasMenu`: una tarjeta que abre el
+ * modal con la curva de los 7 días y el detalle por hora de cada uno.
  *
  * La ruta pide `LIDER` o `GERENTE_S`, y la RLS vuelve a pedir lo mismo:
  * el encargado sólo escribe en SU sucursal (`es_encargado_menu`).
@@ -56,8 +66,16 @@ export function MenuEditorPage() {
   /** La categoría que se le asigna al agregar (con las ya usadas en el list). */
   const [categoriaNueva, setCategoriaNueva] = useState('')
   const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
-  /** Las aperturas de la página, de los últimos 7 días (`null` = cargando). */
-  const [visitas, setVisitas] = useState<VisitaPorHora[] | null>(null)
+  /** La importación desde Excel: filas leídas esperando la confirmación. */
+  const [pendienteImport, setPendienteImport] = useState<FilaImportMenu[] | null>(null)
+  /** ¿Está corriendo una importación? (barra de avance) */
+  const [importando, setImportando] = useState(false)
+  /** Avance de la importación: IDs procesados sobre el total. */
+  const [avanceImport, setAvanceImport] = useState<{ hecho: number; total: number } | null>(null)
+  /** El resumen de la última importación, para el recuadro con los detalles. */
+  const [resumenImport, setResumenImport] = useState<ResumenImportMenu | null>(null)
+  /** El modal de importación: instrucciones, plantilla y archivo. */
+  const [importAbierto, setImportAbierto] = useState(false)
 
   const sucursal = sucursales?.find((s) => s.id === sucursalId) ?? null
   // Las categorías que ya se están usando: son las sugerencias del input
@@ -110,27 +128,6 @@ export function MenuEditorPage() {
         if (!vivo) return
         setProductos([])
         avisar(e instanceof Error ? e.message : 'No se pudo cargar el menú.', 'error')
-      })
-    return () => {
-      vivo = false
-    }
-  }, [sucursalId])
-
-  // Las aperturas de la página del menú: los últimos 7 días, por hora.
-  useEffect(() => {
-    if (!sucursalId) return
-    let vivo = true
-    setVisitas(null)
-    const hoy = new Date()
-    const desde = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 6)
-    visitasMenu(sucursalId, isoDe(desde), isoDe(hoy))
-      .then((v) => {
-        if (vivo) setVisitas(v)
-      })
-      .catch((e) => {
-        if (!vivo) return
-        setVisitas([])
-        avisar(e instanceof Error ? e.message : 'No se pudieron cargar las visitas.', 'error')
       })
     return () => {
       vivo = false
@@ -196,6 +193,64 @@ export function MenuEditorPage() {
     }
   }
 
+  /* ------------------------- IMPORTAR DESDE EXCEL ------------------------- */
+
+  /** Lee el archivo elegido y deja las filas esperando la confirmación. */
+  const elegirArchivoImport = async (archivo: File | undefined) => {
+    if (!archivo) return
+    try {
+      const filas = await leerFilasMenuExcel(archivo)
+      if (!filas.length) {
+        avisar('El archivo no trae filas para importar.', 'aviso')
+        return
+      }
+      setResumenImport(null)
+      setPendienteImport(filas)
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo leer el archivo.', 'error')
+    }
+  }
+
+  /**
+   * Corre la importación con la decisión de la pantalla: los TRES
+   * movimientos (crear, actualizar y eliminar) o sólo los dos primeros.
+   * La confirmación ya se mostró —este es el botón que se apretó—.
+   */
+  const importar = async (eliminarFaltantes: boolean) => {
+    const filas = pendienteImport
+    setPendienteImport(null)
+    if (!filas || !sucursalId || !sucursal?.shopId) return
+    setImportando(true)
+    setAvanceImport({ hecho: 0, total: filas.length })
+    try {
+      const resumen = await importarMenuExcel({
+        sucursalId,
+        shopId: sucursal.shopId,
+        filas,
+        eliminarFaltantes,
+        alAvanzar: (hecho, total) => setAvanceImport({ hecho, total })
+      })
+      setResumenImport(resumen)
+      await recargar()
+      avisar(
+        `Menú importado: ${contar(resumen.creados, 'creado', 'creados')}, ${contar(
+          resumen.actualizados,
+          'actualizado',
+          'actualizados'
+        )}${
+          resumen.dadosDeBaja
+            ? `, ${contar(resumen.dadosDeBaja, 'dado de baja', 'dados de baja')}`
+            : ''
+        }.`
+      )
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo importar el menú.', 'error')
+    } finally {
+      setImportando(false)
+      setAvanceImport(null)
+    }
+  }
+
   const mover = async (i: number, delta: -1 | 1) => {
     const lista = productos ?? []
     const j = i + delta
@@ -248,23 +303,29 @@ export function MenuEditorPage() {
     }
   }
 
-  /** Hoy y los 6 días previos, de mayor a menor, para el reporte. */
-  const ultimos7Dias = (): { clave: string; etiqueta: string }[] => {
-    const hoy = new Date()
-    const dias: { clave: string; etiqueta: string }[] = []
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - i)
-      dias.push({
-        clave: isoDe(d),
-        etiqueta:
-          i === 0
-            ? 'Hoy'
-            : i === 1
-              ? 'Ayer'
-              : d.toLocaleDateString('es-VE', { day: 'numeric', month: 'short' })
-      })
+  // Los TURNOS: se marca con un toque (no hay nada que escribir) y se
+  // guarda al instante. La carta pública sólo lo muestra si su cadena
+  // contiene el turno del momento (hora de Venezuela), así que dejarlo
+  // sin turnos lo escondería de TODA la carta — por eso `turnosDe` tira
+  // error con la lista vacía y acá se avisa en vez de guardar.
+  const marcarTurno = async (producto: ProductoMenu, letra: string) => {
+    const actuales = new Set((producto.turnos || 'MTN').split(''))
+    if (actuales.has(letra)) actuales.delete(letra)
+    else actuales.add(letra)
+    let turnos: string
+    try {
+      turnos = turnosDe(actuales)
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'Marcá al menos un turno.', 'aviso')
+      return
     }
-    return dias
+    setProductos((l) => (l ?? []).map((p) => (p.id === producto.id ? { ...p, turnos } : p)))
+    try {
+      await guardarTurnos(producto.id, turnos)
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudieron guardar los turnos.', 'error')
+      await recargar()
+    }
   }
 
   if (!sucursales) {
@@ -292,6 +353,52 @@ export function MenuEditorPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <PortalCabecera>
+        {/* El selector de sucursal vive en la BARRA, no en el cuerpo: el
+            Líder cambia de tienda sin bajar de la pantalla, y el encargado
+            ve la suya como etiqueta —no la puede cambiar—. El porqué está
+            en el `title`, que era el hint del campo viejo. */}
+        {esLider ? (
+          <select
+            value={sucursalId ?? ''}
+            onChange={(e) => {
+              setSucursalId(e.target.value || null)
+              setResultado(null)
+              setCodigo('')
+            }}
+            // Mientras corre una importación no se cambia de tienda: los
+            // renglones van a la sucursal con la que arrancó.
+            disabled={importando}
+            aria-label="Sucursal que se está editando"
+            title="El encargado siempre ve la suya; el Líder elige de qué tienda editar."
+            className="h-[34px] max-w-[7rem] cursor-pointer rounded-full border border-primary-200 bg-primary-50 px-2.5 text-xs font-semibold text-primary-700 focus:border-[#dc2626] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:max-w-[13rem] sm:px-3"
+          >
+            {sucursales.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nombre}
+              </option>
+            ))}
+          </select>
+        ) : sucursalId ? (
+          <span
+            title="Tu sucursal: la tienda cuyo menú estás editando."
+            className="inline-block max-w-[9rem] truncate rounded-full bg-[#0a1e5e] px-3 py-2.5 text-[11px] font-black uppercase tracking-widest text-[#facc15] sm:max-w-[14rem]"
+          >
+            {sucursal?.nombre ?? 'Mi sucursal'}
+          </span>
+        ) : null}
+
+        {/* Importar: el botón vive en la barra y TODO el flujo pasa en el
+            modal de abajo —instrucciones, plantilla y archivo—. */}
+        <button
+          type="button"
+          onClick={() => setImportAbierto(true)}
+          title="Importar la carta desde un archivo Excel"
+          className="inline-flex min-h-[34px] items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:bg-primary-100"
+        >
+          <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
+          <span className="hidden sm:inline">Importar</span>
+        </button>
+
         {sucursalId ? (
           <a
             href={`/menu/${sucursalId}`}
@@ -313,30 +420,6 @@ export function MenuEditorPage() {
           <option key={c} value={c} />
         ))}
       </datalist>
-
-      {esLider ? (
-        <Field label="Sucursal" hint="El encargado siempre ve la suya; el Líder elige de qué tienda editar.">
-          <select
-            value={sucursalId ?? ''}
-            onChange={(e) => {
-              setSucursalId(e.target.value || null)
-              setResultado(null)
-              setCodigo('')
-            }}
-            className="w-full rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-[#0a1e5e] focus:border-[#dc2626] focus:outline-none"
-          >
-            {sucursales.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nombre}
-              </option>
-            ))}
-          </select>
-        </Field>
-      ) : (
-        <span className="inline-block rounded-full bg-[#0a1e5e] px-4 py-1.5 text-xs font-black uppercase tracking-widest text-[#facc15]">
-          {sucursal?.nombre ?? 'Mi sucursal'}
-        </span>
-      )}
 
       {/* Buscador: escanear o pegar el código, como lo pide el encargado. */}
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -480,6 +563,36 @@ export function MenuEditorPage() {
                   onBlur={() => void persistirCategoria(p)}
                   className="mt-1.5 w-full rounded-lg border border-transparent bg-slate-50 px-2 py-1 text-xs text-slate-600 placeholder:text-slate-400 focus:border-[#dc2626]/40 focus:bg-white focus:outline-none"
                 />
+
+                {/* Los TURNOS en los que está disponible: M, T y N con su
+                    horario en el title. La carta pública sólo lo muestra si
+                    le toca —hora de Venezuela—, así que esto decide en qué
+                    horario aparece el producto. Nace en los tres. */}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="mr-0.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Turnos
+                  </span>
+                  {TURNOS.map((t) => {
+                    const marcado = (p.turnos || 'MTN').includes(t.letra)
+                    return (
+                      <button
+                        key={t.letra}
+                        type="button"
+                        onClick={() => void marcarTurno(p, t.letra)}
+                        aria-pressed={marcado}
+                        aria-label={`${t.nombre} de ${p.nombre}`}
+                        title={`${t.nombre} · ${t.horario}`}
+                        className={`h-6 w-6 rounded-full border text-[11px] font-black transition-colors ${
+                          marcado
+                            ? 'border-[#0a1e5e] bg-[#0a1e5e] text-white'
+                            : 'border-slate-300 bg-white text-slate-400 hover:border-[#0a1e5e]/50'
+                        }`}
+                      >
+                        {t.letra}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
 
               <div className="flex items-center gap-1">
@@ -532,83 +645,168 @@ export function MenuEditorPage() {
         </ul>
       )}
 
-      {/* Las aperturas de la página: por día y por hora (hora de
-          Venezuela), que es lo que el encargado quiere ver para saber si
-          su carta se está abriendo. Las horas futuras de hoy salen
-          atenuadas —todavía no transcurrieron. */}
-      {sucursalId ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-            <h3 className="text-sm font-black uppercase tracking-wider text-[#0a1e5e]">
-              Visitas al menú
-            </h3>
-            <span className="text-[11px] text-slate-400">
-              Últimos 7 días · hora de Venezuela
-            </span>
+      {/* Las VISITAS: el botón se cuelga de la barra y el modal con la
+          curva de los 7 días —y, al elegir uno, sus 24 horas en barras—
+          vive en `VisitasMenu`, que además hace el pedido recién al
+          abrirse. Sin sucursal no hay reporte que mostrar. */}
+      {sucursalId ? <VisitasMenu sucursalId={sucursalId} /> : null}
+
+      {/* LA IMPORTACIÓN: el botón está en la barra y todo el flujo pasa
+          dentro de este modal —instrucciones, plantilla, archivo, avance
+          y resumen—. Encima se monta el Confirmar de los tres movimientos,
+          que es el único paso que puede tocar lo que ya hay. */}
+      <Modal
+        open={importAbierto}
+        onClose={() => {
+          // Mientras corre no se cierra: el avance y el resumen son lo
+          // único que está pasando, y cerrar a mitad de camino deja la
+          // lista sin recargar.
+          if (!importando) setImportAbierto(false)
+        }}
+        title="Importar desde Excel"
+        wide
+      >
+        <div className="space-y-4">
+          <section>
+            <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">
+              Las tres columnas
+            </h4>
+            <ul className="mt-2 space-y-1.5 text-sm leading-relaxed text-slate-600">
+              <li>
+                <b className="text-[#0a1e5e]">ID del producto</b> — el código de barra o el ID que
+                busca la consola.
+              </li>
+              <li>
+                <b className="text-[#0a1e5e]">comentario</b> — el texto que muestra la carta
+                (opcional).
+              </li>
+              <li>
+                <b className="text-[#0a1e5e]">configuración</b> — las letras que aplican:{' '}
+                <b>M</b> mañana (06:00 a 11:59), <b>T</b> tarde (12:00 a 17:59), <b>N</b> noche
+                (18:00 a 05:59). Juntas o separadas — «MTN», «M, N», «Noche», «Todo el día» — y
+                vacío = todo el día.
+              </li>
+            </ul>
+            <p className="mt-2 text-xs text-slate-500">
+              Los encabezados se reconocen solos, en el orden que estén y en la hoja que los
+              traiga: la primera fila puede ser sólo de datos.
+            </p>
+          </section>
+
+          <section className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">
+              Qué hace con el menú actual
+            </h4>
+            <ul className="mt-2 space-y-1 text-xs leading-relaxed text-slate-600">
+              <li>
+                • Lo que <b>no estaba</b> se crea, buscando el ID en la API de precios.
+              </li>
+              <li>
+                • Lo que <b>ya estaba</b> se actualiza y conserva su categoría y su foto.
+              </li>
+              <li>
+                • Lo que <b>no aparece en el archivo</b> se da de baja — y antes te pregunta si
+                querés.
+              </li>
+              <li>• Los IDs que la API no conoce se saltan y se listan al final.</li>
+            </ul>
+          </section>
+
+          {!sucursal?.shopId ? (
+            <p className="text-xs font-semibold text-amber-700">
+              Esta sucursal no tiene Nº de tienda (shop ID) configurado: la API de precios no se
+              puede consultar hasta que el Líder lo cargue en Unidades.
+            </p>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+            {/* La plantilla con los tres encabezados, tal cual los lee el
+                importador — está en public/ y se baja como cualquier asset. */}
+            <a
+              href="/plantilla-menu.xlsx"
+              download
+              title="Bajar la plantilla con los tres encabezados"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2.5 text-xs font-black text-slate-600 transition-colors hover:bg-slate-50"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Descargar plantilla
+            </a>
+            <label
+              className={`inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2.5 text-xs font-black text-slate-600 transition-colors hover:bg-slate-50 ${
+                importando || !sucursal?.shopId
+                  ? 'pointer-events-none cursor-not-allowed opacity-60'
+                  : 'cursor-pointer'
+              }`}
+              title="Elegir el archivo Excel con la carta"
+            >
+              <Upload className="h-4 w-4" aria-hidden="true" />
+              Elegir archivo
+              <input
+                type="file"
+                accept=".xlsx"
+                className="hidden"
+                disabled={importando || !sucursal?.shopId}
+                onChange={(e) => {
+                  void elegirArchivoImport(e.target.files?.[0])
+                  e.target.value = ''
+                }}
+              />
+            </label>
           </div>
 
-          {visitas === null ? (
-            <p className="mt-3 text-xs text-slate-400">Cargando visitas…</p>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {ultimos7Dias().map(({ clave, etiqueta }) => {
-                const delDia = visitas.filter((v) => v.fecha === clave)
-                const total = delDia.reduce((s, v) => s + v.visitas, 0)
-                const mapa = new Map(delDia.map((v) => [v.hora, v.visitas]))
-                const esHoy = clave === isoDe(new Date())
-                const horaAhora = new Date().getHours()
-                return (
-                  <div key={clave} className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-xs font-black uppercase tracking-wider text-[#0a1e5e]">
-                        {etiqueta}
-                      </span>
-                      <span
-                        className={
-                          total > 0
-                            ? 'rounded-full bg-[#facc15] px-2 py-0.5 text-[11px] font-black text-[#0a1e5e]'
-                            : 'text-[11px] font-bold text-slate-400'
-                        }
-                      >
-                        {total} {total === 1 ? 'apertura' : 'aperturas'}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-12 gap-1">
-                      {Array.from({ length: 24 }, (_, h) => {
-                        const n = mapa.get(h) ?? 0
-                        const futuro = esHoy && h > horaAhora
-                        return (
-                          <span
-                            key={h}
-                            title={`${String(h).padStart(2, '0')}:00 — ${n} ${
-                              n === 1 ? 'apertura' : 'aperturas'
-                            }`}
-                            className={`flex h-6 items-center justify-center rounded text-[10px] font-black tabular-nums ${
-                              n > 0 ? 'bg-[#facc15] text-[#0a1e5e]' : 'bg-slate-100 text-slate-300'
-                            } ${futuro ? 'opacity-40' : ''}`}
-                          >
-                            {n > 0 ? n : '·'}
-                          </span>
-                        )
-                      })}
-                    </div>
-                    <div
-                      className="mt-1 flex justify-between text-[9px] font-bold text-slate-400"
-                      aria-hidden="true"
-                    >
-                      <span>00</span>
-                      <span>06</span>
-                      <span>12</span>
-                      <span>18</span>
-                      <span>23</span>
-                    </div>
-                  </div>
-                )
-              })}
+          {importando && avanceImport ? (
+            <div className="space-y-1.5">
+              <ProgressBar value={(avanceImport.hecho / Math.max(1, avanceImport.total)) * 100} />
+              <p className="text-xs font-bold text-slate-500">
+                Importando {avanceImport.hecho} de {avanceImport.total}… no cierres esta ventana.
+              </p>
             </div>
-          )}
+          ) : null}
+
+          {resumenImport && !importando ? (
+            <div className="space-y-1.5 rounded-xl border border-primary-100 bg-primary-50 p-3">
+              <p className="text-xs font-black text-[#0a1e5e]">
+                {contar(resumenImport.creados, 'creado', 'creados')} ·{' '}
+                {contar(resumenImport.actualizados, 'actualizado', 'actualizados')}
+                {resumenImport.dadosDeBaja
+                  ? ` · ${contar(resumenImport.dadosDeBaja, 'dado de baja', 'dados de baja')}`
+                  : ''}
+              </p>
+              {resumenImport.sinId > 0 ? (
+                <p className="text-xs text-slate-600">
+                  {contar(resumenImport.sinId, 'Fila sin ID', 'Filas sin ID')} (no se importaron).
+                </p>
+              ) : null}
+              {resumenImport.noEncontrados.length > 0 ? (
+                <div className="text-xs">
+                  <p className="font-bold text-slate-600">
+                    La API no conoce{' '}
+                    {resumenImport.noEncontrados.length === 1 ? 'este ID' : 'estos IDs'} (no se
+                    importaron):
+                  </p>
+                  <p className="mt-0.5 break-all text-slate-500">
+                    {resumenImport.noEncontrados.join(', ')}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      </Modal>
+
+      {/* LA PREGUNTA DE LA IMPORTACIÓN. Los tres movimientos son el camino
+          completo, pero ELIMINAR es el destructivo y va confirmado: el que
+          sólo quiere sumar productos tiene su propio botón, y Cancelar no
+          toca nada (las filas quedan leídas para volver a elegir). */}
+      <Confirmar
+        open={pendienteImport !== null}
+        texto="¿Desea crear lo que no existe, actualizar lo que existe y eliminar lo que no esté en el archivo de importación?"
+        textoConfirmar="Sí, importar todo"
+        onConfirm={() => void importar(true)}
+        textoSecundario="Sólo crear y actualizar"
+        onSecundario={() => void importar(false)}
+        onCancel={() => setPendienteImport(null)}
+      />
     </div>
   )
 }

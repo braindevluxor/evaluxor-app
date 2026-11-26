@@ -533,6 +533,8 @@ export function Confirmar({
   onConfirm,
   onCancel,
   textoConfirmar = 'Sí, confirmar',
+  textoSecundario,
+  onSecundario,
   variant = 'danger'
 }: {
   open: boolean
@@ -541,6 +543,13 @@ export function Confirmar({
   onCancel: () => void
   /** Etiqueta y color del botón: rojo por defecto (borrar); otro para acciones que no destruyen. */
   textoConfirmar?: string
+  /**
+   * Una TERCERA salida para cuando el «no» de la pregunta no es cancelar
+   * —p. ej. importar sin dar de baja nada—. Se pinta entre Cancelar y el
+   * botón principal, sólo si viene junto a su handler.
+   */
+  textoSecundario?: string
+  onSecundario?: () => void
   variant?: BtnVariant
 }) {
   useCerrarConEscape(open, onCancel)
@@ -549,8 +558,13 @@ export function Confirmar({
     <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/50 p-4">
       <div className="w-full max-w-sm rounded-2xl bg-white p-5">
         <p className="text-sm text-slate-700">{texto}</p>
-        <div className="mt-4 flex justify-end gap-2">
+        {/* `flex-wrap`: con los tres botones largos de una importación, el
+            renglón se parte en dos en vez de empujar el contenido fuera. */}
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
           <Button variant="ghost" onClick={onCancel}>Cancelar</Button>
+          {textoSecundario && onSecundario ? (
+            <Button variant="secondary" onClick={onSecundario}>{textoSecundario}</Button>
+          ) : null}
           <Button variant={variant} onClick={onConfirm}>{textoConfirmar}</Button>
         </div>
       </div>

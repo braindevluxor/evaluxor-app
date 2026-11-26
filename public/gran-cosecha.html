@@ -38,14 +38,9 @@
                         }
                     },
                     animation: {
-                        'float': 'float 4s ease-in-out infinite',
                         'pulse-soft': 'pulseSoft 2.5s infinite',
                     },
                     keyframes: {
-                        float: {
-                            '0%, 100%': { transform: 'translateY(0px)' },
-                            '50%': { transform: 'translateY(-8px)' },
-                        },
                         pulseSoft: {
                             '0%, 100%': { boxShadow: '0 0 0 0 rgba(244, 185, 21, 0.45)' },
                             '50%': { boxShadow: '0 0 20px 6px rgba(244, 185, 21, 0.2)' },
@@ -195,14 +190,8 @@
                     <a href="#proyectos" class="hover:text-luxor-crimson transition-colors">Proyectos</a>
                 </nav>
 
-                <!-- Indicador de Votos + Botón Postular -->
+                <!-- Botón Postular -->
                 <div class="flex items-center gap-2.5 sm:gap-3">
-                    <div class="hidden sm:flex items-center gap-2 bg-luxor-ivory border border-luxor-yellow px-3 py-1.5 rounded-xl">
-                        <span class="w-2 h-2 rounded-full bg-luxor-crimson animate-ping"></span>
-                        <span class="text-xs font-bold text-luxor-navy">Votos:</span>
-                        <span id="nav-live-votes" class="font-condensed font-bold text-base text-luxor-crimson">0</span>
-                    </div>
-
                     <!-- La postulación abre el formulario que arma el
                          correo a Coordinación, con copia a Gerencias. -->
                     <button onclick="openPostulacion()" class="inline-flex items-center gap-2 bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold tracking-wide uppercase text-xs sm:text-sm px-4 sm:px-5 py-2.5 rounded-xl shadow-md shadow-red-700/20 hover:-translate-y-0.5 transition-all cursor-pointer">
@@ -251,27 +240,15 @@
                         <span class="font-condensed font-bold text-sm tracking-wider text-luxor-navy uppercase">EUROMAXX Supermercados</span>
                     </div>
 
-                    <!-- Emblema Oficial + Título Condensado de la Lámina 1 -->
-                    <div class="flex flex-col sm:flex-row items-center lg:items-start gap-5 mb-6">
-                        <svg class="w-24 h-24 sm:w-28 sm:h-28 shrink-0 animate-float drop-shadow-md" viewBox="0 0 100 100" fill="none">
-                            <path d="M46 46 H22 C11 46 4 39 4 28 V4 H28 C39 4 46 11 46 22 V46 Z" fill="#F4B915"/>
-                            <path d="M46 46 L4 4 H28 C39 4 46 11 46 22 V46 Z" fill="#F39200"/>
-                            <path d="M54 46 V22 C54 11 61 4 72 4 H96 V28 C96 39 89 46 78 46 H54 Z" fill="#D92738"/>
-                            <path d="M54 46 L96 4 V28 C96 39 89 46 78 46 H54 Z" fill="#B51726"/>
-                            <path d="M46 54 V78 C46 89 39 96 28 96 H4 V72 C4 61 11 54 22 54 H46 Z" fill="#F4B915"/>
-                            <path d="M46 54 L4 96 H28 C39 96 46 89 46 78 V54 Z" fill="#F39200"/>
-                            <path d="M54 54 H78 C89 54 96 61 96 72 V96 H72 C61 96 54 89 54 78 V54 Z" fill="#D92738"/>
-                            <path d="M54 54 L96 96 H72 C61 96 54 89 54 78 V54 Z" fill="#B51726"/>
-                        </svg>
-
-                        <div>
-                            <h1 class="font-condensed font-bold text-5xl sm:text-6xl lg:text-7xl leading-[0.95] tracking-tight uppercase">
-                                <span class="text-luxor-yellow block drop-shadow-[0_2px_0_rgba(24,35,72,0.18)]">GRAN</span>
-                                <span class="text-luxor-yellow block drop-shadow-[0_2px_0_rgba(24,35,72,0.18)]">COSECHA</span>
-                                <span class="text-luxor-crimson block">LUXOR</span>
-                            </h1>
-                        </div>
-                    </div>
+                    <!-- Título Condensado de la Lámina 1. SIN el emblema
+                         flotante que estaba a su lado: la figura de
+                         PETALOS de la derecha es la que funciona como
+                         logo del hero. -->
+                    <h1 class="mb-6 font-condensed font-bold text-5xl sm:text-6xl lg:text-7xl leading-[0.95] tracking-tight uppercase">
+                        <span class="text-luxor-yellow block">GRAN</span>
+                        <span class="text-luxor-yellow block">COSECHA</span>
+                        <span class="text-luxor-crimson block">LUXOR</span>
+                    </h1>
 
                     <p id="heroBajada" class="text-luxor-navy/85 text-base sm:text-lg font-medium leading-relaxed mb-8 max-w-xl mx-auto lg:mx-0">
                         Programa institucional de reconocimiento, creatividad e innovación para todos los colaboradores de <strong>Central Luxor, CENDIS y sucursales Luxor & Euromaxx</strong>.
@@ -815,36 +792,31 @@
         </div>
     </section>
 
-    <!-- PRESENTACIÓN: los videos y documentos que cada equipo sube desde la
-         consola para presentar su proyecto. Oculta por defecto: se muestra
-         sólo si AL MENOS un proyecto trae archivos. -->
-    <section id="presentacion" class="py-16 sm:py-24 paper-texture-ivory hidden">
-        <div class="max-w-5xl mx-auto px-4 text-center">
-            <h2 class="font-condensed font-bold text-4xl sm:text-5xl uppercase text-luxor-navy tracking-wide">
-                PRESENTACIÓN POR PROYECTO
-            </h2>
-            <p class="mt-4 text-sm sm:text-base font-medium leading-relaxed text-luxor-navy/85 max-w-2xl mx-auto">
-                Los videos y documentos con los que cada equipo presenta su proyecto.
-            </p>
-        </div>
-        <div id="presentacionLista" class="max-w-4xl mx-auto mt-10 space-y-6 px-4"></div>
-    </section>
-
     <!-- ================= FOOTER CORPORATIVO LUXOR & EUROMAXX ================= -->
     <footer class="bg-luxor-navy text-slate-300 pt-14 pb-10 border-t-4 border-luxor-yellow">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex flex-col md:flex-row items-center justify-between gap-8 pb-10 border-b border-white/10">
-                <div class="flex items-center gap-4 text-center md:text-left">
-                    <svg class="w-12 h-12 shrink-0" viewBox="0 0 100 100" fill="none">
-                        <path d="M46 46 H22 C11 46 4 39 4 28 V4 H28 C39 4 46 11 46 22 V46 Z" fill="#F4B915"/>
-                        <path d="M46 46 L4 4 H28 C39 4 46 11 46 22 V46 Z" fill="#F39200"/>
-                        <path d="M54 46 V22 C54 11 61 4 72 4 H96 V28 C96 39 89 46 78 46 H54 Z" fill="#D92738"/>
-                        <path d="M54 46 L96 4 V28 C96 39 89 46 78 46 H54 Z" fill="#B51726"/>
-                        <path d="M46 54 V78 C46 89 39 96 28 96 H4 V72 C4 61 11 54 22 54 H46 Z" fill="#F4B915"/>
-                        <path d="M46 54 L4 96 H28 C39 96 46 89 46 78 V54 Z" fill="#F39200"/>
-                        <path d="M54 54 H78 C89 54 96 61 96 72 V96 H72 C61 96 54 89 54 78 V54 Z" fill="#D92738"/>
-                        <path d="M54 54 L96 96 H72 C61 96 54 89 54 78 V54 Z" fill="#B51726"/>
-                    </svg>
+                <div class="flex flex-wrap items-center justify-center gap-4 text-center md:justify-start md:text-left">
+                    <!-- LOS DOS LOGOS, uno al lado del otro y en este
+                         orden: PRIMERO el de la marca corporativa
+                         (public/logo-supermercados-luxor.svg) y DESPUÉS el
+                         de la Gran Cosecha (el molinillo, el mismo que la
+                         barra y el hero). El de la marca va SIN fondo
+                         —así se pidió—: sus letras «luxor» son azul marino
+                         y sobre el navy del pie quedan tenues. -->
+                    <div class="flex shrink-0 items-center gap-3">
+                        <img src="logo-supermercados-luxor.svg" alt="Supermercados Luxor" class="h-10 w-auto shrink-0" />
+                        <svg class="w-12 h-12 shrink-0" viewBox="0 0 100 100" fill="none">
+                            <path d="M46 46 H22 C11 46 4 39 4 28 V4 H28 C39 4 46 11 46 22 V46 Z" fill="#F4B915"/>
+                            <path d="M46 46 L4 4 H28 C39 4 46 11 46 22 V46 Z" fill="#F39200"/>
+                            <path d="M54 46 V22 C54 11 61 4 72 4 H96 V28 C96 39 89 46 78 46 H54 Z" fill="#D92738"/>
+                            <path d="M54 46 L96 4 V28 C96 39 89 46 78 46 H54 Z" fill="#B51726"/>
+                            <path d="M46 54 V78 C46 89 39 96 28 96 H4 V72 C4 61 11 54 22 54 H46 Z" fill="#F4B915"/>
+                            <path d="M46 54 L4 96 H28 C39 96 46 89 46 78 V54 Z" fill="#F39200"/>
+                            <path d="M54 54 H78 C89 54 96 61 96 72 V96 H72 C61 96 54 89 54 78 V54 Z" fill="#D92738"/>
+                            <path d="M54 54 L96 96 H72 C61 96 54 89 54 78 V54 Z" fill="#B51726"/>
+                        </svg>
+                    </div>
                     <div>
                         <span class="font-condensed font-bold text-2xl text-white uppercase tracking-tight">
                             GRAN COSECHA <span class="text-luxor-yellow">LUXOR</span>
@@ -1272,6 +1244,7 @@
             if (e.key === 'ArrowRight') nextCarouselSlide();
             if (e.key === 'ArrowLeft') prevCarouselSlide();
             if (e.key === 'Escape') {
+                cerrarMenuDescarga();
                 closeLightbox();
                 closeDetailModal();
                 closePostulacion();
@@ -1395,11 +1368,9 @@
             const totalVotes = projects.reduce((sum, p) => sum + p.likes, 0);
             const heroCount = document.getElementById('hero-project-count');
             const heroVotes = document.getElementById('hero-total-likes');
-            const navVotes = document.getElementById('nav-live-votes');
 
             if (heroCount) heroCount.textContent = projects.length;
             if (heroVotes) heroVotes.textContent = totalVotes;
-            if (navVotes) navVotes.textContent = totalVotes;
         }
 
         function updateFilterCounts() {
@@ -1608,6 +1579,7 @@
                 const theme = getModalityTheme(proj.category);
                 const popularityPct = Math.min(100, Math.max(12, Math.round((proj.likes / maxLikes) * 100)));
                 const avatarsHTML = getTeamAvatars(proj.team);
+                const docs = documentosDe(proj.adjuntos);
 
                 return `
                     <article class="bg-white rounded-3xl border border-slate-200 shadow-xs hover:shadow-xl transition-all duration-300 flex flex-col justify-between overflow-hidden group hover:-translate-y-1.5">
@@ -1662,10 +1634,14 @@
                             </div>
                         </div>
 
-                        <div class="px-6 py-4 bg-luxor-ivory/70 border-t border-slate-100 flex items-center justify-between gap-3">
-                            <button onclick="openDetailModal(${proj.id})" class="text-xs font-extrabold text-luxor-navy/70 hover:text-luxor-crimson transition-colors cursor-pointer">
-                                Ver ficha →
-                            </button>
+                        <div class="px-6 py-4 bg-luxor-ivory/70 border-t border-slate-100 flex items-center gap-3 ${docs.length ? 'justify-between' : 'justify-end'}">
+                            ${docs.length ? `
+                            <div class="relative">
+                                <button type="button" onclick="toggleMenuDescarga('${proj.id}', event)" aria-label="Descargar los archivos de ${escapeHTML(proj.title)}" title="Descargar los archivos de la presentación" class="inline-flex items-center gap-1.5 text-xs font-extrabold text-luxor-navy/70 hover:text-luxor-crimson transition-colors cursor-pointer">
+                                    <i data-lucide="download" class="w-4 h-4"></i>
+                                    <span>Descargar</span>
+                                </button>
+                            </div>` : ''}
 
                             <button id="like-btn-${proj.id}" onclick="toggleLike('${proj.id}', event)" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition-all cursor-pointer select-none ${
                                 isLiked
@@ -1768,6 +1744,281 @@
             setFilter('Todos');
         }
 
+        // LOS ARCHIVOS DE LA PRESENTACIÓN: lo que cada equipo sube desde la
+        // consola. Los videos van embebidos y los documentos como enlace de
+        // DESCARGA (el bucket es público de lectura, así que la URL directa
+        // alcanza). Sin archivos no se pinta nada: enseñar un bloque vacío
+        // prometería material que no existe. Antes esto vivía en una sección
+        // propia —la de presentación por proyecto—, que ya no existe: el
+        // material se ve junto a SU proyecto, en la ficha que abre el nombre.
+        function adjuntosHtml(adjuntos) {
+            if (!Array.isArray(adjuntos) || !adjuntos.length) return '';
+            var html = '<div class="border-t border-slate-200 pt-5">'
+                + '<h4 class="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-3">Presentación del equipo</h4>'
+                + '<div class="space-y-3">';
+            adjuntos.forEach(function (a) {
+                if (!a || typeof a.url !== 'string' || !a.url) return;
+                var url = escapeHTML(a.url);
+                var nombre = escapeHTML(typeof a.nombre === 'string' && a.nombre ? a.nombre : 'Archivo');
+                var esVideo = typeof a.tipo === 'string' && a.tipo.indexOf('video/') === 0;
+                if (esVideo) {
+                    html += '<div>'
+                        + '<p class="mb-1.5 text-[11px] font-extrabold uppercase tracking-wide text-slate-400">Video · ' + nombre + '</p>'
+                        + '<video src="' + url + '" controls preload="metadata" playsinline class="w-full rounded-xl bg-black"></video>'
+                        + '</div>';
+                } else {
+                    // Mismo camino que el icono de la tarjeta: fetch → blob,
+                    // porque el bucket es de OTRO origen y el atributo
+                    // `download` no manda sobre un enlace cruzado.
+                    html += '<button type="button" data-url="' + url + '" data-nombre="' + nombre + '" onclick="bajarDesdeData(this)" '
+                        + 'class="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-bold text-luxor-navy transition-colors hover:border-luxor-crimson">'
+                        + '<i data-lucide="file-text" class="w-4 h-4 shrink-0 text-luxor-crimson"></i>'
+                        + '<span class="min-w-0 flex-1 truncate">' + nombre + '</span>'
+                        + '<span class="shrink-0 text-xs font-extrabold uppercase tracking-wide text-luxor-crimson">Descargar</span>'
+                        + '</button>';
+                }
+            });
+            return html + '</div></div>';
+        }
+
+        /**
+         * LOS DOCUMENTOS de la presentación de un proyecto: los que NO son
+         * video (los videos se ven en la ficha, no tienen nada que bajar).
+         * Sin archivos no hay nada que ofrecer, y la tarjeta no pinta el
+         * icono de descarga.
+         */
+        function documentosDe(adjuntos) {
+            if (!Array.isArray(adjuntos)) return [];
+            return adjuntos
+                .filter(function (a) {
+                    return a && typeof a.url === 'string' && a.url
+                        && !(typeof a.tipo === 'string' && a.tipo.indexOf('video/') === 0);
+                })
+                .map(function (a) {
+                    return {
+                        nombre: typeof a.nombre === 'string' && a.nombre ? a.nombre : 'Archivo',
+                        url: a.url
+                    };
+                });
+        }
+
+        /**
+         * BAJAR UN ARCHIVO: el bucket es de OTRO origen, así que el atributo
+         * `download` no manda (el navegador lo ignora). Se baja el archivo
+         * —el bucket admite CORS, así que el fetch pasa— y se guarda desde un
+         * blob, con el nombre que trae el archivo.
+         */
+        function guardarBlob(blob, nombre) {
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = nombre;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            // Se revoca después: si no, el blob queda en memoria hasta cerrar la pestaña.
+            setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+        }
+
+        function bajarArchivo(url, nombre) {
+            fetch(url)
+                .then(function (r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.blob();
+                })
+                .then(function (blob) { guardarBlob(blob, nombre); })
+                .catch(function () { showToast('No se pudo descargar «' + nombre + '».', '⚠️'); });
+        }
+
+        /** Lee los `data-url` / `data-nombre` del botón que se tocó. */
+        function bajarDesdeData(el) {
+            cerrarMenuDescarga();
+            var url = el && el.dataset ? el.dataset.url : '';
+            if (!url) return;
+            bajarArchivo(url, (el.dataset.nombre || 'archivo'));
+        }
+
+        // EL MENÚ DE DESCARGA de la tarjeta: la lista de documentos para
+        // elegir cuál bajar, o todos juntos en un .zip.
+
+        function cerrarMenuDescarga() {
+            var m = document.getElementById('menu-descarga');
+            if (m) m.remove();
+        }
+
+        function toggleMenuDescarga(id, event) {
+            if (event) event.stopPropagation();
+            var abierto = document.getElementById('menu-descarga');
+            var eraElMismo = abierto && abierto.dataset.proyecto === String(id);
+            cerrarMenuDescarga();
+            // Segundo toque sobre el MISMO icono: sólo cierra.
+            if (eraElMismo) return;
+            var proj = projects.find(function (p) { return String(p.id) === String(id); });
+            var docs = proj ? documentosDe(proj.adjuntos) : [];
+            var cont = event && event.currentTarget ? event.currentTarget.parentElement : null;
+            if (!docs.length || !cont) return;
+            var menu = document.createElement('div');
+            menu.id = 'menu-descarga';
+            menu.dataset.proyecto = String(id);
+            menu.className = 'absolute bottom-full left-0 mb-2 z-30 w-72 overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-xl';
+            var html = '<div class="border-b border-slate-100 bg-luxor-ivory/60 px-4 py-2.5 text-[11px] font-extrabold uppercase tracking-wide text-slate-400">Archivos de la presentación</div>';
+            docs.forEach(function (d) {
+                html += '<button type="button" data-url="' + escapeHTML(d.url) + '" data-nombre="' + escapeHTML(d.nombre) + '" onclick="bajarDesdeData(this)" class="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left text-sm font-bold text-luxor-navy transition-colors hover:bg-luxor-ivory">'
+                    + '<i data-lucide="file-text" class="w-4 h-4 shrink-0 text-luxor-crimson"></i>'
+                    + '<span class="min-w-0 flex-1 truncate">' + escapeHTML(d.nombre) + '</span>'
+                    + '</button>';
+            });
+            if (docs.length > 1) {
+                html += '<button type="button" data-proyecto="' + escapeHTML(String(id)) + '" onclick="bajarTodosDesdeData(this)" class="flex w-full cursor-pointer items-center gap-3 border-t border-slate-100 bg-luxor-ivory/50 px-4 py-3 text-left text-sm font-extrabold text-luxor-navy transition-colors hover:bg-luxor-ivory">'
+                    + '<i data-lucide="archive" class="w-4 h-4 shrink-0 text-luxor-crimson"></i>'
+                    + '<span class="min-w-0 flex-1">Todo en un .zip</span>'
+                    + '</button>';
+            }
+            menu.innerHTML = html;
+            cont.appendChild(menu);
+            if (window.lucide) lucide.createIcons();
+        }
+
+        /** Todos los documentos del proyecto, juntados en un .zip. */
+        function bajarTodosDesdeData(el) {
+            var id = el && el.dataset ? el.dataset.proyecto : '';
+            cerrarMenuDescarga();
+            var proj = projects.find(function (p) { return String(p.id) === String(id); });
+            if (!proj) return;
+            var docs = documentosDe(proj.adjuntos);
+            if (docs.length < 2) return;
+            showToast('Armando el .zip…', '📦');
+            Promise.all(
+                docs.map(function (d) {
+                    return fetch(d.url)
+                        .then(function (r) {
+                            if (!r.ok) throw new Error('HTTP ' + r.status);
+                            return r.arrayBuffer();
+                        })
+                        .then(function (buf) { return { nombre: d.nombre, bytes: new Uint8Array(buf) }; });
+                })
+            )
+                .then(function (archivos) {
+                    guardarBlob(armZip(archivos), nombreDeProyecto(proj) + '.zip');
+                })
+                .catch(function () {
+                    showToast('No se pudieron bajar todos los archivos.', '⚠️');
+                });
+        }
+
+        /** El título del proyecto, convertido en nombre de archivo. */
+        function nombreDeProyecto(proj) {
+            var t = String((proj && proj.title) || '').trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ');
+            return t.slice(0, 60) || 'proyecto';
+        }
+
+        /**
+         * UN .zip SIN DEPENDENCIAS, sólo para juntar los documentos de UN
+         * proyecto. Van SIN comprimir (método 0): los documentos ya vienen
+         * comprimidos (PDF, DOCX, XLSX…) y así no hace falta un deflate ni
+         * una librería nueva — la landing no se construye, se sirve tal cual.
+         *
+         * (.rar queda fuera: su códec es propietario y no hay implementación
+         * usable en el navegador; el .zip es el equivalente que abre todo el
+         * mundo.)
+         *
+         * `archivos`: `[{nombre, bytes}]` → Blob `application/zip`.
+         */
+        function armZip(archivos) {
+            var locales = [];
+            var centrales = [];
+            var vistos = {};
+            var offset = 0;
+            var ahora = new Date();
+            var fecha = ((ahora.getFullYear() - 1980) << 9) | ((ahora.getMonth() + 1) << 5) | ahora.getDate();
+            var hora = (ahora.getHours() << 11) | (ahora.getMinutes() << 5) | (ahora.getSeconds() >> 1);
+            archivos.forEach(function (f) {
+                var nombre = nombreUnico(f.nombre, vistos);
+                var bytes = f.bytes;
+                var crc = crc32(bytes);
+                var nb = new TextEncoder().encode(nombre);
+
+                // Encabezado local (30 bytes + nombre).
+                var local = new Uint8Array(30 + nb.length);
+                var vl = new DataView(local.buffer);
+                vl.setUint32(0, 0x04034b50, true);
+                vl.setUint16(4, 20, true);          // versión mínima
+                vl.setUint16(6, 0x0800, true);      // nombres en UTF-8
+                vl.setUint16(8, 0, true);           // método 0: sin comprimir
+                vl.setUint16(10, hora, true);
+                vl.setUint16(12, fecha, true);
+                vl.setUint32(14, crc, true);
+                vl.setUint32(18, bytes.length, true);
+                vl.setUint32(22, bytes.length, true);
+                vl.setUint16(26, nb.length, true);
+                local.set(nb, 30);
+
+                // Entrada del directorio central (46 bytes + nombre).
+                var central = new Uint8Array(46 + nb.length);
+                var vc = new DataView(central.buffer);
+                vc.setUint32(0, 0x02014b50, true);
+                vc.setUint16(4, 20, true);
+                vc.setUint16(6, 20, true);
+                vc.setUint16(8, 0x0800, true);
+                vc.setUint16(10, 0, true);
+                vc.setUint16(12, hora, true);
+                vc.setUint16(14, fecha, true);
+                vc.setUint32(16, crc, true);
+                vc.setUint32(20, bytes.length, true);
+                vc.setUint32(24, bytes.length, true);
+                vc.setUint16(28, nb.length, true);
+                vc.setUint32(42, offset, true);     // dónde está su local
+                central.set(nb, 46);
+
+                locales.push(local, bytes);
+                centrales.push(central);
+                offset += local.length + bytes.length;
+            });
+
+            var tamCentral = centrales.reduce(function (s, c) { return s + c.length; }, 0);
+            // Fin del directorio central: 22 bytes.
+            var fin = new Uint8Array(22);
+            var vf = new DataView(fin.buffer);
+            vf.setUint32(0, 0x06054b50, true);
+            vf.setUint16(8, archivos.length, true);
+            vf.setUint16(10, archivos.length, true);
+            vf.setUint32(12, tamCentral, true);
+            vf.setUint32(16, offset, true);
+
+            return new Blob(locales.concat(centrales, [fin]), { type: 'application/zip' });
+        }
+
+        /** CRC-32 (el que exige el formato zip), con su tabla en memoria. */
+        var tablaCrc32 = null;
+        function crc32(bytes) {
+            if (!tablaCrc32) {
+                tablaCrc32 = new Uint32Array(256);
+                for (var n = 0; n < 256; n++) {
+                    var c = n;
+                    for (var k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+                    tablaCrc32[n] = c >>> 0;
+                }
+            }
+            var crc = 0xffffffff;
+            for (var i = 0; i < bytes.length; i++) {
+                crc = (crc >>> 8) ^ tablaCrc32[(crc ^ bytes[i]) & 0xff];
+            }
+            return (crc ^ 0xffffffff) >>> 0;
+        }
+
+        /** El nombre dentro del .zip, sin repetir ni traer carpetas. */
+        function nombreUnico(nombre, vistos) {
+            var base = String(nombre || 'archivo').split(/[\\/]/).pop() || 'archivo';
+            var n = vistos[base] || 0;
+            vistos[base] = n + 1;
+            if (!n) return base;
+            var punto = base.lastIndexOf('.');
+            var raiz = punto > 0 ? base.slice(0, punto) : base;
+            var ext = punto > 0 ? base.slice(punto) : '';
+            return raiz + '-' + (n + 1) + ext;
+        }
+
         function openDetailModal(projectId) {
             const proj = projects.find(p => p.id === projectId);
             if (!proj) return;
@@ -1813,6 +2064,8 @@
                             <span class="text-sm font-bold text-luxor-navy">${escapeHTML(proj.team)}</span>
                         </div>
                     </div>
+
+                    ${adjuntosHtml(proj.adjuntos)}
 
                     <div>
                         <h4 class="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-2">Propuesta Metodología S.M.A.R.T.</h4>
@@ -1903,6 +2156,7 @@
         }
 
         window.addEventListener('click', (e) => {
+            cerrarMenuDescarga();
             if (e.target === document.getElementById('detail-modal')) closeDetailModal();
             if (e.target === document.getElementById('postulacion-modal')) closePostulacion();
             if (e.target === document.getElementById('lightbox-modal')) closeLightbox();
@@ -1966,53 +2220,6 @@
         if (el && typeof valor === 'string' && valor.trim()) el.textContent = valor.trim();
       }
 
-      /**
-       * Los archivos de la PRESENTACIÓN, por proyecto.
-       *
-       * Los videos van embebidos (se reproducen en la página) y los
-       * documentos como enlaces para abrirlos o bajarlos: el bucket es
-       * público de lectura, así que la URL directa alcanza. La sección
-       * queda OCULTA si ningún proyecto trae archivos — enseñar un bloque
-       * vacío prometería material que no existe.
-       */
-      function pintarPresentacion(participantes) {
-        var seccion = document.getElementById('presentacion');
-        var cont = document.getElementById('presentacionLista');
-        if (!seccion || !cont || !Array.isArray(participantes)) return;
-        var html = '';
-        participantes.forEach(function (p) {
-          if (!p || typeof p.titulo !== 'string' || !p.titulo.trim()) return;
-          var adjuntos = Array.isArray(p.adjuntos)
-            ? p.adjuntos.filter(function (a) { return a && typeof a.url === 'string' && a.url; })
-            : [];
-          if (!adjuntos.length) return;
-          var bloque = '<article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">'
-            + '<h3 class="font-condensed font-bold text-xl uppercase text-luxor-navy">' + escapeHTML(p.titulo) + '</h3>';
-          adjuntos.forEach(function (a) {
-            var url = escapeHTML(a.url);
-            var nombre = escapeHTML(typeof a.nombre === 'string' && a.nombre ? a.nombre : 'Archivo');
-            var esVideo = typeof a.tipo === 'string' && a.tipo.indexOf('video/') === 0;
-            if (esVideo) {
-              bloque += '<div class="mt-4">'
-                + '<p class="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">Video · ' + nombre + '</p>'
-                + '<video src="' + url + '" controls preload="metadata" playsinline class="w-full rounded-xl bg-black"></video>'
-                + '</div>';
-            } else {
-              bloque += '<a href="' + url + '" target="_blank" rel="noreferrer" '
-                + 'class="mt-3 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-luxor-navy transition-colors hover:border-luxor-crimson">'
-                + '<span class="min-w-0 flex-1 truncate">' + nombre + '</span>'
-                + '<span class="shrink-0 text-xs font-extrabold uppercase tracking-wide text-luxor-crimson">Abrir</span>'
-                + '</a>';
-            }
-          });
-          html += bloque + '</article>';
-        });
-        if (html) {
-          cont.innerHTML = html;
-          seccion.classList.remove('hidden');
-        }
-      }
-
       // LAS GUÍAS: los dos archivos que sube la consola se listan como
       // descarga dentro del modal «Postular Proyecto». Sin URLs, la sección
       // queda oculta — la página no pide nada más.
@@ -2069,6 +2276,11 @@
               nota: p.avance_nota || '',
               avance: Number(p.avance || 0),
               likes: Number(p.riegos || 0),
+              // Los archivos de la presentación: van a la ficha del
+              // proyecto (`adjuntosHtml`), no a una sección aparte.
+              adjuntos: Array.isArray(p.adjuntos)
+                ? p.adjuntos.filter(function (a) { return a && typeof a.url === 'string' && a.url; })
+                : [],
               timestamp: Number(p.created_at || 0)
             };
           });
@@ -2140,7 +2352,6 @@
             }
           }
         }
-        pintarPresentacion(contenido.participantes);
       }
 
       // El principal registra SU handler primero (este guion va después en
