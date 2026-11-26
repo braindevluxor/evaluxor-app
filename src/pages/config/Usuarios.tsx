@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { crearInvitacion, actualizarUsuario, desbloquearUsuario, listarAsignacionesModulosAdmin, asignarModulo, desasignarModulo, listarAsignacionasAdmin, asignarEvaluador, desasignarEvaluador, type ProfileVista } from '../../lib/data/usuarios'
+import { crearInvitacion, actualizarUsuario, reiniciarContrasena, listarAsignacionesModulosAdmin, asignarModulo, desasignarModulo, listarAsignacionasAdmin, asignarEvaluador, desasignarEvaluador, type ProfileVista } from '../../lib/data/usuarios'
 import { listarModulosAdmin } from '../../lib/data/catalog'
 import { supabase } from '../../lib/supabase'
 import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
@@ -7,7 +7,7 @@ import { avisar } from '../../lib/aviso'
 import type { Invitacion, Modulo, Rol, Sucursal } from '../../lib/types'
 import { Badge, Button, ButtonIcon, Field, Input, Modal, Select, Skeleton, SkeletonFilas, cn } from '../../components/ui'
 import { UltimaSync } from '../../components/UltimaSync'
-import { Copy, FolderOpen, Pencil, Unlock } from 'lucide-react'
+import { Copy, FolderOpen, KeyRound, Pencil } from 'lucide-react'
 
 export function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<ProfileVista[]>([])
@@ -18,10 +18,12 @@ export function UsuariosPage() {
   const [editando, setEditando] = useState<ProfileVista | null>(null)
   const [invitando, setInvitando] = useState(false)
   const [linkInv, setLinkInv] = useState('')
-  const [desbloqueando, setDesbloqueando] = useState<ProfileVista | null>(null)
-  const [passProv, setPassProv] = useState('')
-  const [msgDes, setMsgDes] = useState<{ tipo: 'ok' | 'err'; texto: string } | null>(null)
-  const [cargandoDes, setCargandoDes] = useState(false)
+  /** El usuario al que se le está reiniciando la contraseña (`null` = cerrado). */
+  const [reiniciando, setReiniciando] = useState<ProfileVista | null>(null)
+  const [passNueva, setPassNueva] = useState('')
+  const [passRepetida, setPassRepetida] = useState('')
+  const [msgReiniciar, setMsgReiniciar] = useState<{ tipo: 'ok' | 'err'; texto: string } | null>(null)
+  const [cargandoReiniciar, setCargandoReiniciar] = useState(false)
   const [modulos, setModulos] = useState<Modulo[]>([])
   const [asignados, setAsignados] = useState<Set<string>>(new Set())
   const [asignando, setAsignando] = useState<ProfileVista | null>(null)
@@ -172,11 +174,23 @@ export function UsuariosPage() {
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1.5">
-                      {u.bloqueado ? (
-                        <ButtonIcon variant="success" onClick={() => { setDesbloqueando(u); setPassProv(''); setMsgDes(null) }} title="Desbloquear" aria-label="Desbloquear">
-                          <Unlock className="h-5 w-5" />
-                        </ButtonIcon>
-                      ) : null}
+                      {/* Siempre visible: reiniciar sirve para un bloqueado
+                          (limpia el bloqueo) y para cualquiera que olvidó su
+                          clave. El icono de candado abierto era sólo del
+                          bloqueo y escondía la acción al que más la necesita. */}
+                      <ButtonIcon
+                        variant="primary"
+                        onClick={() => {
+                          setReiniciando(u)
+                          setPassNueva('')
+                          setPassRepetida('')
+                          setMsgReiniciar(null)
+                        }}
+                        title="Reiniciar contraseña"
+                        aria-label="Reiniciar contraseña"
+                      >
+                        <KeyRound className="h-5 w-5" />
+                      </ButtonIcon>
                       {u.rol === 'EVALUADOR' ? (
                         <ButtonIcon variant="primary" onClick={() => abrirAsignacion(u)} title="Asignar módulos" aria-label="Asignar módulos">
                           <FolderOpen className="h-5 w-5" />
@@ -247,49 +261,83 @@ export function UsuariosPage() {
       </Modal>
 
       <Modal
-        open={!!desbloqueando}
-        onClose={() => setDesbloqueando(null)}
-        title="Desbloquear usuario"
+        open={!!reiniciando}
+        onClose={() => setReiniciando(null)}
+        title="Reiniciar contraseña"
         footer={
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setDesbloqueando(null)} disabled={cargandoDes}>Cerrar</Button>
-            <Button type="submit" form="form-desbloquear" disabled={cargandoDes}>{cargandoDes ? 'Desbloqueando…' : 'Desbloquear'}</Button>
+            <Button type="button" variant="ghost" onClick={() => setReiniciando(null)} disabled={cargandoReiniciar}>Cerrar</Button>
+            <Button type="submit" form="form-reiniciar" disabled={cargandoReiniciar}>{cargandoReiniciar ? 'Reiniciando…' : 'Reiniciar contraseña'}</Button>
           </div>
         }
       >
-        {desbloqueando ? (
+        {reiniciando ? (
           <form
-            id="form-desbloquear"
+            id="form-reiniciar"
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault()
-              setMsgDes(null)
-              setCargandoDes(true)
-              void desbloquearUsuario(desbloqueando.id, passProv)
+              setMsgReiniciar(null)
+              // Las DOS contraseñas tienen que coincidir: una clave mal
+              // tecleada deja al usuario fuera de su propia cuenta.
+              if (passNueva !== passRepetida) {
+                setMsgReiniciar({ tipo: 'err', texto: 'Las dos contraseñas no coinciden.' })
+                return
+              }
+              setCargandoReiniciar(true)
+              void reiniciarContrasena(reiniciando.id, passNueva)
                 .then(() => {
-                  setMsgDes({ tipo: 'ok', texto: 'Usuario desbloqueado. Compartí la contraseña provisional con ' + (desbloqueando.nombre || desbloqueando.usuario) + '.' })
-                  setPassProv('')
-                  setCargandoDes(false)
+                  // Las claves NO se borran: quedan a la vista para que el
+                  // Líder pueda copiarlas y compartirlas. Al reabrir el
+                  // modal (el botón de la fila) se limpian igual.
+                  setMsgReiniciar({
+                    tipo: 'ok',
+                    texto:
+                      'Contraseña reiniciada. Ya puede entrar con la que quedó escrita en los campos de arriba — compartila por un canal confiable. La actual dejó de servir' +
+                      (reiniciando.bloqueado ? ' y además se limpió el bloqueo y los intentos fallidos.' : '.')
+                  })
+                  setCargandoReiniciar(false)
                   void cargar()
                 })
                 .catch((e2) => {
-                  setMsgDes({ tipo: 'err', texto: e2 instanceof Error ? e2.message : 'No se pudo desbloquear el usuario.' })
-                  setCargandoDes(false)
+                  setMsgReiniciar({ tipo: 'err', texto: e2 instanceof Error ? e2.message : 'No se pudo reiniciar la contraseña.' })
+                  setCargandoReiniciar(false)
                 })
             }}
           >
-            <div>
-              <p className="text-sm text-slate-600">
-                <strong>{desbloqueando.nombre || desbloqueando.usuario}</strong> está bloqueado por intentos fallidos. Asigná una contraseña provisional
-                (mínimo 6 caracteres) para que pueda volver a entrar. Luego debería cambiarla en su perfil.
-              </p>
+            <p className="text-sm text-slate-600">
+              La contraseña actual de <strong>{reiniciando.nombre || reiniciando.usuario}</strong> deja de
+              servir al instante. Escribí una nueva (mínimo 6 caracteres), compartila por un canal
+              confiable y quien la reciba podrá entrar a la consola. Él/ella la cambia cuando quiera
+              desde su perfil.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Contraseña nueva">
+                <Input
+                  type="text"
+                  value={passNueva}
+                  onChange={(e) => setPassNueva(e.target.value)}
+                  required
+                  minLength={6}
+                  autoComplete="off"
+                  placeholder="Ej: Eva2026Temp"
+                />
+              </Field>
+              <Field label="Repetir contraseña">
+                <Input
+                  type="text"
+                  value={passRepetida}
+                  onChange={(e) => setPassRepetida(e.target.value)}
+                  required
+                  minLength={6}
+                  autoComplete="off"
+                  placeholder="La misma de nuevo"
+                />
+              </Field>
             </div>
-            <Field label="Contraseña provisional">
-              <Input type="text" value={passProv} onChange={(e) => setPassProv(e.target.value)} required minLength={6} placeholder="Ej: Eva2026Temp" />
-            </Field>
-            {msgDes ? (
-              <div className={`rounded-xl border px-3 py-2 text-sm ${msgDes.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
-                {msgDes.texto}
+            {msgReiniciar ? (
+              <div className={`rounded-xl border px-3 py-2 text-sm ${msgReiniciar.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                {msgReiniciar.texto}
               </div>
             ) : null}
           </form>

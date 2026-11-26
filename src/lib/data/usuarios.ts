@@ -56,8 +56,22 @@ export async function intentoLogin(usuario: string, password: string): Promise<R
   }
 }
 
-export async function desbloquearUsuario(id: string, passwordProvisional: string): Promise<void> {
-  const { error } = await supabase.rpc('desbloquear_usuario', { p_usuario_id: id, p_password_provisional: passwordProvisional })
+/**
+ * Reinicia la contraseña de UN usuario desde Config → Usuarios.
+ *
+ * Va por `desbloquear_usuario`, la función que ya existía para el bloqueo:
+ * pisa `auth.users.encrypted_password` con la clave nueva —se aplica al
+ * instante, sin esperar correo— y, de paso, limpia `bloqueado` e
+ * `intentos_fallidos` del perfil: reiniciar y desbloquear son el mismo
+ * gesto, porque la clave vieja deja de servir de cualquier manera.
+ *
+ * El CUERPO de la función exige LÍDER activo: un rol distinto recibe el
+ * error de la base, no un guard de la pantalla. Y no hay cambio forzoso:
+ * el usuario entra con la clave nueva y la cambia cuando quiera desde su
+ * perfil (Perfil → Cambiar contraseña).
+ */
+export async function reiniciarContrasena(id: string, passwordNueva: string): Promise<void> {
+  const { error } = await supabase.rpc('desbloquear_usuario', { p_usuario_id: id, p_password_provisional: passwordNueva })
   if (error) throw new Error(error.message)
 }
 
