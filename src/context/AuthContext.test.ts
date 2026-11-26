@@ -63,3 +63,36 @@ describe('salir de la sesión llega al login sin recargar', () => {
     expect(salir).toContain('setPerfilListo(true)')
   })
 })
+
+/**
+ * Congelar una cuenta: el `activo` apagado no sólo bloquea el PRÓXIMO login
+ * (`intento_login` ya no encuentra al usuario), también expulsa al que está
+ * adentro. Sin esa segunda puerta, el congelado seguía trabajando hasta que
+ * se fuera solo.
+ */
+describe('una cuenta congelada cierra su sesión', () => {
+  const auth = fuente('./AuthContext.tsx')
+  const usuarios = fuente('../pages/config/Usuarios.tsx')
+
+  it('cargarPerfil se lleva la sesión cuando el perfil llega inactivo', () => {
+    const inicio = auth.indexOf('const cargarPerfil')
+    const fin = auth.indexOf('const procesarSesion', inicio)
+    expect(inicio).toBeGreaterThan(-1)
+    expect(fin).toBeGreaterThan(inicio)
+    const bloque = auth.slice(inicio, fin)
+    expect(bloque).toContain('if (!p.activo)')
+    expect(bloque).toContain('signOut(')
+    expect(bloque).toContain('setSession(null)')
+    // Y se suelta el perfil listo: sin eso el guard se quedaría en el
+    // skeleton para siempre (mismo bug de siempre al cerrar sesión).
+    expect(bloque).toContain('setPerfilListo(true)')
+  })
+
+  it('la pantalla ofrece congelar y descongelar por fila', () => {
+    expect(usuarios).toContain('aria-label="Congelar"')
+    expect(usuarios).toContain('aria-label="Descongelar"')
+    expect(usuarios).toContain('actualizarUsuario(congelando.id, { activo: false })')
+    // El congelado se ve como tal en la columna de Estado.
+    expect(usuarios).toContain('>Congelado<')
+  })
+})

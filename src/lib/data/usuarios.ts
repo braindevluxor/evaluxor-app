@@ -1,5 +1,5 @@
-import { supabase } from '../supabase'
-import type { Profile, Invitacion, Asignacion, AsignacionModulo, Rol } from '../types'
+import { supabase, crearClienteAislado } from '../supabase'
+import type { Profile, Asignacion, AsignacionModulo, Rol } from '../types'
 
 export type ProfileVista = Profile & {
   sucursal?: { id: string; nombre: string } | null
@@ -17,21 +17,94 @@ export async function actualizarUsuario(
   id: string,
   cambios: { nombre?: string; usuario?: string; rol?: Rol; sucursal_id?: string | null; activo?: boolean }
 ): Promise<void> {
-  await supabase.from('profiles').update(cambios).eq('id', id)
+  const { error } = await supabase.from('profiles').update(cambios).eq('id', id)
+  // Con error se avisa: un cambio de rol o un congelado que no llegó a la
+  // base tiene que verse en pantalla, no quedarse en silencio.
+  if (error) throw new Error(error.message)
 }
 
-export async function crearInvitacion(input: {
+/** Lo que la pantalla muestra al terminar: las credenciales para compartirlas. */
+export interface CredencialesCreadas {
+  usuario: string
+  email: string
+  password: string
+  /**
+   * Supabase pidió confirmar el correo antes de dejar entrar: la cuenta
+   * existe pero todavía no se puede usar (proyecto con «Confirm email»).
+   */
+  confirmacionPendiente: boolean
+}
+
+/**
+ * Crea la cuenta DIRECTAMENTE: el Líder llena el formulario, recibe las
+ * credenciales y se las manda a la persona —sin que nadie abra un enlace de
+ * registro—. Ésta es la persona la que cambia su clave después, desde
+ * Configuración → Cambiar contraseña.
+ *
+ * Por qué dos pasos:
+ *
+ *  1. Se crea una `invitacion` con el correo/usuario/rol/sucursal: es la
+ *     AUTORIZACIÓN que exige el trigger `validar_registro` (sin ella,
+ *     `auth.users` no deja insertar) y es de donde `handle_new_user` toma
+ *     el rol, la sucursal y el usuario de acceso para el perfil. Se consume
+ *     sola en ese mismo alta.
+ *  2. La cuenta se llama por el MISMO GoTrue del registro por invitación,
+ *     pero desde `crearClienteAislado`: `signUp` genera sesión para la cuenta
+ *     nueva y ésa no puede pisar la del Líder que está creando.
+ */
+export async function crearUsuario(input: {
   email: string
   usuario: string
+  password: string
+  nombre?: string
   rol: Exclude<Rol, 'SIN_ROL'>
   sucursal_id: string | null
-}): Promise<Invitacion | null> {
-  const { data, error } = await supabase
+}): Promise<CredencialesCreadas> {
+  const email = input.email.trim().toLowerCase()
+  const usuario = input.usuario.trim()
+  const password = input.password
+  if (!email) throw new Error('Escribí el correo del nuevo usuario.')
+  if (!usuario) throw new Error('Escribí el usuario de acceso.')
+  if (password.length < 6) throw new Error('La contraseña debe tener al menos 6 caracteres.')
+
+  // 1) La autorización (y los datos que el trigger va a leer).
+  const { data: invitacion, error: errInv } = await supabase
     .from('invitaciones')
-    .insert({ email: input.email, usuario: input.usuario, rol: input.rol, sucursal_id: input.sucursal_id })
-    .select('*')
+    .insert({ email, usuario, rol: input.rol, sucursal_id: input.sucursal_id })
+    .select('id')
     .single()
-  return error ? null : (data as Invitacion)
+  if (errInv) throw new Error(`No se pudo autorizar el alta: ${errInv.message}`)
+
+  // 2) La cuenta, en el cliente aislado.
+  const aislado = crearClienteAislado()
+  const { data, error } = await aislado.auth.signUp({ email, password })
+  if (error) {
+    // El alta no ocurrió: la autorización sobra y se retira.
+    await supabase.from('invitaciones').delete().eq('id', invitacion.id)
+    const m = error.message.toLowerCase()
+    if (m.includes('already registered') || m.includes('already been registered')) {
+      throw new Error('Ya existe una cuenta con ese correo.')
+    }
+    if (m.includes('password')) throw new Error('La contraseña no es válida para Supabase.')
+    throw new Error(`No se pudo crear la cuenta: ${error.message}`)
+  }
+
+  const uid = data.user?.id
+  if (!uid) throw new Error('La cuenta no se devolvió creada. Probá de nuevo.')
+
+  // La sesión que nació acá no sirve para nada: se cierra en el acto.
+  if (data.session) await aislado.auth.signOut().catch(() => undefined)
+
+  // El nombre (si lo trajeron) se pone después: el trigger lo deja vacío.
+  const nombre = input.nombre?.trim()
+  if (nombre) await supabase.from('profiles').update({ nombre }).eq('id', uid)
+
+  return {
+    usuario,
+    email,
+    password,
+    confirmacionPendiente: !data.session
+  }
 }
 
 export async function emailPorUsuario(usuario: string): Promise<string | null> {
@@ -73,11 +146,6 @@ export async function intentoLogin(usuario: string, password: string): Promise<R
 export async function reiniciarContrasena(id: string, passwordNueva: string): Promise<void> {
   const { error } = await supabase.rpc('desbloquear_usuario', { p_usuario_id: id, p_password_provisional: passwordNueva })
   if (error) throw new Error(error.message)
-}
-
-export async function listarInvitaciones(): Promise<Invitacion[]> {
-  const { data } = await supabase.from('invitaciones').select('*').order('created_at', { ascending: false })
-  return (data ?? []) as Invitacion[]
 }
 
 export async function listarAsignacionasAdmin(): Promise<Asignacion[]> {

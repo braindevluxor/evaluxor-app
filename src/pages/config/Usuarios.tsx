@@ -1,29 +1,31 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { crearInvitacion, actualizarUsuario, reiniciarContrasena, listarAsignacionesModulosAdmin, asignarModulo, desasignarModulo, listarAsignacionasAdmin, asignarEvaluador, desasignarEvaluador, type ProfileVista } from '../../lib/data/usuarios'
+import { crearUsuario, actualizarUsuario, reiniciarContrasena, listarAsignacionesModulosAdmin, asignarModulo, desasignarModulo, listarAsignacionasAdmin, asignarEvaluador, desasignarEvaluador, type CredencialesCreadas, type ProfileVista } from '../../lib/data/usuarios'
 import { listarModulosAdmin } from '../../lib/data/catalog'
 import { supabase } from '../../lib/supabase'
 import { ETIQUETAS_ROL, ROLES_EDITABLES } from '../../lib/roles'
 import { avisar } from '../../lib/aviso'
-import type { Invitacion, Modulo, Rol, Sucursal } from '../../lib/types'
-import { Badge, Button, ButtonIcon, Field, Input, Modal, Select, Skeleton, SkeletonFilas, cn } from '../../components/ui'
+import type { Modulo, Rol, Sucursal } from '../../lib/types'
+import { Badge, Button, ButtonIcon, Confirmar, Field, Input, Modal, Select, Skeleton, SkeletonFilas, cn } from '../../components/ui'
 import { UltimaSync } from '../../components/UltimaSync'
-import { Copy, FolderOpen, KeyRound, Pencil } from 'lucide-react'
+import { Copy, FolderOpen, KeyRound, Pencil, Snowflake } from 'lucide-react'
 
 export function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<ProfileVista[]>([])
-  const [invitaciones, setInvitaciones] = useState<Invitacion[]>([])
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [cargando, setCargando] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [editando, setEditando] = useState<ProfileVista | null>(null)
-  const [invitando, setInvitando] = useState(false)
-  const [linkInv, setLinkInv] = useState('')
+  /** El alta de un usuario: abierto, o cerrado con las credenciales a la vista. */
+  const [creando, setCreando] = useState(false)
+  const [credenciales, setCredenciales] = useState<CredencialesCreadas | null>(null)
   /** El usuario al que se le está reiniciando la contraseña (`null` = cerrado). */
   const [reiniciando, setReiniciando] = useState<ProfileVista | null>(null)
   const [passNueva, setPassNueva] = useState('')
   const [passRepetida, setPassRepetida] = useState('')
   const [msgReiniciar, setMsgReiniciar] = useState<{ tipo: 'ok' | 'err'; texto: string } | null>(null)
   const [cargandoReiniciar, setCargandoReiniciar] = useState(false)
+  /** El usuario que se está por congelar (`null` = sin confirmación abierta). */
+  const [congelando, setCongelando] = useState<ProfileVista | null>(null)
   const [modulos, setModulos] = useState<Modulo[]>([])
   const [asignados, setAsignados] = useState<Set<string>>(new Set())
   const [asignando, setAsignando] = useState<ProfileVista | null>(null)
@@ -34,16 +36,13 @@ export function UsuariosPage() {
     setErr(null)
     setCargando(true)
     try {
-      const [ur, ir, sr] = await Promise.all([
+      const [ur, sr] = await Promise.all([
         supabase.from('profiles').select('*, sucursal:sucursales!profiles_sucursal_id_fkey(id, nombre)').order('created_at', { ascending: false }),
-        supabase.from('invitaciones').select('*').order('created_at', { ascending: false }),
         supabase.from('sucursales').select('*').order('nombre')
       ])
       if (ur.error) setErr(`No se pudieron cargar los usuarios: ${ur.error.message}`)
-      if (ir.error) setErr((prev) => (prev ? `${prev}\nNo se pudieron cargar las invitaciones: ${ir.error.message}` : `No se pudieron cargar las invitaciones: ${ir.error.message}`))
       if (sr.error) setErr((prev) => (prev ? `${prev}\nNo se cargaron las sucursales: ${sr.error.message}` : `No se cargaron las sucursales: ${sr.error.message}`))
       setUsuarios((ur.data ?? []) as ProfileVista[])
-      setInvitaciones((ir.data ?? []) as Invitacion[])
       setSucursales((sr.data ?? []) as Sucursal[])
     } catch (e) {
       setErr(`Error inesperado: ${e instanceof Error ? e.message : String(e)}`)
@@ -54,8 +53,6 @@ export function UsuariosPage() {
   useEffect(() => {
     void cargar()
   }, [cargar])
-
-  const pendientes = useMemo(() => invitaciones.filter((i) => !i.usado), [invitaciones])
 
   const duenos = useMemo(() => {
     const m = new Map<string, { id: string; nombre: string }>()
@@ -112,28 +109,43 @@ export function UsuariosPage() {
     }
   }
 
+  /**
+   * CONGELAR: apaga el `activo` del perfil. Con eso se cierran DOS puertas —
+   * `intento_login` ya no deja entrar («Usuario no encontrado o inactivo») y
+   * `cargarPerfil` de AuthContext cierra la sesión de quien esté adentro en su
+   * próximo movimiento (recarga o refresco de token).
+   */
+  async function congelar() {
+    if (!congelando) return
+    const nombre = congelando.nombre || congelando.usuario
+    try {
+      await actualizarUsuario(congelando.id, { activo: false })
+      avisar(`«${nombre}» quedó congelado: no puede entrar y se le cerrará la sesión.`)
+      setCongelando(null)
+      await cargar()
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo congelar el usuario.', 'error')
+    }
+  }
+
+  /** Descongelar vuelve a encender el `activo`: el acceso y la sesión vuelven. */
+  async function descongelar(u: ProfileVista) {
+    try {
+      await actualizarUsuario(u.id, { activo: true })
+      avisar(`«${u.nombre || u.usuario}» volvió a estar activo.`)
+      await cargar()
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'No se pudo descongelar el usuario.', 'error')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setInvitando(true)}>＋ Invitar usuario</Button>
+          <Button variant="secondary" onClick={() => { setCreando(true); setCredenciales(null) }}>＋ Crear usuario</Button>
         </div>
-      </div>
-
-      {pendientes.length ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <h3 className="mb-2 text-sm font-bold text-amber-800">Invitaciones sin usar ({pendientes.length})</h3>
-          <div className="space-y-1">
-            {pendientes.map((i) => (
-              <p key={i.id} className="text-sm text-amber-700">
-                {i.email} → {ETIQUETAS_ROL[i.rol]}. Comparte: <code className="rounded bg-amber-100 px-1">{linkRegistro(i)}</code>
-              </p>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {err ? (
+      </div>      {err ? (
         <div className="whitespace-pre-wrap rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
       ) : null}
 
@@ -167,7 +179,7 @@ export function UsuariosPage() {
                   </td>
                   <td className="px-4 py-3">{u.sucursal?.nombre || '—'}</td>
                   <td className="px-4 py-3">
-                    {u.bloqueado ? <Badge color={4}>Bloqueado</Badge> : u.activo ? <Badge color={2}>Activo</Badge> : <Badge color={0}>Inactivo</Badge>}
+                    {u.bloqueado ? <Badge color={4}>Bloqueado</Badge> : u.activo ? <Badge color={2}>Activo</Badge> : <Badge color={0}>Congelado</Badge>}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <UltimaSync ultimaSync={u.ultima_sync} />
@@ -191,6 +203,30 @@ export function UsuariosPage() {
                       >
                         <KeyRound className="h-5 w-5" />
                       </ButtonIcon>
+                      {/* Congelar / descongelar: un clic sobre el `activo`,
+                          sin abrir Editar. El congelado pide confirmación (es
+                          un clic que saca a alguien de la app); el
+                          descongelado va directo, porque deshacer no rompe
+                          nada. */}
+                      {u.activo ? (
+                        <ButtonIcon
+                          variant="neutral"
+                          onClick={() => setCongelando(u)}
+                          title="Congelar"
+                          aria-label="Congelar"
+                        >
+                          <Snowflake className="h-5 w-5" />
+                        </ButtonIcon>
+                      ) : (
+                        <ButtonIcon
+                          variant="success"
+                          onClick={() => void descongelar(u)}
+                          title="Descongelar"
+                          aria-label="Descongelar"
+                        >
+                          <Snowflake className="h-5 w-5" />
+                        </ButtonIcon>
+                      )}
                       {u.rol === 'EVALUADOR' ? (
                         <ButtonIcon variant="primary" onClick={() => abrirAsignacion(u)} title="Asignar módulos" aria-label="Asignar módulos">
                           <FolderOpen className="h-5 w-5" />
@@ -228,36 +264,81 @@ export function UsuariosPage() {
       </Modal>
 
       <Modal
-        open={invitando}
-        onClose={() => { setInvitando(false); setLinkInv('') }}
-        title="Invitar usuario"
-        footer={<Button type="submit" form="form-invitacion" className="w-full">Crear invitación</Button>}
+        open={creando}
+        onClose={() => { setCreando(false); setCredenciales(null) }}
+        title="Crear usuario"
+        footer={
+          credenciales ? (
+            <Button className="w-full" onClick={() => { setCreando(false); setCredenciales(null) }}>Listo</Button>
+          ) : (
+            <Button type="submit" form="form-crear-usuario" className="w-full">Crear usuario</Button>
+          )
+        }
       >
-        <FormInvitacion
-          sucursales={sucursales}
-          onCrear={async (data) => {
-            const inv = await crearInvitacion(data)
-            if (inv) {
-              setLinkInv(linkRegistro(inv))
-              await cargar()
-            }
-          }}
-        />
-        {linkInv ? (
-          <div className="mt-4">
-            <p className="mb-1 text-sm font-semibold text-slate-700">Comparte este enlace con el nuevo usuario:</p>
-            <code className="block break-all rounded-xl bg-slate-50 px-3 py-2 text-xs text-primary">{linkInv}</code>
-            <ButtonIcon
-              variant="primary"
-              className="mt-2"
-              onClick={() => void navigator.clipboard.writeText(linkInv)}
-              title="Copiar enlace"
-              aria-label="Copiar enlace"
+        {credenciales ? (
+          /* Las credenciales, listas para copiar y mandar: no hay enlace que
+             la persona tenga que abrir, la cuenta YA existe. */
+          <div className="space-y-4">
+            <div
+              className={`rounded-xl border px-3 py-2 text-sm ${
+                credenciales.confirmacionPendiente
+                  ? 'border-amber-200 bg-amber-50 text-amber-800'
+                  : 'border-green-200 bg-green-50 text-green-800'
+              }`}
             >
-              <Copy className="h-5 w-5" />
-            </ButtonIcon>
+              {credenciales.confirmacionPendiente
+                ? 'Cuenta creada, pero Supabase pide confirmar el correo antes de dejar entrar. Revisá la configuración de Auth → Sign In / Providers → Email.'
+                : 'Cuenta creada. Ya puede entrar con estas credenciales.'}
+            </div>
+            <div className="rounded-xl bg-slate-50 p-4 text-sm">
+              <p className="mb-1 text-xs font-extrabold uppercase tracking-wide text-slate-400">
+                Compartile estas credenciales
+              </p>
+              <dl className="space-y-1">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-500">Usuario</dt>
+                  <dd className="font-mono font-semibold text-slate-800">{credenciales.usuario}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-500">Correo</dt>
+                  <dd className="font-mono font-semibold text-slate-800">{credenciales.email}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-500">Contraseña</dt>
+                  <dd className="font-mono font-semibold text-slate-800">{credenciales.password}</dd>
+                </div>
+              </dl>
+            </div>
+            <div className="flex items-center gap-2">
+              <ButtonIcon
+                variant="primary"
+                onClick={() =>
+                  void navigator.clipboard.writeText(
+                    `Usuario: ${credenciales.usuario}\nCorreo: ${credenciales.email}\nContraseña: ${credenciales.password}`
+                  )
+                }
+                title="Copiar credenciales"
+                aria-label="Copiar credenciales"
+              >
+                <Copy className="h-5 w-5" />
+              </ButtonIcon>
+              <span className="text-xs text-slate-500">Copiar las tres juntas</span>
+            </div>
+            <p className="text-xs text-slate-500">
+              Pedile que cambie su contraseña apenas entre: <strong>Configuración → Cambiar contraseña</strong>.
+              La actual queda válida hasta que lo haga.
+            </p>
           </div>
-        ) : null}
+        ) : (
+          <FormUsuarioNuevo
+            sucursales={sucursales}
+            onCrear={async (datos) => {
+              const creadas = await crearUsuario(datos)
+              setCredenciales(creadas)
+              await cargar()
+            }}
+          />
+        )}
       </Modal>
 
       <Modal
@@ -344,6 +425,14 @@ export function UsuariosPage() {
         ) : null}
       </Modal>
 
+      <Confirmar
+        open={!!congelando}
+        texto={`¿Congelar a ${congelando ? congelando.nombre || congelando.usuario : ''}? No podrá iniciar sesión y, en su próximo movimiento (recarga o refresco de token), se le cerrará la sesión. Si te congelás a vos mismo, salís de la consola en ese momento.`}
+        textoConfirmar="Congelar"
+        onConfirm={() => void congelar()}
+        onCancel={() => setCongelando(null)}
+      />
+
       <Modal open={!!asignando} onClose={() => setAsignando(null)} title={`Módulos de ${asignando?.nombre || asignando?.email || 'evaluador'}`}>
         {cargandoMod ? (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -390,11 +479,6 @@ export function UsuariosPage() {
       </Modal>
     </div>
   )
-
-  function linkRegistro(i: Invitacion): string {
-    const origen = window.location.origin
-    return `${origen}/registro?token=${encodeURIComponent(i.token)}&email=${encodeURIComponent(i.email)}&usuario=${encodeURIComponent(i.usuario)}`
-  }
 }
 
 function RolBadge({ rol }: { rol: Rol }) {
@@ -404,7 +488,11 @@ function RolBadge({ rol }: { rol: Rol }) {
     GERENTE_S: 0,
     GERENTE_C: 2,
     GERENTE_TH: 3,
-    SIN_ROL: 4
+    SIN_ROL: 4,
+    // El equipo de TI: el Gerente manda (mismo tono que el Líder) y el
+    // Técnico resuelve (verde), para que se distingan de un vistazo.
+    GERENTE_TI: 5,
+    TECNICO_TI: 2
   }
   return <Badge color={colores[rol] ?? 0}>{ETIQUETAS_ROL[rol]}</Badge>
 }
@@ -548,42 +636,118 @@ function FormUsuario({
         <input type="checkbox" className="h-5 w-5 accent-primary" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
         Usuario activo
       </label>
+      <p className="text-xs text-slate-400">
+        Apagando esto la cuenta queda <strong>congelada</strong>: no puede entrar y se le cierra la
+        sesión en su próximo movimiento. Es lo mismo que hace el botón de la nieve en la lista.
+      </p>
     </form>
   )
 }
 
-function FormInvitacion({
+function FormUsuarioNuevo({
   sucursales,
   onCrear
 }: {
   sucursales: Sucursal[]
-  onCrear: (d: { email: string; usuario: string; rol: Exclude<Rol, 'SIN_ROL'>; sucursal_id: string | null }) => Promise<void>
+  onCrear: (d: {
+    email: string
+    usuario: string
+    password: string
+    nombre?: string
+    rol: Exclude<Rol, 'SIN_ROL'>
+    sucursal_id: string | null
+  }) => Promise<void>
 }) {
+  const [nombre, setNombre] = useState('')
   const [email, setEmail] = useState('')
   const [usuario, setUsuario] = useState('')
+  const [password, setPassword] = useState('')
+  const [repetir, setRepetir] = useState('')
   const [rol, setRol] = useState<Exclude<Rol, 'SIN_ROL'>>('EVALUADOR')
   const [sucursal, setSucursal] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [error, setError] = useState('')
 
   return (
     <form
-      id="form-invitacion"
+      id="form-crear-usuario"
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
+        setError('')
+        // Las DOS contraseñas tienen que coincidir: una clave mal tecleada
+        // deja a la persona fuera de su propia cuenta.
+        if (password !== repetir) {
+          setError('Las dos contraseñas no coinciden.')
+          return
+        }
+        setEnviando(true)
         void onCrear({
           email,
           usuario,
+          password,
+          nombre: nombre.trim() || undefined,
           rol,
           sucursal_id: (rol === 'GERENTE_S' || rol === 'EVALUADOR') && sucursal ? sucursal : null
+        }).catch((e2) => {
+          setError(e2 instanceof Error ? e2.message : 'No se pudo crear el usuario.')
+          setEnviando(false)
         })
       }}
     >
+      <Field label="Nombre completo" hint="Opcional: es lo que se ve en la consola.">
+        <Input
+          type="text"
+          value={nombre}
+          onChange={(e) => setNombre(e.target.value)}
+          placeholder="Ej: María Pérez"
+          autoComplete="off"
+        />
+      </Field>
       <Field label="Correo del nuevo usuario">
-        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="nombre@empresa.com" />
+        <Input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          placeholder="nombre@empresa.com"
+          autoComplete="off"
+        />
       </Field>
       <Field label="Usuario de acceso" hint="Con este usuario iniciará sesión">
-        <Input type="text" value={usuario} onChange={(e) => setUsuario(e.target.value)} required placeholder="Ej: jperez" />
+        <Input
+          type="text"
+          value={usuario}
+          onChange={(e) => setUsuario(e.target.value)}
+          required
+          placeholder="Ej: jperez"
+          autoComplete="off"
+        />
       </Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Contraseña">
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={6}
+            placeholder="Mínimo 6 caracteres"
+            autoComplete="new-password"
+          />
+        </Field>
+        <Field label="Repetir contraseña">
+          <Input
+            type="password"
+            value={repetir}
+            onChange={(e) => setRepetir(e.target.value)}
+            required
+            minLength={6}
+            placeholder="La misma de nuevo"
+            autoComplete="new-password"
+          />
+        </Field>
+      </div>
       <Field label="Rol a asignar">
         <Select value={rol} onChange={(e) => setRol(e.target.value as Exclude<Rol, 'SIN_ROL'>)}>
           {ROLES_EDITABLES.map((r) => <option key={r} value={r}>{ETIQUETAS_ROL[r]}</option>)}
@@ -595,7 +759,14 @@ function FormInvitacion({
           {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
         </Select>
       </Field>
-      <p className="text-xs text-slate-400">Al registrarse, la cuenta queda vinculada al usuario de acceso indicado. El enlace de registro aparece tras guardar.</p>
+      {error ? (
+        <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</p>
+      ) : null}
+      <p className="text-xs text-slate-400">
+        La cuenta se crea YA: al terminar vas a ver las credenciales para mandárselas. No hay enlace que
+        abrir — y esa persona cambia su clave cuando quiera desde Configuración.
+      </p>
+      {enviando ? <p className="text-xs font-semibold text-slate-500">Creando la cuenta…</p> : null}
     </form>
   )
 }

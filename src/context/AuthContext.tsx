@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import { avisar } from '../lib/aviso'
 import { emailPorUsuario, intentoLogin } from '../lib/data/usuarios'
 import { factorsTotpActivos } from '../lib/mfa'
 import { guardarMfaCache, generacionMfa, leerMfaCache, limpiarMfaCache } from '../lib/mfaEstado'
@@ -176,6 +177,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = res
     if (error || !data) return null
     const p = data as Profile
+    // CONGELADO: la cuenta dejó de estar activa (Config → Usuarios, botón de
+    // la nieve). La sesión ya no sirve y se cierra ACÁ, en el próximo
+    // movimiento —recarga o refresco de token—: sin esto, el que estaba
+    // adentro seguía trabajando hasta que se fuera solo.
+    if (!p.activo) {
+      avisar('Tu cuenta fue congelada: cerramos tu sesión. Hablá con el Líder.', 'aviso')
+      // Con red se revoca el token de refresco (global); sin red, al menos
+      // se limpia la sesión de ESTE navegador.
+      await supabase.auth
+        .signOut()
+        .catch(() => supabase.auth.signOut({ scope: 'local' }).catch(() => undefined))
+      setSession(null)
+      setProfile(null)
+      guardarPerfil(null)
+      setPerfilListo(true)
+      limpiarMfaCache()
+      return null
+    }
     setProfile(p)
     guardarPerfil(p)
     return p

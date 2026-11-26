@@ -24,7 +24,8 @@ export function RegisterPage() {
         <div className="text-center">
           <MarcaAuth titulo="Acceso solo por invitación" subtitulo="EvaLuxor" />
           <p className="-mt-6 text-sm leading-relaxed text-slate-500">
-            Las cuentas las crea el Líder enviando una invitación. Pídele tu enlace de registro para continuar.
+            Las cuentas las crea el Líder desde Configuración → Usuarios. Si te dieron un enlace de
+            registro, abrilo desde ahí para continuar.
           </p>
           <Button className={`mt-8 ${botonAuth}`} onClick={() => navigate('/login')}>
             Ir a iniciar sesión
