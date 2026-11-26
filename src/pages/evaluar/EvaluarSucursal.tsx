@@ -228,6 +228,13 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
     return () => window.clearTimeout(t)
   }, [avisoSync])
 
+  /**
+   * La subida va DIFERIDA (5 s): mientras se edita seguido, un guardado por
+   * segundo multiplicaba los eventos de realtime —el lote completo reescrito
+   * por cada toque—. El borrador ya vive en IndexedDB, así que esperar no
+   * pierde nada; además, con la guarda de `upsert_respuestas` sólo viajan
+   * las filas que cambiaron.
+   */
   function agendarNube() {
     if (nubeTimer.current) window.clearTimeout(nubeTimer.current)
     nubeTimer.current = window.setTimeout(() => {
@@ -252,7 +259,7 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
           void sincronizarRef.current()
         })
         .catch((e: unknown) => setFallaSubida({ causa: causaSubida(e), detalle: detalleTecnico(e) }))
-    }, 800)
+    }, 5000)
   }
 
   useEffect(() => {
@@ -614,7 +621,15 @@ const [descarte, setDescarte] = useState<Descarte>({ item_ids: [], motivos: [] }
       .channel(`ev-vivo-${evaluacionId}:${miId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'respuestas', filter: `evaluacion_id=eq.${evaluacionId}` },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'respuestas',
+          // Sólo lo que escribieron OTROS: el eco de MI propia subida no
+          // vuelve — el refresco tras subir es explícito en `agendarNube`—
+          // y así un guardado propio no consume realtime.
+          filter: `evaluacion_id=eq.${evaluacionId},respondido_por=neq.${miId}`
+        },
         () => void sincronizar()
       )
       .on(

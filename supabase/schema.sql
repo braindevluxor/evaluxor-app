@@ -658,6 +658,13 @@ create unique index if not exists uniq_respuestas_instancia
 -- exacto del Ã­ndice parcial correspondiente, asÃ­ la inferencia encuentra el Ã­ndice
 -- en cualquier versiÃ³n de Postgres (9.5+). Con `security invoker` se aplican las
 -- polÃ­ticas RLS de respuestas (insert/update), igual que con el upsert de PostgREST.
+-- El DO UPDATE lleva GUARDA (`where ... is distinct from ...`): una fila que
+-- llega igual que la que ya está NO se re-escribe. Sin eso, cada guardado del
+-- borrador —que manda el lote COMPLETO— reescribía las N respuestas aunque sólo
+-- hubiera cambiado una, y cada re-escritura es UN EVENTO de realtime por fila
+-- por suscriptor (el canal `ev-vivo-` de la evaluación): el consumo de mensajes
+-- se disparaba sin que nadie tocara nada. Con la guarda, sólo hablan las filas
+-- que cambiaron de verdad.
 create or replace function public.upsert_respuestas(rows jsonb)
 returns void
 language plpgsql
@@ -672,12 +679,16 @@ begin
       insert into public.respuestas (evaluacion_id, item_id, valor, respondido_por)
       values ((r->>'evaluacion_id')::uuid, (r->>'item_id')::uuid, r->'valor', (r->>'respondido_por')::uuid)
       on conflict (evaluacion_id, item_id) where instancia_id is null
-      do update set valor = excluded.valor, respondido_por = excluded.respondido_por;
+      do update set valor = excluded.valor, respondido_por = excluded.respondido_por
+      where respuestas.valor is distinct from excluded.valor
+         or respuestas.respondido_por is distinct from excluded.respondido_por;
     else
       insert into public.respuestas (evaluacion_id, item_id, instancia_id, valor, respondido_por)
       values ((r->>'evaluacion_id')::uuid, (r->>'item_id')::uuid, (r->>'instancia_id')::uuid, r->'valor', (r->>'respondido_por')::uuid)
       on conflict (evaluacion_id, item_id, instancia_id) where instancia_id is not null
-      do update set valor = excluded.valor, respondido_por = excluded.respondido_por;
+      do update set valor = excluded.valor, respondido_por = excluded.respondido_por
+      where respuestas.valor is distinct from excluded.valor
+         or respuestas.respondido_por is distinct from excluded.respondido_por;
     end if;
   end loop;
 end;
