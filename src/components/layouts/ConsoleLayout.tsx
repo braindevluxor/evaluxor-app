@@ -1,4 +1,4 @@
-import { Star, Sprout, Gauge, Globe, FolderOpen, History, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen, Table2 } from 'lucide-react'
+import { Star, Sprout, Gauge, Globe, FolderOpen, History, Headset, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen, Table2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -39,6 +39,12 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
     // así que el item tampoco se muestra a nadie más (no es un guard, es
     // sólo el menú: la ruta y la RLS siguen pidiendo lo mismo).
     { to: '/gran-cosecha/pagina', label: 'Página', icon: <Globe className="h-5 w-5" />, soloLider: true }
+  ]},
+  // La Mesa de Ayuda va en SU sección, sin `roles`: la abre cualquier
+  // colaborador con sesión (reporta un caso desde su vista de sucursal) y
+  // la vista de TI que gestiona la habilita el RLS, no el menú.
+  { seccion: 'Soporte', items: [
+    { to: '/helpdesk', label: 'Mesa de Ayuda', icon: <Headset className="h-5 w-5" /> }
   ]}
 ]
 
@@ -63,8 +69,9 @@ function seccionesDe(rol: string | undefined): { seccion: string; items: EnlaceM
       items: s.items.filter((i) => !i.roles || i.roles.includes(rol ?? '')).filter((i) => !i.soloLider || rol === 'LIDER')
     }))
     .filter((s) => s.items.length > 0)
-  // El JUEZ no ve Resultados: sólo la sección del concurso.
-  if (rol === 'JUEZ') return visibles.filter((s) => s.seccion === 'Gran Cosecha')
+  // El JUEZ no ve Resultados: sólo la sección del concurso — y la Mesa de
+  // Ayuda, que es de todos los que tienen sesión (su ruta no pide rol).
+  if (rol === 'JUEZ') return visibles.filter((s) => s.seccion === 'Gran Cosecha' || s.seccion === 'Soporte')
   return visibles
 }
 
@@ -85,6 +92,10 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   // La cuenta se configura DESDE la consola, con su barra y su menú: salirse
   // de la barra para cambiar la contraseña se sentía como otra app.
   '/perfil': { titulo: 'Configuración', subtitulo: 'Administra tus datos personales y la seguridad de tu cuenta' },
+  '/helpdesk': {
+    titulo: 'Mesa de Ayuda',
+    subtitulo: 'Casos de soporte TI: reportar un incidente y darle seguimiento'
+  },
   // OJO con la barra: `/gran-cosecha` (sin más) YA NO es la consola — es la
   // redirección a la landing pública. El concurso vive en `/gran-cosecha/proyectos`.
   '/gran-cosecha/proyectos': {
