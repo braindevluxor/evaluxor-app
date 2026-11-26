@@ -6985,6 +6985,151 @@ $$;
 revoke execute on function public.ver_sucursales_menu() from public, anon;
 grant execute on function public.ver_sucursales_menu() to anon, authenticated;
 
+-- Archivo consolidado: helpdesk.sql
+-- ###########################################################################
+-- ============================================================================
+-- MESA DE AYUDA (HELPDESK TI) MULTISUCURSAL
+--
+-- Casos de soporte que cualquier colaborador CON SESIÓN puede abrir (su vista
+-- es la de sucursal) y que gestiona SÓLO EL LÍDER —la vista TI: asignar,
+-- estados, prioridad, analítica—, con la misma cerradura que toda la
+-- consola (`es_lider()`). El catálogo de TÉCNICOS se carga desde la API de
+-- trabajadores (`helpdesk_tecnico`): nombres reales de la nómina, elegidos
+-- por el Líder; el chat registra QUIÉN escribió con el usuario real.
+--
+-- TRES tablas:
+--  - `helpdesk_ticket`: el caso. Su `codigo` (HD-1043…) sale de una
+--    SECUENCIA —numeración estable sin carreras entre clientes— y es la
+--    primary key: todo lo demás lo referencia con él.
+--  - `helpdesk_mensaje`: el chat (con `sender_type` branch/it/system y la
+--    marca `es_nota_interna`, que sólo el Líder puede leer).
+--  - `helpdesk_tecnico`: el equipo TI elegido de la nómina.
+--
+-- El trigger de `updated_at` es `security definer` a propósito: al insertar
+-- un mensaje desde la SUCURSAL (que no puede UPDATEar el ticket por RLS),
+-- el trigger igual necesita mover el sello de actualización.
+--
+-- Aplicar en el SQL Editor de Supabase. Idempotente.
+-- ============================================================================
+
+create sequence if not exists helpdesk_numero start 1043;
+
+create table if not exists public.helpdesk_ticket (
+  codigo text primary key default ('HD-' || nextval('helpdesk_numero')),
+  titulo text not null check (length(trim(titulo)) > 0),
+  descripcion text not null default '',
+  -- La sucursal que reporta: id real (el nombre sólo para mostrarlo en la
+  -- lista, tomado de `sucursales` al crear —denormalizado, como el resto de
+  -- nombres que pinta la pantalla—).
+  sucursal_id uuid references public.sucursales(id) on delete set null,
+  sucursal_nombre text not null default '',
+  reportado_por uuid,
+  reportado_nombre text not null default '',
+  categoria text not null check (categoria in (
+    'Punto de Venta (POS)', 'Redes y Wi-Fi', 'Impresoras y Etiquetadoras',
+    'Sistema / ERP', 'Accesos y Cuentas', 'Hardware / PC'
+  )),
+  prioridad text not null default 'Media' check (prioridad in ('Baja', 'Media', 'Alta', 'Crítica')),
+  estado text not null default 'Abierto' check (estado in ('Abierto', 'En Progreso', 'Resuelto', 'Cerrado')),
+  tecnico_dni bigint,
+  tecnico_nombre text,
+  resolucion_minutos integer check (resolucion_minutos is null or resolucion_minutos >= 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.helpdesk_mensaje (
+  id uuid primary key default gen_random_uuid(),
+  codigo_ticket text not null references public.helpdesk_ticket(codigo) on delete cascade,
+  sender_type text not null check (sender_type in ('branch', 'it', 'system')),
+  sender_name text not null,
+  texto text not null,
+  es_nota_interna boolean not null default false,
+  adjunto text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.helpdesk_tecnico (
+  id uuid primary key default gen_random_uuid(),
+  dni bigint not null,
+  nacionalidad text not null default 'V',
+  nombre text not null,
+  especialidad text not null default 'Mesa de Ayuda',
+  activo boolean not null default true,
+  unique (nacionalidad, dni)
+);
+
+-- El sello de actualización del caso: se mueve SOLO con la inserción de un
+-- mensaje (el chat es lo que más escribe), security definer para que una
+-- sucursal pueda "tocar" su caso sin tener política de UPDATE sobre él.
+create or replace function public.helpdesk_tocar_ticket()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.helpdesk_ticket set updated_at = now()
+   where codigo = new.codigo_ticket;
+  return new;
+end;
+$$;
+
+drop trigger if exists helpdesk_mensaje_toca_ticket on public.helpdesk_mensaje;
+create trigger helpdesk_mensaje_toca_ticket
+after insert on public.helpdesk_mensaje
+for each row execute function public.helpdesk_tocar_ticket();
+
+-- Nadie llama a esta función a mano: sólo la dispara la inserción del
+-- mensaje, y es `security definer` — el permiso no tiene por qué quedar
+-- en PUBLIC (la misma regla de todo el schema, ver permisos-sql.test).
+revoke execute on function public.helpdesk_tocar_ticket() from public, anon;
+
+-- RLS
+alter table public.helpdesk_ticket enable row level security;
+alter table public.helpdesk_mensaje enable row level security;
+alter table public.helpdesk_tecnico enable row level security;
+
+-- Casos: todos con sesión los LEEN y los CREAN (multisucursal); el que
+-- gestiona —asignación, estados, prioridad, borrar— es SÓLO el Líder.
+drop policy if exists helpdesk_ticket_select on public.helpdesk_ticket;
+create policy helpdesk_ticket_select on public.helpdesk_ticket
+  for select to authenticated using (true);
+drop policy if exists helpdesk_ticket_insert on public.helpdesk_ticket;
+create policy helpdesk_ticket_insert on public.helpdesk_ticket
+  for insert to authenticated with check (true);
+drop policy if exists helpdesk_ticket_lider on public.helpdesk_ticket;
+create policy helpdesk_ticket_lider on public.helpdesk_ticket
+  for all to authenticated using (public.es_lider()) with check (public.es_lider());
+
+-- Mensajes: se leen todos salvo las NOTAS INTERNAS (sólo el Líder) y se
+-- escribe como 'branch'; 'it' y 'system' los arma sólo el Líder, así que
+-- nadie puede hacerse pasar por TI.
+drop policy if exists helpdesk_mensaje_select on public.helpdesk_mensaje;
+create policy helpdesk_mensaje_select on public.helpdesk_mensaje
+  for select to authenticated
+  using (es_nota_interna = false or public.es_lider());
+drop policy if exists helpdesk_mensaje_insert on public.helpdesk_mensaje;
+create policy helpdesk_mensaje_insert on public.helpdesk_mensaje
+  for insert to authenticated
+  with check (sender_type = 'branch' or public.es_lider());
+
+-- Técnicos: se leen para armar los selectores; los carga/quitó el Líder.
+drop policy if exists helpdesk_tecnico_select on public.helpdesk_tecnico;
+create policy helpdesk_tecnico_select on public.helpdesk_tecnico
+  for select to authenticated using (true);
+drop policy if exists helpdesk_tecnico_lider on public.helpdesk_tecnico;
+create policy helpdesk_tecnico_lider on public.helpdesk_tecnico
+  for all to authenticated using (public.es_lider()) with check (public.es_lider());
+
+-- Sin datos de nadie para anon (los defaults de Supabase le dan todo).
+do $$
+begin
+  execute 'revoke all on public.helpdesk_ticket from anon';
+  execute 'revoke all on public.helpdesk_mensaje from anon';
+  execute 'revoke all on public.helpdesk_tecnico from anon';
+end $$;
+
 -- Archivo consolidado: modulos-fotos.sql
 -- ###########################################################################
 -- ============================================================================

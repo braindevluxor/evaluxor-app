@@ -48,6 +48,13 @@ const TabuladorPaquetesPage = lazy(() =>
 // crean los trabajadores y lo siguen los jueces— pero con lazy, porque es la
 // única pantalla que no entra nadie si no entra a la consola.
 const GranCosechaPage = lazy(() => import('./pages/GranCosecha').then((m) => ({ default: m.GranCosechaPage })))
+
+// La Mesa de Ayuda (helpdesk TI): sólo pide sesión — cualquier colaborador
+// reporta un caso—; quién gestiona lo decide el RLS (`es_lider()`), no un
+// guard de ruta, así que la pantalla se abre igual para las dos vistas.
+const HelpdeskPage = lazy(() =>
+  import('./pages/helpdesk/Helpdesk').then((m) => ({ default: m.HelpdeskPage }))
+)
 // La página pública (/gran-cosecha.html) vista desde la consola: sólo el
 // Líder la abre —la misma cerradura que su item de menú y su RLS—.
 const GranCosechaPagina = lazy(() =>
@@ -168,6 +175,18 @@ function Rutas() {
                       }
                     />
                     <Route path="/pendiente" element={<RequireSesion><PendientePage /></RequireSesion>} />
+
+                    {/* Mesa de Ayuda: con sesión alcanza. La vista de TI
+                        (asignar, estados, prioridad) la habilita el RLS
+                        con `es_lider()`; el resto ve la de sucursal. */}
+                    <Route
+                      path="/helpdesk"
+                      element={
+                        <RequireAuth>
+                          <HelpdeskPage />
+                        </RequireAuth>
+                      }
+                    />
 
                     <Route
                       path="/evaluar"
