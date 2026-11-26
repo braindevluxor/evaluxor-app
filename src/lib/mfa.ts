@@ -17,6 +17,28 @@ export async function factorsTotpActivos(): Promise<FactorTotp[]> {
 }
 
 export async function iniciarConfigTotp(): Promise<{ factorId: string; secret: string; qr: string; uri: string }> {
+  // Sólo puede existir UN factor llamado 'EvaLuxor': si ya está, enrollar
+  // otro tira "A factor with the friendly name ... already exists". Dos
+  // casos posibles:
+  //  - VERIFICADA: ya está activa y no hay nada que configurar (la caché
+  //    de estado decía lo contrario: se limpia antes de avisar);
+  //  - SIN VERIFICAR: se abandonó el QR de un intento anterior. El secreto
+  //    viejo no se puede recuperar, así que se borra el factor y se
+  //    inscribe uno nuevo con su QR.
+  const { data: listado, error: errListados } = await supabase.auth.mfa.listFactors()
+  if (errListados) throw new Error(mensajeTotp(errListados.message))
+  const existente = (listado?.all ?? []).find(
+    (f) => f.factor_type === 'totp' && (f.friendly_name ?? '') === 'EvaLuxor'
+  )
+  if (existente) {
+    if (existente.status === 'verified') {
+      limpiarMfaCache()
+      throw new Error('La verificación en dos pasos ya está activa en esta cuenta.')
+    }
+    const { error: errBorrar } = await supabase.auth.mfa.unenroll({ factorId: existente.id })
+    if (errBorrar) throw new Error(mensajeTotp(errBorrar.message))
+  }
+
   const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'EvaLuxor' })
   if (error) throw new Error(mensajeTotp(error.message))
   const qr = data.totp.qr_code.startsWith('data:')

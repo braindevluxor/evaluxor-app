@@ -19,6 +19,23 @@
 const KEY = 'evaluxor.mfa'
 const TTL_MS = 4 * 60 * 60_000
 
+/**
+ * Generación de la caché: sube en cada `limpiarMfaCache`.
+ *
+ * Sirve para descartar RESPUESTAS VIEJAS. Un `procesarSesion` que arrancó
+ * ANTES de que se tire la caché (los eventos de auth que dispara el
+ * `challengeAndVerify`, p. ej.) termina DESPUÉS, con un veredicto calculado
+ * sobre datos que ya no existen: aplicarlo reabría el paso de dos factores
+ * con la sesión ya verificada. Quien captura la generación al arrancar y la
+ * vuelve a mirar al aplicar sabe que su resultado quedó viejo y lo tira.
+ */
+let generacion = 0
+
+/** La generación actual de la caché, para comparar con la capturada al arrancar. */
+export function generacionMfa(): number {
+  return generacion
+}
+
 interface EntradaMfa {
   /** Id del usuario al que pertenece la respuesta. */
   usuario: string
@@ -64,6 +81,9 @@ export function guardarMfaCache(usuario: string | undefined | null, pendiente: b
  * que entre en este navegador no herede el dato de otro.
  */
 export function limpiarMfaCache(): void {
+  // Se marca ANTES de tirar el dato: aunque localStorage falle, a partir de
+  // acá cualquier cálculo previo se considera viejo.
+  generacion += 1
   try {
     localStorage.removeItem(KEY)
   } catch {

@@ -3,7 +3,7 @@ import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { emailPorUsuario, intentoLogin } from '../lib/data/usuarios'
 import { factorsTotpActivos } from '../lib/mfa'
-import { guardarMfaCache, leerMfaCache, limpiarMfaCache } from '../lib/mfaEstado'
+import { guardarMfaCache, generacionMfa, leerMfaCache, limpiarMfaCache } from '../lib/mfaEstado'
 import type { Profile, Rol } from '../lib/types'
 
 const PROFILE_KEY = 'evaluxor.profile'
@@ -138,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * no de la sesión, y solo se invalida al enrolar/verificar/desactivar el TOTP.
    */
   const requiereNivel2 = useCallback(async (usuario: string): Promise<boolean> => {
+    const generacion = generacionMfa()
     const cacheado = leerMfaCache(usuario)
     if (cacheado !== null) return cacheado
     try {
@@ -152,7 +153,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Vencido: no se cachea nada, así la próxima carga vuelve a preguntarlo.
       if (esVencido(authLevel)) return false
       const pendiente = authLevel.data?.currentLevel !== 'aal2' && authLevel.data?.nextLevel === 'aal2'
-      guardarMfaCache(usuario, pendiente)
+      // Si la caché se tiró mientras esperábamos (el usuario acababa de
+      // verificar o de desactivar el TOTP), este resultado quedó viejo y NO se
+      // guarda: sería escribir «falta el segundo factor» después de haberlo
+      // completado, y esa entrada envenenada volvería a pedir el código en
+      // cada carga durante el TTL.
+      if (generacion === generacionMfa()) guardarMfaCache(usuario, pendiente)
       return pendiente
     } catch {
       // No se cachea el fallo: se reintenta en la próxima carga.
@@ -176,6 +182,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const procesarSesion = useCallback(async (s: Session | null) => {
+    // La caché de MFA con la que este cálculo va a arrancar. Si mientras está
+    // en vuelo alguien tira la caché (el usuario completó el TOTP, o lo
+    // desactivó), el resultado es VIEJO: se calculó con el nivel de antes y
+    // aplicarlo pondría `totpPendiente` en true con la sesión ya verificada.
+    const generacion = generacionMfa()
     setSession(s)
     if (!s) {
       setTotpPendiente(false)
@@ -203,6 +214,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // luego `await cargarPerfil()`), así que la pantalla de arranque pagaba las
     // dos esperas sumadas en vez de la más lenta.
     const [pend] = await Promise.all([requiereNivel2(s.user.id), cargarPerfil(s.user.id)])
+    // La caché de MFA se tiró mientras este cálculo estaba en vuelo: el
+    // `pend` de acá se calculó con el nivel de ANTES de verificar (o de
+    // desactivar) el TOTP y ya no sirve. El código que la tiró dejó el estado
+    // derecho —`verificarTotp` pone `totpPendiente` en false y recarga el
+    // perfil—, así que este veredicto se descarta entero: aplicarlo con el
+    // perfil ya cargado dejaba la sesión en contradicción (sesión y perfil
+    // llenos con `totpPendiente` en true) y hacía pelear a /login con
+    // RequireAuth en bucle: pantalla parpadeando y «Maximum update depth
+    // exceeded» en la consola. El perfil de arriba sí se conserva.
+    if (generacion !== generacionMfa()) {
+      setPerfilListo(true)
+      return
+    }
     setTotpPendiente(pend)
     if (pend) {
       // Cuenta con MFA y sesión sin segundo factor: el perfil se borra para que

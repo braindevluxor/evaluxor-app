@@ -72,6 +72,16 @@ describe('LoginPage · el aspecto del ingreso', () => {
     expect(html).toContain('Recordarme')
     expect(html).toContain('Iniciar sesión')
   })
+
+  it('no se va a casa con el segundo factor pendiente (el bucle con RequireAuth)', () => {
+    // Este efecto y RequireAuth/RequireSesion se devolvían la pelota: el login
+    // mandaba a la home con `session && profile` y la guarda lo devolvía a
+    // /login con `totpPendiente || !session`, que es lo mismo visto del otro
+    // lado. Con las condiciones complementarias la ida y vuelta no puede
+    // existir — React reventaba con «Maximum update depth exceeded».
+    const src = fuente('./LoginPage.tsx')
+    expect(src).toContain('!recuperando && !totpPendiente')
+  })
 })
 
 describe('LoginPage · las otras caras', () => {

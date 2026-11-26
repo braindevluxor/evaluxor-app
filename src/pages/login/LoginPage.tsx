@@ -59,11 +59,18 @@ export function LoginPage() {
   useEffect(() => {
     // Con el enlace de recuperación en la mano NO se navega: si no, el usuario
     // aterrizaría en el dashboard sin haber definido la contraseña nueva.
-    if (session && profile && !recuperando) {
+    //
+    // Tampoco con el segundo factor pendiente. Es la condición EXACTA de la
+    // que RequireAuth / RequireSesion devuelven a /login (`totpPendiente ||`
+    // `!session`): si este efecto mandara a casa con `totpPendiente` en true,
+    // las dos pantallas se devolverían la pelota hasta reventar React con
+    // «Maximum update depth exceeded». Con las condiciones complementarias,
+    // llegar a casa y volver a /login es imposible.
+    if (session && profile && !recuperando && !totpPendiente) {
       const destino = location.state?.from?.pathname || homePorRol(profile.rol)
       navigate(destino, { replace: true })
     }
-  }, [session, profile, recuperando, navigate, location.state?.from?.pathname])
+  }, [session, profile, recuperando, totpPendiente, navigate, location.state?.from?.pathname])
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
