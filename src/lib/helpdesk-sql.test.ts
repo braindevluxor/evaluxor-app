@@ -51,12 +51,15 @@ const DDL = `
     alter default privileges in schema public grant all on sequences to anon, authenticated;
   end $$;
 
-  -- Espejo mínimo de profiles: el bloque no lo toca, pero es_lider() lo lee.
+  -- Espejo mínimo de profiles: el bloque no lo toca, pero es_lider() lo lee
+  -- y la política de alta del caso lee sucursal_id (el de la tienda de
+  -- quien reporta: con él, el caso sólo puede abrirse en la SUYA).
   create table public.profiles (
     id uuid primary key references auth.users(id) on delete cascade,
     nombre text not null default '',
     rol text not null default 'SIN_ROL'
-      check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ')),
+      check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ','GERENTE_TI','TECNICO_TI')),
+    sucursal_id uuid,
     activo boolean not null default true
   );
 
@@ -77,20 +80,33 @@ const DDL = `
 const LIDER = '00000000-0000-0000-0000-000000000d01'
 const SUCURSAL = '00000000-0000-0000-0000-000000000d02'
 const SUCURSAL_ID = '00000000-0000-0000-0000-000000000d03'
+const OTRA_SUCURSAL = '00000000-0000-0000-0000-000000000d04'
+const GERENTE_TI = '00000000-0000-0000-0000-000000000d05'
+const TECNICO_TI = '00000000-0000-0000-0000-000000000d06'
 
 let db: PGlite
 
 beforeAll(async () => {
   db = new PGlite()
   await db.exec(DDL)
-  await db.exec(`insert into auth.users (id) values ('${LIDER}'), ('${SUCURSAL}')`)
   await db.exec(
-    `insert into public.profiles (id, nombre, rol) values
-       ('${LIDER}', 'Ana Líder', 'LIDER'),
-       ('${SUCURSAL}', 'Carlos Sucursal', 'EVALUADOR')`
+    `insert into auth.users (id) values
+       ('${LIDER}'), ('${SUCURSAL}'), ('${GERENTE_TI}'), ('${TECNICO_TI}')`
   )
   await db.exec(
-    `insert into public.sucursales (id, nombre) values ('${SUCURSAL_ID}', 'Sucursal Las Mercedes')`
+    `insert into public.sucursales (id, nombre) values
+       ('${SUCURSAL_ID}', 'Sucursal Las Mercedes'),
+       ('${OTRA_SUCURSAL}', 'Sucursal El Bosque')`
+  )
+  // La sucursal del perfil es la que la política de alta exige: el caso de
+  // Carlos sólo puede abrirse en SU tienda. Los dos de TI no tienen sucursal
+  // (son roles corporativos) y por eso eligen la del caso.
+  await db.exec(
+    `insert into public.profiles (id, nombre, rol, sucursal_id) values
+       ('${LIDER}', 'Ana Líder', 'LIDER', null),
+       ('${SUCURSAL}', 'Carlos Sucursal', 'EVALUADOR', '${SUCURSAL_ID}'),
+       ('${GERENTE_TI}', 'Gina Gerente TI', 'GERENTE_TI', null),
+       ('${TECNICO_TI}', 'Tomás Técnico TI', 'TECNICO_TI', null)`
   )
   // Primera corrida… y la segunda: el bloque tiene que ser idempotente.
   await db.exec(bloqueSql('helpdesk.sql'))
@@ -157,6 +173,36 @@ describe('helpdesk.sql · casos', () => {
     })
   })
 
+  it('el caso nace en la SUCURSAL DEL QUE REPORTA: no se puede abrir en otra', async () => {
+    // La suya: pasa (es lo que hace la pantalla, con la sucursal bloqueada).
+    await conRol(SUCURSAL, async () => {
+      expect(await crearCaso('Caso de mi tienda')).toMatch(/^HD-/)
+    })
+
+    // La de otra sucursal: el `with check` la rechaza. La pantalla ya muestra
+    // la sucursal como dato y sin selector; la BASE es lo que impide mandarla
+    // a otra desde afuera.
+    await conRol(SUCURSAL, async () => {
+      await expect(
+        db.query(
+          `insert into helpdesk_ticket (titulo, sucursal_id, sucursal_nombre, categoria)
+           values ('Colado en otra tienda', '${OTRA_SUCURSAL}', 'Sucursal El Bosque', 'Redes y Wi-Fi')`
+        )
+      ).rejects.toThrow(/row-level security/i)
+    })
+
+    // El Líder sí puede abrirla en cualquiera: su perfil no tiene sucursal
+    // y, además, `es_lider()` manda.
+    await conRol(LIDER, async () => {
+      await expect(
+        db.query(
+          `insert into helpdesk_ticket (titulo, sucursal_id, sucursal_nombre, categoria)
+           values ('Desde oficina', '${SUCURSAL_ID}', 'Sucursal Las Mercedes', 'Redes y Wi-Fi')`
+        )
+      ).resolves.toBeDefined()
+    })
+  })
+
   it('cualquier sesión lee todos los casos; anon ni siquiera eso', async () => {
     await conRol(SUCURSAL, async () => {
       const r = await db.query(`select codigo from helpdesk_ticket`)
@@ -216,6 +262,116 @@ describe('helpdesk.sql · casos', () => {
   })
 })
 
+describe('helpdesk.sql · sólo el gerente reparte', () => {
+  it('el Técnico no asigna: el disparador lo frena, pero el estado sí lo cambia', async () => {
+    const codigo = await crearCaso('Caso que el técnico quiere tomarse')
+    await conRol(TECNICO_TI, async () => {
+      await expect(
+        db.query(
+          `update helpdesk_ticket set tecnico_dni = 44444444, tecnico_nombre = 'Se autoasigna'
+            where codigo = $1`,
+          [codigo]
+        )
+      ).rejects.toThrow(/Sólo el Gerente de TI/)
+
+      // Cambiar el ESTADO es su trabajo: el disparador sólo mira al técnico
+      // de la fila, no al resto de la gestión.
+      const r = await db.query(
+        `update helpdesk_ticket set estado = 'En Progreso' where codigo = $1 returning codigo`,
+        [codigo]
+      )
+      expect(r.rows).toHaveLength(1)
+    })
+  })
+
+  it('el Gerente de TI sí reparte', async () => {
+    const codigo = await crearCaso('Caso que el gerente reparte')
+    await conRol(GERENTE_TI, async () => {
+      const r = await db.query<{ tecnico_dni: number }>(
+        `update helpdesk_ticket set tecnico_dni = 44444444, tecnico_nombre = 'Rosa Redes'
+          where codigo = $1 returning tecnico_dni`,
+        [codigo]
+      )
+      expect(Number(r.rows[0].tecnico_dni)).toBe(44444444)
+    })
+  })
+
+  it('el atendedor puede ser un USUARIO con rol TECNICO_TI: el disparador también lo mira', async () => {
+    const codigo = await crearCaso('Caso para un usuario técnico')
+
+    // El Técnico no se lo asigna a sí mismo por usuario, tampoco…
+    await conRol(TECNICO_TI, async () => {
+      await expect(
+        db.query(`update helpdesk_ticket set tecnico_usuario = '${TECNICO_TI}' where codigo = $1`, [codigo])
+      ).rejects.toThrow(/Sólo el Gerente de TI/)
+    })
+
+    // …y el Gerente sí: queda guardado el UUID del usuario (que no tiene
+    // DNI) en la columna nueva, con el nombre para mostrar.
+    await conRol(GERENTE_TI, async () => {
+      const r = await db.query<{ tecnico_usuario: string }>(
+        `update helpdesk_ticket set tecnico_usuario = '${TECNICO_TI}', tecnico_nombre = 'Tomás Técnico TI'
+          where codigo = $1 returning tecnico_usuario`,
+        [codigo]
+      )
+      expect(r.rows[0].tecnico_usuario).toBe(TECNICO_TI)
+    })
+  })
+})
+
+describe('helpdesk.sql · el equipo de TI', () => {
+  it('el Técnico atiende el caso, pero no arma el equipo', async () => {
+    const codigo = await crearCaso('Caso para el técnico')
+
+    // Atender es su trabajo: toma el caso y cambia el estado.
+    await conRol(TECNICO_TI, async () => {
+      const r = await db.query(
+        `update helpdesk_ticket set estado = 'En Progreso', tecnico_nombre = 'Tomás Técnico TI'
+          where codigo = $1 returning codigo`,
+        [codigo]
+      )
+      expect(r.rows).toHaveLength(1)
+
+      // …pero administrar el equipo es de Líder o Gerente de TI.
+      await expect(
+        db.query(`insert into helpdesk_tecnico (dni, nombre) values (555, 'Invitado')`)
+      ).rejects.toThrow(/row-level security/i)
+    })
+
+    const r = await db.query<{ estado: string }>(
+      `select estado from helpdesk_ticket where codigo = $1`,
+      [codigo]
+    )
+    expect(r.rows[0].estado).toBe('En Progreso')
+  })
+
+  it('el Gerente de TI arma el equipo y escribe notas que el Técnico lee', async () => {
+    await conRol(GERENTE_TI, async () => {
+      await db.query(`insert into helpdesk_tecnico (dni, nombre) values (555, 'Invitado TI')`)
+      const alta = await db.query(`select dni from helpdesk_tecnico where dni = 555`)
+      expect(alta.rows).toHaveLength(1)
+      await db.query(`delete from helpdesk_tecnico where dni = 555`)
+
+      // La nota interna la escribe el equipo de TI…
+      const codigo = await crearCaso('Caso con nota interna del equipo')
+      await db.query(
+        `insert into helpdesk_mensaje (codigo_ticket, sender_type, sender_name, texto, es_nota_interna)
+         values ($1, 'it', 'Gina Gerente TI', 'Revisar hoy, es urgente', true)`,
+        [codigo]
+      )
+    })
+
+    // …y el Técnico la lee (la sucursal no: eso cubre su propio test).
+    await conRol(TECNICO_TI, async () => {
+      const n = await db.query<{ n: number }>(
+        `select count(*)::int as n from helpdesk_mensaje
+          where es_nota_interna = true and sender_name = 'Gina Gerente TI'`
+      )
+      expect(Number(n.rows[0].n)).toBe(1)
+    })
+  })
+})
+
 describe('helpdesk.sql · chat', () => {
   it('la sucursal escribe sólo como branch: no puede firmar como TI', async () => {
     const codigo = await crearCaso('Para el chat')
@@ -261,7 +417,7 @@ describe('helpdesk.sql · chat', () => {
     ])
   })
 
-  it('las notas internas no existen para quien no es Líder', async () => {
+  it('las notas internas no existen para la sucursal (son del equipo de TI)', async () => {
     const codigo = await crearCaso('Caso con nota interna')
     await conRol(LIDER, async () => {
       await db.query(

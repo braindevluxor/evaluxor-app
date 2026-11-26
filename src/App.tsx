@@ -170,18 +170,6 @@ function Rutas() {
                     />
                     <Route path="/pendiente" element={<RequireSesion><PendientePage /></RequireSesion>} />
 
-                    {/* Mesa de Ayuda: con sesión alcanza. La vista de TI
-                        (asignar, estados, prioridad) la habilita el RLS
-                        con `es_lider()`; el resto ve la de sucursal. */}
-                    <Route
-                      path="/helpdesk"
-                      element={
-                        <RequireAuth>
-                          <HelpdeskPage />
-                        </RequireAuth>
-                      }
-                    />
-
                     <Route
                       path="/evaluar"
                       element={
@@ -375,6 +363,13 @@ function Rutas() {
                           lleva `RequireRol`. Va adentro de la consola para que
                           se vea con su barra y su menú, igual que el resto. */}
                       <Route path="/perfil" element={<PerfilPage />} />
+                      {/* Mesa de Ayuda: con sesión alcanza — la vista de TI
+                          (asignar, estados, prioridad) la habilita el RLS con
+                          `es_lider()`; el resto ve la de sucursal. Vive DENTRO
+                          de la consola para usar SU barra lateral y su barra
+                          superior (ahí cuelga el cambio de vista por
+                          PortalCabecera), como cualquier otra pantalla. */}
+                      <Route path="/helpdesk" element={<HelpdeskPage />} />
                       {/* Gran Cosecha es de TODA la empresa: cualquiera con
                           sesión presenta su proyecto y cualquiera lo mira; el
                           seguimiento lo dan los jueces, que entra por el mismo

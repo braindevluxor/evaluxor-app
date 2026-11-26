@@ -72,7 +72,7 @@ create table if not exists public.profiles (
   usuario text not null default '',
   nombre text not null default '',
   rol text not null default 'SIN_ROL'
-    check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH')),
+    check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','GERENTE_TI','TECNICO_TI')),
   -- La FK a `sucursales` va DESPUES de crear las dos tablas: se referencian
   -- entre si y con la FK en linea la segunda en aparecer fallaria.
   sucursal_id uuid,
@@ -209,7 +209,7 @@ create table if not exists public.invitaciones (
   id uuid primary key default gen_random_uuid(),
   email text not null,
   usuario text not null,
-  rol text not null check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH')),
+  rol text not null check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','GERENTE_TI','TECNICO_TI')),
   sucursal_id uuid references public.sucursales(id) on delete set null,
   token text not null unique default gen_random_uuid()::text,
   usado boolean not null default false,
@@ -5923,11 +5923,11 @@ end $$;
 -- al juez, y con el check viejo la invitación no se podría emitir.
 alter table public.profiles drop constraint if exists profiles_rol_check;
 alter table public.profiles add constraint profiles_rol_check
-  check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ'));
+  check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ','GERENTE_TI','TECNICO_TI'));
 
 alter table public.invitaciones drop constraint if exists invitaciones_rol_check;
 alter table public.invitaciones add constraint invitaciones_rol_check
-  check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ'));
+  check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ','GERENTE_TI','TECNICO_TI'));
 
 create table if not exists public.gran_cosecha_proyecto (
   id uuid primary key default gen_random_uuid(),
@@ -6909,18 +6909,27 @@ grant execute on function public.ver_sucursales_menu() to anon, authenticated;
 -- MESA DE AYUDA (HELPDESK TI) MULTISUCURSAL
 --
 -- Casos de soporte que cualquier colaborador CON SESIÓN puede abrir (su vista
--- es la de sucursal) y que gestiona SÓLO EL LÍDER —la vista TI: asignar,
--- estados, prioridad, analítica—, con la misma cerradura que toda la
--- consola (`es_lider()`). El catálogo de TÉCNICOS se carga desde la API de
+-- es la de sucursal) y que atiende el EQUIPO DE TI —la vista TI: asignar,
+-- estados, prioridad, analítica—. La Mesa de Ayuda tiene SUS DOS
+-- cerraduras, para que el Técnico atienda sin administrar:
+--
+--  - `es_equipo_ti()`: LÍDER, GERENTE_TI y TECNICO_TI — ver todos los
+--    casos, tomarlos, cambiar el estado, chatear como TI y notas internas.
+--  - `es_gerente_ti()`: LÍDER y GERENTE_TI — administrar el equipo de
+--    técnicos (alta y baja).
+--
+-- `es_lider()` NO se toca: ésa es la de Bonos y Configuración, que el
+-- equipo de TI no ve. El catálogo de TÉCNICOS se carga desde la API de
 -- trabajadores (`helpdesk_tecnico`): nombres reales de la nómina, elegidos
--- por el Líder; el chat registra QUIÉN escribió con el usuario real.
+-- por el Gerente de TI o el Líder; el chat registra QUIÉN escribió con el
+-- usuario real.
 --
 -- TRES tablas:
 --  - `helpdesk_ticket`: el caso. Su `codigo` (HD-1043…) sale de una
 --    SECUENCIA —numeración estable sin carreras entre clientes— y es la
 --    primary key: todo lo demás lo referencia con él.
 --  - `helpdesk_mensaje`: el chat (con `sender_type` branch/it/system y la
---    marca `es_nota_interna`, que sólo el Líder puede leer).
+--    marca `es_nota_interna`, del equipo de TI).
 --  - `helpdesk_tecnico`: el equipo TI elegido de la nómina.
 --
 -- El trigger de `updated_at` es `security definer` a propósito: al insertar
@@ -7003,42 +7012,122 @@ for each row execute function public.helpdesk_tocar_ticket();
 -- en PUBLIC (la misma regla de todo el schema, ver permisos-sql.test).
 revoke execute on function public.helpdesk_tocar_ticket() from public, anon;
 
+-- LAS DOS CERRADURAS DE LA MESA DE AYUDA (ver la cabecera del bloque).
+-- Son `security definer` como `es_lider()` y `puede_bonos()`: leen
+-- `profiles` sin que sus políticas se interpongan.
+create or replace function public.es_equipo_ti()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.activo
+       and p.rol in ('LIDER', 'GERENTE_TI', 'TECNICO_TI')
+  );
+$$;
+
+create or replace function public.es_gerente_ti()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.activo
+       and p.rol in ('LIDER', 'GERENTE_TI')
+  );
+$$;
+
+-- Sólo con sesión: las políticas las evalúan con el privilegio de quien
+-- consulta, y anon no llega a la mesa de ayuda de todas formas.
+revoke execute on function public.es_equipo_ti() from public, anon;
+grant execute on function public.es_equipo_ti() to authenticated;
+revoke execute on function public.es_gerente_ti() from public, anon;
+grant execute on function public.es_gerente_ti() to authenticated;
+
+-- EL ATEDEDOR PUEDE SER UN USUARIO: quien atiende puede ser un USUARIO con
+-- rol TECNICO_TI (que no tiene DNI en la nómina) o una persona de la nómina
+-- del equipo de guardia. Los DOS van guardados: el uuid del usuario o el
+-- DNI de la nómina — nunca los dos a la vez.
+alter table public.helpdesk_ticket
+  add column if not exists tecnico_usuario uuid references public.profiles(id) on delete set null;
+
+-- SÓLO EL GERENTE DE TI (o el Líder) ASIGNA CASOS: ni el Técnico se
+-- autoasigna ni reparte, ni desde la pantalla ni desde la API. RLS no
+-- puede mirar COLUMNAS, así que esto va en un disparador y se fija sólo
+-- cuando el atendedor de la fila CAMBIA — cambiar el estado sigue siendo
+-- de todo el equipo de TI.
+create or replace function public.helpdesk_solo_gerente_asigna()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    if (new.tecnico_dni is not null or new.tecnico_usuario is not null)
+       and not public.es_gerente_ti() then
+      raise exception 'Sólo el Gerente de TI (o el Líder) asigna casos.';
+    end if;
+  elsif (new.tecnico_dni is distinct from old.tecnico_dni)
+     or (new.tecnico_usuario is distinct from old.tecnico_usuario) then
+    if not public.es_gerente_ti() then
+      raise exception 'Sólo el Gerente de TI (o el Líder) asigna casos.';
+    end if;
+  end if;
+  return new;
+end; $$;
+
+drop trigger if exists helpdesk_solo_gerente_asigna on public.helpdesk_ticket;
+create trigger helpdesk_solo_gerente_asigna
+before insert or update on public.helpdesk_ticket
+for each row execute function public.helpdesk_solo_gerente_asigna();
+
+-- Como `helpdesk_tocar_ticket`: nadie la llama a mano, sólo la dispara la
+-- base, así que su permiso no queda en PUBLIC.
+revoke execute on function public.helpdesk_solo_gerente_asigna() from public, anon;
+
 -- RLS
 alter table public.helpdesk_ticket enable row level security;
 alter table public.helpdesk_mensaje enable row level security;
 alter table public.helpdesk_tecnico enable row level security;
 
--- Casos: todos con sesión los LEEN y los CREAN (multisucursal); el que
--- gestiona —asignación, estados, prioridad, borrar— es SÓLO el Líder.
+-- Casos: todos con sesión los LEEN (multisucursal); el que gestiona
+-- —tomarlo, asignarlo, estados, prioridad, borrar— es el EQUIPO DE TI.
 drop policy if exists helpdesk_ticket_select on public.helpdesk_ticket;
 create policy helpdesk_ticket_select on public.helpdesk_ticket
   for select to authenticated using (true);
+
+-- Alta: con la SUCURSAL DEL QUE REPORTA. Quien tiene sucursal en el perfil
+-- sólo puede abrirla en la SUYA —la pantalla ya la muestra bloqueada y este
+-- `with check` es lo que impide mandarla a otra desde afuera—; quien no
+-- tiene ninguna (roles corporativos, incluido el equipo de TI) elige.
 drop policy if exists helpdesk_ticket_insert on public.helpdesk_ticket;
 create policy helpdesk_ticket_insert on public.helpdesk_ticket
-  for insert to authenticated with check (true);
-drop policy if exists helpdesk_ticket_lider on public.helpdesk_ticket;
-create policy helpdesk_ticket_lider on public.helpdesk_ticket
-  for all to authenticated using (public.es_lider()) with check (public.es_lider());
+  for insert to authenticated
+  with check (
+    public.es_equipo_ti()
+    or (select p.sucursal_id from public.profiles p where p.id = auth.uid()) is null
+    or sucursal_id = (select p.sucursal_id from public.profiles p where p.id = auth.uid())
+  );
 
--- Mensajes: se leen todos salvo las NOTAS INTERNAS (sólo el Líder) y se
--- escribe como 'branch'; 'it' y 'system' los arma sólo el Líder, así que
--- nadie puede hacerse pasar por TI.
+drop policy if exists helpdesk_ticket_lider on public.helpdesk_ticket;
+drop policy if exists helpdesk_ticket_gestion on public.helpdesk_ticket;
+create policy helpdesk_ticket_gestion on public.helpdesk_ticket
+  for all to authenticated using (public.es_equipo_ti()) with check (public.es_equipo_ti());
+
+-- Mensajes: se leen todos salvo las NOTAS INTERNAS (del equipo de TI) y se
+-- escribe como 'branch'; 'it' y 'system' los arma sólo el equipo de TI, así
+-- que nadie de sucursal puede hacerse pasar por TI.
 drop policy if exists helpdesk_mensaje_select on public.helpdesk_mensaje;
 create policy helpdesk_mensaje_select on public.helpdesk_mensaje
   for select to authenticated
-  using (es_nota_interna = false or public.es_lider());
+  using (es_nota_interna = false or public.es_equipo_ti());
 drop policy if exists helpdesk_mensaje_insert on public.helpdesk_mensaje;
 create policy helpdesk_mensaje_insert on public.helpdesk_mensaje
   for insert to authenticated
-  with check (sender_type = 'branch' or public.es_lider());
+  with check (sender_type = 'branch' or public.es_equipo_ti());
 
--- Técnicos: se leen para armar los selectores; los carga/quitó el Líder.
+-- Técnicos: se leen para armar los selectores; los carga y quita SÓLO
+-- LÍDER o GERENTE_TI — el Técnico de TI atiende, no arma el equipo.
 drop policy if exists helpdesk_tecnico_select on public.helpdesk_tecnico;
 create policy helpdesk_tecnico_select on public.helpdesk_tecnico
   for select to authenticated using (true);
 drop policy if exists helpdesk_tecnico_lider on public.helpdesk_tecnico;
-create policy helpdesk_tecnico_lider on public.helpdesk_tecnico
-  for all to authenticated using (public.es_lider()) with check (public.es_lider());
+drop policy if exists helpdesk_tecnico_gestion on public.helpdesk_tecnico;
+create policy helpdesk_tecnico_gestion on public.helpdesk_tecnico
+  for all to authenticated using (public.es_gerente_ti()) with check (public.es_gerente_ti());
 
 -- Sin datos de nadie para anon (los defaults de Supabase le dan todo).
 do $$

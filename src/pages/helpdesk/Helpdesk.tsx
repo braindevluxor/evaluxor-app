@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { PortalCabecera } from '../../components/PortalCabecera';
+import { esEquipoTi, gestionaMesaAyuda } from '../../lib/roles';
 import {
   listarTicketsHelpdesk,
   listarMensajesHelpdesk,
@@ -8,6 +9,7 @@ import {
   enviarMensajeHelpdesk,
   actualizarTicketHelpdesk,
   listarTecnicosHelpdesk,
+  listarCandidatosHelpdesk,
   agregarTecnicoHelpdesk,
   quitarTecnicoHelpdesk,
   type TicketHelpdesk,
@@ -23,9 +25,7 @@ import {
 } from '../../lib/data/granCosecha';
 import { nombreCompleto } from '../../lib/data/colaboradores';
 import {
-  Headset,
   Store,
-  ShieldCheck,
   Plus,
   Search,
   Send,
@@ -45,8 +45,6 @@ import {
   Lock,
   Sparkles,
   Inbox,
-  LayoutDashboard,
-  Ticket,
   ArrowLeft,
   TrendingUp,
   Users,
@@ -55,6 +53,16 @@ import {
   X,
   Loader2,
 } from 'lucide-react';
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 // ============================================================================
 // CATÁLOGOS DE LA PANTALLA (categorías y prioridades)
@@ -86,7 +94,7 @@ const STATUSES = ['Abierto', 'En Progreso', 'Resuelto', 'Cerrado'];
 function getStatusStyle(status: string) {
   switch (status) {
     case 'Abierto':
-      return 'bg-blue-50 text-blue-700 border-blue-200';
+      return 'bg-primary-50 text-primary-700 border-primary-200';
     case 'En Progreso':
       return 'bg-amber-50 text-amber-700 border-amber-200';
     case 'Resuelto':
@@ -101,15 +109,15 @@ function getStatusStyle(status: string) {
 function getStatusDot(status: string): string {
   switch (status) {
     case 'Abierto':
-      return 'bg-blue-500';
+      return 'bg-primary-500';
     case 'En Progreso':
       return 'bg-amber-500 animate-pulse';
     case 'Resuelto':
       return 'bg-emerald-500';
     case 'Cerrado':
-      return 'bg-slate-400';
+      return 'bg-slate-500';
     default:
-      return 'bg-slate-400';
+      return 'bg-slate-500';
   }
 }
 
@@ -155,10 +163,21 @@ function formatTimeNow(): string {
 // ============================================================================
 
 export function HelpdeskPage() {
-  // El rol SALE DE LA SESIÓN: TI es sólo el Líder (la misma cerradura que
-  // el guard de la ruta y el RLS de los casos); el resto ve la vista de sucursal.
+  // El rol SALE DE LA SESIÓN: la vista TI es del EQUIPO —Líder, Gerente de
+  // TI y Técnico de TI—, la misma cerradura que `es_equipo_ti()` en RLS y
+  // la que arma el menú; el resto ve la de sucursal.
   const { profile } = useAuth();
-  const role = profile?.rol === 'LIDER' ? 'it' : 'branch';
+  const rol = profile?.rol ?? 'SIN_ROL';
+  const role = esEquipoTi(rol) ? 'it' : 'branch';
+  /** Sólo Líder o Gerente de TI arman el equipo de técnicos. */
+  const puedeAdministrarTecnicos = gestionaMesaAyuda(rol);
+  /**
+   * El Gerente de Sucursal sólo mira lo SUYO: sus estadísticas no deben
+   * mezclar las de las demás tiendas, así que su dashboard se acota a su
+   * sucursal — y el gráfico «por sucursal» (que sólo tendría una curva)
+   * no se muestra.
+   */
+  const esGerenteSucursal = rol === 'GERENTE_S';
 
   // Vista activa: 'dashboard' | 'tickets' | 'detail'
   const [activeView, setActiveView] = useState<'dashboard' | 'tickets' | 'detail'>('dashboard');
@@ -172,6 +191,8 @@ export function HelpdeskPage() {
   // Sucursales reales (la RPC pública de la carta) y equipo TI de la nómina.
   const [sucursales, setSucursales] = useState<{ id: string; nombre: string }[]>([]);
   const [tecnicos, setTecnicos] = useState<TecnicoHelpdesk[]>([]);
+  /** La LISTA DE ASIGNACIÓN: los usuarios con rol TECNICO_TI (ver data layer). */
+  const [candidatos, setCandidatos] = useState<TecnicoHelpdesk[]>([]);
   // Búsqueda en la nómina para agregar técnicos al equipo.
   const [busquedaTec, setBusquedaTec] = useState('');
   const [resultadosTec, setResultadosTec] = useState<TrabajadorNomina[]>([]);
@@ -261,7 +282,7 @@ export function HelpdeskPage() {
       }
     })();
 
-    // 3) El equipo TI: de acá dependen los selectores de asignación.
+    // 3) El equipo de GUARDIA: de acá depende la tarjeta del Dashboard.
     void (async () => {
       try {
         const tec = await listarTecnicosHelpdesk();
@@ -271,14 +292,54 @@ export function HelpdeskPage() {
       }
     })();
 
+    // 4) La LISTA DE ASIGNACIÓN: los usuarios con rol TECNICO_TI. De acá salen
+    //    los selectores de «Técnico asignado» y los filtros por técnico.
+    void (async () => {
+      try {
+        const cand = await listarCandidatosHelpdesk();
+        if (vivo) setCandidatos(cand);
+      } catch (e) {
+        aviso('No se pudo cargar la lista de técnicos', e);
+      }
+    })();
+
     return () => {
       vivo = false;
     };
   }, [profile?.nombre, profile?.sucursal_id]);
 
+  /**
+   * Quiénes pueden APARECER como dueño de un caso: la LISTA DE ASIGNACIÓN
+   * (usuarios con rol TECNICO_TI) MÁS el equipo de guardia -los casos viejos
+   * pueden tener asignado a alguien de ese equipo-, sin repetir por id.
+   *
+   * Sirve para los filtros, la carga por técnico y para buscar quién está
+   * asignado. Para ASIGNAR se usa sólo la lista de asignación.
+   */
+  const atendedores = useMemo(() => {
+    const porId = new Map<string, TecnicoHelpdesk>();
+    for (const t of [...candidatos, ...tecnicos]) porId.set(t.id, t);
+    return [...porId.values()];
+  }, [candidatos, tecnicos]);
+
   // Sucursales como lista de nombres: lo que usan los selects y el
   // gráfico de distribución (antes era el array fijo de maqueta).
   const sucursalesNombres = useMemo(() => sucursales.map((s) => s.nombre), [sucursales]);
+
+  /**
+   * LA SUCURSAL DEL USUARIO: la de su perfil.
+   *
+   * Con ella, el alta de un caso queda PEGADA a la tienda de quien reporta
+   * —se muestra como dato, no como selector—, así nadie cuelga un caso en
+   * una sucursal que no es la suya. Sin sucursal en el perfil (el Líder de
+   * oficina, p. ej.) el selector sigue disponible, porque no hay de dónde
+   * tomarla.
+   */
+  const sucursalPropia = useMemo(
+    () => sucursales.find((s) => s.id === profile?.sucursal_id)?.nombre ?? '',
+    [sucursales, profile?.sucursal_id]
+  );
+  const sucursalBloqueada = Boolean(sucursalPropia);
 
   // Búsqueda en la nómina para agregar técnicos: sólo con2 letras y con
   // debounce, para no martillar la RPC en cada tecla.
@@ -323,6 +384,9 @@ export function HelpdeskPage() {
   };
 
   const quitarTecnico = async (tech: TecnicoHelpdesk) => {
+    // El equipo de guardia siempre viene de la nómina (con DNI); si no lo
+    // trae no hay nada que quitar de `helpdesk_tecnico`.
+    if (tech.dni == null) return;
     try {
       await quitarTecnicoHelpdesk(tech.dni);
       setTecnicos((prev) => prev.filter((t) => t.dni !== tech.dni));
@@ -385,22 +449,35 @@ export function HelpdeskPage() {
     searchQuery,
   ]);
 
+  /**
+   * Los casos con los que se calcula el DASHBOARD.
+   *
+   * Para el Gerente de Sucursal son los de SU tienda (o ninguno, si su
+   * perfil no tiene sucursal cargada): el KPI, la categoría, la carga por
+   * técnico y las urgencias no pueden contar lo de las demás. Para el
+   * equipo de TI y los roles corporativos son TODOS.
+   */
+  const ticketsDelDashboard = useMemo(
+    () => (esGerenteSucursal ? tickets.filter((t) => t.branch === sucursalPropia) : tickets),
+    [tickets, esGerenteSucursal, sucursalPropia]
+  );
+
   // Métricas ejecutivas del Dashboard
   const stats = useMemo(() => {
-    const total = tickets.length;
-    const open = tickets.filter((t) => t.status === 'Abierto').length;
-    const inProgress = tickets.filter((t) => t.status === 'En Progreso').length;
-    const resolved = tickets.filter(
+    const total = ticketsDelDashboard.length;
+    const open = ticketsDelDashboard.filter((t) => t.status === 'Abierto').length;
+    const inProgress = ticketsDelDashboard.filter((t) => t.status === 'En Progreso').length;
+    const resolved = ticketsDelDashboard.filter(
       (t) => t.status === 'Resuelto' || t.status === 'Cerrado'
     ).length;
-    const critical = tickets.filter(
+    const critical = ticketsDelDashboard.filter(
       (t) =>
         (t.priority === 'Crítica' || t.priority === 'Alta') &&
         t.status !== 'Resuelto' &&
         t.status !== 'Cerrado'
     ).length;
 
-    const resolvedWithTime = tickets.filter(
+    const resolvedWithTime = ticketsDelDashboard.filter(
       (t) => typeof t.resolutionMinutes === 'number' && t.resolutionMinutes > 0
     );
     const avgMinutes =
@@ -417,12 +494,14 @@ export function HelpdeskPage() {
         : `${avgMinutes} min`;
 
     return { total, open, inProgress, resolved, critical, avgResolution };
-  }, [tickets]);
+  }, [ticketsDelDashboard]);
 
-  // Incidencias por sucursal para gráfico de barras del Dashboard
+  // Incidencias por sucursal para las DOS CURVAS del Dashboard: el total
+  // histórico y los que siguen activos. Para el Gerente de Sucursal no se
+  // pinta (su dashboard es de SU tienda y esto sólo tendría una curva).
   const branchDistribution = useMemo(() => {
     return sucursalesNombres.map((branch) => {
-      const branchTickets = tickets.filter((t) => t.branch === branch);
+      const branchTickets = ticketsDelDashboard.filter((t) => t.branch === branch);
       const activeCount = branchTickets.filter(
         (t) => t.status === 'Abierto' || t.status === 'En Progreso'
       ).length;
@@ -432,25 +511,20 @@ export function HelpdeskPage() {
         active: activeCount,
       };
     }).sort((a, b) => b.total - a.total);
-  }, [tickets, sucursalesNombres]);
-
-  const maxBranchCount = useMemo(() => {
-    const maxVal = Math.max(...branchDistribution.map((b) => b.total), 1);
-    return maxVal;
-  }, [branchDistribution]);
+  }, [ticketsDelDashboard, sucursalesNombres]);
 
   // Distribución por categoría para el Dashboard
   const categoryDistribution = useMemo(() => {
     return CATEGORIES.map((cat) => ({
       name: cat,
-      count: tickets.filter((t) => t.category === cat).length,
+      count: ticketsDelDashboard.filter((t) => t.category === cat).length,
     })).sort((a, b) => b.count - a.count);
-  }, [tickets]);
+  }, [ticketsDelDashboard]);
 
   // Carga de trabajo por técnico para el Dashboard
   const techWorkload = useMemo(() => {
-    return tecnicos.map((tech) => {
-      const assigned = tickets.filter((t) => t.assignedTo === tech.id);
+    return atendedores.map((tech) => {
+      const assigned = ticketsDelDashboard.filter((t) => t.assignedTo === tech.id);
       const activeCount = assigned.filter(
         (t) => t.status === 'Abierto' || t.status === 'En Progreso'
       ).length;
@@ -464,12 +538,12 @@ export function HelpdeskPage() {
         totalAssigned: assigned.length,
       };
     });
-  }, [tickets, tecnicos]);
+  }, [ticketsDelDashboard, atendedores]);
 
   // Casos urgentes o recientes para vista rápida en el Dashboard
   const urgentRecentTickets = useMemo(() => {
     const priorityRank = { Crítica: 4, Alta: 3, Media: 2, Baja: 1 };
-    return [...tickets]
+    return [...ticketsDelDashboard]
       .sort((a, b) => {
         const aOpen = a.status !== 'Resuelto' && a.status !== 'Cerrado' ? 1 : 0;
         const bOpen = b.status !== 'Resuelto' && b.status !== 'Cerrado' ? 1 : 0;
@@ -477,7 +551,7 @@ export function HelpdeskPage() {
         return (priorityRank[b.priority] || 0) - (priorityRank[a.priority] || 0);
       })
       .slice(0, 4);
-  }, [tickets]);
+  }, [ticketsDelDashboard]);
 
   // ==========================================================================
   // ACCIONES DE NAVEGACIÓN Y GESTIÓN DE CASOS
@@ -512,11 +586,16 @@ export function HelpdeskPage() {
     e.preventDefault();
     if (!newTitle.trim() || !newDescription.trim()) return;
 
-    const sucursal = sucursales.find((s) => s.nombre === newBranch);
-    const nombreSucursal = sucursal?.nombre ?? newBranch;
+    // La sucursal es la DEL USUARIO: con la del perfil no se lee el
+    // selector, aunque el estado conserve un valor viejo.
+    const rama = sucursalBloqueada ? sucursalPropia : newBranch;
+    const sucursal = sucursales.find((s) => s.nombre === rama);
+    const nombreSucursal = sucursal?.nombre ?? rama;
     const reporter = newReporter.trim() || `Encargado ${nombreSucursal.replace('Sucursal ', '')}`;
     const assignedTech =
-      role === 'it' && newAssignTo ? tecnicos.find((t) => t.id === newAssignTo) ?? null : null;
+      puedeAdministrarTecnicos && newAssignTo
+        ? atendedores.find((t) => t.id === newAssignTo) ?? null
+        : null;
 
     try {
       const creado = await crearTicketHelpdesk({
@@ -535,7 +614,12 @@ export function HelpdeskPage() {
         const sysText = `Caso asignado a ${assignedTech.name} al momento de su creación.`;
         await actualizarTicketHelpdesk(
           creado.id,
-          { estado: 'En Progreso', tecnicoDni: assignedTech.dni, tecnicoNombre: assignedTech.name },
+          {
+            estado: 'En Progreso',
+            tecnicoDni: assignedTech.usuarioId ? null : assignedTech.dni,
+            tecnicoUsuario: assignedTech.usuarioId ?? null,
+            tecnicoNombre: assignedTech.name
+          },
           sysText
         );
         setTickets((prev) =>
@@ -577,8 +661,11 @@ export function HelpdeskPage() {
 
   // Asignar o reasignar técnico a un ticket
   const handleAssignTechnician = async (ticketId: string, techId: string) => {
+    // Sólo el Gerente de TI (o el Líder) reparte: el Técnico atiende, no
+    // asigna — la misma regla que cumple el disparador de la base.
+    if (!puedeAdministrarTecnicos) return;
     const normalizedTechId = techId === '' ? null : techId;
-    const techObj = tecnicos.find((t) => t.id === normalizedTechId) ?? null;
+    const techObj = atendedores.find((t) => t.id === normalizedTechId) ?? null;
     const actual = tickets.find((t) => t.id === ticketId);
     if (!actual || actual.assignedTo === normalizedTechId) return;
 
@@ -592,7 +679,11 @@ export function HelpdeskPage() {
       await actualizarTicketHelpdesk(
         ticketId,
         {
-          tecnicoDni: techObj?.dni ?? null,
+          // La identidad del atendedor: el DNI (si viene de la nómina del
+          // equipo de guardia) o el USUARIO con rol TECNICO_TI —nunca los
+          // dos—, más el nombre que se muestra.
+          tecnicoDni: techObj?.usuarioId ? null : techObj?.dni ?? null,
+          tecnicoUsuario: techObj?.usuarioId ?? null,
           tecnicoNombre: techObj?.name ?? null,
           ...(nextStatus !== actual.status ? { estado: nextStatus } : {}),
         },
@@ -798,356 +889,106 @@ export function HelpdeskPage() {
   };
 
   const assignedTechOfSelected = selectedTicket
-    ? tecnicos.find((t) => t.id === selectedTicket.assignedTo)
+    ? atendedores.find((t) => t.id === selectedTicket.assignedTo)
     : null;
 
-  const viewHeaderMeta = {
-    dashboard: {
-      title: 'Dashboard Ejecutivo de Soporte TI',
-      subtitle:
-        'Indicadores clave, carga por técnico y distribución de incidencias por sucursal',
-    },
-    tickets: {
-      title:
-        role === 'it'
-          ? 'Bandeja de Casos y Tickets'
-          : 'Mis Casos Reportados por Sucursal',
-      subtitle:
-        role === 'it'
-          ? 'Haz clic en cualquier caso para abrir su sala de atención, asignar técnico o chatear'
-          : 'Consulta el estado de tus reportes y entra al chat directo con el equipo de TI',
-    },
-    detail: {
-      title: selectedTicket ? `Atención del Caso ${selectedTicket.id}` : 'Detalle del Caso',
-      subtitle: selectedTicket
-        ? `${selectedTicket.branch} · Reportado por ${selectedTicket.reporterName} · ${selectedTicket.createdAt}`
-        : '',
-    },
-  };
+  /** Los casos abiertos que muestra el contador de la pestaña de Casos. */
+  const casosAbiertos = tickets.filter(
+    (t) => t.status === 'Abierto' || t.status === 'En Progreso'
+  ).length;
 
   return (
-    <div className="h-screen w-full overflow-hidden flex flex-col lg:flex-row bg-slate-100 text-slate-800 font-sans antialiased">
+    <div className="space-y-6 text-slate-800 font-sans antialiased">
       {/* NOTIFICACIÓN TOAST FLOTANTE */}
       {toast && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-slate-700 text-sm font-medium">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 bg-white text-slate-800 px-4 py-3 rounded-xl shadow-xl border border-slate-200 text-sm font-medium">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{toast}</span>
         </div>
       )}
 
-      {/* SIDEBAR DE NAVEGACIÓN PRINCIPAL FIJO AL ALTO DE PANTALLA (SIN SCROLL) */}
-      <aside className="bg-slate-950 text-white lg:w-64 lg:h-full flex flex-col justify-between overflow-hidden border-b lg:border-b-0 lg:border-r border-slate-800 z-30 shrink-0">
-        {/* Bloque Superior Compacto: Marca + Rol + Navegación */}
-        <div className="flex flex-col min-h-0">
-          {/* Marca */}
-          <div className="px-4 h-14 lg:h-16 flex items-center justify-between border-b border-slate-800/90 shrink-0">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-emerald-500 flex items-center justify-center shadow-lg shadow-blue-600/20 shrink-0">
-                <Headset className="w-4 h-4 text-white" />
-              </div>
-              <div>
-                <h1 className="font-bold text-sm sm:text-base tracking-tight text-white leading-none">
-                  NexTI <span className="text-emerald-400">HelpDesk</span>
-                </h1>
-                <p className="text-[10px] text-slate-400 mt-0.5">Mesa de Ayuda TI</p>
-              </div>
-            </div>
-
-            {/* Botón Nuevo Caso rápido en móvil */}
-            <button
-              type="button"
-              onClick={() => setIsCreateModalOpen(true)}
-              className="lg:hidden flex items-center gap-1 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>Nuevo Caso</span>
-            </button>
-          </div>
-
-          {/* Esta pantalla vive FUERA del ConsoleLayout (tiene su propio
-              marco): el enlace de vuelta es lo único que la ata a la consola,
-              y `/` sabe a dónde mandar a cada rol. */}
-          <div className="px-3 pt-2.5 shrink-0">
-            <Link
-              to="/"
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-900 transition-colors"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              Volver a la consola
-            </Link>
-          </div>
-
-          {/* Identidad REAL: el rol sale de la sesión (TI = Líder), no se
-              simula. Debajo, el equipo TI se arma desde la nómina. */}
-          <div className="px-3 py-2.5 border-b border-slate-800/80 shrink-0">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 px-1 hidden lg:block">
-              Perfil
-            </p>
-            <div
-              className={`flex items-center gap-2 rounded-xl border p-2.5 ${
-                role === 'it' ? 'bg-blue-950/50 border-blue-800' : 'bg-emerald-950/40 border-emerald-800'
-              }`}
-            >
-              {role === 'it' ? (
-                <ShieldCheck className="w-4 h-4 shrink-0 text-blue-400" />
-              ) : (
-                <Store className="w-4 h-4 shrink-0 text-emerald-400" />
-              )}
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-white truncate">{profile?.nombre ?? '—'}</p>
-                <p className="text-[10px] text-slate-400 truncate">
-                  {role === 'it' ? 'Equipo TI · Gestiona casos' : 'Sucursal · Reporta casos'}
-                </p>
-              </div>
-            </div>
-
-            {role === 'it' ? (
-              <div className="mt-2.5 space-y-1.5">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
-                  Equipo TI ({tecnicos.length})
-                </p>
-                <ul className="space-y-1 max-h-40 overflow-y-auto pr-1">
-                  {tecnicos.map((tech) => (
-                    <li
-                      key={tech.id}
-                      className="flex items-center gap-2 rounded-lg bg-slate-900 px-2 py-1.5"
-                    >
-                      <span
-                        className={`w-6 h-6 shrink-0 rounded-full ${tech.color} flex items-center justify-center text-[9px] font-bold text-white`}
-                      >
-                        {tech.avatar}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-xs font-semibold text-white truncate">
-                          {tech.name}
-                        </span>
-                        <span className="block text-[10px] text-slate-400 truncate">
-                          {tech.role}
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => void quitarTecnico(tech)}
-                        title={`Quitar a ${tech.name} del equipo`}
-                        aria-label={`Quitar a ${tech.name} del equipo`}
-                        className="shrink-0 p-1 text-slate-500 hover:text-red-400"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </li>
-                  ))}
-                  {!tecnicos.length ? (
-                    <li className="text-[10px] text-slate-500 px-1">
-                      Sin técnicos cargados todavía.
-                    </li>
-                  ) : null}
-                </ul>
-
-                {/* Alta desde la API de trabajadores: el Líder busca por
-                    nombre y lo suma al equipo. */}
-                <input
-                  type="text"
-                  value={busquedaTec}
-                  onChange={(e) => setBusquedaTec(e.target.value)}
-                  placeholder="Agregar desde la nómina…"
-                  aria-label="Buscar trabajador para agregar al equipo"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                />
-                {busquedaTec.trim().length >= 2 ? (
-                  <ul className="space-y-1">
-                    {resultadosTec
-                      .filter((r) => !tecnicos.some((t) => t.dni === r.dni))
-                      .slice(0, 5)
-                      .map((r) => (
-                        <li key={`${r.nacionalidad ?? 'V'}-${r.dni}`}>
-                          <button
-                            type="button"
-                            onClick={() => void agregarTecnico(r)}
-                            className="w-full flex items-center justify-between gap-2 rounded-lg bg-slate-950 px-2 py-1.5 text-left hover:bg-blue-950/60"
-                          >
-                            <span className="min-w-0">
-                              <span className="block text-xs font-semibold text-white truncate">
-                                {nombreCompleto(r)}
-                              </span>
-                              <span className="block text-[10px] text-slate-500">
-                                {r.nacionalidad ?? 'V'}-{r.dni}
-                                {r.sucursal ? ` · ${r.sucursal}` : ''}
-                              </span>
-                            </span>
-                            <Plus className="w-3.5 h-3.5 shrink-0 text-blue-400" />
-                          </button>
-                        </li>
-                      ))}
-                    {!resultadosTec.length ? (
-                      <li className="text-[10px] text-slate-500 px-1">
-                        Sin coincidencias en la nómina.
-                      </li>
-                    ) : null}
-                  </ul>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-
-          {/* Menú de Navegación */}
-          <nav className="px-3 py-2 lg:py-3 flex lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible shrink-0">
-            <button
-              type="button"
-              onClick={() => setActiveView('dashboard')}
-              className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                activeView === 'dashboard'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <LayoutDashboard className="w-4 h-4 shrink-0" />
-              <span>Dashboard</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('tickets')}
-              className={`flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                activeView === 'tickets' || activeView === 'detail'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                  : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-              }`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Ticket className="w-4 h-4 shrink-0" />
-                <span>Casos / Tickets</span>
-              </span>
-              <span
-                className={`text-[11px] px-2 py-0.5 rounded-full font-bold ${
-                  activeView === 'tickets' || activeView === 'detail'
-                    ? 'bg-blue-800 text-blue-100'
-                    : 'bg-slate-800 text-slate-300'
-                }`}
-              >
-                {
-                  tickets.filter(
-                    (t) => t.status === 'Abierto' || t.status === 'En Progreso'
-                  ).length
-                }
-              </span>
-            </button>
-          </nav>
-        </div>
-
-        {/* Bloque Inferior Compacto: Acción rápida + Técnico activo / Estado del equipo */}
-        <div className="hidden lg:flex flex-col gap-2.5 p-3 border-t border-slate-800/80 shrink-0">
+      {/* Las acciones de la vista viven en la BARRA de la consola
+          (PortalCabecera): cambiar entre Dashboard y Casos es un filtro de
+          ESTA pantalla, no una navegación aparte —y la consola ya pone el
+          título «Mesa de Ayuda» con su subtítulo. */}
+      <PortalCabecera>
+        <div
+          className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1"
+          role="group"
+          aria-label="Vista de la Mesa de Ayuda"
+        >
           <button
             type="button"
-            onClick={() => setIsCreateModalOpen(true)}
-            className="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.99] text-slate-950 font-bold py-2.5 px-3.5 rounded-xl text-xs sm:text-sm transition-all shadow-lg shadow-emerald-500/20 cursor-pointer"
+            onClick={() => setActiveView('dashboard')}
+            aria-pressed={activeView === 'dashboard'}
+            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+              activeView === 'dashboard'
+                ? 'bg-primary text-white'
+                : 'text-slate-600 hover:bg-primary-50 hover:text-primary-900'
+            }`}
           >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>+ Nuevo Caso</span>
+            Dashboard
           </button>
-
-          {role === 'it' ? (
-            <div className="bg-slate-900/90 rounded-xl p-2.5 border border-slate-800 space-y-1.5">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="font-semibold text-slate-400">Conectado como</span>
-                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  En línea
-                </span>
-              </div>
-              {/* El emisor TI es el USUARIO REAL: no se elige de una lista
-                  (nadie puede firmar mensajes como otro técnico). */}
-              <p className="w-full truncate rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs font-semibold text-white">
-                {profile?.nombre ?? '—'}
-              </p>
-            </div>
-          ) : (
-            <div className="bg-slate-900/90 rounded-xl p-2.5 border border-slate-800 space-y-1.5">
-              <span className="block text-[11px] font-semibold text-slate-400">
-                Sucursal Conectada
-              </span>
-              <select
-                value={activeBranchFilter}
-                onChange={(e) => setActiveBranchFilter(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
-              >
-                <option value="Todas las Sucursales">Todas las Sucursales</option>
-                {sucursalesNombres.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="bg-slate-900/60 rounded-xl px-2.5 py-2 border border-slate-800/80 flex items-center justify-between">
-            <span className="text-[11px] font-medium text-slate-400">Guardia TI</span>
-            <div className="flex -space-x-1.5 overflow-hidden">
-              {tecnicos.map((tech) => (
-                <div
-                  key={tech.id}
-                  title={`${tech.name} - ${tech.role}`}
-                  className={`w-6 h-6 rounded-full ${tech.color} ring-2 ring-slate-900 flex items-center justify-center text-[9px] font-bold text-white`}
-                >
-                  {tech.avatar}
-                </div>
-              ))}
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => setActiveView('tickets')}
+            aria-pressed={activeView === 'tickets' || activeView === 'detail'}
+            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+              activeView === 'tickets' || activeView === 'detail'
+                ? 'bg-primary text-white'
+                : 'text-slate-600 hover:bg-primary-50 hover:text-primary-900'
+            }`}
+          >
+            Casos{casosAbiertos ? ` (${casosAbiertos})` : ''}
+          </button>
         </div>
-      </aside>
 
-      {/* ÁREA DE CONTENIDO PRINCIPAL FIJA AL ALTO CON SCROLL INTERNO */}
-      <div className="flex-1 h-full flex flex-col min-w-0 overflow-hidden">
-        {/* CABECERA CONTEXTUAL SUPERIOR FIJA */}
-        <header className="bg-white border-b border-slate-200 px-4 sm:px-8 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0 z-20">
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
-                {viewHeaderMeta[activeView]?.title}
-              </h2>
-              <span
-                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-                  role === 'it'
-                    ? 'bg-blue-50 text-blue-700 border-blue-200'
-                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                }`}
-              >
-                {role === 'it' ? 'Modo Equipo TI' : 'Modo Sucursal'}
-              </span>
-            </div>
-            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              {viewHeaderMeta[activeView]?.subtitle}
-            </p>
-          </div>
+        {/* El filtro por sucursal es del rol que reporta: el TI ve todo. */}
+        {role === 'branch' ? (
+          <select
+            value={activeBranchFilter}
+            onChange={(e) => setActiveBranchFilter(e.target.value)}
+            aria-label="Filtrar por sucursal"
+            className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 focus:border-primary focus:outline-none cursor-pointer"
+          >
+            <option value="Todas las Sucursales">Todas las sucursales</option>
+            {sucursalesNombres.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+        ) : null}
 
-          <div className="flex items-center gap-2.5 self-start sm:self-auto shrink-0">
-            {activeView !== 'tickets' && (
-              <button
-                type="button"
-                onClick={() => setActiveView('tickets')}
-                className="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-semibold transition-all cursor-pointer"
-              >
-                Ver Lista de Casos
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setIsCreateModalOpen(true)}
-              className="hidden sm:inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs sm:text-sm shadow-sm transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4 stroke-[2.5]" />
-              <span>Reportar Caso</span>
-            </button>
-          </div>
-        </header>
+        <button
+          type="button"
+          onClick={() => setIsCreateModalOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-primary-700 cursor-pointer"
+        >
+          <Plus className="h-4 w-4 stroke-[2.5]" />
+          <span>Reportar Caso</span>
+        </button>
+      </PortalCabecera>
 
+      <div className="space-y-6">
         {/* ===================================================================== */}
         {/* VISTA 1: DASHBOARD EJECUTIVO DE MÉTRICAS Y ANALÍTICA                  */}
         {/* ===================================================================== */}
         {activeView === 'dashboard' && (
-          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+          <main className="space-y-6">
             <div className="max-w-[1500px] w-full mx-auto space-y-6">
+              {/* El Gerente de Sucursal sólo cuenta lo SUYO: el aviso deja
+                  claro de dónde salen los números de esta fila. */}
+              {esGerenteSucursal ? (
+                <p className="text-xs font-semibold text-slate-500">
+                  Tus estadísticas: sólo los casos de{' '}
+                  <span className="font-bold text-slate-700">
+                    {sucursalPropia || 'tu sucursal'}
+                  </span>
+                  .
+                </p>
+              ) : null}
+
               {/* FILA DE TARJETAS KPI */}
               <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-sm">
@@ -1158,18 +999,18 @@ export function HelpdeskPage() {
                     </div>
                   </div>
                   <p className="text-2xl font-extrabold text-slate-900">{stats.total}</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Histórico registrado</p>
+                  <p className="text-[11px] text-slate-500 mt-1">Histórico registrado</p>
                 </div>
 
                 <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-sm">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-semibold text-slate-500">Abiertos</span>
-                    <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-lg bg-primary-50 text-primary-700 flex items-center justify-center">
                       <Inbox className="w-4 h-4" />
                     </div>
                   </div>
-                  <p className="text-2xl font-extrabold text-blue-600">{stats.open}</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Pendientes por tomar</p>
+                  <p className="text-2xl font-extrabold text-primary-700">{stats.open}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">Pendientes por tomar</p>
                 </div>
 
                 <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-sm">
@@ -1180,7 +1021,7 @@ export function HelpdeskPage() {
                     </div>
                   </div>
                   <p className="text-2xl font-extrabold text-amber-600">{stats.inProgress}</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Siendo atendidos</p>
+                  <p className="text-[11px] text-slate-500 mt-1">Siendo atendidos</p>
                 </div>
 
                 <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-sm">
@@ -1191,7 +1032,7 @@ export function HelpdeskPage() {
                     </div>
                   </div>
                   <p className="text-2xl font-extrabold text-rose-600">{stats.critical}</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Atención urgente</p>
+                  <p className="text-[11px] text-slate-500 mt-1">Atención urgente</p>
                 </div>
 
                 <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-sm">
@@ -1202,32 +1043,166 @@ export function HelpdeskPage() {
                     </div>
                   </div>
                   <p className="text-2xl font-extrabold text-emerald-600">{stats.resolved}</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Solucionados con éxito</p>
+                  <p className="text-[11px] text-slate-500 mt-1">Solucionados con éxito</p>
                 </div>
 
                 <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-sm">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-semibold text-slate-500">Tiempo Promedio</span>
-                    <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-lg bg-primary-50 text-primary-700 flex items-center justify-center">
                       <TrendingUp className="w-4 h-4" />
                     </div>
                   </div>
-                  <p className="text-2xl font-extrabold text-indigo-600">{stats.avgResolution}</p>
+                  <p className="text-2xl font-extrabold text-slate-900">{stats.avgResolution}</p>
                   <p className="text-[11px] text-emerald-600 font-semibold mt-1">
                     SLA Objetivo: &lt; 2h
                   </p>
                 </div>
               </section>
 
-              {/* ANALÍTICA INTERMEDIA: INCIDENCIAS POR SUCURSAL Y POR CATEGORÍA */}
+              {/* EL EQUIPO TI Y LA GUARDIA: lo que vivía en la barra lateral
+                  propia de esta pantalla. Con la barra de la consola, el
+                  equipo se administra acá, en el Dashboard del rol TI. */}
+              {role === 'it' ? (
+                <section className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">
+                        Equipo TI ({tecnicos.length})
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Quien atiende los casos: se suma desde la nómina y se quita con la X.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-semibold text-slate-500">Guardia TI</span>
+                      <div className="flex -space-x-1.5 overflow-hidden">
+                        {tecnicos.map((tech) => (
+                          <div
+                            key={tech.id}
+                            title={`${tech.name} - ${tech.role}`}
+                            className={`w-7 h-7 rounded-full ${tech.color} ring-2 ring-white flex items-center justify-center text-[10px] font-bold text-white`}
+                          >
+                            {tech.avatar}
+                          </div>
+                        ))}
+                        {!tecnicos.length ? (
+                          <span className="text-[11px] text-slate-500">Sin técnicos</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={puedeAdministrarTecnicos ? 'grid gap-4 md:grid-cols-2' : 'grid gap-4'}>
+                    <ul className="space-y-1.5">
+                      {tecnicos.map((tech) => (
+                        <li
+                          key={tech.id}
+                          className="flex items-center gap-2 rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-2"
+                        >
+                          <span
+                            className={`w-7 h-7 shrink-0 rounded-full ${tech.color} flex items-center justify-center text-[10px] font-bold text-white`}
+                          >
+                            {tech.avatar}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-xs font-semibold text-slate-800 truncate">
+                              {tech.name}
+                            </span>
+                            <span className="block text-[11px] text-slate-500 truncate">
+                              {tech.role}
+                            </span>
+                          </span>
+                          {/* Sólo Líder o Gerente de TI sacan gente del
+                              equipo: el Técnico lo mira, no lo edita. */}
+                          {puedeAdministrarTecnicos ? (
+                            <button
+                              type="button"
+                              onClick={() => void quitarTecnico(tech)}
+                              title={`Quitar a ${tech.name} del equipo`}
+                              aria-label={`Quitar a ${tech.name} del equipo`}
+                              className="shrink-0 p-1 text-slate-500 hover:text-red-600 cursor-pointer"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          ) : null}
+                        </li>
+                      ))}
+                      {!tecnicos.length ? (
+                        <li className="text-xs text-slate-500 px-1">
+                          Sin técnicos cargados todavía.
+                        </li>
+                      ) : null}
+                    </ul>
+
+                    {puedeAdministrarTecnicos ? (
+                      <div className="space-y-1.5">
+                        <label
+                          htmlFor="buscar-tecnico"
+                          className="block text-[11px] font-bold uppercase tracking-wider text-slate-500"
+                        >
+                          Agregar desde la nómina
+                        </label>
+                        <input
+                          id="buscar-tecnico"
+                          type="text"
+                          value={busquedaTec}
+                          onChange={(e) => setBusquedaTec(e.target.value)}
+                          placeholder="Buscar por nombre…"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        />
+                        {busquedaTec.trim().length >= 2 ? (
+                          <ul className="space-y-1">
+                            {resultadosTec
+                              .filter((r) => !tecnicos.some((t) => t.dni === r.dni))
+                              .slice(0, 5)
+                              .map((r) => (
+                                <li key={`${r.nacionalidad ?? 'V'}-${r.dni}`}>
+                                  <button
+                                    type="button"
+                                    onClick={() => void agregarTecnico(r)}
+                                    className="w-full flex items-center justify-between gap-2 rounded-lg bg-white border border-slate-200 px-2.5 py-2 text-left hover:bg-primary-50 cursor-pointer"
+                                  >
+                                    <span className="min-w-0">
+                                      <span className="block text-xs font-semibold text-slate-800 truncate">
+                                        {nombreCompleto(r)}
+                                      </span>
+                                      <span className="block text-[11px] text-slate-500">
+                                        {r.nacionalidad ?? 'V'}-{r.dni}
+                                        {r.sucursal ? ` · ${r.sucursal}` : ''}
+                                      </span>
+                                    </span>
+                                    <Plus className="w-4 h-4 shrink-0 text-primary" />
+                                  </button>
+                                </li>
+                              ))}
+                            {!resultadosTec.length ? (
+                              <li className="text-[11px] text-slate-500 px-1">
+                                Sin coincidencias en la nómina.
+                              </li>
+                            ) : null}
+                          </ul>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
+
+              {/* ANALÍTICA INTERMEDIA: INCIDENCIAS POR SUCURSAL (SÓLO SI NO
+                  ES EL GERENTE DE UNA) Y POR CATEGORÍA */}
               <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* El gráfico COMPARA sucursales: para el Gerente de la suya
+                    no dice nada —sólo tendría su curva—, así que no se pinta
+                    y la categoría ocupa el ancho completo. */}
+                {esGerenteSucursal ? null : (
                 <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-sm flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <h3 className="text-base font-bold text-slate-900">
                         Incidencias por Sucursal
                       </h3>
-                      <span className="text-xs font-medium text-slate-400">
+                      <span className="text-xs font-medium text-slate-500">
                         Activos vs Total histórico
                       </span>
                     </div>
@@ -1235,41 +1210,73 @@ export function HelpdeskPage() {
                       Distribución operativa de reportes generados por cada sede comercial
                     </p>
 
-                    <div className="space-y-4">
-                      {branchDistribution.map((item) => {
-                        const percentage = Math.round((item.total / maxBranchCount) * 100);
-                        return (
-                          <div key={item.branch} className="space-y-1.5">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-semibold text-slate-800 flex items-center gap-2">
-                                <Store className="w-3.5 h-3.5 text-slate-400" />
-                                {item.branch}
-                              </span>
-                              <div className="flex items-center gap-3">
-                                {item.active > 0 && (
-                                  <span className="text-[11px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                                    {item.active} activos
-                                  </span>
-                                )}
-                                <span className="font-bold text-slate-900 w-14 text-right">
-                                  {item.total} {item.total === 1 ? 'caso' : 'casos'}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-blue-600 to-emerald-500 rounded-full transition-all duration-500"
-                                style={{ width: `${Math.max(percentage, 6)}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
+                    {/* DOS CURVAS por sucursal: el total histórico en azul
+                        primario y los activos en ámbar (trazo punteado, para
+                        distinguirla sin depender sólo del color). El orden del
+                        eje es el de más casos a menos, igual que antes. */}
+                    <div className="space-y-2">
+                      <ResponsiveContainer width="100%" height={264}>
+                        <LineChart
+                          data={branchDistribution}
+                          margin={{ top: 8, right: 12, left: -18, bottom: 4 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                          <XAxis
+                            dataKey="branch"
+                            angle={-32}
+                            textAnchor="end"
+                            height={74}
+                            interval={0}
+                            tick={{ fontSize: 10, fontWeight: 600, fill: '#475569' }}
+                            axisLine={false}
+                            tickLine={false}
+                          />
+                          <YAxis
+                            allowDecimals={false}
+                            tick={{ fontSize: 10, fill: '#94a3b8' }}
+                            axisLine={false}
+                            tickLine={false}
+                            width={34}
+                          />
+                          <Tooltip
+                            cursor={{ stroke: '#facc15', strokeWidth: 2 }}
+                            contentStyle={{
+                              borderRadius: 12,
+                              border: '1px solid #e2e8f0',
+                              fontSize: 12,
+                            }}
+                          />
+                          <Legend wrapperStyle={{ fontSize: 12, fontWeight: 700 }} />
+                          <Line
+                            type="monotone"
+                            dataKey="total"
+                            name="Total histórico"
+                            stroke="#0b2545"
+                            strokeWidth={3}
+                            dot={{ r: 4, fill: '#facc15', stroke: '#0b2545', strokeWidth: 2 }}
+                            activeDot={{ r: 6 }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="active"
+                            name="Activos"
+                            stroke="#f59e0b"
+                            strokeWidth={3}
+                            strokeDasharray="6 4"
+                            dot={{ r: 4, fill: '#ffffff', stroke: '#f59e0b', strokeWidth: 2 }}
+                            activeDot={{ r: 6 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                      <p className="text-[11px] text-slate-500">
+                        Cada punto es una sucursal, de más casos a menos.
+                      </p>
                     </div>
                   </div>
                 </div>
+                )}
 
-                <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-sm flex flex-col justify-between">
+                <div className={`${esGerenteSucursal ? 'lg:col-span-12' : 'lg:col-span-5'} bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-sm flex flex-col justify-between`}>
                   <div>
                     <h3 className="text-base font-bold text-slate-900 mb-1">
                       Tickets por Categoría TI
@@ -1323,7 +1330,7 @@ export function HelpdeskPage() {
                         Tickets activos asignados actualmente
                       </p>
                     </div>
-                    <Users className="w-5 h-5 text-blue-600" />
+                    <Users className="w-5 h-5 text-primary-700" />
                   </div>
 
                   <div className="space-y-3">
@@ -1348,7 +1355,7 @@ export function HelpdeskPage() {
 
                         <div className="flex items-center gap-2 shrink-0">
                           <div className="text-right">
-                            <span className="block text-xs font-extrabold text-blue-600">
+                            <span className="block text-xs font-extrabold text-primary-700">
                               {tech.activeCount} activos
                             </span>
                             <span className="block text-[10px] text-emerald-600 font-semibold">
@@ -1375,7 +1382,7 @@ export function HelpdeskPage() {
                       <button
                         type="button"
                         onClick={() => setActiveView('tickets')}
-                        className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
+                        className="text-xs font-bold text-primary-700 hover:text-primary-700 flex items-center gap-1 cursor-pointer"
                       >
                         <span>Ver todos</span>
                         <ChevronRight className="w-4 h-4" />
@@ -1384,12 +1391,12 @@ export function HelpdeskPage() {
 
                     <div className="space-y-2.5">
                       {urgentRecentTickets.map((ticket) => {
-                        const assignedTech = tecnicos.find((t) => t.id === ticket.assignedTo);
+                        const assignedTech = atendedores.find((t) => t.id === ticket.assignedTo);
                         return (
                           <div
                             key={ticket.id}
                             onClick={() => handleOpenTicketDetail(ticket.id)}
-                            className="p-3.5 rounded-xl border border-slate-200/90 hover:border-blue-400 hover:bg-blue-50/30 transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
+                            className="p-3.5 rounded-xl border border-slate-200/90 hover:border-primary-300 hover:bg-primary-50/30 transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
                           >
                             <div className="min-w-0 space-y-1">
                               <div className="flex items-center gap-2 flex-wrap">
@@ -1404,11 +1411,11 @@ export function HelpdeskPage() {
                                   {ticket.priority}
                                 </span>
                                 <span className="text-xs font-semibold text-slate-600 flex items-center gap-1">
-                                  <Store className="w-3 h-3 text-slate-400" />
+                                  <Store className="w-3 h-3 text-slate-500" />
                                   {ticket.branch}
                                 </span>
                               </div>
-                              <p className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-blue-700 truncate">
+                              <p className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-primary-700 truncate">
                                 {ticket.title}
                               </p>
                             </div>
@@ -1431,7 +1438,7 @@ export function HelpdeskPage() {
                                 {assignedTech ? assignedTech.name.split(' ')[0] : 'Sin asignar'}
                               </span>
 
-                              <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
+                              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-primary-700 group-hover:translate-x-0.5 transition-all" />
                             </div>
                           </div>
                         );
@@ -1448,18 +1455,18 @@ export function HelpdeskPage() {
         {/* VISTA 2: CASOS / TICKETS (LISTADO DEDICADO A ANCHO COMPLETO)          */}
         {/* ===================================================================== */}
         {activeView === 'tickets' && (
-          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+          <main className="space-y-6">
             <div className="max-w-[1500px] w-full mx-auto space-y-5">
               {/* BARRA SUPERIOR DE BÚSQUEDA Y FILTROS */}
               <section className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-sm flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
                 <div className="relative flex-1 min-w-[220px]">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Buscar por código (HD-1042), asunto, sucursal o detalle..."
-                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
                   />
                 </div>
 
@@ -1467,7 +1474,7 @@ export function HelpdeskPage() {
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:border-blue-500 cursor-pointer"
+                    className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:border-primary cursor-pointer"
                   >
                     <option value="Todos">Estado: Todos</option>
                     {STATUSES.map((st) => (
@@ -1480,7 +1487,7 @@ export function HelpdeskPage() {
                   <select
                     value={priorityFilter}
                     onChange={(e) => setPriorityFilter(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:border-blue-500 cursor-pointer"
+                    className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:border-primary cursor-pointer"
                   >
                     <option value="Todas">Prioridad: Todas</option>
                     {PRIORITIES.map((pr) => (
@@ -1495,7 +1502,7 @@ export function HelpdeskPage() {
                       <select
                         value={branchFilter}
                         onChange={(e) => setBranchFilter(e.target.value)}
-                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:border-blue-500 cursor-pointer"
+                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:border-primary cursor-pointer"
                       >
                         <option value="Todas">Sucursal: Todas</option>
                         {sucursalesNombres.map((b) => (
@@ -1508,11 +1515,11 @@ export function HelpdeskPage() {
                       <select
                         value={techFilter}
                         onChange={(e) => setTechFilter(e.target.value)}
-                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:border-blue-500 cursor-pointer"
+                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:border-primary cursor-pointer"
                       >
                         <option value="Todos">Técnico: Todos</option>
                         <option value="unassigned">Sin asignar</option>
-                        {tecnicos.map((t) => (
+                        {atendedores.map((t) => (
                           <option key={t.id} value={t.id}>
                             {t.name}
                           </option>
@@ -1582,21 +1589,21 @@ export function HelpdeskPage() {
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
                         {filteredTickets.map((ticket) => {
-                          const assignedTech = tecnicos.find(
+                          const assignedTech = atendedores.find(
                             (t) => t.id === ticket.assignedTo
                           );
                           return (
                             <tr
                               key={ticket.id}
                               onClick={() => handleOpenTicketDetail(ticket.id)}
-                              className="hover:bg-blue-50/40 transition-colors cursor-pointer group"
+                              className="hover:bg-primary-50/40 transition-colors cursor-pointer group"
                             >
                               <td className="py-3.5 px-4 font-mono text-xs font-bold text-slate-700 whitespace-nowrap">
                                 {ticket.id}
                               </td>
 
                               <td className="py-3.5 px-4 max-w-md">
-                                <p className="font-bold text-slate-900 group-hover:text-blue-700 line-clamp-1">
+                                <p className="font-bold text-slate-900 group-hover:text-primary-700 line-clamp-1">
                                   {ticket.title}
                                 </p>
                                 <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
@@ -1606,7 +1613,7 @@ export function HelpdeskPage() {
 
                               <td className="py-3.5 px-4 whitespace-nowrap">
                                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-                                  <Store className="w-3.5 h-3.5 text-slate-400" />
+                                  <Store className="w-3.5 h-3.5 text-slate-500" />
                                   {ticket.branch}
                                 </span>
                               </td>
@@ -1647,20 +1654,20 @@ export function HelpdeskPage() {
                                 className="py-3.5 px-4 whitespace-nowrap"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                {role === 'it' ? (
+                                {puedeAdministrarTecnicos ? (
                                   <select
                                     value={ticket.assignedTo || ''}
                                     onChange={(e) =>
                                       handleAssignTechnician(ticket.id, e.target.value)
                                     }
-                                    className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 border cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
+                                    className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 border cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 ${
                                       assignedTech
-                                        ? 'bg-blue-50/70 border-blue-200 text-blue-900'
+                                        ? 'bg-primary-50/70 border-primary-200 text-primary-900'
                                         : 'bg-amber-50/80 border-amber-200 text-amber-800'
                                     }`}
                                   >
                                     <option value="">Sin asignar</option>
-                                    {tecnicos.map((tech) => (
+                                    {candidatos.map((tech) => (
                                       <option key={tech.id} value={tech.id}>
                                         {tech.name}
                                       </option>
@@ -1675,7 +1682,7 @@ export function HelpdeskPage() {
 
                               <td className="py-3.5 px-4 text-center whitespace-nowrap">
                                 <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full">
-                                  <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                                  <MessageSquare className="w-3.5 h-3.5 text-primary-700" />
                                   {ticket.messages.length}
                                 </span>
                               </td>
@@ -1687,7 +1694,7 @@ export function HelpdeskPage() {
                                     e.stopPropagation();
                                     handleOpenTicketDetail(ticket.id);
                                   }}
-                                  className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-white hover:bg-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
+                                  className="inline-flex items-center gap-1 text-xs font-bold text-primary-700 hover:text-white hover:bg-primary border border-primary-200 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
                                 >
                                   <span>Abrir</span>
                                   <ChevronRight className="w-3.5 h-3.5" />
@@ -1709,7 +1716,7 @@ export function HelpdeskPage() {
         {/* VISTA 3: DETALLE Y ATENCIÓN DEL CASO (PANTALLA COMPLETA DEDICADA)     */}
         {/* ===================================================================== */}
         {activeView === 'detail' && selectedTicket && (
-          <main className="flex-1 overflow-y-auto lg:overflow-hidden p-4 sm:p-6">
+          <main className="lg:h-[calc(100vh-7rem)]">
             <div className="max-w-[1500px] w-full h-full mx-auto flex flex-col gap-4">
               {/* BARRA DE NAVEGACIÓN SUPERIOR DEL CASO FIJA */}
               <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
@@ -1718,12 +1725,12 @@ export function HelpdeskPage() {
                   onClick={handleBackFromDetail}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 text-xs sm:text-sm font-bold shadow-sm transition-all cursor-pointer"
                 >
-                  <ArrowLeft className="w-4 h-4 text-blue-600" />
+                  <ArrowLeft className="w-4 h-4 text-primary-700" />
                   <span>Volver a Casos</span>
                 </button>
 
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-mono text-xs font-extrabold bg-slate-900 text-white px-3 py-1 rounded-lg">
+                  <span className="font-mono text-xs font-extrabold bg-slate-100 text-slate-700 px-3 py-1 rounded-lg">
                     {selectedTicket.id}
                   </span>
                   <span
@@ -1769,9 +1776,9 @@ export function HelpdeskPage() {
                         return (
                           <div key={msg.id} className="flex justify-center">
                             <div className="inline-flex items-center gap-2 bg-slate-200/75 text-slate-700 text-[11px] font-medium px-3.5 py-1.5 rounded-full">
-                              <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <Sparkles className="w-3.5 h-3.5 text-primary-700 shrink-0" />
                               <span>{msg.text}</span>
-                              <span className="text-slate-400">· {msg.timestamp}</span>
+                              <span className="text-slate-500">· {msg.timestamp}</span>
                             </div>
                           </div>
                         );
@@ -1800,7 +1807,7 @@ export function HelpdeskPage() {
                                 Nota Interna TI
                               </span>
                             )}
-                            <span className="text-[10px] text-slate-400">
+                            <span className="text-[10px] text-slate-500">
                               {msg.timestamp}
                             </span>
                           </div>
@@ -1810,7 +1817,7 @@ export function HelpdeskPage() {
                               msg.isInternal
                                 ? 'bg-amber-50 border border-amber-300 text-amber-950 rounded-tr-sm'
                                 : isIT
-                                ? 'bg-blue-600 text-white rounded-tr-sm'
+                                ? 'bg-primary text-white rounded-tr-sm'
                                 : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm'
                             }`}
                           >
@@ -1838,7 +1845,7 @@ export function HelpdeskPage() {
                           }
                           className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-colors cursor-pointer ${
                             simulatedAttachment
-                              ? 'bg-blue-50 border-blue-300 text-blue-700'
+                              ? 'bg-primary-50 border-primary-300 text-primary-700'
                               : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
                           }`}
                         >
@@ -1870,7 +1877,7 @@ export function HelpdeskPage() {
                         )}
                       </div>
 
-                      <span className="text-[11px] text-slate-400">
+                      <span className="text-[11px] text-slate-500">
                         Enviando como{' '}
                         <strong className="text-slate-600">
                           {role === 'it'
@@ -1895,7 +1902,7 @@ export function HelpdeskPage() {
                         className={`flex-1 px-4 py-2.5 rounded-xl border text-xs sm:text-sm focus:outline-none focus:ring-2 transition-all ${
                           isInternalNote
                             ? 'bg-amber-50/60 border-amber-300 focus:ring-amber-400/30'
-                            : 'bg-slate-50 border-slate-200 focus:bg-white focus:ring-blue-500/20 focus:border-blue-500'
+                            : 'bg-slate-50 border-slate-200 focus:bg-white focus:ring-primary/20 focus:border-primary'
                         }`}
                       />
                       <button
@@ -1906,7 +1913,7 @@ export function HelpdeskPage() {
                             ? 'bg-slate-300 cursor-not-allowed'
                             : isInternalNote
                             ? 'bg-amber-600 hover:bg-amber-700 cursor-pointer'
-                            : 'bg-blue-600 hover:bg-blue-700 cursor-pointer'
+                            : 'bg-primary hover:bg-primary-700 cursor-pointer'
                         }`}
                       >
                         <Send className="w-4 h-4" />
@@ -1921,7 +1928,7 @@ export function HelpdeskPage() {
                   {/* Tarjeta de Asignación y Estado */}
                   <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-sm space-y-4">
                     <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                      <UserCheck className="w-4 h-4 text-blue-600" />
+                      <UserCheck className="w-4 h-4 text-primary-700" />
                       Gestión del Caso
                     </h4>
 
@@ -1929,16 +1936,18 @@ export function HelpdeskPage() {
                       <label className="block text-xs font-bold text-slate-700 mb-1.5">
                         Técnico Asignado
                       </label>
-                      {role === 'it' ? (
+                      {/* Repartir es del Gerente (o el Líder): el Técnico
+                          ve a quién está asignado pero no lo cambia. */}
+                      {puedeAdministrarTecnicos ? (
                         <select
                           value={selectedTicket.assignedTo || ''}
                           onChange={(e) =>
                             handleAssignTechnician(selectedTicket.id, e.target.value)
                           }
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:border-blue-500 cursor-pointer"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:border-primary cursor-pointer"
                         >
                           <option value="">-- Sin asignar --</option>
-                          {tecnicos.map((tech) => (
+                          {candidatos.map((tech) => (
                             <option key={tech.id} value={tech.id}>
                               {tech.name} · {tech.role}
                             </option>
@@ -1964,7 +1973,7 @@ export function HelpdeskPage() {
                             onChange={(e) =>
                               handleStatusChange(selectedTicket.id, e.target.value as EstadoHelpdesk)
                             }
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:border-blue-500 cursor-pointer"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:border-primary cursor-pointer"
                           >
                             {STATUSES.map((st) => (
                               <option key={st} value={st}>
@@ -1989,7 +1998,7 @@ export function HelpdeskPage() {
                             onChange={(e) =>
                               handlePriorityChange(selectedTicket.id, e.target.value as PrioridadHelpdesk)
                             }
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:border-blue-500 cursor-pointer"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:border-primary cursor-pointer"
                           >
                             {PRIORITIES.map((pr) => (
                               <option key={pr} value={pr}>
@@ -2058,18 +2067,18 @@ export function HelpdeskPage() {
       {/* MODAL: CREAR NUEVO CASO DESDE SUCURSAL                               */}
       {/* ===================================================================== */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+            <div className="px-6 py-4 bg-white border-b border-slate-200 text-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-primary-50 text-primary flex items-center justify-center">
                   <AlertCircle className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm sm:text-base">
+                  <h3 className="font-bold text-sm sm:text-base text-primary-900">
                     Montar Nuevo Caso a Soporte TI
                   </h3>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-slate-500">
                     Completa los detalles del incidente de la sucursal
                   </p>
                 </div>
@@ -2077,7 +2086,7 @@ export function HelpdeskPage() {
               <button
                 type="button"
                 onClick={() => setIsCreateModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+                className="text-slate-500 hover:text-slate-700 p-1 rounded-lg transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2087,19 +2096,32 @@ export function HelpdeskPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Sucursal *
+                    Sucursal{sucursalBloqueada ? '' : ' *'}
                   </label>
-                  <select
-                    value={newBranch}
-                    onChange={(e) => setNewBranch(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium focus:bg-white focus:outline-none focus:border-blue-500"
-                  >
-                    {sucursalesNombres.map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                  </select>
+                  {/* La sucursal es la DEL PERFIL: se muestra como dato y no
+                      hay selector que la cambie —el caso queda colgado en la
+                      tienda de quien reporta. */}
+                  {sucursalBloqueada ? (
+                    <div className="w-full bg-primary-50 border border-primary-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold text-primary-900 flex items-center gap-2">
+                      <Store className="w-4 h-4 shrink-0 text-primary" />
+                      <span className="truncate">{sucursalPropia}</span>
+                      <span className="ml-auto shrink-0 text-[10px] font-black uppercase tracking-wide text-primary-700">
+                        Tu sucursal
+                      </span>
+                    </div>
+                  ) : (
+                    <select
+                      value={newBranch}
+                      onChange={(e) => setNewBranch(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium focus:bg-white focus:outline-none focus:border-primary"
+                    >
+                      {sucursalesNombres.map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div>
@@ -2111,7 +2133,7 @@ export function HelpdeskPage() {
                     value={newReporter}
                     onChange={(e) => setNewReporter(e.target.value)}
                     placeholder="Ej. Carlos Suárez (Cajero)"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:bg-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:bg-white focus:outline-none focus:border-primary"
                   />
                 </div>
               </div>
@@ -2124,7 +2146,7 @@ export function HelpdeskPage() {
                   <select
                     value={newCategory}
                     onChange={(e) => setNewCategory(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium focus:bg-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium focus:bg-white focus:outline-none focus:border-primary"
                   >
                     {CATEGORIES.map((c) => (
                       <option key={c} value={c}>
@@ -2141,7 +2163,7 @@ export function HelpdeskPage() {
                   <select
                     value={newPriority}
                     onChange={(e) => setNewPriority(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium focus:bg-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium focus:bg-white focus:outline-none focus:border-primary"
                   >
                     {PRIORITIES.map((p) => (
                       <option key={p} value={p}>
@@ -2152,7 +2174,7 @@ export function HelpdeskPage() {
                 </div>
               </div>
 
-              {role === 'it' && (
+              {puedeAdministrarTecnicos && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Asignar Técnico Inicial (Opcional)
@@ -2160,10 +2182,10 @@ export function HelpdeskPage() {
                   <select
                     value={newAssignTo}
                     onChange={(e) => setNewAssignTo(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium focus:bg-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-medium focus:bg-white focus:outline-none focus:border-primary"
                   >
                     <option value="">Dejar sin asignar (En cola)</option>
-                    {tecnicos.map((t) => (
+                    {candidatos.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.name} — {t.role}
                       </option>
@@ -2182,7 +2204,7 @@ export function HelpdeskPage() {
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="Ej. Punto de venta #2 sin conexión al servidor"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs sm:text-sm focus:bg-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs sm:text-sm focus:bg-white focus:outline-none focus:border-primary"
                 />
               </div>
 
@@ -2196,7 +2218,7 @@ export function HelpdeskPage() {
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
                   placeholder="Describe qué ocurre, qué mensaje de error aparece y si afecta la operación de la sucursal..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs sm:text-sm focus:bg-white focus:outline-none focus:border-blue-500 resize-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs sm:text-sm focus:bg-white focus:outline-none focus:border-primary resize-none"
                 />
               </div>
 
@@ -2210,7 +2232,7 @@ export function HelpdeskPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold shadow-sm transition-colors cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-primary hover:bg-primary-700 text-white text-xs sm:text-sm font-bold shadow-sm transition-colors cursor-pointer"
                 >
                   Crear Caso y Abrir Chat
                 </button>

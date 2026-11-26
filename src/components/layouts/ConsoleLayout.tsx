@@ -72,6 +72,10 @@ function seccionesDe(rol: string | undefined): { seccion: string; items: EnlaceM
   // El JUEZ no ve Resultados: sólo la sección del concurso — y la Mesa de
   // Ayuda, que es de todos los que tienen sesión (su ruta no pide rol).
   if (rol === 'JUEZ') return visibles.filter((s) => s.seccion === 'Gran Cosecha' || s.seccion === 'Soporte')
+  // El equipo de TI entra SÓLO a la Mesa de Ayuda: su consola es ese módulo
+  // (mismo criterio que el JUEZ con Gran Cosecha), y así ningún enlace los
+  // rebotaría — Resultados, Bonos y Gran Cosecha piden roles que no tienen.
+  if (rol === 'GERENTE_TI' || rol === 'TECNICO_TI') return visibles.filter((s) => s.seccion === 'Soporte')
   return visibles
 }
 

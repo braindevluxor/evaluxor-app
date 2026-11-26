@@ -55,7 +55,7 @@ const DDL = `
     usuario text not null default '',
     nombre text not null default '',
     rol text not null default 'SIN_ROL'
-      check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH')),
+      check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','GERENTE_TI','TECNICO_TI')),
     activo boolean not null default true
   );
 
@@ -63,7 +63,7 @@ const DDL = `
     id uuid primary key default gen_random_uuid(),
     email text not null,
     usuario text not null default '',
-    rol text not null check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH')),
+    rol text not null check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','GERENTE_TI','TECNICO_TI')),
     token text not null unique default gen_random_uuid()::text
   );
 

@@ -63,7 +63,7 @@ const DDL = `
     id uuid primary key references auth.users(id) on delete cascade,
     nombre text not null default '',
     rol text not null default 'SIN_ROL'
-      check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ')),
+      check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ','GERENTE_TI','TECNICO_TI')),
     activo boolean not null default true
   );
 

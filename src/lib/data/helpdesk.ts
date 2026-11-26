@@ -1,5 +1,6 @@
 import { supabase } from '../supabase'
 import { formatearFechaHora, desdeAhora } from '../tiempo'
+import { ETIQUETAS_ROL } from '../roles'
 
 /**
  * LA MESA DE AYUDA (HELPDESK TI): LOS CASOS Y SU CHAT
@@ -10,14 +11,18 @@ import { formatearFechaHora, desdeAhora } from '../tiempo'
  *    SECUENCIA en la base y es la primary key — así la numeración no se
  *    repite aunque dos sucursales creen a la vez.
  *  - `helpdesk_mensaje`: el chat (mensajes de la sucursal, de TI y del
- *    sistema; las NOTAS INTERNAS sólo las lee el Líder —lo decide el RLS—).
- *  - `helpdesk_tecnico`: el equipo TI, elegido por el Líder desde la API
- *    de trabajadores.
+ *    sistema; las NOTAS INTERNAS sólo las lee el equipo de TI —lo decide
+ *    el RLS—).
+ *  - `helpdesk_tecnico`: el equipo de GUARDIA, elegido por el Gerente de
+ *    TI desde la nómina. Es distinto de la LISTA DE ASIGNACIÓN
+ *    (`listarCandidatosHelpdesk`): ésa son los USUARIOS con rol
+ *    TECNICO_TI.
  *
  * Quién escribe qué lo decide la base: cualquiera con sesión crea casos y
- * manda mensajes `branch`; asignar, estados, prioridad y mensajes `it` /
- * `system` son del LÍDER (`es_lider()`). Ésta capa sólo traduce la forma
- * de la pantalla ↔ la de las tablas.
+ * manda mensajes `branch`; el equipo de TI atiende (`es_equipo_ti()`),
+ * ASIGNAR es de Líder o Gerente de TI (`es_gerente_ti()`, además en un
+ * disparador) y el equipo de guardia lo administra ese mismo par. Ésta capa
+ * sólo traduce la forma de la pantalla ↔ la de las tablas.
  */
 
 export type EstadoHelpdesk = 'Abierto' | 'En Progreso' | 'Resuelto' | 'Cerrado'
@@ -58,14 +63,21 @@ export interface TicketHelpdesk {
   messages: MensajeHelpdesk[]
 }
 
-/** Un técnico del equipo, con la forma de la pantalla (avatar y color). */
+/** Un atendedor de casos, con la forma de la pantalla (avatar y color). */
 export interface TecnicoHelpdesk {
   id: string
   name: string
   role: string
   avatar: string
   color: string
-  dni: number
+  /**
+   * La identidad con la que se GUARDA la asignación: el DNI si viene de la
+   * nómina (equipo de guardia) o el `usuarioId` si es un USUARIO con rol
+   * TECNICO_TI —los usuarios no tienen DNI—. Nunca los dos.
+   */
+  dni: number | null
+  /** `profiles.id` cuando el atendedor es un usuario con rol TECNICO_TI. */
+  usuarioId?: string | null
 }
 
 const COLORES = ['bg-blue-600', 'bg-emerald-600', 'bg-violet-600', 'bg-amber-600', 'bg-rose-600']
@@ -92,6 +104,8 @@ type FilaTicket = {
   prioridad: PrioridadHelpdesk
   estado: EstadoHelpdesk
   tecnico_dni: number | null
+  /** El usuario con rol TECNICO_TI que atiende (si el atendedor es un usuario). */
+  tecnico_usuario: string | null
   resolucion_minutos: number | null
   created_at: string
   updated_at: string
@@ -117,7 +131,8 @@ function aTicket(f: FilaTicket, messages: MensajeHelpdesk[] = []): TicketHelpdes
     category: f.categoria,
     priority: f.prioridad,
     status: f.estado,
-    assignedTo: f.tecnico_dni != null ? String(f.tecnico_dni) : null,
+    assignedTo:
+    f.tecnico_usuario ?? (f.tecnico_dni != null ? String(f.tecnico_dni) : null),
     resolutionMinutes: f.resolucion_minutos,
     createdAt: formatearFechaHora(f.created_at),
     updatedAt: desdeAhora(f.updated_at),
@@ -137,7 +152,7 @@ function aMensaje(f: FilaMensaje): MensajeHelpdesk {
 }
 
 const COLS_TICKET =
-  'codigo, titulo, descripcion, sucursal_nombre, reportado_nombre, categoria, prioridad, estado, tecnico_dni, resolucion_minutos, created_at, updated_at'
+  'codigo, titulo, descripcion, sucursal_nombre, reportado_nombre, categoria, prioridad, estado, tecnico_dni, tecnico_usuario, resolucion_minutos, created_at, updated_at'
 
 /** Todos los casos, del más reciente al más viejo (como los pinta la lista). */
 export async function listarTicketsHelpdesk(): Promise<TicketHelpdesk[]> {
@@ -259,6 +274,7 @@ export async function actualizarTicketHelpdesk(
     estado?: EstadoHelpdesk
     prioridad?: PrioridadHelpdesk
     tecnicoDni?: number | null
+    tecnicoUsuario?: string | null
     tecnicoNombre?: string | null
     resolucionMinutos?: number | null
   },
@@ -268,6 +284,7 @@ export async function actualizarTicketHelpdesk(
   if (cambios.estado !== undefined) campos.estado = cambios.estado
   if (cambios.prioridad !== undefined) campos.prioridad = cambios.prioridad
   if (cambios.tecnicoDni !== undefined) campos.tecnico_dni = cambios.tecnicoDni
+  if (cambios.tecnicoUsuario !== undefined) campos.tecnico_usuario = cambios.tecnicoUsuario
   if (cambios.tecnicoNombre !== undefined) campos.tecnico_nombre = cambios.tecnicoNombre
   if (cambios.resolucionMinutos !== undefined) campos.resolucion_minutos = cambios.resolucionMinutos
   if (Object.keys(campos).length) {
@@ -284,8 +301,7 @@ export async function actualizarTicketHelpdesk(
 }
 
 /** El equipo TI: sólo los activos, con la forma de la pantalla. */
-export async function listarTecnicosHelpdesk(): Promise<TecnicoHelpdesk[]> {
-  const { data, error } = await supabase
+export async function listarTecnicosHelpdesk(): Promise<TecnicoHelpdesk[]> {  const { data, error } = await supabase
     .from('helpdesk_tecnico')
     .select('dni, nacionalidad, nombre, especialidad')
     .eq('activo', true)
@@ -299,6 +315,37 @@ export async function listarTecnicosHelpdesk(): Promise<TecnicoHelpdesk[]> {
     color: COLORES[i % COLORES.length],
     dni: t.dni
   }))
+}
+
+/**
+ * La LISTA DE ASIGNACIÓN: los USUARIOS con rol TECNICO_TI.
+ *
+ * Se leen de `profiles` —cualquier sesión puede leerla (RLS
+ * `profiles_select`)— y sólo los ACTIVOS: a un usuario apagado no se le
+ * asigna un caso. La forma es la MISMA que la del equipo de guardia para
+ * que la pantalla use un solo tipo de objeto, con `usuarioId` como
+ * identidad (los usuarios no tienen DNI) y `dni` en null.
+ */
+export async function listarCandidatosHelpdesk(): Promise<TecnicoHelpdesk[]> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, nombre, usuario, activo')
+    .eq('rol', 'TECNICO_TI')
+    .eq('activo', true)
+    .order('nombre')
+  if (error) throw error
+  return (data ?? []).map((p, i) => {
+    const nombre = p.nombre?.trim() || p.usuario
+    return {
+      id: String(p.id),
+      name: nombre,
+      role: ETIQUETAS_ROL.TECNICO_TI,
+      avatar: iniciales(nombre),
+      color: COLORES[i % COLORES.length],
+      dni: null,
+      usuarioId: p.id,
+    }
+  })
 }
 
 /**

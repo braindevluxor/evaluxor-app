@@ -10,7 +10,9 @@ export const ETIQUETAS_ROL: Record<Rol, string> = {
   GERENTE_S: 'Gerente de Sucursal',
   GERENTE_C: 'Gerente Corporativo',
   GERENTE_TH: 'Gerente de Talento Humano',
-  JUEZ: 'Juez de Gran Cosecha'
+  JUEZ: 'Juez de Gran Cosecha',
+  GERENTE_TI: 'Gerente de TI',
+  TECNICO_TI: 'Técnico de TI'
 }
 
 export const ROLES_EDITABLES: Exclude<Rol, 'SIN_ROL'>[] = [
@@ -19,8 +21,30 @@ export const ROLES_EDITABLES: Exclude<Rol, 'SIN_ROL'>[] = [
   'GERENTE_S',
   'GERENTE_C',
   'GERENTE_TH',
-  'JUEZ'
+  'JUEZ',
+  'GERENTE_TI',
+  'TECNICO_TI'
 ]
+
+/**
+ * El equipo que ATENDE la Mesa de Ayuda: los tres que entran a la vista TI
+ * (asignar, estados, chat como TI y notas internas).
+ *
+ * Es la MISMA pregunta que la función `es_equipo_ti()` de la base, así que
+ * el menú, la ruta y el RLS se responden igual.
+ */
+export function esEquipoTi(rol: Rol): boolean {
+  return rol === 'LIDER' || rol === 'GERENTE_TI' || rol === 'TECNICO_TI'
+}
+
+/**
+ * Quién ADMINISTRA la Mesa de Ayuda: alta y baja del equipo de técnicos.
+ * El Técnico de TI atiende pero no arma el equipo (mismo corte que en la
+ * RLS `es_gerente_ti()`).
+ */
+export function gestionaMesaAyuda(rol: Rol): boolean {
+  return rol === 'LIDER' || rol === 'GERENTE_TI'
+}
 
 export function puedeEvaluar(rol: Rol): boolean {
   return rol === 'LIDER' || rol === 'EVALUADOR'
@@ -66,6 +90,11 @@ export function homePorRol(rol: Rol): string {
       // El juez no entra a Resultados (la ruta lo rebotaría acá), así que su
       // casa es directamente el concurso que juzga.
       return '/gran-cosecha/proyectos'
+    case 'GERENTE_TI':
+    case 'TECNICO_TI':
+      // El equipo de TI sólo tiene la Mesa de Ayuda: es donde trabaja y es
+      // adonde vuelve cualquier ruta que les quede fuera.
+      return '/helpdesk'
     default:
       return '/pendiente'
   }
