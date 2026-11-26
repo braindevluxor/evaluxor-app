@@ -34,7 +34,16 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
   // al que entra toda la empresa (presentan los trabajadores, dan seguimiento
   // los jueces), no una pantalla de indicadores.
   { seccion: 'Gran Cosecha', items: [
-    { to: '/gran-cosecha/proyectos', label: 'Proyectos', icon: <Sprout className="h-5 w-5" /> },
+    // El concurso es de toda la empresa MENOS el Gerente de Sucursal: ni
+    // lo ofrece el menú ni lo deja la ruta (RequireRol con estos mismos
+    // roles). La lista es la de «quién entra»: Líder, evaluadores, los dos
+    // gerentes corporativos y el juez que lo juzga.
+    {
+      to: '/gran-cosecha/proyectos',
+      label: 'Proyectos',
+      icon: <Sprout className="h-5 w-5" />,
+      roles: ['LIDER', 'EVALUADOR', 'GERENTE_C', 'GERENTE_TH', 'JUEZ']
+    },
     // La landing /gran-cosecha.html: su contenido lo escribe sólo el Líder,
     // así que el item tampoco se muestra a nadie más (no es un guard, es
     // sólo el menú: la ruta y la RLS siguen pidiendo lo mismo).
@@ -156,7 +165,8 @@ function ConsoleLayoutInterna() {
         { to: '/config/modulos', label: 'Módulos', icon: <FolderOpen className="h-5 w-5" /> },
         { to: '/config/usuarios', label: 'Usuarios', icon: <Users className="h-5 w-5" /> },
         // El menú público de las sucursales: el Líder lo edita desde
-        // cualquier tienda (la misma cerradura de RLS, `es_encargado_menu`).
+        // cualquier tienda y es el ÚNICO que escribe (RLS
+        // `menu_productos_gestion`); el Gerente de Sucursal lo mira.
         { to: '/menu-editor', label: 'Menús', icon: <BookOpen className="h-5 w-5" /> }
       ]
     },
@@ -200,7 +210,8 @@ function ConsoleLayoutInterna() {
   ] : profile && profile.rol === 'GERENTE_S' ? [
     // El Gerente de Sucursal no configura evaluaciones: su consola es el
     // menú de SU tienda —la misma sucursal que le asigna la invitación y
-    // la misma que RLS le defiende fila por fila.
+    // la misma que RLS le deja LEER (`es_encargado_menu`). Lo abre en SÓLO
+    // LECTURA: alterar la carta es del Líder (`menu_productos_gestion`).
     {
       seccion: 'Mi sucursal',
       items: [

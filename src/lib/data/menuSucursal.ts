@@ -7,22 +7,23 @@ import { supabase } from '../supabase'
 /**
  * EL MENÚ DE CADA SUCURSAL
  * ------------------------
- * Cada sucursal tiene su menú y un encargado que lo llena: el Gerente de
- * Sucursal (el `profiles.sucursal_id` ES "su" sucursal — la misma invitación
- * que le da el rol ya le asigna la tienda) o el Líder, que puede con
- * cualquier tienda (la misma cerradura de todo el repo, ahora
- * `es_encargado_menu` en RLS).
+ * Cada sucursal tiene su menú. Quien lo VE es el Gerente de Sucursal (el
+ * `profiles.sucursal_id` ES "su" sucursal — la misma invitación que le da
+ * el rol ya le asigna la tienda) o el Líder, que puede ver cualquier tienda;
+ * quien lo ALTERA es SÓLO el Líder (`es_encargado_menu` abre la lectura,
+ * `menu_productos_gestion` y `menu_fotos_encargado` la escritura). El
+ * Gerente de Sucursal entra en sólo lectura y esta pantalla esconde los
+ * controles para que no haya un botón que RLS rechace.
  *
  * Acá se escribe con la sesión de la consola:
  *
  *  - Buscar: la API de precios (`precios.ts`) por ID o código de barra, con
  *    el `shop_id` de la sucursal. La API sólo tiene scan —no hay búsqueda
- *    por nombre—, que es justo lo que pide el encargado: escanear o pegar.
- *  - Guardar: la tabla `menu_productos`, con RLS (`es_encargado_menu`).
+ *    por nombre—, que es justo lo que pide el Líder: escanear o pegar.
+ *  - Guardar: la tabla `menu_productos`, con RLS (escritura del Líder).
  *  - Fotos: bucket `menu-fotos`, PÚBLICO (la página de clientes lo ve sin
- *    sesión, igual que `gran-cosecha`), ruta `menu/<sucursal>/<sku>` — un
- *    encargado no mete manos en la carpeta de otra tienda. La imagen se
- *    CONVIERTE a WebP a resolución natural antes de subir (ver
+ *    sesión, igual que `gran-cosecha`), ruta `menu/<sucursal>/<sku>`. La
+ *    imagen se CONVIERTE a WebP a resolución natural antes de subir (ver
  *    `convertirMedia`).
  *
  * Lo que lee la página pública vive en `cargarMenuPublico`: una sola RPC

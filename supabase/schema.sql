@@ -4841,7 +4841,7 @@ order by c.relrowsecurity, n.nspname || '.' || c.relname;
 -- ----------------------------------------------------------------------------
 -- 2) Las politicas del repo, una por fila
 -- ----------------------------------------------------------------------------
--- Si esta consulta NO devuelve filas, estan las 69. Cada fila que aparezca es
+-- Si esta consulta NO devuelve filas, estan las 70. Cada fila que aparezca es
 -- una politica que falta: se creo la tabla pero no su regla, y queda abierta o
 -- inaccesible segun el caso.
 with esperadas (politica, tabla) as (
@@ -4912,7 +4912,8 @@ with esperadas (politica, tabla) as (
     ('gran_cosecha_pagina_fotos_select', 'storage.objects'),
     ('gran_cosecha_pagina_fotos_lider', 'storage.objects'),
     ('gran_cosecha_fotos_proyecto', 'storage.objects'),
-    ('menu_productos_encargado', 'public.menu_productos'),
+    ('menu_productos_select', 'public.menu_productos'),
+    ('menu_productos_gestion', 'public.menu_productos'),
     ('menu_fotos_select', 'storage.objects'),
     ('menu_fotos_encargado', 'storage.objects')
 )
@@ -6697,13 +6698,26 @@ grant execute on function public.es_encargado_menu(uuid) to authenticated;
 
 alter table public.menu_productos enable row level security;
 
--- Una sola política `for all`: leer, escribir y borrar responden a la misma
--- pregunta (¿es de mi sucursal?) y con el mismo `using`/`with check`.
+-- DOS políticas, con DOS dueños distintos:
+--
+--  - LEER: el encargado (Gerente de Sucursal de ESA tienda) o el Líder. El
+--    Gerente ve su carta y su reporte de visitas: eso es todo lo que pide.
+--  - ESCRIBIR: SÓLO el Líder. El Gerente de Sucursal pasa a ser de SÓLO
+--    LECTURA —ni agrega, ni edita, ni reordena, ni quita de su propia
+--    tienda—. Antes una política `for all` le dejaba editar la suya; el
+--    permiso real es RLS, así que el cambio vive acá y la pantalla lo
+--    acompaña escondiendo los controles.
 drop policy if exists menu_productos_encargado on public.menu_productos;
-create policy menu_productos_encargado on public.menu_productos
+drop policy if exists menu_productos_select on public.menu_productos;
+create policy menu_productos_select on public.menu_productos
+  for select to authenticated
+  using (public.es_encargado_menu(sucursal_id));
+
+drop policy if exists menu_productos_gestion on public.menu_productos;
+create policy menu_productos_gestion on public.menu_productos
   for all to authenticated
-  using (public.es_encargado_menu(sucursal_id))
-  with check (public.es_encargado_menu(sucursal_id));
+  using (public.es_lider())
+  with check (public.es_lider());
 
 -- La tabla nace con el `alter default privileges ... revoke from anon` de
 -- `cerrar-permisos-anon.sql`, y el revoke explícito no deja nada al azar
@@ -6762,9 +6776,10 @@ revoke execute on function public.ver_menu_publico(uuid) from public, anon;
 grant execute on function public.ver_menu_publico(uuid) to anon, authenticated;
 
 -- Las FOTOS del menú: bucket PÚBLICO (la página las ve con URL directa,
--- igual que la landing de la Gran Cosecha). Sólo sube quien puede editar
--- ese menú, y la ruta ES la sucursal (`menu/<sucursal>/<sku>.webp`): un
--- encargado no mete manos en la carpeta de otra tienda.
+-- igual que la landing de la Gran Cosecha). Sólo SUBE el Líder —el Gerente
+-- de Sucursal ve la carta pero no la altera—, y la ruta ES la sucursal
+-- (`menu/<sucursal>/<sku>.webp`): no se mete manos en la carpeta de otra
+-- tienda. Ver no necesita permiso: eso lo da `menu_fotos_select`.
 insert into storage.buckets (id, name, public)
 values ('menu-fotos', 'menu-fotos', true)
 on conflict (id) do update set public = excluded.public;
@@ -6777,28 +6792,8 @@ create policy menu_fotos_select on storage.objects
 drop policy if exists menu_fotos_encargado on storage.objects;
 create policy menu_fotos_encargado on storage.objects
   for all to authenticated
-  using (
-    bucket_id = 'menu-fotos'
-    and (
-      public.es_lider()
-      or exists (
-        select 1 from public.profiles p
-         where p.id = auth.uid() and p.activo and p.rol = 'GERENTE_S'
-           and p.sucursal_id::text = split_part(name, '/', 2)
-      )
-    )
-  )
-  with check (
-    bucket_id = 'menu-fotos'
-    and (
-      public.es_lider()
-      or exists (
-        select 1 from public.profiles p
-         where p.id = auth.uid() and p.activo and p.rol = 'GERENTE_S'
-           and p.sucursal_id::text = split_part(name, '/', 2)
-      )
-    )
-  );
+  using (bucket_id = 'menu-fotos' and public.es_lider())
+  with check (bucket_id = 'menu-fotos' and public.es_lider());
 
 -- ---------------------------------------------------------------------------
 -- VISITAS: cuántas veces se abre la página del menú, por día y por hora.

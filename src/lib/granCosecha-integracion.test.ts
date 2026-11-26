@@ -21,12 +21,21 @@ describe('gran cosecha · el módulo está en el menú', () => {
   const menu = fuente('../components/layouts/ConsoleLayout.tsx')
   const app = fuente('../App.tsx')
 
-  it('la consola ofrece «Proyectos» a todos los que entran', () => {
+  it('la consola ofrece «Proyectos» a todos los que entran, menos al Gerente de Sucursal', () => {
     // Va en su propia sección y no dentro de «Resultados»: es un concurso al
     // que entra toda la empresa, no una pantalla de indicadores.
     expect(menu).toContain("to: '/gran-cosecha/proyectos'")
     expect(menu).toContain("{ seccion: 'Gran Cosecha'")
     expect(menu).toContain('label: \'Proyectos\'')
+
+    // El Gerente de Sucursal no lo ve: el item lleva `roles` y ese rol no
+    // está en la lista —el filtro del menú es el mismo que el de la ruta.
+    const item = /to: '\/gran-cosecha\/proyectos'[\s\S]{0,200}roles: \[([^\]]+)\]/.exec(menu)
+    expect(item).toBeTruthy()
+    const roles = item![1]
+    expect(roles).toContain("'LIDER'")
+    expect(roles).toContain("'JUEZ'")
+    expect(roles).not.toContain("'GERENTE_S'")
 
     // Y con su título en la cabecera, igual que el resto de las vistas.
     expect(menu).toContain("'/gran-cosecha/proyectos'")
@@ -54,10 +63,14 @@ describe('gran cosecha · el módulo está en el menú', () => {
     expect(menu).toMatch(/function seccionesDe\(/)
   })
 
-  it('la ruta está adentro del grupo de la consola y sin RequireRol', () => {
-    // Sin `RequireRol`: la crean los trabajadores y la siguen los jueces. El
-    // grupo ya trae `RequireAuth`, que es quien manda al SIN_ROL a /pendiente.
-    expect(app).toContain('<Route path="/gran-cosecha/proyectos" element={<GranCosechaPage />} />')
+  it('la ruta está adentro del grupo de la consola y pide los mismos roles que el menú', () => {
+    // Los mismos que el item del menú: el Gerente de Sucursal no entra ni
+    // por acá (RequireRol lo manda a /dashboard). El JUEZ sí, porque ésa es
+    // su casa —`homePorRol` lo manda justo acá.
+    expect(app).toMatch(
+      /path="\/gran-cosecha\/proyectos"[\s\S]{0,240}roles=\{\[\s*'LIDER',\s*'EVALUADOR',\s*'GERENTE_C',\s*'GERENTE_TH',\s*'JUEZ'\s*\]}/
+    )
+    expect(app).not.toContain('<Route path="/gran-cosecha/proyectos" element={<GranCosechaPage />} />')
 
     const grupo = app.indexOf('<ConsoleLayout />')
     const ruta = app.indexOf('path="/gran-cosecha/proyectos"')

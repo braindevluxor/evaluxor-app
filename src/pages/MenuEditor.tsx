@@ -49,12 +49,17 @@ function contar(n: number, uno: string, varios: string): string {
  * Las VISITAS viven aparte, en `VisitasMenu`: una tarjeta que abre el
  * modal con la curva de los 7 días y el detalle por hora de cada uno.
  *
- * La ruta pide `LIDER` o `GERENTE_S`, y la RLS vuelve a pedir lo mismo:
- * el encargado sólo escribe en SU sucursal (`es_encargado_menu`).
+ * La ruta pide `LIDER` o `GERENTE_S`, pero el Gerente de Sucursal la abre
+ * en SÓLO LECTURA: ve su carta y su reporte de visitas y nada más. Quien
+ * altera el menú es el Líder —la RLS (`menu_productos_gestion` y
+ * `menu_fotos_encargado`) lo dice desde la base—, y esta pantalla acompaña
+ * escondiendo los controles para que no haya un botón que falle.
  */
 export function MenuEditorPage() {
   const { profile } = useAuth()
   const esLider = profile?.rol === 'LIDER'
+  /** El Gerente de Sucursal sólo mira: no agrega, no edita, no borra. */
+  const soloLectura = !esLider
   const sucursalPropia = profile?.rol === 'GERENTE_S' ? (profile.sucursal_id ?? null) : null
 
   const [sucursales, setSucursales] = useState<SucursalMenu[] | null>(null)
@@ -388,16 +393,19 @@ export function MenuEditorPage() {
         ) : null}
 
         {/* Importar: el botón vive en la barra y TODO el flujo pasa en el
-            modal de abajo —instrucciones, plantilla y archivo—. */}
-        <button
-          type="button"
-          onClick={() => setImportAbierto(true)}
-          title="Importar la carta desde un archivo Excel"
-          className="inline-flex min-h-[34px] items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:bg-primary-100"
-        >
-          <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
-          <span className="hidden sm:inline">Importar</span>
-        </button>
+            modal de abajo —instrucciones, plantilla y archivo—. Sólo el
+            Líder: el Gerente de Sucursal mira, no altera. */}
+        {soloLectura ? null : (
+          <button
+            type="button"
+            onClick={() => setImportAbierto(true)}
+            title="Importar la carta desde un archivo Excel"
+            className="inline-flex min-h-[34px] items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:bg-primary-100"
+          >
+            <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">Importar</span>
+          </button>
+        )}
 
         {sucursalId ? (
           <a
@@ -421,30 +429,38 @@ export function MenuEditorPage() {
         ))}
       </datalist>
 
-      {/* Buscador: escanear o pegar el código, como lo pide el encargado. */}
+      {/* Buscador: escanear o pegar el código, como lo pide el encargado.
+          Para el Gerente de Sucursal esto es sólo lectura: no hay a quién
+          escanear ni a dónde agregar, y el permiso real está en RLS. */}
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            void buscar()
-          }}
-          className="flex flex-col gap-3 sm:flex-row"
-        >
-          <Input
-            value={codigo}
-            onChange={(e) => setCodigo(e.target.value)}
-            placeholder="Código de barra o ID del producto"
-            aria-label="Código de barra o ID del producto"
-            disabled={consultando || !sucursal?.shopId}
-            className="flex-1"
-          />
-          <Button type="submit" disabled={consultando || !codigo.trim() || !sucursal?.shopId}>
-            {consultando ? <Spinner size={16} light /> : <Search className="h-4 w-4" />}
-            <span>Buscar</span>
-          </Button>
-        </form>
+        {soloLectura ? (
+          <p className="text-xs font-semibold text-slate-500">
+            Vista de sólo lectura: el menú lo carga y lo modifica el Líder.
+          </p>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              void buscar()
+            }}
+            className="flex flex-col gap-3 sm:flex-row"
+          >
+            <Input
+              value={codigo}
+              onChange={(e) => setCodigo(e.target.value)}
+              placeholder="Código de barra o ID del producto"
+              aria-label="Código de barra o ID del producto"
+              disabled={consultando || !sucursal?.shopId}
+              className="flex-1"
+            />
+            <Button type="submit" disabled={consultando || !codigo.trim() || !sucursal?.shopId}>
+              {consultando ? <Spinner size={16} light /> : <Search className="h-4 w-4" />}
+              <span>Buscar</span>
+            </Button>
+          </form>
+        )}
 
-        {!sucursal?.shopId ? (
+        {!soloLectura && !sucursal?.shopId ? (
           <p className="mt-2 text-xs font-semibold text-amber-700">
             Esta sucursal no tiene Nº de tienda (shop ID) configurado: no se puede consultar la
             API de precios hasta que el Líder lo cargue en Unidades.
@@ -505,7 +521,9 @@ export function MenuEditorPage() {
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
           <p className="text-sm font-bold text-slate-600">El menú está vacío.</p>
           <p className="mt-1 text-sm text-slate-500">
-            Buscá un producto por código de barra o ID y agregalo para empezar.
+            {soloLectura
+              ? 'Todavía no se cargó ningún producto en esta carta.'
+              : 'Buscá un producto por código de barra o ID y agregalo para empezar.'}
           </p>
         </div>
       ) : (
@@ -534,35 +552,52 @@ export function MenuEditorPage() {
                   {p.departamento ? <span>{p.departamento}</span> : null}
                   <span>SKU {p.sku}</span>
                 </p>
-                <input
-                  type="text"
-                  value={p.descripcion ?? ''}
-                  placeholder="Descripción para la carta (opcional)"
-                  aria-label={`Descripción de ${p.nombre}`}
-                  onChange={(e) => {
-                    const texto = e.target.value
-                    setProductos((l) =>
-                      (l ?? []).map((x) => (x.id === p.id ? { ...x, descripcion: texto || null } : x))
-                    )
-                  }}
-                  onBlur={() => void persistirDescripcion(p)}
-                  className="mt-1.5 w-full rounded-lg border border-transparent bg-slate-50 px-2 py-1 text-xs text-slate-600 placeholder:text-slate-400 focus:border-[#dc2626]/40 focus:bg-white focus:outline-none"
-                />
-                <input
-                  list="categorias-menu"
-                  type="text"
-                  value={p.categoria ?? ''}
-                  placeholder="Categoría (pestaña de la carta)"
-                  aria-label={`Categoría de ${p.nombre}`}
-                  onChange={(e) => {
-                    const texto = e.target.value
-                    setProductos((l) =>
-                      (l ?? []).map((x) => (x.id === p.id ? { ...x, categoria: texto || null } : x))
-                    )
-                  }}
-                  onBlur={() => void persistirCategoria(p)}
-                  className="mt-1.5 w-full rounded-lg border border-transparent bg-slate-50 px-2 py-1 text-xs text-slate-600 placeholder:text-slate-400 focus:border-[#dc2626]/40 focus:bg-white focus:outline-none"
-                />
+                {soloLectura ? (
+                  /* Sólo lectura: la descripción y la categoría se LEEN, no
+                     se editan —el permiso está en RLS y acá no hay botón. */
+                  <>
+                    <p className="mt-1.5 text-xs text-slate-500">
+                      <span className="font-semibold text-slate-400">Descripción:</span>{' '}
+                      {p.descripcion || '—'}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      <span className="font-semibold text-slate-400">Categoría:</span>{' '}
+                      {p.categoria || '—'}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      value={p.descripcion ?? ''}
+                      placeholder="Descripción para la carta (opcional)"
+                      aria-label={`Descripción de ${p.nombre}`}
+                      onChange={(e) => {
+                        const texto = e.target.value
+                        setProductos((l) =>
+                          (l ?? []).map((x) => (x.id === p.id ? { ...x, descripcion: texto || null } : x))
+                        )
+                      }}
+                      onBlur={() => void persistirDescripcion(p)}
+                      className="mt-1.5 w-full rounded-lg border border-transparent bg-slate-50 px-2 py-1 text-xs text-slate-600 placeholder:text-slate-400 focus:border-[#dc2626]/40 focus:bg-white focus:outline-none"
+                    />
+                    <input
+                      list="categorias-menu"
+                      type="text"
+                      value={p.categoria ?? ''}
+                      placeholder="Categoría (pestaña de la carta)"
+                      aria-label={`Categoría de ${p.nombre}`}
+                      onChange={(e) => {
+                        const texto = e.target.value
+                        setProductos((l) =>
+                          (l ?? []).map((x) => (x.id === p.id ? { ...x, categoria: texto || null } : x))
+                        )
+                      }}
+                      onBlur={() => void persistirCategoria(p)}
+                      className="mt-1.5 w-full rounded-lg border border-transparent bg-slate-50 px-2 py-1 text-xs text-slate-600 placeholder:text-slate-400 focus:border-[#dc2626]/40 focus:bg-white focus:outline-none"
+                    />
+                  </>
+                )}
 
                 {/* Los TURNOS en los que está disponible: M, T y N con su
                     horario en el title. La carta pública sólo lo muestra si
@@ -574,6 +609,24 @@ export function MenuEditorPage() {
                   </span>
                   {TURNOS.map((t) => {
                     const marcado = (p.turnos || 'MTN').includes(t.letra)
+                    const clase = `h-6 w-6 rounded-full border text-[11px] font-black transition-colors ${
+                      marcado
+                        ? 'border-[#0a1e5e] bg-[#0a1e5e] text-white'
+                        : 'border-slate-300 bg-white text-slate-400 hover:border-[#0a1e5e]/50'
+                    }`
+                    // En sólo lectura son ETIQUETAS: el turno no se toca.
+                    if (soloLectura) {
+                      return (
+                        <span
+                          key={t.letra}
+                          title={`${t.nombre} · ${t.horario}`}
+                          aria-label={`${t.nombre} de ${p.nombre}`}
+                          className={`inline-flex items-center justify-center ${clase}`}
+                        >
+                          {t.letra}
+                        </span>
+                      )
+                    }
                     return (
                       <button
                         key={t.letra}
@@ -582,11 +635,7 @@ export function MenuEditorPage() {
                         aria-pressed={marcado}
                         aria-label={`${t.nombre} de ${p.nombre}`}
                         title={`${t.nombre} · ${t.horario}`}
-                        className={`h-6 w-6 rounded-full border text-[11px] font-black transition-colors ${
-                          marcado
-                            ? 'border-[#0a1e5e] bg-[#0a1e5e] text-white'
-                            : 'border-slate-300 bg-white text-slate-400 hover:border-[#0a1e5e]/50'
-                        }`}
+                        className={clase}
                       >
                         {t.letra}
                       </button>
@@ -595,6 +644,10 @@ export function MenuEditorPage() {
                 </div>
               </div>
 
+              {/* Las acciones de edición no existen en sólo lectura:
+                  reordenar, fotografiar y quitar son del Líder (y si
+                  alguien las llamara a la fuerza, RLS las rechaza). */}
+              {soloLectura ? null : (
               <div className="flex items-center gap-1">
                 <ButtonIcon
                   onClick={() => void mover(i, -1)}
@@ -640,6 +693,7 @@ export function MenuEditorPage() {
                   <Trash2 className="h-4 w-4" />
                 </ButtonIcon>
               </div>
+              )}
             </li>
           ))}
         </ul>

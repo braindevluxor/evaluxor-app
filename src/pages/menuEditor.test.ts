@@ -3,10 +3,12 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 /**
- * El editor del menú: la ruta es de Líder o Gerente de Sucursal (la misma
- * cerradura que RLS), el módulo de datos escribe en la tabla y sube fotos
- * convertidas, y la pantalla hace lo que pide el encargado: escanear,
- * agregar, reordenar y fotografiar.
+ * El editor del menú: la ruta es de Líder o Gerente de Sucursal, pero el
+ * Gerente la abre en SÓLO LECTURA —quien altera la carta es el Líder, y la
+ * RLS (`menu_productos_gestion`, `menu_fotos_encargado`) lo dice desde la
+ * base—; el módulo de datos escribe en la tabla y sube fotos convertidas,
+ * y la pantalla hace lo que pide el Líder: escanear, agregar, reordenar y
+ * fotografiar.
  */
 function fuente(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -65,6 +67,19 @@ describe('editor del menú · la pantalla', () => {
   it('explica los dos frenos: sin sucursal y sin shop ID', () => {
     expect(pagina).toContain('Tu perfil no tiene una sucursal asignada.')
     expect(pagina).toContain('shop ID) configurado')
+  })
+
+  it('el Gerente de Sucursal entra en SÓLO LECTURA', () => {
+    // La pantalla sabe quién es: el que no es Líder no altera nada.
+    expect(pagina).toContain('const soloLectura = !esLider')
+    expect(pagina).toContain('Vista de sólo lectura: el menú lo carga y lo modifica el Líder.')
+    // Sin escaneo (no hay a dónde agregar), sin importar y sin las
+    // acciones por fila: reordenar, fotografiar y quitar no existen.
+    expect(pagina).toContain('{soloLectura ? null : (')
+    expect(pagina).toContain('if (soloLectura)')
+    // Lo que SÍ se mira se pinta como texto, no como campo editable.
+    expect(pagina).toContain('Descripción:</span>')
+    expect(pagina).toContain('Categoría:</span>')
   })
 
   it('el Líder elige la sucursal y el encargado ve la suya', () => {

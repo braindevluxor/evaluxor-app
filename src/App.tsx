@@ -370,11 +370,22 @@ function Rutas() {
                           superior (ahí cuelga el cambio de vista por
                           PortalCabecera), como cualquier otra pantalla. */}
                       <Route path="/helpdesk" element={<HelpdeskPage />} />
-                      {/* Gran Cosecha es de TODA la empresa: cualquiera con
-                          sesión presenta su proyecto y cualquiera lo mira; el
-                          seguimiento lo dan los jueces, que entra por el mismo
-                          RLS (`puede_gran_cosecha`) que pide el menú. */}
-                      <Route path="/gran-cosecha/proyectos" element={<GranCosechaPage />} />
+                      {/* Gran Cosecha es de TODA la empresa MENOS el
+                          Gerente de Sucursal: ese rol no ve los proyectos ni
+                          por el menú ni por la dirección (RequireRol lo
+                          manda a su casa). El resto presenta y mira; el
+                          seguimiento lo dan los jueces, que entran por el
+                          mismo RLS (`puede_gran_cosecha`) que pide el menú.
+                          El grupo ya trae RequireAuth, que es quien manda al
+                          SIN_ROL a /pendiente. */}
+                      <Route
+                        path="/gran-cosecha/proyectos"
+                        element={
+                          <RequireRol roles={['LIDER', 'EVALUADOR', 'GERENTE_C', 'GERENTE_TH', 'JUEZ']}>
+                            <GranCosechaPage />
+                          </RequireRol>
+                        }
+                      />
                       {/* Todo lo que publica /gran-cosecha.html —hero,
                           premios, fotos y las tarjetas de los participantes—:
                           lo edita sólo el Líder (`SoloLider` en la ruta, el
@@ -387,10 +398,11 @@ function Rutas() {
                           </SoloLider>
                         }
                       />
-                      {/* El menú de la sucursal: lo llena su encargado
-                          (Gerente de Sucursal) o el Líder de cualquier
-                          tienda; la RLS (`es_encargado_menu`) vuelve a pedir
-                          lo mismo fila por fila. */}
+                      {/* El menú de la sucursal: lo carga y lo modifica el
+                          Líder de cualquier tienda. El Gerente de Sucursal
+                          entra a verlo en SÓLO LECTURA —la RLS
+                          (`menu_productos_gestion`) escribe sólo con
+                          `es_lider()`—. */}
                       <Route
                         path="/menu-editor"
                         element={

@@ -10,12 +10,14 @@ import { bloqueSql } from './supabaseSql'
  * El bloque carga reglas que sólo fallan cuando alguien consulta con el rol
  * equivocado o intenta tocar la sucursal de otro:
  *
- *  1. RLS: el encargado (Gerente de Sucursal) escribe SÓLO en la suya; el
- *     Líder en cualquier una; los demás no escriben ni ven filas ajenas.
+ *  1. RLS: el encargado (Gerente de Sucursal) SÓLO LEE su sucursal; el
+ *     Líder escribe en cualquier una; los demás no escriben ni ven filas
+ *     ajenas. El Gerente quedó de sólo lectura: no altera su propia carta.
  *  2. La función pública: `anon` la ejecuta, `PUBLIC` no (queda revocada),
  *     devuelve una sucursal con sus productos y NO abre la tabla.
- *  3. El bucket de fotos: público para VER, y sólo sube el encargado —
- *     además acotado a la carpeta de SU sucursal por la propia ruta.
+ *  3. El bucket de fotos: público para VER, y sólo sube el Líder —la ruta
+ *     ES la sucursal (`menu/<sucursal>/<sku>.webp`), así que ni siquiera él
+ *     mete manos en la carpeta de otra tienda.
  *
  * Acá se corre el bloque TAL CÓMO está en `supabase/schema.sql`, dos veces
  * para probar que es idempotente (el SQL Editor lo aplica entero).
@@ -58,7 +60,7 @@ const DDL = `
     id uuid primary key references auth.users(id) on delete cascade,
     nombre text not null default '',
     rol text not null default 'SIN_ROL'
-      check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ')),
+      check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ','GERENTE_TI','TECNICO_TI')),
     sucursal_id uuid,
     activo boolean not null default true
   );
@@ -155,7 +157,7 @@ async function contar(sql: string): Promise<number> {
   return Number((r.rows[0] as { n: string | number }).n)
 }
 
-/** El encargado agrega un producto a SU sucursal, con sesión y RLS de verdad. */
+/** El Líder agrega un producto a cualquier sucursal, con sesión y RLS de verdad. */
 async function agregar(usuario: string, sucursal: string, sku: string, nombre: string, orden: number): Promise<void> {
   await conRol(usuario, async () => {
     await db.query(
@@ -179,8 +181,8 @@ describe('menu-sucursal.sql · la tabla', () => {
   })
 
   it('con sesión se lee lo que la política deja ver', async () => {
-    await agregar(GERENTE_A, SUC_A, '7790001', 'Papel higiénico', 1)
-    await agregar(GERENTE_B, SUC_B, '7790002', 'Detergente', 1)
+    await agregar(LIDER, SUC_A, '7790001', 'Papel higiénico', 1)
+    await agregar(LIDER, SUC_B, '7790002', 'Detergente', 1)
 
     // El encargado de A ve lo suyo y nada de la otra tienda.
     await conRol(GERENTE_A, async () => {
@@ -201,30 +203,33 @@ describe('menu-sucursal.sql · la tabla', () => {
 })
 
 describe('menu-sucursal.sql · RLS', () => {
-  it('el encargado escribe sólo en su sucursal', async () => {
-    // En la suya: pasa.
-    await agregar(GERENTE_A, SUC_A, '7790003', 'Arroz', 2)
+  it('el encargado SÓLO lee: ni escribe en la suya ni en la ajena', async () => {
+    // El producto que usan los tests de más abajo: lo da de alta el Líder.
+    await agregar(LIDER, SUC_A, '7790003', 'Arroz', 2)
 
-    // En la ajena: el `with check` lo rechaza.
     await conRol(GERENTE_A, async () => {
+      // Ni en su propia sucursal: la política de escritura es del Líder.
       await expect(
         db.query(
           `insert into public.menu_productos (sucursal_id, sku, nombre)
-           values ('${SUC_B}', 'hack', 'Colado')`
+           values ('${SUC_A}', '7790003', 'Colado')`
         )
       ).rejects.toThrow(/row-level security/i)
 
-      // Y un update contra la sucursal de otro no toca nada: el `using`
-      // filtra todas las filas y la sentencia sigue sin error.
-      await db.query(
-        `update public.menu_productos set nombre = 'PISADO' where sucursal_id = '${SUC_B}'`
-      )
+      // UPDATE y DELETE no dan error: no hay fila visible, así que no tocan
+      // nada — ni las de su tienda ni las de otra.
+      await db.query(`update public.menu_productos set nombre = 'PISADO' where sku = '7790001'`)
+      await db.query(`delete from public.menu_productos where sku = '7790001'`)
     })
 
     const nombre = await db.query<{ nombre: string }>(
-      `select nombre from public.menu_productos where sucursal_id = '${SUC_B}'`
+      `select nombre from public.menu_productos where sku = '7790001'`
     )
-    expect(nombre.rows[0].nombre).toBe('Detergente')
+    expect(nombre.rows[0].nombre).toBe('Papel higiénico')
+    const sigue = await contar(
+      `select count(*)::int as n from public.menu_productos where sku = '7790001'`
+    )
+    expect(sigue).toBe(1)
   })
 
   it('el evaluador no escribe y el Líder sí (en cualquier sucursal)', async () => {
@@ -249,15 +254,14 @@ describe('menu-sucursal.sql · RLS', () => {
     expect(sigue).toBe(0)
   })
 
-  it('un solo renglón de política cubre los cuatro verbos', async () => {
+  it('leer es del encargado y del Líder; escribir, sólo del Líder', async () => {
     const filas = await db.query<{ policyname: string; cmd: string; roles: string[] }>(
       `select policyname, cmd, roles from pg_policies
         where schemaname = 'public' and tablename = 'menu_productos'`
     )
-    expect(filas.rows.map((f) => `${f.policyname}:${f.cmd.toLowerCase()}`)).toEqual([
-      'menu_productos_encargado:all'
-    ])
-    expect(filas.rows[0].roles).toEqual(['authenticated'])
+    const vistos = filas.rows.map((f) => `${f.policyname}:${f.cmd.toLowerCase()}`).sort()
+    expect(vistos).toEqual(['menu_productos_gestion:all', 'menu_productos_select:select'])
+    for (const f of filas.rows) expect(f.roles).toEqual(['authenticated'])
   })
 })
 
@@ -322,12 +326,23 @@ describe('menu-sucursal.sql · la función pública', () => {
 
 describe('menu-sucursal.sql · descripciones y bajas lógicas', () => {
   it('la descripción viaja en la RPC pública', async () => {
-    // El encargado escribe la descripción de un producto…
-    await conRol(GERENTE_A, async () => {
+    // El Líder escribe la descripción de un producto…
+    await conRol(LIDER, async () => {
       await db.query(
         `update public.menu_productos set descripcion = 'Horneado el mismo día' where sku = '7790003'`
       )
     })
+
+    // …y el encargado de la MISMA sucursal no la toca: es sólo lectura.
+    await conRol(GERENTE_A, async () => {
+      await db.query(
+        `update public.menu_productos set descripcion = 'Nadie debió escribir esto' where sku = '7790003'`
+      )
+    })
+    const leida = await db.query<{ descripcion: string | null }>(
+      `select descripcion from public.menu_productos where sku = '7790003'`
+    )
+    expect(leida.rows[0].descripcion).toBe('Horneado el mismo día')
 
     // …y la página de clientes la recibe, sin inventar nada en las demás.
     await conAnon(async () => {
@@ -342,8 +357,8 @@ describe('menu-sucursal.sql · descripciones y bajas lógicas', () => {
   })
 
   it('quitar es una baja: la fila y su foto sobreviven para la próxima selección', async () => {
-    // La foto que el encargado ya subió quedó en el renglón…
-    await conRol(GERENTE_A, async () => {
+    // La foto que el Líder ya subió quedó en el renglón…
+    await conRol(LIDER, async () => {
       await db.query(
         `update public.menu_productos set foto_url = 'https://fotos.test/menu/7790003.webp?v=1' where sku = '7790003'`
       )
@@ -362,7 +377,7 @@ describe('menu-sucursal.sql · descripciones y bajas lógicas', () => {
     // …pero la próxima selección del mismo SKU la revive CON su foto: el
     // upsert del app va por on conflict (sucursal, sku), así que actualiza
     // la MISMA fila en vez de crear otra.
-    await conRol(GERENTE_A, async () => {
+    await conRol(LIDER, async () => {
       await db.query(
         `insert into public.menu_productos (sucursal_id, sku, nombre, activo)
          values ('${SUC_A}', '7790003', 'Arroz del Sol', true)
@@ -405,15 +420,12 @@ describe('menu-sucursal.sql · las fotos', () => {
     })
   })
 
-  it('sube el encargado… sólo en la carpeta de su sucursal', async () => {
+  it('sube el Líder… y ni el encargado ni nadie más', async () => {
+    // El Gerente de Sucursal no sube ni en SU carpeta: sólo lectura.
     await conRol(GERENTE_A, async () => {
-      await db.query(
-        `insert into storage.objects (bucket_id, name) values ('menu-fotos', 'menu/${SUC_A}/nuevo.webp')`
-      )
-      // La carpita de la otra tienda: el `with check` la rechaza.
       await expect(
         db.query(
-          `insert into storage.objects (bucket_id, name) values ('menu-fotos', 'menu/${SUC_B}/hack.webp')`
+          `insert into storage.objects (bucket_id, name) values ('menu-fotos', 'menu/${SUC_A}/nuevo.webp')`
         )
       ).rejects.toThrow(/row-level security/i)
     })
@@ -426,7 +438,7 @@ describe('menu-sucursal.sql · las fotos', () => {
       ).rejects.toThrow(/row-level security/i)
     })
 
-    // El Líder sube en cualquier carpeta.
+    // El Líder sube en cualquier carpeta (es el dueño del módulo entero).
     await conRol(LIDER, async () => {
       await db.query(
         `insert into storage.objects (bucket_id, name) values ('menu-fotos', 'menu/${SUC_B}/lider.webp')`
@@ -436,8 +448,8 @@ describe('menu-sucursal.sql · las fotos', () => {
 })
 
 describe('menu-sucursal.sql · las categorías', () => {
-  it('la categoría viaja en la RPC pública y la escribe sólo su encargado', async () => {
-    await conRol(GERENTE_A, async () => {
+  it('la categoría viaja en la RPC pública y la escribe sólo el Líder', async () => {
+    await conRol(LIDER, async () => {
       await db.query(
         `update public.menu_productos set categoria = 'Entradas' where sku = '7790001'`
       )
@@ -453,8 +465,11 @@ describe('menu-sucursal.sql · las categorías', () => {
       expect(r.rows[0].r.productos.some((p) => p.categoria === null)).toBe(true)
     })
 
-    // El encargado de OTRA sucursal no toca mis categorías: el `using` de
-    // la fila lo filtra y el update no toca nada.
+    // Ni el encargado de ESA sucursal ni el de otra: la política de
+    // escritura no mira sucursales, es del Líder.
+    await conRol(GERENTE_A, async () => {
+      await db.query(`update public.menu_productos set categoria = 'Hack' where sku = '7790001'`)
+    })
     await conRol(GERENTE_B, async () => {
       await db.query(`update public.menu_productos set categoria = 'Hack' where sku = '7790001'`)
     })
