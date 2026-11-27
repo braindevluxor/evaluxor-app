@@ -1,8 +1,9 @@
-import { lazy, Suspense } from 'react'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { lazy, Suspense, useEffect } from 'react'
+import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { Rol } from './lib/types'
 import { AuthProvider } from './context/AuthContext'
 import { CatalogProvider } from './context/CatalogContext'
+import { VersionProvider } from './context/VersionContext'
 import { OfflineProvider } from './context/OfflineContext'
 import { RequireAuth, RequireRol, RequireSesion, SoloLider } from './components/guards'
 import { ConsoleLayout } from './components/layouts/ConsoleLayout'
@@ -12,25 +13,428 @@ import { RegisterPage } from './pages/login/RegisterPage'
 import { PerfilPage } from './pages/PerfilPage'
 import { EvaluarHome } from './pages/evaluar/EvaluarHome'
 import { EvaluarSucursal } from './pages/evaluar/EvaluarSucursal'
-import { Spinner } from './components/ui'
+import { EvaluacionDetalle } from './pages/EvaluacionDetalle'
+import { EditarConciliacion } from './pages/EditarConciliacion'
+import { CargadorPantalla } from './components/ui'
+import { AvisoHost } from './components/AvisoHost'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 const EvaluarResumen = lazy(() => import('./pages/evaluar/EvaluarResumen').then((m) => ({ default: m.EvaluarResumen })))
 const MisEvaluaciones = lazy(() => import('./pages/evaluar/MisEvaluaciones').then((m) => ({ default: m.MisEvaluaciones })))
+const IncidenciasPage = lazy(() => import('./pages/evaluar/IncidenciasPage').then((m) => ({ default: m.IncidenciasPage })))
 const DashboardHome = lazy(() => import('./pages/dashboard/DashboardHome').then((m) => ({ default: m.DashboardHome })))
+const Historial = lazy(() => import('./pages/dashboard/Historial').then((m) => ({ default: m.Historial })))
 const Comparativas = lazy(() => import('./pages/dashboard/Comparativas').then((m) => ({ default: m.Comparativas })))
-const SucursalesPage = lazy(() => import('./pages/config/Sucursales').then((m) => ({ default: m.SucursalesPage })))
+const Responsables = lazy(() => import('./pages/dashboard/Responsables').then((m) => ({ default: m.Responsables })))
+const ModuloDashboard = lazy(() => import('./pages/dashboard/ModuloDashboard').then((m) => ({ default: m.ModuloDashboard })))
+const UnidadesPage = lazy(() => import('./pages/config/Unidades').then((m) => ({ default: m.UnidadesPage })))
 const ModulosPage = lazy(() => import('./pages/config/Modulos').then((m) => ({ default: m.ModulosPage })))
 const ItemsPage = lazy(() => import('./pages/config/Items').then((m) => ({ default: m.ItemsPage })))
 const UsuariosPage = lazy(() => import('./pages/config/Usuarios').then((m) => ({ default: m.UsuariosPage })))
-const AsignacionesPage = lazy(() => import('./pages/config/Asignaciones').then((m) => ({ default: m.AsignacionesPage })))
+// Bonos por desempeño: qué cargos gozan de bono y el pago de los mismos.
+const BonosPage = lazy(() => import('./pages/config/Bonos').then((m) => ({ default: m.BonosPage })))
+// Tabulador de paquetes: las cifras de Talento Humano por cargo, en BS y
+// USD, con la MISMA cerradura que los bonos.
+const TabuladorPaquetesPage = lazy(() =>
+  import('./pages/config/TabuladorPaquetes').then((m) => ({ default: m.TabuladorPaquetesPage }))
+)
+// Gran Cosecha: el concurso trimestral de proyectos. Sin `RequireRol` —lo
+// crean los trabajadores y lo siguen los jueces— pero con lazy, porque es la
+// única pantalla que no entra nadie si no entra a la consola.
+const GranCosechaPage = lazy(() => import('./pages/GranCosecha').then((m) => ({ default: m.GranCosechaPage })))
 
-const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH']
+// La Mesa de Ayuda (helpdesk TI): sólo pide sesión — cualquier colaborador
+// reporta un caso—; quién gestiona lo decide el RLS (`es_lider()`), no un
+// guard de ruta, así que la pantalla se abre igual para las dos vistas.
+const HelpdeskPage = lazy(() =>
+  import('./pages/helpdesk/Helpdesk').then((m) => ({ default: m.HelpdeskPage }))
+)
+// Acuerdos Comerciales: alquiler de espacios del piso de venta. Sólo lo
+// entran sus TRES roles (el Líder, que sólo ve).
+const AcuerdosPage = lazy(() =>
+  import('./pages/acuerdos/AcuerdosComerciales').then((m) => ({ default: m.AcuerdosPage }))
+)
+// La página pública (/gran-cosecha.html) vista desde la consola: sólo el
+// Líder la abre —la misma cerradura que su item de menú y su RLS—.
+const GranCosechaPagina = lazy(() =>
+  import('./pages/GranCosechaPagina').then((m) => ({ default: m.GranCosechaPaginaPage }))
+)
+// Pantalla de invitado: la conciliación de UNA evaluación para quien no tiene
+// cuenta. Va con lazy porque sólo se descarga quien abre el enlace.
+const ConciliacionPublica = lazy(() =>
+  import('./pages/publico/ConciliacionPublica').then((m) => ({ default: m.ConciliacionPublica }))
+)
+// La otra de invitado: las fallas por cargo (la bitácora de atención del
+// trabajador), también con lazy.
+const CargosPublicos = lazy(() =>
+  import('./pages/publico/CargosPublicos').then((m) => ({ default: m.CargosPublicos }))
+)
+// Lo que muestra el QR del PDF de la inspección: detalle público con el
+// material visual, sin cuenta. Como las otras pantallas de invitado.
+const InspeccionCompartida = lazy(() =>
+  import('./pages/publico/InspeccionPublica').then((m) => ({ default: m.InspeccionPublica }))
+)
+// El menú de cada sucursal: pantalla de CLIENTES que se abre sin sesión
+// (el QR de la tienda), igual que los enlaces de invitado.
+const MenuPublico = lazy(() =>
+  import('./pages/publico/MenuPublico').then((m) => ({ default: m.MenuPublico }))
+)
+// Su editor: lo usa el encargado (Gerente de Sucursal) o el Líder.
+const MenuEditor = lazy(() =>
+  import('./pages/MenuEditor').then((m) => ({ default: m.MenuEditorPage }))
+)
+// Inspección de vehículo (estética + mecánica + gas vehicular): herramienta
+// fuera de la evaluación, con fotos, registro local y PDF.
+const InspeccionVehiculo = lazy(() =>
+  import('./pages/herramientas/InspeccionVehiculo').then((m) => ({ default: m.InspeccionVehiculo }))
+)
+// Su historial: misma puerta y mismo flujo móvil; de ahí se reabre cualquier
+// inspección anterior para regenerar su PDF.
+const InspeccionHistorial = lazy(() =>
+  import('./pages/herramientas/InspeccionHistorial').then((m) => ({ default: m.InspeccionHistorial }))
+)
+// Revisión Pre-Entrega: fuera del menú y de las rutas por decisión de producto;
+// el módulo (`pages/herramientas/RevisionPreEntrega`) sigue en el repo.
+
+const ROLES_DASHBOARD: Rol[] = ['LIDER', 'GERENTE_S', 'GERENTE_C', 'GERENTE_TH', 'EVALUADOR']
 
 function Susp() {
+  // A pantalla completa: si el cargador cubriera sólo una parte, debajo se
+  // vería el fondo del documento y el arranque se leía como dos colores.
+  return <CargadorPantalla completa />
+}
+
+/**
+ * `/gran-cosecha` SIN `.html`: la dirección obvia de la cosecha.
+ *
+ * Quien la tipea espera la PÁGINA PÚBLICA, no la consola — ésa era la
+ * confusión entre las dos rutas. El HTML estático vive FUERA del router de
+ * React, así que la redirección es una navegación real (`location.replace`):
+ * un `<Navigate>` cambiaría sólo el historial y dejaría la SPA pintando en una
+ * URL que no le pertenece. La consola del concurso pasó a
+ * `/gran-cosecha/proyectos`, junto a sus editors.
+ */
+function IrALandingGranCosecha() {
+  useEffect(() => {
+    window.location.replace('/gran-cosecha.html')
+  }, [])
+  return <Susp />
+}
+
+/** Envuelve las rutas en un error boundary que se limpia al navegar: si algo
+ *  lanza durante el render de una pantalla, se muestra el fallback en vez de
+ *  dejar la app en blanco, y cambiar de ruta reintenta solo. */
+function Rutas() {
+  const location = useLocation()
   return (
-    <div className="grid min-h-[60vh] place-items-center">
-      <Spinner className="h-8 w-8" />
-    </div>
+    <ErrorBoundary resetKey={location.pathname}>
+      <Suspense fallback={<Susp />}>
+        <Routes>
+                    <Route path="/" element={<HomeRedirect />} />
+                    <Route path="/login" element={<LoginPage />} />
+                    <Route path="/registro" element={<RegisterPage />} />
+                    {/* Sin `RequireAuth` a propósito: es el enlace que un Líder
+                        le pasa al coordinador de inventario para que vea la
+                        conciliación sin tener cuenta. La autorización es el
+                        token, y sólo da lectura — ver `supabase/compartir-evaluacion.sql`. */}
+                    {/* Enlace de INVITADO: la otra pantalla pública, con su
+                        propia ruta para no pisar el de conciliación. */}
+                    {/* Lo que lleva el QR del PDF de la inspección: el
+                        detalle con sus fotos y videos, sin cuenta. */}
+                    <Route path="/compartir/inspeccion/:token" element={<InspeccionCompartida />} />
+                    <Route path="/compartir/cargos/:token" element={<CargosPublicos />} />
+                    <Route path="/compartir/:token" element={<ConciliacionPublica />} />
+                    {/* La dirección obvia de la cosecha: manda a la landing
+                        pública estática. La consola está adentro del grupo de
+                        sesión, en /gran-cosecha/proyectos. */}
+                    <Route path="/gran-cosecha" element={<IrALandingGranCosecha />} />
+                    {/* El menú de UNA sucursal: la carta que ve el cliente
+                        desde su QR. Sin `RequireAuth` a propósito — la
+                        autorización es la RPC (`ver_menu_publico`), que
+                        devuelve una sucursal o nada. */}
+                    <Route path="/menu/:sucursalId" element={<MenuPublico />} />
+                    <Route
+                      path="/evaluaciones/:evaluacionId"
+                      element={
+                        <RequireAuth loadingFallback={<CargadorPantalla completa />}>
+                          <RequireRol roles={[...ROLES_DASHBOARD, 'EVALUADOR']}>
+                            <EvaluacionDetalle />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/evaluaciones/:evaluacionId/conciliacion"
+                      element={
+                        <RequireAuth>
+                          <SoloLider>
+                            <EditarConciliacion />
+                          </SoloLider>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route path="/pendiente" element={<RequireSesion><PendientePage /></RequireSesion>} />
+
+                    <Route
+                      path="/evaluar"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <EvaluarHome />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/evaluar/historial"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <MisEvaluaciones />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/evaluar/incidencias"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <IncidenciasPage />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    {/* Inspección de vehículo particular: misma puerta que la
+                        evaluación y en el mismo flujo móvil (se llena desde el
+                        teléfono), pero sin evaluación detrás — se llena y se
+                        imprime. No tiene sucursal: no es de ninguna unidad. */}
+                    <Route
+                      path="/evaluar/inspeccion-vehiculo"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <InspeccionVehiculo />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    {/* El historial de esas inspecciones: misma puerta. Las
+                        filas reabren la herramienta con ?registro=<id>. */}
+                    <Route
+                      path="/evaluar/inspeccion-vehiculo/historial"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <InspeccionHistorial />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+
+                    {/* La herramienta Revisión Pre-Entrega quedó fuera del menú y
+                        de las rutas: se rearmará aparte. El código y la tabla
+                        siguen intactos, así que volver es reponer este Route. */}
+                    {/* El mismo flujo de evaluación, pero sobre un departamento
+                        centralizado: la unidad se lee de la ruta. */}
+                    <Route
+                      path="/evaluar/departamento/:departamentoId"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <EvaluarSucursal />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/evaluar/departamento/:departamentoId/resumen"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <EvaluarResumen />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/evaluar/:sucursalId"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <EvaluarSucursal />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/evaluar/:sucursalId/resumen"
+                      element={
+                        <RequireAuth>
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <EvaluarResumen />
+                          </RequireRol>
+                        </RequireAuth>
+                      }
+                    />
+
+                    <Route
+                      element={
+                        <RequireAuth>
+                          <ConsoleLayout />
+                        </RequireAuth>
+                      }
+                    >
+                      <Route
+                        path="/dashboard"
+                        element={
+                          <RequireRol roles={ROLES_DASHBOARD}>
+                            <DashboardHome />
+                          </RequireRol>
+                        }
+                      />
+                      <Route
+                        path="/dashboard/historial"
+                        element={
+                          <RequireRol roles={ROLES_DASHBOARD}>
+                            <Historial />
+                          </RequireRol>
+                        }
+                      />
+                      <Route
+                        path="/dashboard/comparativas"
+                        element={
+                          <RequireRol roles={ROLES_DASHBOARD}>
+                            <Comparativas />
+                          </RequireRol>
+                        }
+                      />
+                      <Route
+                        path="/dashboard/responsables"
+                        element={
+                          <SoloLider>
+                            <Responsables />
+                          </SoloLider>
+                        }
+                      />
+                      <Route
+                        path="/dashboard/modulo/:moduloId"
+                        element={
+                          <RequireRol roles={ROLES_DASHBOARD}>
+                            <ModuloDashboard />
+                          </RequireRol>
+                        }
+                      />
+                      <Route path="/config/unidades" element={<SoloLider><UnidadesPage /></SoloLider>} />
+                      {/* Módulos se abre al EVALUADOR en modo consulta: necesita
+                          descargar la explicación de cada módulo (PDF de
+                          metodología). La escritura la decide la página con
+                          `soloLectura` y, de última, el RLS (`modulos_lider` /
+                          `items_lider`) bloquea cualquier cambio. */}
+                      <Route
+                        path="/config/modulos"
+                        element={
+                          <RequireRol roles={['EVALUADOR', 'LIDER']}>
+                            <ModulosPage />
+                          </RequireRol>
+                        }
+                      />
+                      <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
+                      <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
+                      {/* Bonos por desempeño: es manejo de plata de RRHH, así
+                          que entran los DOS roles que lo gestionan —LÍDER y
+                          GERENTE TH— y el RLS (`puede_bonos`) vuelve a pedir
+                          lo mismo desde la base. */}
+                      <Route
+                        path="/config/bonos"
+                        element={
+                          <RequireRol roles={['LIDER', 'GERENTE_TH']}>
+                            <BonosPage />
+                          </RequireRol>
+                        }
+                      />
+                      {/* Tabulador de paquetes: MISMA cerradura que los
+                          bonos (ruta + RLS `puede_bonos`), porque también
+                          es una cifra de sueldo. Los DOS roles lo editan. */}
+                      <Route
+                        path="/config/bonos/tabulador"
+                        element={
+                          <RequireRol roles={['LIDER', 'GERENTE_TH']}>
+                            <TabuladorPaquetesPage />
+                          </RequireRol>
+                        }
+                      />
+                      {/* La cuenta de cualquiera que haya entrado: por eso no
+                          lleva `RequireRol`. Va adentro de la consola para que
+                          se vea con su barra y su menú, igual que el resto. */}
+                      <Route path="/perfil" element={<PerfilPage />} />
+                      {/* Mesa de Ayuda: con sesión alcanza — la vista de TI
+                          (asignar, estados, prioridad) la habilita el RLS con
+                          `es_lider()`; el resto ve la de sucursal. Vive DENTRO
+                          de la consola para usar SU barra lateral y su barra
+                          superior (ahí cuelga el cambio de vista por
+                          PortalCabecera), como cualquier otra pantalla. */}
+                      <Route path="/helpdesk" element={<HelpdeskPage />} />
+                      {/* Acuerdos Comerciales: los TRES roles del módulo
+                          (el Líder sólo ve) y la RLS vuelve a pedir lo mismo
+                          con `puede_ver_acuerdos()`. Cada vista es su propia
+                          ruta (el menú lateral enlaza a todas) y así recargar
+                          no pierde la pantalla. */}
+                      <Route
+                        path="/acuerdos/*"
+                        element={
+                          <RequireRol roles={['LIDER', 'COOR_ACU', 'AUD_EX']}>
+                            <AcuerdosPage />
+                          </RequireRol>
+                        }
+                      />
+                      {/* Gran Cosecha es de TODA la empresa MENOS el
+                          Gerente de Sucursal: ese rol no ve los proyectos ni
+                          por el menú ni por la dirección (RequireRol lo
+                          manda a su casa). El resto presenta y mira; el
+                          seguimiento lo dan los jueces, que entran por el
+                          mismo RLS (`puede_gran_cosecha`) que pide el menú.
+                          El grupo ya trae RequireAuth, que es quien manda al
+                          SIN_ROL a /pendiente. */}
+                      <Route
+                        path="/gran-cosecha/proyectos"
+                        element={
+                          <RequireRol roles={['LIDER', 'EVALUADOR', 'GERENTE_C', 'GERENTE_TH', 'JUEZ']}>
+                            <GranCosechaPage />
+                          </RequireRol>
+                        }
+                      />
+                      {/* Todo lo que publica /gran-cosecha.html —hero,
+                          premios, fotos y las tarjetas de los participantes—:
+                          lo edita sólo el Líder (`SoloLider` en la ruta, el
+                          item `soloLider` en el menú y la RLS `es_lider()`). */}
+                      <Route
+                        path="/gran-cosecha/pagina"
+                        element={
+                          <SoloLider>
+                            <GranCosechaPagina />
+                          </SoloLider>
+                        }
+                      />
+                      {/* El menú de la sucursal: lo carga y lo modifica el
+                          Líder de cualquier tienda. El Gerente de Sucursal
+                          entra a verlo en SÓLO LECTURA —la RLS
+                          (`menu_productos_gestion`) escribe sólo con
+                          `es_lider()`—. */}
+                      <Route
+                        path="/menu-editor"
+                        element={
+                          <RequireRol roles={['LIDER', 'GERENTE_S']}>
+                            <MenuEditor />
+                          </RequireRol>
+                        }
+                      />
+                    </Route>
+
+                    <Route path="*" element={<HomeRedirect />} />
+                  </Routes>
+      </Suspense>
+    </ErrorBoundary>
   )
 }
 
@@ -40,88 +444,14 @@ export default function App() {
       <AuthProvider>
         <OfflineProvider>
           <CatalogProvider>
-            <Suspense fallback={<Susp />}>
-              <Routes>
-                <Route path="/" element={<HomeRedirect />} />
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/registro" element={<RegisterPage />} />
-                <Route path="/perfil" element={<RequireAuth><PerfilPage /></RequireAuth>} />
-                <Route path="/pendiente" element={<RequireSesion><PendientePage /></RequireSesion>} />
-
-                <Route
-                  path="/evaluar"
-                  element={
-                    <RequireAuth>
-                      <RequireRol roles={['EVALUADOR', 'LIDER']}>
-                        <EvaluarHome />
-                      </RequireRol>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/evaluar/historial"
-                  element={
-                    <RequireAuth>
-                      <RequireRol roles={['EVALUADOR', 'LIDER']}>
-                        <MisEvaluaciones />
-                      </RequireRol>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/evaluar/:sucursalId"
-                  element={
-                    <RequireAuth>
-                      <RequireRol roles={['EVALUADOR', 'LIDER']}>
-                        <EvaluarSucursal />
-                      </RequireRol>
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/evaluar/:sucursalId/resumen"
-                  element={
-                    <RequireAuth>
-                      <RequireRol roles={['EVALUADOR', 'LIDER']}>
-                        <EvaluarResumen />
-                      </RequireRol>
-                    </RequireAuth>
-                  }
-                />
-
-                <Route
-                  element={
-                    <RequireAuth>
-                      <ConsoleLayout />
-                    </RequireAuth>
-                  }
-                >
-                  <Route
-                    path="/dashboard"
-                    element={
-                      <RequireRol roles={ROLES_DASHBOARD}>
-                        <DashboardHome />
-                      </RequireRol>
-                    }
-                  />
-                  <Route
-                    path="/dashboard/comparativas"
-                    element={
-                      <RequireRol roles={ROLES_DASHBOARD}>
-                        <Comparativas />
-                      </RequireRol>
-                    }
-                  />
-                  <Route path="/config/sucursales" element={<SoloLider><SucursalesPage /></SoloLider>} />
-                  <Route path="/config/modulos" element={<SoloLider><ModulosPage /></SoloLider>} />
-                  <Route path="/config/items" element={<SoloLider><ItemsPage /></SoloLider>} />
-                  <Route path="/config/usuarios" element={<SoloLider><UsuariosPage /></SoloLider>} />
-                  <Route path="/config/asignaciones" element={<SoloLider><AsignacionesPage /></SoloLider>} />
-                </Route>
-
-                <Route path="*" element={<HomeRedirect />} />
-              </Routes>
-            </Suspense>
+            {/* Versión: avisa (o actualiza sola) cuando hay una build nueva en
+                el servidor, sin cortar a quien está evaluando. */}
+            <VersionProvider>
+              <Rutas />
+              {/* El cartel flotante de confirmaciones va fuera de las rutas:
+                  cambia de pantalla no debe apagar lo que se está avisando. */}
+              <AvisoHost />
+            </VersionProvider>
           </CatalogProvider>
         </OfflineProvider>
       </AuthProvider>

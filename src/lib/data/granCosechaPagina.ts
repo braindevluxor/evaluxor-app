@@ -1,0 +1,389 @@
+import { convertirImagenAWebP, convertirParaCarrusel } from '../convertirMedia'
+import { supabase } from '../supabase'
+
+/**
+ * EL CONTENIDO DE LA LANDING PÚBLICA /gran-cosecha.html
+ * -----------------------------------------------------
+ * La página de la Gran Cosecha es HTML estático: se sirve desde `dist/` y
+ * queda FUERA del router de React, así que no puede usar esta sesión ni el
+ * cliente de la app para mostrar algo. Lo que cambia en ella —el hero con su
+ * carrusel y los premios— vive en UNA fila
+ * (`public.gran_cosecha_pagina`) y la página lo lee sola, por su cuenta, con
+ * `ver_contenido_gran_cosecha` (la única función además de las de los
+ * enlaces y el login que está abierta a `anon`). Lo que se ve de los
+ * PARTICIPANTES viene de otra parte: de `gran_cosecha_proyecto`, con su
+ * conteo de riegos.
+ *
+ * Todo lo visual se SUBE CONVERTIDO: las imágenes en WebP y los videos en
+ * WebM, en el navegador, antes de llegar al bucket (ver `../convertirMedia`)
+ * — la landing pide esos formatos y el que sube trae el archivo como lo tenga.
+ *
+ * Acá se lee y se escribe con la sesión de la consola:
+ *
+ *  - Leer: la tabla, con la política `for select to authenticated`.
+ *  - Escribir: la misma tabla, con la política `for all ... es_lider()` —
+ *    la misma cerradura que el guard de la ruta y el item del menú.
+ *  - Fotos: bucket `gran-cosecha`, PÚBLICO (es el primer bucket público del
+ *    repo; `evidencias` sigue privado), porque la página las ve sin sesión.
+ *    Sube sólo el Líder, con las políticas del propio bucket.
+ *
+ * Si la fila todavía no existe —nadie guardó nunca— se devuelven los
+ * VALORES POR DEFECTO, que son exactamente los que trae el HTML: la consola
+ * siempre muestra algo y la landing funciona aunque Supabase esté caído.
+ */
+
+/**
+ * Un item del carrusel del hero, ya convertido al formato de la página:
+ * las imágenes suben como WebP y los videos como WebM (ver `convertirMedia`),
+ * así que `tipo` es lo que decide cómo la landing lo pinta.
+ */
+export interface ItemCarrusel {
+  tipo: 'imagen' | 'video'
+  /** URL pública en el bucket. */
+  url: string
+  /**
+   * Lo que la landing muestra junto a la foto: badge de edición, badge de
+   * categoría, título, pie y ubicación (el mismo set que recoge su propio
+   * modal de fotos). Todo OPCIONAL: los items viejos —sólo `tipo`+`url`—
+   * siguen siendo válidos y la landing pinta un respaldo si falta.
+   */
+  titulo?: string
+  edicion?: string
+  categoria?: string
+  pie?: string
+  ubicacion?: string
+}
+
+/** El bloque del hero: lema, bajada, fechas, fondo y carrusel. */
+export interface HeroPagina {
+  lema: string
+  bajada: string
+  /** Día de inicio, tal como se pinta: "23". */
+  fechaDesde: string
+  /** Mes de inicio en tres letras: "AGT". */
+  fechaDesdeMes: string
+  fechaHasta: string
+  fechaHastaMes: string
+  /**
+   * Foto de fondo, que es lo que queda cuando NO hay carrusel: la landing la
+   * pinta con un velo navy encima, igual que antes.
+   */
+  fondo: string
+  /**
+   * Medios que rotan detrás del hero (vacío = se muestra `fondo`).
+   * Vive dentro del jsonb `hero`, así que no pide ningún cambio de esquema.
+   */
+  carrusel: ItemCarrusel[]
+  /**
+   * Las CUATRO fotos del mosaico de pétalos del hero, en el orden en que se
+   * pintan (arriba-izq, arriba-der, aba-izq, aba-der). Una posición vacía =
+   * la foto de ejemplo que trae la landing. Vive en el jsonb `hero`.
+   */
+  petalos: string[]
+  /**
+   * Video de fondo del hero (WebM, subido desde la consola). Vacío = la
+   * textura de papel estática. Vive en el jsonb `hero`.
+   */
+  video: string
+}
+
+/** Un premio de la sección «PREMIOS»: "1° PUESTO" y qué se gana. */
+export interface PremioPagina {
+  puesto: string
+  descripcion: string
+}
+
+/**
+ * Una guía de la postulación: uno de los DOS archivos que el Líder sube
+ * desde esta pantalla y que la landing ofrece como descarga dentro del
+ * modal «Postular Proyecto». `url` vacía = esa guía no aparece; sin
+ * ninguna, la página oculta la sección entera.
+ */
+export interface GuiaPagina {
+  /** Lo que la página muestra en el enlace de descarga. */
+  nombre: string
+  /** URL pública en el bucket. */
+  url: string
+}
+
+export interface ContenidoPagina {
+  hero: HeroPagina
+  premios: PremioPagina[]
+  /** Siempre DOS slots: la consola los muestra fijos, vacíos o subidos. */
+  guias: GuiaPagina[]
+}
+
+/**
+ * Lo que muestra la página si la base está vacía.
+ *
+ * Es el espejo de los valores hardcodeados en `public/gran-cosecha.html`:
+ * si cambia uno, cambian los dos —la landing los pinta aunque no haya red—.
+ */
+export const CONTENIDO_BASE: ContenidoPagina = {
+  hero: {
+    lema: 'COMPETENCIA INTERNA DE EXCELENCIA Y SERVICIO',
+    bajada: 'IMPULSANDO EL TALENTO DE NUESTRAS SUCURSALES LUXOR',
+    fechaDesde: '23',
+    fechaDesdeMes: 'AGT',
+    fechaHasta: '27',
+    fechaHastaMes: 'SEPT',
+    fondo: '',
+    carrusel: [],
+    petalos: ['', '', '', ''],
+    video: ''
+  },
+  premios: [
+    { puesto: '1° PUESTO', descripcion: 'Gran Premio Corporativo y Trofeo Luxor' },
+    { puesto: '2° PUESTO', descripcion: 'Incentivo Especial para Todo el Equipo' },
+    { puesto: '3° PUESTO', descripcion: 'Reconocimiento Destacado y Cesta Luxor' }
+  ],
+  // Dos slots vacíos: la consola los muestra siempre; sin URL, la landing
+  // no pinta esa guía.
+  guias: [
+    { nombre: '', url: '' },
+    { nombre: '', url: '' }
+  ]
+}
+
+/**
+ * El contenido de la página, o los valores por defecto si todavía no hay.
+ *
+ * El `hero` se mergea con el suyo: una fila guardada en una versión anterior
+ * de la consola no puede quedarse sin un campo nuevo que la página necesita
+ * pintar.
+ */
+export async function cargarContenidoPagina(): Promise<ContenidoPagina> {
+  const { data, error } = await supabase
+    .from('gran_cosecha_pagina')
+    .select('hero, premios, guias')
+    .eq('id', true)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) return CONTENIDO_BASE
+  const hero = { ...CONTENIDO_BASE.hero, ...(data.hero as Partial<HeroPagina> | null) }
+  // Una fila guardada antes del carrusel no lo trae, y una con un JSON raro
+  // no puede romper la consola: se normaliza a lista, igual que `premios`.
+  if (!Array.isArray(hero.carrusel)) hero.carrusel = []
+  // Lo mismo para los pétalos (4 fotos) y el video del hero.
+  if (!Array.isArray(hero.petalos)) hero.petalos = ['', '', '', '']
+  if (typeof hero.video !== 'string') hero.video = ''
+  return {
+    hero,
+    premios: Array.isArray(data.premios) ? (data.premios as PremioPagina[]) : [],
+    guias: normalizarGuias(data.guias)
+  }
+}
+
+/**
+ * Las guías, siempre DOS slots con su forma.
+ *
+ * Una fila guardada antes de la columna no las trae (`guias` ausente) y una
+ * con un JSON raro no puede romper la consola: cada slot se normaliza a
+ * `{nombre, url}` de texto, y los que falten nacen vacíos — la consola
+ * muestra los dos cupos igual.
+ */
+function normalizarGuias(valor: unknown): GuiaPagina[] {
+  const lista = Array.isArray(valor) ? valor : []
+  return [0, 1].map((i) => {
+    const g = lista[i] as Partial<GuiaPagina> | undefined
+    return {
+      nombre: g && typeof g.nombre === 'string' ? g.nombre : '',
+      url: g && typeof g.url === 'string' ? g.url : ''
+    }
+  })
+}
+
+/** Guarda el contenido entero (la fila nace con el primer guardado). */
+export async function guardarContenidoPagina(contenido: ContenidoPagina): Promise<void> {
+  const { error } = await supabase.from('gran_cosecha_pagina').upsert(
+    { id: true, ...contenido, actualizado_en: new Date().toISOString() },
+    { onConflict: 'id' }
+  )
+  if (error) throw error
+}
+
+/**
+ * El problema del contenido, o `null` si está listo para publicar.
+ *
+ * Es la capa que EXPLICA en pantalla lo que el `check` de la base rechazaría
+ * a lo bruto (42514): el formulario puede decir «el premio 2 necesita su
+ * puesto» en vez de fallar con un código de Postgres.
+ */
+export function validarContenido(contenido: ContenidoPagina): string | null {
+  if (!contenido.hero.lema.trim()) return 'El lema del hero no puede quedar vacío.'
+  if (!contenido.hero.bajada.trim()) return 'La bajada del hero no puede quedar vacía.'
+  if (!contenido.hero.fechaDesde.trim() || !contenido.hero.fechaDesdeMes.trim()) {
+    return 'Falta la fecha de inicio del hero.'
+  }
+  if (!contenido.hero.fechaHasta.trim() || !contenido.hero.fechaHastaMes.trim()) {
+    return 'Falta la fecha de cierre del hero.'
+  }
+  for (const [i, item] of contenido.hero.carrusel.entries()) {
+    if (!item || (item.tipo !== 'imagen' && item.tipo !== 'video') || !item.url.trim()) {
+      return `El elemento ${i + 1} del carrusel no tiene un archivo subido.`
+    }
+  }
+  if (!contenido.premios.length) return 'La página necesita al menos un premio.'
+  for (const [i, premio] of contenido.premios.entries()) {
+    if (!premio.puesto.trim() || !premio.descripcion.trim()) {
+      return `El premio ${i + 1} necesita su puesto y su descripción.`
+    }
+  }
+  // Las guías son opcionales, pero MEDIA guía no: o tiene archivo y nombre
+  // para el enlace, o queda vacía para que la página no la pinte.
+  for (const [i, guia] of contenido.guias.entries()) {
+    const nombre = (guia?.nombre ?? '').trim()
+    const url = (guia?.url ?? '').trim()
+    if (nombre && !url) return `La guía ${i + 1} tiene nombre pero falta subir el archivo.`
+    if (url && !nombre) return `La guía ${i + 1} necesita su nombre para el enlace de la página.`
+  }
+  return null
+}
+
+/**
+ * La única foto con slot fijo que queda: el fondo del hero. Los rounds se
+ * retiraron de la página, y con ellos `round1..3`.
+ */
+export type FotoPagina = 'fondo'
+
+export const BUCKET = 'gran-cosecha'
+/** Extensión del archivo ya convertido, según el tipo que salió de la conversión. */
+const EXT_POR_TIPO = { imagen: 'webp', video: 'webm' } as const
+
+/** La ruta dentro del bucket de una URL pública nuestra ('' si no es nuestra). */
+function rutaDeUrlPublica(url: string): string {
+  const marca = `/object/public/${BUCKET}/`
+  const i = url.indexOf(marca)
+  if (i < 0) return ''
+  return url.slice(i + marca.length).split('?')[0]
+}
+
+/**
+ * Sube una foto de la página y devuelve su URL pública.
+ *
+ * La imagen se CONVIERTE a WebP antes de subirla, a su resolución natural
+ * (ver `convertirMedia`): la landing pide WebP y que se vea nítida, y el que
+ * elige el archivo no tiene que saberlo. Cualquier formato que el navegador
+ * lea sirve de entrada — JPG, PNG, WEBP, GIF—.
+ *
+ * El nombre del archivo sale del SLOT y no del archivo elegido: subir dos
+ * veces la misma foto reemplaza la anterior en vez de acumular copias en el
+ * bucket. La URL lleva `?v=` con la hora porque el navegador y el CDN de
+ * Supabase ya tienen la anterior cacheada — con el mismo path, la página
+ * seguiría mostrando la foto vieja.
+ */
+export async function subirFotoPagina(slot: FotoPagina, archivo: File, urlActual: string): Promise<string> {
+  const webp = await convertirImagenAWebP(archivo)
+  const ruta = `pagina/${slot}.webp`
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, webp, {
+    contentType: 'image/webp',
+    upsert: true
+  })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  const url = `${data.publicUrl}?v=${Date.now()}`
+  // Los slots viejos guardaban jpg/png: al migrar a webp el archivo anterior
+  // queda huérfano en el bucket. Se borra sólo si es otro distinto del recién
+  // subido, y un fallo acá no deshace la subida.
+  const anterior = rutaDeUrlPublica(urlActual)
+  if (anterior && anterior !== ruta) {
+    await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
+  }
+  return url
+}
+
+/**
+ * Sube el archivo de una guía (slots fijos: la guía 1 y la 2) y devuelve
+ * su URL pública.
+ *
+ * A diferencia del carrusel, la ruta es FIJA por slot —`pagina/guias/
+ * guia-N.ext`—: subir de nuevo REEMPLAZA el archivo, que es lo que quiere
+ * quien corrige una guía ya publicada. La extensión sale del archivo
+ * elegido (los documentos van tal cual, sin convertir) y, si cambia, el
+ * archivo anterior de esa guía queda huérfano y se borra — el mismo
+ * criterio que `subirFotoPagina`. La URL lleva `?v=` con la hora porque
+ * el navegador y el CDN ya tienen la anterior cacheada: con el mismo path,
+ * la página seguiría bajando el archivo viejo.
+ */
+export async function subirGuiaPagina(
+  indice: 0 | 1,
+  archivo: File,
+  urlActual: string
+): Promise<string> {
+  const ext =
+    (archivo.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '') || 'pdf'
+  const ruta = `pagina/guias/guia-${indice + 1}.${ext}`
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, archivo, {
+    contentType: archivo.type || 'application/pdf',
+    upsert: true
+  })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  const url = `${data.publicUrl}?v=${Date.now()}`
+  const anterior = rutaDeUrlPublica(urlActual)
+  if (anterior && anterior !== ruta) {
+    await supabase.storage.from(BUCKET).remove([anterior]).catch(() => null)
+  }
+  return url
+}
+
+/**
+ * Sube la foto de UN pétalo del mosaico del hero (slots fijos `pagina/
+ * petalo-N.webp`): reemplazar sube el MISMO path con `upsert`, y la URL
+ * nueva lleva `?v=` para que el navegador y el CDN no sigan sirviendo la
+ * anterior. Se convierte a WebP como el resto de las fotos de la página.
+ */
+export async function subirFotoPetalo(indice: 0 | 1 | 2 | 3, archivo: File): Promise<string> {
+  const webp = await convertirImagenAWebP(archivo)
+  const ruta = `pagina/petalo-${indice + 1}.webp`
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, webp, {
+    contentType: 'image/webp',
+    upsert: true
+  })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  return `${data.publicUrl}?v=${Date.now()}`
+}
+
+/**
+ * Sube el VIDEO de fondo del hero: se convierte a WebM como los videos del
+ * carrusel (`convertirParaCarrusel`, con su barra de avance) y va a un slot
+ * fijo —reemplazar pisa el anterior—. La conversión tarda lo que dura el
+ * clip, por eso el avance lo lleva el llamador.
+ */
+export async function subirVideoHero(
+  archivo: File,
+  alAvanzar?: (fraccion: number) => void
+): Promise<string> {
+  const { blob, tipo } = await convertirParaCarrusel(archivo, alAvanzar)
+  if (tipo !== 'video') throw new Error('El fondo del hero tiene que ser un archivo de video.')
+  const ruta = 'pagina/hero-video.webm'
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, blob, {
+    contentType: blob.type || 'video/webm',
+    upsert: true
+  })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  return `${data.publicUrl}?v=${Date.now()}`
+}
+
+/**
+ * Sube un item del carrusel YA CONVERTIDO (WebP o WebM) y devuelve el item
+ * listo para guardar en el hero.
+ *
+ * La ruta lleva un uuid y no un slot porque el carrusel no tiene cupos
+ * fijos: cada subida es un archivo nuevo —no hay nada que reemplazar—, así
+ * que la URL ya sale distinta y no hace falta el `?v=` que rompe la caché
+ * en los slots fijos.
+ */
+export async function subirMediaCarrusel(
+  archivo: File,
+  alAvanzar?: (fraccion: number) => void
+): Promise<ItemCarrusel> {
+  const { blob, tipo } = await convertirParaCarrusel(archivo, alAvanzar)
+  const ruta = `pagina/carrusel/${crypto.randomUUID()}.${EXT_POR_TIPO[tipo]}`
+  const { error } = await supabase.storage.from(BUCKET).upload(ruta, blob, { contentType: blob.type })
+  if (error) throw error
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(ruta)
+  return { tipo, url: data.publicUrl }
+}

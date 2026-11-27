@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Seguimiento por cargo · matriz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:1440px;height:900px;overflow:hidden}
+body{background:#f1f5f9;color:#0f172a;font-family:'Lato',system-ui,sans-serif;font-size:14px}
+.app{display:flex;height:900px}
+.rail{flex:0 0 250px;background:#fff;padding:20px 14px}
+.brand{display:flex;gap:10px;align-items:center}
+.logo{width:36px;height:36px;border-radius:10px;background:#0b2545;color:#fff;display:grid;place-items:center;font-weight:900;font-size:13px}
+.brand b{display:block;font-size:13.5px;color:#0b2545}
+.brand span{font-size:10.5px;color:#64748b}
+.sect{font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;margin:24px 0 8px;padding-left:10px}
+.nav{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:12px;font-size:13px;font-weight:700;color:#334155}
+.nav.on{background:#d6e4f6;color:#0f172a}
+.nav i{width:16px;height:16px;border-radius:5px;background:#28315F;display:block}
+.main{flex:1;padding:22px 26px;overflow:hidden}
+h1{margin:0;font-size:23px;font-weight:900;color:#0b2545;letter-spacing:-.01em}
+.sub{margin:4px 0 0;font-size:12.5px;color:#64748b}
+.kpis{margin-top:16px;background:#28315F;border-radius:16px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 20px}
+.kpi p{margin:0 0 2px;font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:#afc9ea}
+.kpi b{font-size:25px;font-weight:900;color:#fff;font-variant-numeric:tabular-nums}
+.card{background:#fff;border-radius:16px;padding:18px}
+.lbl{font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8}
+.legend{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:#475569}
+.legend i{width:26px;height:10px;border-radius:3px;display:block}
+.mtx{width:100%;border-collapse:separate;border-spacing:4px;margin-top:14px}
+.mtx th{font-size:10px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:#0b2545;padding:9px 6px;text-align:center}
+.mtx th.first{text-align:left;width:230px;border-radius:10px 0 0 10px}
+.mtx th.last{border-radius:0 10px 10px 0}
+.mtx td{padding:0;text-align:center}
+.mtx td.name{text-align:left;background:#f8fafc;padding:11px 12px;font-size:12.5px;font-weight:900;color:#0f172a;border-radius:8px 0 0 8px}
+.mtx td.name small{display:block;font-weight:400;font-size:10.5px;color:#64748b}
+.cell{display:block;padding:11px 4px;font-size:14px;font-weight:900;font-variant-numeric:tabular-nums;border-radius:8px}
+.c1{background:#dcfce7;color:#15803d}
+.c2{background:#fef3c7;color:#b45309}
+.c3{background:#fecaca;color:#b91c1c}
+.c4{background:#ef4444;color:#fff}
+.c0{background:#f1f5f9;color:#94a3b8}
+.tot{background:#eef4fb;color:#0b2545;border-radius:0 8px 8px 0;font-weight:900}
+.totf{background:#eef4fb;color:#0b2545;text-align:center;font-weight:900;font-variant-numeric:tabular-nums;padding:11px 4px}
+.hint{display:flex;justify-content:space-between;align-items:center;margin-top:14px}
+.hint p{margin:0;font-size:11.5px;color:#64748b}
+.chip{display:inline-block;padding:4px 11px;border-radius:999px;font-size:9.5px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;background:#eef4fb;color:#164073}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><div class="logo">EL</div><div><b>EvaLuxor</b><span>Indicadores de gestión</span></div></div>
+    <p class="sect">Indicadores</p>
+    <div class="nav"><i></i>Indicadores</div>
+    <div class="nav"><i></i>Historial</div>
+    <div class="nav on"><i></i>Seguimiento por cargo</div>
+    <div class="nav"><i></i>Comparativas</div>
+    <p class="sect">Organización</p>
+    <div class="nav"><i></i>Procesos de evaluación</div>
+    <div class="nav"><i></i>Proyectos</div>
+    <p class="sect">Configuración</p>
+    <div class="nav"><i></i>Sucursales</div>
+    <div class="nav"><i></i>Departamentos</div>
+    <div class="nav"><i></i>Ítems de evaluación</div>
+    <div class="nav"><i></i>Usuarios</div>
+  </aside>
+
+  <main class="main">
+    <h1>Seguimiento por cargo</h1>
+    <p class="sub">Puntos no cumplidos por responsable · histórico acumulado de todas las evaluaciones</p>
+
+    <div class="kpis">
+      <div class="kpi"><p>Puntos no cumplidos</p><b>1.284</b></div>
+      <div class="kpi"><p>Cargos con desvío</p><b>37</b></div>
+      <div class="kpi"><p>Sucursales</p><b>12</b></div>
+      <div class="kpi"><p>Cargos sin hallazgos</p><b>18</b></div>
+    </div>
+
+    <section class="card" style="margin-top:16px">
+      <div class="hint">
+        <span class="lbl">Matriz cargo × sucursal · puntos no cumplidos acumulados</span>
+        <div class="legend"><span>sin hallazgos</span><i style="background:#dcfce7"></i><i style="background:#fef3c7"></i><i style="background:#fecaca"></i><i style="background:#ef4444"></i><span>crítico</span></div>
+      </div>
+
+      <table class="mtx">
+        <thead>
+          <tr>
+            <th class="first">Cargo</th>
+            <th>Norte</th><th>Rivadavia</th><th>Belgrano</th><th>Centro</th><th>Caballito</th><th>Sur</th><th>Palermo</th>
+            <th class="last">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="name">Encargado de turno<small>14 evaluaciones</small></td>
+            <td><span class="cell c4">28</span></td><td><span class="cell c3">17</span></td><td><span class="cell c3">14</span></td><td><span class="cell c2">11</span></td><td><span class="cell c2">9</span></td><td><span class="cell c2">8</span></td><td><span class="cell c1">5</span></td>
+            <td class="tot"><span class="cell totf">96</span></td>
+          </tr>
+          <tr>
+            <td class="name">Depositaría<small>12 evaluaciones</small></td>
+            <td><span class="cell c3">15</span></td><td><span class="cell c4">22</span></td><td><span class="cell c2">10</span></td><td><span class="cell c2">9</span></td><td><span class="cell c1">6</span></td><td><span class="cell c1">5</span></td><td><span class="cell c1">4</span></td>
+            <td class="tot"><span class="cell totf">81</span></td>
+          </tr>
+          <tr>
+            <td class="name">Carnicería<small>11 evaluaciones</small></td>
+            <td><span class="cell c2">9</span></td><td><span class="cell c2">8</span></td><td><span class="cell c4">19</span></td><td><span class="cell c1">6</span></td><td><span class="cell c1">5</span></td><td><span class="cell c1">4</span></td><td><span class="cell c0">—</span></td>
+            <td class="tot"><span class="cell totf">64</span></td>
+          </tr>
+          <tr>
+            <td class="name">Verdulería<small>13 evaluaciones</small></td>
+            <td><span class="cell c2">8</span></td><td><span class="cell c2">7</span></td><td><span class="cell c1">5</span></td><td><span class="cell c3">14</span></td><td><span class="cell c1">6</span></td><td><span class="cell c1">5</span></td><td><span class="cell c1">4</span></td>
+            <td class="tot"><span class="cell totf">57</span></td>
+          </tr>
+          <tr>
+            <td class="name">Panadería<small>9 evaluaciones</small></td>
+            <td><span class="cell c1">5</span></td><td><span class="cell c1">4</span></td><td><span class="cell c2">7</span></td><td><span class="cell c1">5</span></td><td><span class="cell c3">13</span></td><td><span class="cell c1">4</span></td><td><span class="cell c0">—</span></td>
+            <td class="tot"><span class="cell totf">43</span></td>
+          </tr>
+          <tr>
+            <td class="name">Caja y atención<small>14 evaluaciones</small></td>
+            <td><span class="cell c1">6</span></td><td><span class="cell c1">5</span></td><td><span class="cell c1">4</span></td><td><span class="cell c2">7</span></td><td><span class="cell c1">5</span></td><td><span class="cell c2">8</span></td><td><span class="cell c1">3</span></td>
+            <td class="tot"><span class="cell totf">38</span></td>
+          </tr>
+          <tr>
+            <td class="name">Limpieza<small>10 evaluaciones</small></td>
+            <td><span class="cell c1">4</span></td><td><span class="cell c0">—</span></td><td><span class="cell c1">3</span></td><td><span class="cell c1">4</span></td><td><span class="cell c1">3</span></td><td><span class="cell c1">4</span></td><td><span class="cell c1">3</span></td>
+            <td class="tot"><span class="cell totf">21</span></td>
+          </tr>
+          <tr>
+            <td class="name">Almacén<small>12 evaluaciones</small></td>
+            <td><span class="cell c1">5</span></td><td><span class="cell c1">3</span></td><td><span class="cell c0">—</span></td><td><span class="cell c1">4</span></td><td><span class="cell c1">2</span></td><td><span class="cell c1">3</span></td><td><span class="cell c0">—</span></td>
+            <td class="tot"><span class="cell totf">17</span></td>
+          </tr>
+          <tr>
+            <td class="name">Seguridad e higiene<small>8 evaluaciones</small></td>
+            <td><span class="cell c1">3</span></td><td><span class="cell c0">—</span></td><td><span class="cell c1">2</span></td><td><span class="cell c1">4</span></td><td><span class="cell c0">—</span></td><td><span class="cell c0">—</span></td><td><span class="cell c0">—</span></td>
+            <td class="tot"><span class="cell totf">9</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="hint">
+        <p>Pulsá una celda para abrir el detalle de ese cargo en esa sucursal: módulo, ítem y evaluación donde quedó sin cumplir.</p>
+        <span class="chip">9 de 37 cargos · 8 de 12 sucursales</span>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

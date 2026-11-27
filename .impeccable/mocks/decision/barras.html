@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Seguimiento por cargo · barras</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:1440px;height:900px;overflow:hidden}
+body{background:#f1f5f9;color:#0f172a;font-family:'Lato',system-ui,sans-serif;font-size:14px}
+.app{display:flex;height:900px}
+.rail{flex:0 0 250px;background:#fff;padding:20px 14px}
+.brand{display:flex;gap:10px;align-items:center}
+.logo{width:36px;height:36px;border-radius:10px;background:#0b2545;color:#fff;display:grid;place-items:center;font-weight:900;font-size:13px}
+.brand b{display:block;font-size:13.5px;color:#0b2545}
+.brand span{font-size:10.5px;color:#64748b}
+.sect{font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;margin:24px 0 8px;padding-left:10px}
+.nav{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:12px;font-size:13px;font-weight:700;color:#334155}
+.nav.on{background:#d6e4f6;color:#0f172a}
+.nav i{width:16px;height:16px;border-radius:5px;background:#28315F;display:block}
+.main{flex:1;padding:22px 26px;overflow:hidden}
+h1{margin:0;font-size:23px;font-weight:900;color:#0b2545;letter-spacing:-.01em}
+.sub{margin:4px 0 0;font-size:12.5px;color:#64748b}
+.kpis{margin-top:16px;background:#28315F;border-radius:16px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 20px}
+.kpi p{margin:0 0 2px;font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:#afc9ea}
+.kpi b{font-size:25px;font-weight:900;color:#fff;font-variant-numeric:tabular-nums}
+.card{background:#fff;border-radius:16px;padding:18px}
+.lbl{font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8}
+.leyenda{display:flex;gap:14px;margin-top:10px;flex-wrap:wrap}
+.leyenda span{font-size:11px;font-weight:700;color:#475569;display:flex;align-items:center;gap:6px}
+.leyenda i{width:10px;height:10px;border-radius:3px;display:block}
+.barras{margin-top:14px}
+.brow{display:grid;grid-template-columns:170px 1fr 64px;align-items:center;gap:14px;padding:9px 0;border-bottom:1px solid #f1f5f9}
+.brow.on{background:#eef4fb;border-radius:10px;padding-left:8px;padding-right:8px}
+.bname{font-size:12.5px;font-weight:900;color:#0f172a}
+.bname small{display:block;font-size:10.5px;font-weight:400;color:#64748b}
+.track{display:flex;height:22px;border-radius:6px;overflow:hidden;background:#f1f5f9}
+.track span{display:block;height:100%}
+.bval{font-size:15px;font-weight:900;font-variant-numeric:tabular-nums;text-align:right;color:#0f172a}
+.cols{display:flex;gap:16px;margin-top:16px}
+.gcol{flex:1 1 auto}
+.hall{flex:0 0 420px}
+.grp{margin-top:14px;background:#f8fafc;border-radius:12px;padding:9px 12px;font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#334155;display:flex;justify-content:space-between}
+.row{display:flex;justify-content:space-between;gap:10px;padding:11px 4px;border-bottom:1px solid #f1f5f9}
+.row p{margin:0;font-size:12.5px;font-weight:700;color:#0f172a}
+.row small{display:block;font-size:11px;font-weight:400;color:#64748b;margin-top:2px}
+.chip{display:inline-block;padding:3px 9px;border-radius:999px;font-size:9.5px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}
+.r{background:#fee2e2;color:#b91c1c}.a{background:#fef3c7;color:#b45309}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><div class="logo">EL</div><div><b>EvaLuxor</b><span>Indicadores de gestión</span></div></div>
+    <p class="sect">Indicadores</p>
+    <div class="nav"><i></i>Indicadores</div>
+    <div class="nav"><i></i>Historial</div>
+    <div class="nav on"><i></i>Seguimiento por cargo</div>
+    <div class="nav"><i></i>Comparativas</div>
+    <p class="sect">Organización</p>
+    <div class="nav"><i></i>Procesos de evaluación</div>
+    <div class="nav"><i></i>Proyectos</div>
+    <p class="sect">Configuración</p>
+    <div class="nav"><i></i>Sucursales</div>
+    <div class="nav"><i></i>Departamentos</div>
+    <div class="nav"><i></i>Ítems de evaluación</div>
+    <div class="nav"><i></i>Usuarios</div>
+  </aside>
+
+  <main class="main">
+    <h1>Seguimiento por cargo</h1>
+    <p class="sub">Puntos no cumplidos por responsable · histórico acumulado de todas las evaluaciones</p>
+
+    <div class="kpis">
+      <div class="kpi"><p>Puntos no cumplidos</p><b>1.284</b></div>
+      <div class="kpi"><p>Cargos con desvío</p><b>37</b></div>
+      <div class="kpi"><p>Sucursales</p><b>12</b></div>
+      <div class="kpi"><p>Cargos sin hallazgos</p><b>18</b></div>
+    </div>
+
+    <div class="cols">
+      <section class="card gcol">
+        <span class="lbl">Puntos acumulados por cargo, aportados por sucursal</span>
+        <div class="leyenda">
+          <span><i style="background:#28315F"></i>Norte</span>
+          <span><i style="background:#4f87c7"></i>Rivadavia</span>
+          <span><i style="background:#7fa8da"></i>Belgrano</span>
+          <span><i style="background:#16a34a"></i>Centro</span>
+          <span><i style="background:#d97706"></i>Sur</span>
+          <span><i style="background:#cbd5e1"></i>Otras 7</span>
+        </div>
+        <div class="barras">
+          <div class="brow on"><div class="bname">Encargado de turno<small>14 evaluaciones</small></div><div class="track"><span style="width:26%;background:#28315F"></span><span style="width:20%;background:#4f87c7"></span><span style="width:14%;background:#7fa8da"></span><span style="width:16%;background:#16a34a"></span><span style="width:10%;background:#d97706"></span><span style="width:6%;background:#cbd5e1"></span></div><div class="bval">96</div></div>
+          <div class="brow"><div class="bname">Depositaría<small>12 evaluaciones</small></div><div class="track"><span style="width:18%;background:#28315F"></span><span style="width:24%;background:#4f87c7"></span><span style="width:12%;background:#7fa8da"></span><span style="width:12%;background:#16a34a"></span><span style="width:8%;background:#d97706"></span><span style="width:6%;background:#cbd5e1"></span></div><div class="bval">81</div></div>
+          <div class="brow"><div class="bname">Carnicería<small>11 evaluaciones</small></div><div class="track"><span style="width:12%;background:#28315F"></span><span style="width:14%;background:#4f87c7"></span><span style="width:18%;background:#7fa8da"></span><span style="width:8%;background:#16a34a"></span><span style="width:6%;background:#d97706"></span><span style="width:3%;background:#cbd5e1"></span></div><div class="bval">64</div></div>
+          <div class="brow"><div class="bname">Verdulería<small>13 evaluaciones</small></div><div class="track"><span style="width:10%;background:#28315F"></span><span style="width:12%;background:#4f87c7"></span><span style="width:9%;background:#7fa8da"></span><span style="width:14%;background:#16a34a"></span><span style="width:7%;background:#d97706"></span><span style="width:5%;background:#cbd5e1"></span></div><div class="bval">57</div></div>
+          <div class="brow"><div class="bname">Panadería<small>9 evaluaciones</small></div><div class="track"><span style="width:8%;background:#28315F"></span><span style="width:9%;background:#4f87c7"></span><span style="width:7%;background:#7fa8da"></span><span style="width:7%;background:#16a34a"></span><span style="width:9%;background:#d97706"></span><span style="width:3%;background:#cbd5e1"></span></div><div class="bval">43</div></div>
+          <div class="brow"><div class="bname">Caja y atención<small>14 evaluaciones</small></div><div class="track"><span style="width:7%;background:#28315F"></span><span style="width:6%;background:#4f87c7"></span><span style="width:8%;background:#7fa8da"></span><span style="width:6%;background:#16a34a"></span><span style="width:7%;background:#d97706"></span><span style="width:4%;background:#cbd5e1"></span></div><div class="bval">38</div></div>
+          <div class="brow"><div class="bname">Limpieza<small>10 evaluaciones</small></div><div class="track"><span style="width:4%;background:#28315F"></span><span style="width:3%;background:#4f87c7"></span><span style="width:4%;background:#7fa8da"></span><span style="width:5%;background:#16a34a"></span><span style="width:3%;background:#d97706"></span><span style="width:2%;background:#cbd5e1"></span></div><div class="bval">21</div></div>
+          <div class="brow"><div class="bname">Almacén<small>12 evaluaciones</small></div><div class="track"><span style="width:3%;background:#28315F"></span><span style="width:4%;background:#4f87c7"></span><span style="width:3%;background:#7fa8da"></span><span style="width:3%;background:#16a34a"></span><span style="width:2%;background:#d97706"></span><span style="width:2%;background:#cbd5e1"></span></div><div class="bval">17</div></div>
+        </div>
+      </section>
+
+      <aside class="card hall">
+        <span class="lbl">Hallazgos · Encargado de turno</span>
+        <p class="grp">Higiene y seguridad<span style="color:#dc2626">41 pts</span></p>
+        <div class="row"><div><p>EPP incompleto en depositoría</p><small>Sucursal Norte · 12 evaluaciones</small></div><span class="chip r">12</span></div>
+        <div class="row"><div><p>Temperatura de cámara sin registro</p><small>Sucursal Rivadavia · 8 evaluaciones</small></div><span class="chip a">7</span></div>
+        <p class="grp">Operación de góndola<span style="color:#dc2626">33 pts</span></p>
+        <div class="row"><div><p>Rotura de stock en precio</p><small>Sucursal Belgrano · 9 evaluaciones</small></div><span class="chip r">14</span></div>
+        <div class="row"><div><p>Etiquetas fuera de zona</p><small>Sucursal Centro · 6 evaluaciones</small></div><span class="chip a">6</span></div>
+        <p class="grp">Atención al cliente<span style="color:#d97706">22 pts</span></p>
+        <div class="row"><div><p>Fila sin señalética</p><small>Sucursal Sur · 5 evaluaciones</small></div><span class="chip a">9</span></div>
+        <div class="row"><div><p>Mostrador sin precios unitarios</p><small>Sucursal Norte · 4 evaluaciones</small></div><span class="chip a">5</span></div>
+      </aside>
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,2386 @@
+<!DOCTYPE html>
+<html lang="es" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GRAN COSECHA LUXOR | Supermercados Luxor & Euromaxx</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Oswald / Bebas Neue (títulos condensados oficiales) & Plus Jakarta Sans -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Canvas Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                        condensed: ['Oswald', 'sans-serif'],
+                        arena: ['Bebas Neue', 'sans-serif'],
+                    },
+                    colors: {
+                        luxor: {
+                            crimson: '#C41E2E',
+                            darkRed: '#9F1422',
+                            lightRed: '#D92738',
+                            yellow: '#F4B915',
+                            mustard: '#EAB308',
+                            orange: '#F39200',
+                            navy: '#182348',
+                            navyDark: '#101833',
+                            ivory: '#F7F5F0',
+                        }
+                    },
+                    animation: {
+                        'pulse-soft': 'pulseSoft 2.5s infinite',
+                    },
+                    keyframes: {
+                        pulseSoft: {
+                            '0%, 100%': { boxShadow: '0 0 0 0 rgba(244, 185, 21, 0.45)' },
+                            '50%': { boxShadow: '0 0 20px 6px rgba(244, 185, 21, 0.2)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #F7F5F0;
+            color: #182348;
+            overflow-x: hidden;
+        }
+
+        /* Textura sutil tipo papel/cartulina de las láminas oficiales */
+        .paper-texture-ivory {
+            background-color: #F7F5F0;
+            background-image: radial-gradient(rgba(24, 35, 72, 0.045) 1px, transparent 0),
+                              radial-gradient(rgba(196, 30, 46, 0.03) 1px, transparent 0);
+            background-size: 24px 24px;
+            background-position: 0 0, 12px 12px;
+        }
+
+        .paper-texture-crimson {
+            background-color: #C41E2E;
+            background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 0),
+                              radial-gradient(rgba(0, 0, 0, 0.08) 1px, transparent 0);
+            background-size: 22px 22px;
+            background-position: 0 0, 11px 11px;
+        }
+
+        /* Retícula de cruces de fondo.svg — la MISMA de la landing clásica,
+           pintada SOBRE el color de cada sección. Va con `fixed` como antes:
+           la trama se queda quieta mientras la página scrollea. */
+        .textura-cruces {
+            background-image: url('fondo.svg');
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            background-position: center;
+        }
+
+        /* «¿QUÉ ES GRAN COSECHA LUXOR?»: la retícula se APILA sobre sus
+           puntos de papel (el primer background es la capa superior y los
+           otros dos siguen siendo los de `.paper-texture-crimson`, que con
+           su color de fondo sigue mandando). */
+        #que-es.textura-cruces {
+            background-image: url('fondo.svg'),
+                              radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 0),
+                              radial-gradient(rgba(0, 0, 0, 0.08) 1px, transparent 0);
+            background-size: cover, 22px 22px, 22px 22px;
+            background-repeat: no-repeat, repeat, repeat;
+            background-attachment: fixed, scroll, scroll;
+            background-position: center, 0 0, 11px 11px;
+        }
+
+        /* Recortes tipo pétalo de la identidad oficial Luxor: la MISMA
+           forma y el MISMO radio del isotipo SVG —puntas duras en la
+           esquina exterior y en la interna, arco de ~43% en las otras—.
+           A 65% las fotos se comían el texto de los títulos. */
+        .petal-tl { border-radius: 0 43% 0 43%; }
+        .petal-tr { border-radius: 43% 0 43% 0; }
+        .petal-bl { border-radius: 43% 0 43% 0; }
+        .petal-br { border-radius: 0 43% 0 43%; }
+
+        /* Cinta adhesiva estilo lámina oficial "Cosecha en Equipo" */
+        .tape-strip {
+            background: rgba(232, 221, 185, 0.85);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+        }
+
+        /* Animación de explosión al dar Like */
+        @keyframes votePop {
+            0% { transform: scale(1); }
+            35% { transform: scale(1.28) rotate(-3deg); }
+            70% { transform: scale(0.94) rotate(2deg); }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+        .animate-vote-pop {
+            animation: votePop 0.42s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        /* Elevación suave */
+        .luxor-card {
+            transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
+        }
+        .luxor-card:hover {
+            transform: translateY(-6px);
+        }
+
+        /* Scrollbar personalizada */
+        ::-webkit-scrollbar { width: 9px; }
+        ::-webkit-scrollbar-track { background: #F7F5F0; }
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #F4B915, #C41E2E, #182348);
+            border-radius: 9999px;
+        }
+    </style>
+</head>
+<body class="antialiased selection:bg-luxor-yellow selection:text-luxor-navy">
+
+    <!-- ================= NAVBAR OFICIAL LUXOR & EUROMAXX ================= -->
+    <header class="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b-2 border-luxor-yellow shadow-sm">
+        <!-- Franja superior tricolor institucional -->
+        <div class="h-1.5 w-full bg-gradient-to-r from-luxor-yellow via-luxor-orange to-luxor-crimson"></div>
+
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-20">
+                <!-- Isotipo Oficial 4 Pétalos + Título -->
+                <a href="#inicio" class="flex items-center gap-3 group">
+                    <!-- SVG Isotipo 4 Pétalos Luxor -->
+                    <svg class="w-11 h-11 shrink-0 group-hover:rotate-6 transition-transform duration-300 drop-shadow-xs" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <!-- Pétalo Superior Izquierdo (Amarillo / Naranja) -->
+                        <path d="M46 46 H22 C11 46 4 39 4 28 V4 H28 C39 4 46 11 46 22 V46 Z" fill="#F4B915"/>
+                        <path d="M46 46 L4 4 H28 C39 4 46 11 46 22 V46 Z" fill="#F39200"/>
+                        <!-- Pétalo Superior Derecho (Rojo Claro / Carmesí) -->
+                        <path d="M54 46 V22 C54 11 61 4 72 4 H96 V28 C96 39 89 46 78 46 H54 Z" fill="#D92738"/>
+                        <path d="M54 46 L96 4 V28 C96 39 89 46 78 46 H54 Z" fill="#B51726"/>
+                        <!-- Pétalo Inferior Izquierdo (Amarillo / Naranja) -->
+                        <path d="M46 54 V78 C46 89 39 96 28 96 H4 V72 C4 61 11 54 22 54 H46 Z" fill="#F4B915"/>
+                        <path d="M46 54 L4 96 H28 C39 96 46 89 46 78 V54 Z" fill="#F39200"/>
+                        <!-- Pétalo Inferior Derecho (Rojo Claro / Carmesí) -->
+                        <path d="M54 54 H78 C89 54 96 61 96 72 V96 H72 C61 96 54 89 54 78 V54 Z" fill="#D92738"/>
+                        <path d="M54 54 L96 96 H72 C61 96 54 89 54 78 V54 Z" fill="#B51726"/>
+                    </svg>
+
+                    <div>
+                        <div class="font-condensed font-bold text-xl sm:text-2xl tracking-tight leading-none flex items-center gap-1.5">
+                            <span class="text-luxor-yellow">GRAN COSECHA</span>
+                            <span class="text-luxor-crimson">LUXOR</span>
+                        </div>
+                        <span class="text-[10px] sm:text-[11px] font-extrabold text-luxor-navy tracking-wider uppercase block mt-0.5">
+                            Supermercados Luxor • Euromaxx
+                        </span>
+                    </div>
+                </a>
+
+                <!-- Navegación Desktop -->
+                <nav class="hidden lg:flex items-center gap-6 text-sm font-bold text-luxor-navy">
+                    <a href="#que-es" class="hover:text-luxor-crimson transition-colors">¿Qué es?</a>
+                    <a href="#carrusel-cosechas" class="hover:text-luxor-crimson transition-colors">Cosechas Pasadas</a>
+                    <a href="#categorias" class="hover:text-luxor-crimson transition-colors">Categorías & Premios</a>
+                    <a href="#podio" class="hover:text-luxor-crimson transition-colors">Podio</a>
+                    <a href="#proyectos" class="hover:text-luxor-crimson transition-colors">Proyectos</a>
+                </nav>
+
+                <!-- Botón Postular -->
+                <div class="flex items-center gap-2.5 sm:gap-3">
+                    <!-- La postulación abre el formulario que arma el
+                         correo a Coordinación, con copia a Gerencias. -->
+                    <button onclick="openPostulacion()" class="inline-flex items-center gap-2 bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold tracking-wide uppercase text-xs sm:text-sm px-4 sm:px-5 py-2.5 rounded-xl shadow-md shadow-red-700/20 hover:-translate-y-0.5 transition-all cursor-pointer">
+                        <i data-lucide="plus-circle" class="w-4 h-4 text-luxor-yellow"></i>
+                        <span>Postular Idea</span>
+                    </button>
+
+                    <button onclick="toggleMobileMenu()" class="lg:hidden p-2 rounded-xl text-luxor-navy hover:bg-luxor-ivory transition-colors" aria-label="Abrir menú">
+                        <i data-lucide="menu" class="w-6 h-6"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Menú Móvil -->
+        <div id="mobile-menu" class="hidden lg:hidden bg-white border-t border-slate-200 px-4 pt-3 pb-5 space-y-1.5">
+            <a href="#que-es" onclick="toggleMobileMenu()" class="block px-3 py-2 rounded-xl text-sm font-bold text-luxor-navy hover:bg-luxor-ivory">¿Qué es Gran Cosecha?</a>
+            <a href="#carrusel-cosechas" onclick="toggleMobileMenu()" class="block px-3 py-2 rounded-xl text-sm font-bold text-luxor-navy hover:bg-luxor-ivory">Carrusel Cosechas Pasadas</a>
+            <a href="#categorias" onclick="toggleMobileMenu()" class="block px-3 py-2 rounded-xl text-sm font-bold text-luxor-navy hover:bg-luxor-ivory">Categorías y Premios</a>
+            <a href="#podio" onclick="toggleMobileMenu()" class="block px-3 py-2 rounded-xl text-sm font-bold text-luxor-navy hover:bg-luxor-ivory">Podio en Vivo</a>
+            <a href="#proyectos" onclick="toggleMobileMenu()" class="block px-3 py-2 rounded-xl text-sm font-bold text-luxor-navy hover:bg-luxor-ivory">Galería de Proyectos</a>
+        </div>
+    </header>
+
+    <!-- ================= HERO PRINCIPAL (INSPIRADO EN LÁMINA 1) ================= -->
+    <section id="inicio" class="relative overflow-hidden paper-texture-ivory pt-12 pb-16 sm:pt-16 sm:pb-24 border-b-4 border-luxor-crimson">
+        <!-- Video de fondo del hero: lo publica la consola (Página). Sin
+             video quedan la textura de papel y los pétalos decorativos. -->
+        <video id="hero-video" class="absolute inset-0 z-0 hidden h-full w-full object-cover" autoplay muted loop playsinline preload="metadata"></video>
+        <!-- Velo claro: el texto del hero es oscuro y tiene que seguir
+             leyéndose encima del video (el contenido va en z-10). -->
+        <div id="hero-video-velo" class="absolute inset-0 z-0 hidden bg-white/70"></div>
+
+        <!-- Pétalos decorativos flotantes en bordes -->
+        <div class="hidden xl:block absolute -left-16 bottom-8 w-44 h-44 bg-gradient-to-br from-luxor-yellow to-luxor-orange petal-bl opacity-90 pointer-events-none"></div>
+        <div class="hidden xl:block absolute -right-14 top-10 w-36 h-36 bg-gradient-to-bl from-luxor-lightRed to-luxor-crimson petal-tr opacity-90 pointer-events-none"></div>
+
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+                <!-- Columna Izquierda: Marca Oficial Gran Cosecha Luxor -->
+                <div class="lg:col-span-6 text-center lg:text-left">
+                    <!-- Doble Branding Supermercados Luxor & Euromaxx -->
+                    <div class="inline-flex items-center gap-3 bg-white border border-slate-200 px-4 py-2 rounded-2xl shadow-xs mb-6">
+                        <span class="font-condensed font-bold text-sm tracking-wider text-luxor-crimson uppercase">Supermercados LUXOR</span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-luxor-yellow"></span>
+                        <span class="font-condensed font-bold text-sm tracking-wider text-luxor-navy uppercase">EUROMAXX Supermercados</span>
+                    </div>
+
+                    <!-- Título Condensado de la Lámina 1. SIN el emblema
+                         flotante que estaba a su lado: la figura de
+                         PETALOS de la derecha es la que funciona como
+                         logo del hero. -->
+                    <h1 class="mb-6 font-condensed font-bold text-5xl sm:text-6xl lg:text-7xl leading-[0.95] tracking-tight uppercase">
+                        <span class="text-luxor-yellow block">GRAN</span>
+                        <span class="text-luxor-yellow block">COSECHA</span>
+                        <span class="text-luxor-crimson block">LUXOR</span>
+                    </h1>
+
+                    <p id="heroBajada" class="text-luxor-navy/85 text-base sm:text-lg font-medium leading-relaxed mb-8 max-w-xl mx-auto lg:mx-0">
+                        Programa institucional de reconocimiento, creatividad e innovación para todos los colaboradores de <strong>Central Luxor, CENDIS y sucursales Luxor & Euromaxx</strong>.
+                    </p>
+
+                    <!-- CTAs -->
+                    <div class="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 mb-8">
+                        <a href="#proyectos" class="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold uppercase tracking-wider text-base px-7 py-4 rounded-2xl shadow-lg shadow-red-700/25 hover:-translate-y-0.5 transition-all">
+                            <i data-lucide="heart" class="w-5 h-5 text-luxor-yellow fill-luxor-yellow"></i>
+                            <span>Votar por Proyectos</span>
+                        </a>
+                        <a href="#carrusel-cosechas" class="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-luxor-navy hover:bg-luxor-navyDark text-white font-condensed font-bold uppercase tracking-wider text-base px-7 py-4 rounded-2xl shadow-md hover:-translate-y-0.5 transition-all">
+                            <i data-lucide="images" class="w-5 h-5 text-luxor-yellow"></i>
+                            <span>Ver Cosechas Pasadas</span>
+                        </a>
+                    </div>
+
+                    <!-- Marcadores Rápidos -->
+                    <div class="grid grid-cols-3 gap-3 max-w-lg mx-auto lg:mx-0">
+                        <div class="bg-white border-2 border-luxor-yellow rounded-2xl p-3.5 text-center shadow-xs">
+                            <span id="hero-project-count" class="font-condensed font-bold text-2xl sm:text-3xl text-luxor-navy block">0</span>
+                            <span class="text-[11px] font-bold text-slate-500 uppercase">Propuestas</span>
+                        </div>
+                        <div class="bg-white border-2 border-luxor-crimson rounded-2xl p-3.5 text-center shadow-xs">
+                            <span id="hero-total-likes" class="font-condensed font-bold text-2xl sm:text-3xl text-luxor-crimson block">0</span>
+                            <span class="text-[11px] font-bold text-slate-500 uppercase">Votos Totales</span>
+                        </div>
+                        <div class="bg-luxor-navy text-white rounded-2xl p-3.5 text-center shadow-xs">
+                            <span class="font-condensed font-bold text-2xl sm:text-3xl text-luxor-yellow block">3</span>
+                            <span class="text-[11px] font-bold text-blue-200 uppercase">Modalidades</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Columna Derecha: Mosaico Visual de 4 Pétalos Estilo Lámina 1 -->
+                <div class="lg:col-span-6">
+                    <div class="grid grid-cols-2 gap-4 sm:gap-5 max-w-lg mx-auto">
+                        <!-- Pétalo 1: Amarillo / Naranja con Imagen de Sede -->
+                        <div class="relative aspect-square petal-tl overflow-hidden shadow-xl border-4 border-white group">
+                            <img id="petalo-img-0" src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80" alt="Supermercados Luxor" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onerror="this.src='https://placehold.co/500x500/F4B915/182348?text=LUXOR'">
+                            <div class="absolute inset-0 bg-gradient-to-br from-luxor-yellow/85 via-luxor-orange/75 to-transparent mix-blend-multiply"></div>
+                            <div class="absolute bottom-4 left-4 right-4 text-white">
+                                <span class="text-[10px] font-extrabold uppercase tracking-wider bg-luxor-navy/80 px-2.5 py-1 rounded-full">Central & Tiendas</span>
+                                <p class="font-condensed font-bold text-lg leading-tight mt-1 drop-shadow">Excelencia Operativa</p>
+                            </div>
+                        </div>
+
+                        <!-- Pétalo 2: Carmesí con Equipo -->
+                        <div class="relative aspect-square petal-tr overflow-hidden shadow-xl border-4 border-white group">
+                            <img id="petalo-img-1" src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=600&q=80" alt="Trabajo en Equipo" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onerror="this.src='https://placehold.co/500x500/C41E2E/FFFFFF?text=EQUIPO'">
+                            <div class="absolute inset-0 bg-gradient-to-bl from-luxor-crimson/85 via-luxor-darkRed/75 to-transparent mix-blend-multiply"></div>
+                            <div class="absolute bottom-4 left-4 right-4 text-white text-right">
+                                <span class="text-[10px] font-extrabold uppercase tracking-wider bg-luxor-yellow text-luxor-navy px-2.5 py-1 rounded-full">Trimestral</span>
+                                <p class="font-condensed font-bold text-lg leading-tight mt-1 drop-shadow">Cosecha en Equipo</p>
+                            </div>
+                        </div>
+
+                        <!-- Pétalo 3: Naranja / Amarillo con Innovación -->
+                        <div class="relative aspect-square petal-bl overflow-hidden shadow-xl border-4 border-white group">
+                            <img id="petalo-img-2" src="https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=600&q=80" alt="Cultivando Ideas SMART" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onerror="this.src='https://placehold.co/500x500/F39200/FFFFFF?text=IDEAS'">
+                            <div class="absolute inset-0 bg-gradient-to-tr from-luxor-orange/85 via-luxor-yellow/70 to-transparent mix-blend-multiply"></div>
+                            <div class="absolute top-4 left-4 right-4 text-white">
+                                <span class="text-[10px] font-extrabold uppercase tracking-wider bg-luxor-navy/80 px-2.5 py-1 rounded-full">Metodología SMART</span>
+                                <p class="font-condensed font-bold text-lg leading-tight mt-1 drop-shadow">Extra Milla & Ideas</p>
+                            </div>
+                        </div>
+
+                        <!-- Pétalo 4: Carmesí con Premiamos tu Compra -->
+                        <div class="relative aspect-square petal-br overflow-hidden shadow-xl border-4 border-white group">
+                            <img id="petalo-img-3" src="https://images.unsplash.com/photo-1534452203293-494d7ddbf7e0?auto=format&fit=crop&w=600&q=80" alt="Premiamos tu Compra" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onerror="this.src='https://placehold.co/500x500/B51726/FFFFFF?text=PREMIOS'">
+                            <div class="absolute inset-0 bg-gradient-to-tl from-luxor-darkRed/90 via-luxor-crimson/75 to-transparent mix-blend-multiply"></div>
+                            <div class="absolute top-4 left-4 right-4 text-white text-right">
+                                <span class="text-[10px] font-extrabold uppercase tracking-wider bg-white text-luxor-crimson px-2.5 py-1 rounded-full">Sorteo Carro 0km</span>
+                                <p class="font-condensed font-bold text-lg leading-tight mt-1 drop-shadow">Premiamos tu Compra</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================= SECCIÓN "¿QUÉ ES?" Y LOGROS (LÁMINAS 2, 3 Y 7) ================= -->
+    <section id="que-es" class="relative overflow-hidden paper-texture-crimson textura-cruces text-white py-16 sm:py-24">
+        <!-- Pétalos gigantes decorativos con borde blanco grueso (idéntico a láminas 2 y 3) -->
+        <div class="hidden md:block absolute -top-20 left-1/2 -translate-x-1/2 w-48 h-48 pointer-events-none opacity-95">
+            <svg viewBox="0 0 100 100" fill="none">
+                <path d="M46 54 V78 C46 89 39 96 28 96 H4 V72 C4 61 11 54 22 54 H46 Z" fill="#F4B915" stroke="#FFFFFF" stroke-width="3"/>
+                <path d="M54 54 H78 C89 54 96 61 96 72 V96 H72 C61 96 54 89 54 78 V54 Z" fill="#B51726" stroke="#FFFFFF" stroke-width="3"/>
+            </svg>
+        </div>
+
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
+                <!-- Izquierda: ¿QUÉ ES? -->
+                <div class="lg:col-span-7 space-y-6">
+                    <div class="inline-flex items-center gap-2 bg-white/15 border border-white/25 px-4 py-1.5 rounded-full text-luxor-yellow text-xs font-extrabold uppercase tracking-widest">
+                        <i data-lucide="sparkles" class="w-4 h-4"></i>
+                        <span>Cultura de Reconocimiento Luxor</span>
+                    </div>
+
+                    <h2 class="font-condensed font-bold text-4xl sm:text-6xl uppercase tracking-tight text-white drop-shadow-sm">
+                        ¿QUÉ ES <span class="text-luxor-yellow">GRAN COSECHA LUXOR?</span>
+                    </h2>
+
+                    <p class="text-white/95 text-base sm:text-lg leading-relaxed font-medium">
+                        Es nuestro programa oficial diseñado para <strong>reconocer, premiar y motivar al talento humano</strong> de oficinas administrativas, CENDIS y sucursales mediante un sistema de incentivos que impulsa:
+                    </p>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
+                        <div class="flex items-center gap-3 bg-white/10 backdrop-blur-xs border border-white/20 p-3.5 rounded-2xl">
+                            <span class="w-7 h-7 rounded-full bg-luxor-yellow text-luxor-navy flex items-center justify-center shrink-0 font-black">✓</span>
+                            <span class="font-bold text-sm sm:text-base">El trabajo en equipo y sinergia</span>
+                        </div>
+                        <div class="flex items-center gap-3 bg-white/10 backdrop-blur-xs border border-white/20 p-3.5 rounded-2xl">
+                            <span class="w-7 h-7 rounded-full bg-luxor-yellow text-luxor-navy flex items-center justify-center shrink-0 font-black">✓</span>
+                            <span class="font-bold text-sm sm:text-base">La excelencia operativa</span>
+                        </div>
+                        <div class="flex items-center gap-3 bg-white/10 backdrop-blur-xs border border-white/20 p-3.5 rounded-2xl">
+                            <span class="w-7 h-7 rounded-full bg-luxor-yellow text-luxor-navy flex items-center justify-center shrink-0 font-black">✓</span>
+                            <span class="font-bold text-sm sm:text-base">La innovación y creatividad</span>
+                        </div>
+                        <div class="flex items-center gap-3 bg-white/10 backdrop-blur-xs border border-white/20 p-3.5 rounded-2xl">
+                            <span class="w-7 h-7 rounded-full bg-luxor-yellow text-luxor-navy flex items-center justify-center shrink-0 font-black">✓</span>
+                            <span class="font-bold text-sm sm:text-base">El compromiso organizacional</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Derecha: Perfil de Participantes (Lámina 7: Proactivos, Creativos, Orientados al Logro) -->
+                <div class="lg:col-span-5">
+                    <div class="bg-luxor-ivory text-luxor-navy rounded-3xl p-6 sm:p-8 shadow-2xl border-4 border-white">
+                        <span class="text-xs font-extrabold uppercase tracking-widest text-luxor-crimson block mb-1">¿Quiénes pueden participar?</span>
+                        <h3 class="font-condensed font-bold text-2xl sm:text-3xl uppercase text-luxor-navy mb-5">
+                            Todos los Colaboradores de Central Luxor y Tiendas
+                        </h3>
+
+                        <div class="grid grid-cols-3 gap-3 text-center">
+                            <div class="bg-luxor-yellow rounded-2xl p-3.5 shadow-sm flex flex-col items-center justify-center">
+                                <div class="w-10 h-10 rounded-xl bg-luxor-navy text-luxor-yellow flex items-center justify-center mb-2">
+                                    <i data-lucide="zap" class="w-5 h-5"></i>
+                                </div>
+                                <span class="font-condensed font-bold text-sm sm:text-base uppercase text-luxor-navy leading-tight">Proactivos</span>
+                            </div>
+
+                            <div class="bg-luxor-crimson rounded-2xl p-3.5 shadow-sm text-white flex flex-col items-center justify-center">
+                                <div class="w-10 h-10 rounded-xl bg-white text-luxor-crimson flex items-center justify-center mb-2">
+                                    <i data-lucide="lightbulb" class="w-5 h-5"></i>
+                                </div>
+                                <span class="font-condensed font-bold text-sm sm:text-base uppercase leading-tight">Creativos</span>
+                            </div>
+
+                            <div class="bg-luxor-yellow rounded-2xl p-3.5 shadow-sm flex flex-col items-center justify-center">
+                                <div class="w-10 h-10 rounded-xl bg-luxor-navy text-luxor-yellow flex items-center justify-center mb-2">
+                                    <i data-lucide="target" class="w-5 h-5"></i>
+                                </div>
+                                <span class="font-condensed font-bold text-sm sm:text-base uppercase text-luxor-navy leading-tight">Orientados al Logro</span>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 pt-5 border-t border-slate-200 flex items-center justify-between text-xs font-bold text-luxor-navy/80">
+                            <span>• Impulsar productividad</span>
+                            <span>• Celebrar logros</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================= CARRUSEL DE COSECHAS PASADAS (NUEVA SECCIÓN) ================= -->
+    <section id="carrusel-cosechas" class="py-16 sm:py-24 paper-texture-ivory border-b border-slate-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <!-- Encabezado + Botón Añadir Recuerdo -->
+            <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-10">
+                <div>
+                    <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-luxor-yellow/25 border border-luxor-yellow text-luxor-navy text-xs font-extrabold uppercase tracking-wider mb-3">
+                        <i data-lucide="camera" class="w-3.5 h-3.5 text-luxor-crimson"></i>
+                        <span>Galería Histórica • Ediciones Anteriores</span>
+                    </div>
+                    <h2 class="font-condensed font-bold text-4xl sm:text-5xl uppercase text-luxor-navy">
+                        Momentos de <span class="text-luxor-crimson">Cosechas Pasadas</span>
+                    </h2>
+                    <p class="text-slate-600 font-medium mt-1.5 max-w-2xl">
+                        Revive las premiaciones, entrega de trofeos, sorteos en sucursales Luxor & Euromaxx y el entusiasmo de nuestros equipos ganadores.
+                    </p>
+                </div>
+
+                <button onclick="openPhotoModal()" class="self-start md:self-auto inline-flex items-center gap-2 bg-luxor-navy hover:bg-luxor-crimson text-white font-condensed font-bold uppercase tracking-wider text-sm px-5 py-3 rounded-2xl shadow-md transition-all cursor-pointer">
+                    <i data-lucide="image-plus" class="w-4 h-4 text-luxor-yellow"></i>
+                    <span>Añadir Foto al Carrusel</span>
+                </button>
+            </div>
+
+            <!-- Contenedor Principal del Carrusel Interactivo -->
+            <div id="past-carousel-wrapper" class="relative bg-white rounded-3xl shadow-xl border-2 border-slate-200 overflow-hidden" onmouseenter="pauseCarouselAutoplay()" onmouseleave="resumeCarouselAutoplay()">
+                <!-- Track de Slides -->
+                <div id="carousel-track" class="flex transition-transform duration-500 ease-out">
+                    <!-- Slides renderizados dinámicamente por JS -->
+                </div>
+
+                <!-- Controles Anterior / Siguiente -->
+                <button onclick="prevCarouselSlide()" aria-label="Anterior" class="absolute left-3 sm:left-5 top-1/2 -translate-y-1/2 z-20 w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-luxor-navy/85 hover:bg-luxor-crimson text-white flex items-center justify-center shadow-lg backdrop-blur-xs transition-all cursor-pointer">
+                    <i data-lucide="chevron-left" class="w-6 h-6"></i>
+                </button>
+                <button onclick="nextCarouselSlide()" aria-label="Siguiente" class="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 z-20 w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-luxor-navy/85 hover:bg-luxor-crimson text-white flex items-center justify-center shadow-lg backdrop-blur-xs transition-all cursor-pointer">
+                    <i data-lucide="chevron-right" class="w-6 h-6"></i>
+                </button>
+
+                <!-- Barra Inferior: Indicadores + Miniaturas -->
+                <div class="bg-luxor-navy text-white px-5 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div id="carousel-dots" class="flex items-center gap-2">
+                        <!-- Puntos indicadores -->
+                    </div>
+
+                    <div id="carousel-thumbs" class="flex items-center gap-2 overflow-x-auto max-w-full pb-1 sm:pb-0">
+                        <!-- Miniaturas clicables -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================= LAS 3 CATEGORÍAS OFICIALES Y PREMIOS (LÁMINAS 4, 5, 6, 8, 9, 10) ================= -->
+    <section id="categorias" class="py-16 sm:py-24 bg-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center max-w-3xl mx-auto mb-14">
+                <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-luxor-crimson/10 text-luxor-crimson text-xs font-extrabold uppercase tracking-widest mb-3">
+                    <i data-lucide="award" class="w-4 h-4"></i>
+                    <span>Bases e Incentivos Oficiales</span>
+                </div>
+                <h2 class="font-condensed font-bold text-4xl sm:text-6xl uppercase text-luxor-navy leading-none">
+                    CATEGORÍAS DEL <span class="text-luxor-crimson">PROGRAMA</span>
+                </h2>
+                <p class="text-slate-600 mt-3 text-base sm:text-lg font-medium">
+                    Conoce los premios oficiales en Bs-BCV, sorteos de motos, vehículo 0km y las reglas de participación de cada modalidad.
+                </p>
+            </div>
+
+            <!-- 3 Tarjetas con Estilo Fiel a las Láminas -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-14">
+                <!-- 1. COSECHA EN EQUIPO (TRIMESTRAL - LÁMINA 5) -->
+                <div class="luxor-card rounded-3xl overflow-hidden border-2 border-luxor-yellow shadow-lg flex flex-col justify-between bg-luxor-yellow/15">
+                    <div>
+                        <div class="bg-luxor-yellow p-6 relative overflow-hidden">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="bg-luxor-navy text-luxor-yellow text-[11px] font-extrabold uppercase px-3 py-1 rounded-full tracking-wider">
+                                    Trimestral
+                                </span>
+                                <span class="font-condensed font-bold text-luxor-navy text-sm uppercase">Trofeo X Luxor</span>
+                            </div>
+                            <h3 class="font-condensed font-bold text-3xl sm:text-4xl uppercase text-luxor-navy leading-none">
+                                COSECHA EN EQUIPO
+                            </h3>
+                            <p class="text-xs sm:text-sm font-bold text-luxor-navy/85 mt-2">
+                                Se reconoce al departamento con mejor desempeño trimestral.
+                            </p>
+                        </div>
+
+                        <!-- Hoja con cinta adhesiva estilo Lámina 5 -->
+                        <div class="p-6">
+                            <div class="bg-white rounded-2xl p-5 shadow-md border border-slate-200 relative">
+                                <div class="tape-strip w-14 h-4 absolute -top-2 left-4 -rotate-6 rounded-xs"></div>
+                                <div class="tape-strip w-14 h-4 absolute -top-2 right-4 rotate-6 rounded-xs"></div>
+
+                                <ul class="space-y-3 text-sm text-luxor-navy">
+                                    <li class="flex items-start gap-2.5">
+                                        <span class="w-2 h-2 rounded-full bg-luxor-crimson mt-2 shrink-0"></span>
+                                        <span>Premio a repartir <strong>$800 (Bs-BCV) c/u</strong> del departamento ganador.</span>
+                                    </li>
+                                    <li class="flex items-start gap-2.5">
+                                        <span class="w-2 h-2 rounded-full bg-luxor-crimson mt-2 shrink-0"></span>
+                                        <span><strong>+ $4.000 (Bs-BCV)</strong> para el Gerente del área.</span>
+                                    </li>
+                                    <li class="flex items-start gap-2.5">
+                                        <span class="w-2 h-2 rounded-full bg-luxor-crimson mt-2 shrink-0"></span>
+                                        <span><strong>+ 2 Motos</strong> sorteadas entre el equipo + Reconocimientos oficiales.</span>
+                                    </li>
+                                </ul>
+
+                                <div class="mt-4 pt-3 border-t border-slate-100 text-[11px] font-bold text-slate-600 text-center">
+                                    Ganará solo un departamento (pago en Bs-BCV). Requisito: al menos 3 meses laborando al finalizar la medición.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="px-6 pb-6">
+                        <!-- Este es el PREMIO al departamento con los KPI más
+                             altos, no una categoría en la que se presente
+                             algo: el botón baja a la galería con el filtro
+                             «Todas» (ningún proyecto puede ser de ésta). -->
+                        <button onclick="filterByModalityFromCard('Todos')" class="w-full py-3.5 px-5 rounded-2xl bg-luxor-navy hover:bg-luxor-crimson text-white font-condensed font-bold uppercase tracking-wider text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer">
+                            <span>Ver Equipos Participantes</span>
+                            <i data-lucide="arrow-right" class="w-4 h-4 text-luxor-yellow"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 2. CULTIVANDO IDEAS / EXTRA MILLA (SEMESTRAL - LÁMINA 6) -->
+                <div class="luxor-card rounded-3xl overflow-hidden border-2 border-luxor-crimson shadow-lg flex flex-col justify-between bg-luxor-crimson/5">
+                    <div>
+                        <div class="paper-texture-crimson text-white p-6">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="bg-luxor-yellow text-luxor-navy text-[11px] font-extrabold uppercase px-3 py-1 rounded-full tracking-wider">
+                                    Semestral • Interdepartamento
+                                </span>
+                                <span class="font-condensed font-bold text-luxor-yellow text-sm uppercase">S.M.A.R.T.</span>
+                            </div>
+                            <h3 class="font-condensed font-bold text-3xl sm:text-4xl uppercase leading-none">
+                                CULTIVANDO IDEAS <span class="text-luxor-yellow block text-2xl mt-0.5">(EXTRA MILLA)</span>
+                            </h3>
+                            <p class="text-xs sm:text-sm font-medium text-white/90 mt-2">
+                                Resultados extraordinarios y diferenciadores que generen beneficio real a la organización.
+                            </p>
+                        </div>
+
+                        <div class="p-6 space-y-4">
+                            <div class="bg-luxor-yellow/25 border border-luxor-yellow rounded-2xl p-4 text-xs sm:text-sm text-luxor-navy space-y-2">
+                                <p class="font-bold">• Modalidad Individual o Grupal (3 a 5 personas interdepartamento).</p>
+                                <p>• Evaluado por el Comité de Liderazgo Luxor y Presidencia bajo metodología <strong>S.M.A.R.T. / M.A.R.E.A.</strong></p>
+                            </div>
+
+                            <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-2 text-sm text-luxor-navy">
+                                <div class="flex items-center justify-between">
+                                    <span class="font-bold">Premio Individual:</span>
+                                    <span class="font-condensed font-bold text-lg text-luxor-crimson">$1.000 (Bs-BCV)</span>
+                                </div>
+                                <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+                                    <span class="font-bold">Premio Grupal a repartir:</span>
+                                    <span class="font-condensed font-bold text-lg text-luxor-crimson">$2.500 (Bs-BCV)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="px-6 pb-6">
+                        <button onclick="filterByModalityFromCard('Cultivando Ideas')" class="w-full py-3.5 px-5 rounded-2xl bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold uppercase tracking-wider text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer">
+                            <span>Ver Ideas en Competencia</span>
+                            <i data-lucide="arrow-right" class="w-4 h-4 text-luxor-yellow"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 3. PREMIAMOS TU COMPRA Y FIDELIDAD (MENSUAL - LÁMINAS 9 Y 10) -->
+                <div class="luxor-card rounded-3xl overflow-hidden border-2 border-luxor-orange shadow-lg flex flex-col justify-between bg-luxor-ivory">
+                    <div>
+                        <div class="bg-gradient-to-r from-luxor-yellow via-luxor-orange to-luxor-crimson text-white p-6">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="bg-luxor-navy text-white text-[11px] font-extrabold uppercase px-3 py-1 rounded-full tracking-wider">
+                                    Mensual + Gran Cierre
+                                </span>
+                                <span class="font-condensed font-bold text-luxor-navy bg-white px-2.5 py-0.5 rounded-full text-xs uppercase">Luxor & Euromaxx</span>
+                            </div>
+                            <h3 class="font-condensed font-bold text-3xl sm:text-4xl uppercase leading-none drop-shadow-xs">
+                                PREMIAMOS TU COMPRA
+                            </h3>
+                            <p class="text-xs sm:text-sm font-bold text-white/95 mt-2">
+                                ¡Todos los colaboradores participan por compras desde $5!
+                            </p>
+                        </div>
+
+                        <div class="p-6 space-y-4">
+                            <ul class="space-y-2.5 text-xs sm:text-sm text-luxor-navy">
+                                <li class="flex items-start gap-2">
+                                    <span class="w-5 h-5 rounded-full bg-luxor-crimson text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
+                                    <span><strong>Central Luxor:</strong> Compras mínimas de <strong>$5</strong> en cualquier sucursal Luxor o Euromaxx.</span>
+                                </li>
+                                <li class="flex items-start gap-2">
+                                    <span class="w-5 h-5 rounded-full bg-luxor-crimson text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
+                                    <span><strong>Personal de Tienda:</strong> Compra mínima de <strong>$5</strong> en la sucursal donde laboras y deposita tu factura/cupón en el biombo.</span>
+                                </li>
+                            </ul>
+
+                            <div class="bg-luxor-navy text-white rounded-2xl p-4 flex items-center gap-3.5">
+                                <div class="w-12 h-12 rounded-xl bg-luxor-crimson text-luxor-yellow flex items-center justify-center shrink-0">
+                                    <i data-lucide="car" class="w-7 h-7"></i>
+                                </div>
+                                <div>
+                                    <span class="text-[11px] font-bold text-luxor-yellow uppercase block">Sorteos Mensuales + Diciembre</span>
+                                    <span class="font-condensed font-bold text-lg uppercase">Premios Sorpresa y Carro 0KM</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="px-6 pb-6">
+                        <button onclick="filterByModalityFromCard('Premiamos tu Compra')" class="w-full py-3.5 px-5 rounded-2xl bg-luxor-yellow hover:bg-luxor-orange text-luxor-navy font-condensed font-bold uppercase tracking-wider text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer">
+                            <span>Ver Iniciativas de Tienda</span>
+                            <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BARRA INTERACTIVA DE METODOLOGÍA S.M.A.R.T. (INSPIRADA EN LÁMINA 8) -->
+            <div class="paper-texture-ivory rounded-3xl p-6 sm:p-10 border-2 border-slate-200 shadow-sm">
+                <div class="text-center mb-8">
+                    <span class="text-xs font-extrabold uppercase tracking-widest text-luxor-crimson">Criterios de Evaluación de Proyectos</span>
+                    <h3 class="font-condensed font-bold text-3xl sm:text-4xl uppercase text-luxor-navy mt-1">
+                        Metodología <span class="text-luxor-crimson">S.M.A.R.T.</span>
+                    </h3>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-4 max-w-4xl mx-auto">
+                    <!-- S -->
+                    <div class="bg-luxor-crimson text-white rounded-b-full rounded-t-2xl pt-6 pb-7 px-3 text-center shadow-lg hover:-translate-y-1.5 transition-transform">
+                        <span class="font-condensed font-bold text-5xl text-luxor-yellow block leading-none">S</span>
+                        <span class="font-condensed font-bold text-sm uppercase tracking-wider text-luxor-yellow block mt-2 mb-3">Específico</span>
+                        <div class="w-11 h-11 rounded-full border-2 border-luxor-yellow flex items-center justify-center mx-auto text-luxor-yellow">
+                            <i data-lucide="crosshair" class="w-5 h-5"></i>
+                        </div>
+                    </div>
+                    <!-- M -->
+                    <div class="bg-luxor-yellow text-luxor-crimson rounded-b-full rounded-t-2xl pt-6 pb-7 px-3 text-center shadow-lg hover:-translate-y-1.5 transition-transform">
+                        <span class="font-condensed font-bold text-5xl block leading-none">M</span>
+                        <span class="font-condensed font-bold text-sm uppercase tracking-wider block mt-2 mb-3">Medible</span>
+                        <div class="w-11 h-11 rounded-full border-2 border-luxor-crimson flex items-center justify-center mx-auto">
+                            <i data-lucide="ruler" class="w-5 h-5"></i>
+                        </div>
+                    </div>
+                    <!-- A -->
+                    <div class="bg-luxor-crimson text-white rounded-b-full rounded-t-2xl pt-6 pb-7 px-3 text-center shadow-lg hover:-translate-y-1.5 transition-transform">
+                        <span class="font-condensed font-bold text-5xl text-luxor-yellow block leading-none">A</span>
+                        <span class="font-condensed font-bold text-sm uppercase tracking-wider text-luxor-yellow block mt-2 mb-3">Alcanzable</span>
+                        <div class="w-11 h-11 rounded-full border-2 border-luxor-yellow flex items-center justify-center mx-auto text-luxor-yellow">
+                            <i data-lucide="medal" class="w-5 h-5"></i>
+                        </div>
+                    </div>
+                    <!-- R -->
+                    <div class="bg-luxor-yellow text-luxor-crimson rounded-b-full rounded-t-2xl pt-6 pb-7 px-3 text-center shadow-lg hover:-translate-y-1.5 transition-transform">
+                        <span class="font-condensed font-bold text-5xl block leading-none">R</span>
+                        <span class="font-condensed font-bold text-sm uppercase tracking-wider block mt-2 mb-3">Relevante</span>
+                        <div class="w-11 h-11 rounded-full border-2 border-luxor-crimson flex items-center justify-center mx-auto">
+                            <i data-lucide="lightbulb" class="w-5 h-5"></i>
+                        </div>
+                    </div>
+                    <!-- T -->
+                    <div class="col-span-2 sm:col-span-1 bg-luxor-crimson text-white rounded-b-full rounded-t-2xl pt-6 pb-7 px-3 text-center shadow-lg hover:-translate-y-1.5 transition-transform">
+                        <span class="font-condensed font-bold text-5xl text-luxor-yellow block leading-none">T</span>
+                        <span class="font-condensed font-bold text-sm uppercase tracking-wider text-luxor-yellow block mt-2 mb-3">Temporal</span>
+                        <div class="w-11 h-11 rounded-full border-2 border-luxor-yellow flex items-center justify-center mx-auto text-luxor-yellow">
+                            <i data-lucide="clock" class="w-5 h-5"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================= PODIO DE LÍDERES EN VIVO ================= -->
+    <section id="podio" class="py-16 sm:py-24 bg-luxor-navy textura-cruces text-white relative overflow-hidden">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+            <div class="text-center max-w-2xl mx-auto mb-12">
+                <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-luxor-yellow/15 border border-luxor-yellow/40 text-luxor-yellow text-xs font-extrabold uppercase tracking-widest mb-3">
+                    <i data-lucide="crown" class="w-4 h-4 fill-luxor-yellow"></i>
+                    <span>Clasificación en Tiempo Real</span>
+                </div>
+                <h2 class="font-condensed font-bold text-4xl sm:text-5xl uppercase text-white">
+                    Podio <span class="text-luxor-yellow">Gran Cosecha Luxor</span>
+                </h2>
+                <p class="text-blue-200 text-sm sm:text-base mt-2">
+                    Los 3 proyectos más apoyados por los colaboradores de Luxor & Euromaxx se actualizan al instante.
+                </p>
+            </div>
+
+            <div id="podium-container" class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-end max-w-5xl mx-auto pt-4">
+                <!-- Renderizado dinámicamente -->
+            </div>
+        </div>
+    </section>
+
+    <!-- ================= GALERÍA DE PARTICIPANTES Y PROYECTOS (SISTEMA DE LIKES) ================= -->
+    <section id="proyectos" class="py-16 sm:py-24 paper-texture-ivory">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-10">
+                <div>
+                    <span class="inline-flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-widest text-luxor-crimson bg-luxor-crimson/10 px-3.5 py-1.5 rounded-full">
+                        <i data-lucide="heart" class="w-3.5 h-3.5 fill-luxor-crimson"></i>
+                        Votación de Colaboradores
+                    </span>
+                    <h2 class="font-condensed font-bold text-4xl sm:text-5xl uppercase text-luxor-navy mt-3">
+                        Proyectos y <span class="text-luxor-crimson">Participantes</span>
+                    </h2>
+                    <p class="text-slate-600 mt-1.5 font-medium">
+                        Apoya con tu voto a los equipos de Central Luxor, CENDIS y sucursales Luxor & Euromaxx.
+                    </p>
+                </div>
+
+                <button onclick="openPostulacion()" class="self-start md:self-auto inline-flex items-center gap-2 bg-luxor-crimson hover:bg-luxor-darkRed text-white font-condensed font-bold uppercase tracking-wider text-sm px-6 py-3.5 rounded-2xl shadow-lg transition-all cursor-pointer">
+                    <i data-lucide="plus-circle" class="w-5 h-5 text-luxor-yellow"></i>
+                    <span>Inscribir Proyecto</span>
+                </button>
+            </div>
+
+            <!-- Barra de Filtros, Buscador y Orden -->
+            <div class="bg-white p-4 sm:p-5 rounded-3xl shadow-xs border border-slate-200 mb-10">
+                <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+                    <div id="filter-tabs" class="flex flex-wrap items-center gap-2">
+                        <button data-filter="Todos" onclick="setFilter('Todos')" class="filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-luxor-navy text-white shadow-sm">
+                            Todas (6)
+                        </button>
+                        <button data-filter="Cultivando Ideas" onclick="setFilter('Cultivando Ideas')" class="filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-luxor-crimson/10 text-luxor-crimson hover:bg-luxor-crimson/20">
+                            Cultivando Ideas
+                        </button>
+                        <button data-filter="Premiamos tu Compra" onclick="setFilter('Premiamos tu Compra')" class="filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-luxor-orange/15 text-amber-900 hover:bg-luxor-orange/25">
+                            Premiamos tu Compra
+                        </button>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                        <div class="relative flex-1 sm:w-72">
+                            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+                            <input type="text" id="search-input" oninput="handleSearch(this.value)" placeholder="Buscar equipo, sucursal o idea..." class="w-full pl-10 pr-4 py-2.5 bg-luxor-ivory/60 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-luxor-crimson focus:bg-white transition-all">
+                        </div>
+
+                        <select id="sort-select" onchange="handleSort(this.value)" class="px-4 py-2.5 bg-luxor-ivory/60 border border-slate-200 rounded-xl text-sm font-bold text-luxor-navy focus:outline-none focus:ring-2 focus:ring-luxor-crimson cursor-pointer">
+                            <option value="votes">🔥 Más Votados</option>
+                            <option value="recent">🆕 Más Recientes</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Grid de Tarjetas -->
+            <div id="projects-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-7">
+                <!-- Renderizado por JS -->
+            </div>
+
+            <!-- Estado Vacío -->
+            <div id="empty-state" class="hidden text-center py-16 bg-white rounded-3xl border-2 border-dashed border-slate-300">
+                <div class="w-16 h-16 bg-luxor-ivory text-luxor-crimson rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <i data-lucide="search-x" class="w-8 h-8"></i>
+                </div>
+                <h3 class="font-condensed font-bold text-2xl uppercase text-luxor-navy">No encontramos proyectos con ese filtro</h3>
+                <p class="text-slate-500 text-sm mt-1 mb-5">Intenta con otro término o muestra todas las categorías.</p>
+                <button onclick="resetFilters()" class="px-6 py-3 bg-luxor-crimson text-white text-sm font-bold rounded-xl hover:bg-luxor-darkRed transition-colors cursor-pointer">
+                    Mostrar Todos los Proyectos
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ================= FOOTER CORPORATIVO LUXOR & EUROMAXX ================= -->
+    <footer class="bg-luxor-navy text-slate-300 pt-14 pb-10 border-t-4 border-luxor-yellow">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col md:flex-row items-center justify-between gap-8 pb-10 border-b border-white/10">
+                <div class="flex flex-wrap items-center justify-center gap-4 text-center md:justify-start md:text-left">
+                    <!-- LOS DOS LOGOS, uno al lado del otro y en este
+                         orden: PRIMERO el de la marca corporativa
+                         (public/logo-supermercados-luxor.svg) y DESPUÉS el
+                         de la Gran Cosecha (el molinillo, el mismo que la
+                         barra y el hero). El de la marca va SIN fondo
+                         —así se pidió—: sus letras «luxor» son azul marino
+                         y sobre el navy del pie quedan tenues. -->
+                    <div class="flex shrink-0 items-center gap-3">
+                        <img src="logo-supermercados-luxor.svg" alt="Supermercados Luxor" class="h-10 w-auto shrink-0" />
+                        <svg class="w-12 h-12 shrink-0" viewBox="0 0 100 100" fill="none">
+                            <path d="M46 46 H22 C11 46 4 39 4 28 V4 H28 C39 4 46 11 46 22 V46 Z" fill="#F4B915"/>
+                            <path d="M46 46 L4 4 H28 C39 4 46 11 46 22 V46 Z" fill="#F39200"/>
+                            <path d="M54 46 V22 C54 11 61 4 72 4 H96 V28 C96 39 89 46 78 46 H54 Z" fill="#D92738"/>
+                            <path d="M54 46 L96 4 V28 C96 39 89 46 78 46 H54 Z" fill="#B51726"/>
+                            <path d="M46 54 V78 C46 89 39 96 28 96 H4 V72 C4 61 11 54 22 54 H46 Z" fill="#F4B915"/>
+                            <path d="M46 54 L4 96 H28 C39 96 46 89 46 78 V54 Z" fill="#F39200"/>
+                            <path d="M54 54 H78 C89 54 96 61 96 72 V96 H72 C61 96 54 89 54 78 V54 Z" fill="#D92738"/>
+                            <path d="M54 54 L96 96 H72 C61 96 54 89 54 78 V54 Z" fill="#B51726"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <span class="font-condensed font-bold text-2xl text-white uppercase tracking-tight">
+                            GRAN COSECHA <span class="text-luxor-yellow">LUXOR</span>
+                        </span>
+                        <p class="text-sm font-bold text-white">Supermercados Luxor & Euromaxx Supermercados</p>
+                        <p class="text-xs text-slate-400">Talento Humano • Cultura Organizacional e Innovación</p>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap justify-center gap-6 text-sm font-bold">
+                    <a href="#que-es" class="hover:text-luxor-yellow transition-colors">¿Qué es?</a>
+                    <a href="#carrusel-cosechas" class="hover:text-luxor-yellow transition-colors">Cosechas Pasadas</a>
+                    <a href="#categorias" class="hover:text-luxor-yellow transition-colors">Categorías</a>
+                    <a href="#proyectos" class="hover:text-luxor-yellow transition-colors">Proyectos</a>
+                </div>
+            </div>
+
+            <div class="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400">
+                <p>© 2026 Supermercados Luxor & Euromaxx • Todos los derechos reservados.</p>
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-luxor-yellow"></span>
+                    <span class="w-3 h-3 rounded-full bg-luxor-orange"></span>
+                    <span class="w-3 h-3 rounded-full bg-luxor-crimson"></span>
+                    <span class="w-3 h-3 rounded-full bg-white"></span>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- ================= MODAL LIGHTBOX CARRUSEL ================= -->
+    <div id="lightbox-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-luxor-navyDark/90 backdrop-blur-md">
+        <div class="bg-white rounded-3xl max-w-4xl w-full overflow-hidden shadow-2xl border-2 border-luxor-yellow">
+            <div id="lightbox-content"></div>
+        </div>
+    </div>
+
+    <!-- ================= MODAL AÑADIR FOTO AL CARRUSEL ================= -->
+    <div id="photo-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-luxor-navyDark/80 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200">
+            <div class="h-2 w-full bg-gradient-to-r from-luxor-yellow via-luxor-orange to-luxor-crimson"></div>
+            <div class="p-6 sm:p-8">
+                <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+                    <div>
+                        <h3 class="font-condensed font-bold text-2xl uppercase text-luxor-navy">Añadir Recuerdo al Carrusel</h3>
+                        <p class="text-xs text-slate-500">Comparte fotos de cosechas pasadas en Central Luxor o tiendas</p>
+                    </div>
+                    <button onclick="closePhotoModal()" class="p-2 rounded-xl text-slate-400 hover:bg-slate-100 cursor-pointer">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+                <form id="photo-form" onsubmit="handlePhotoSubmit(event)" class="mt-5 space-y-4">
+                    <div>
+                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Título del Momento *</label>
+                        <input type="text" id="photo-title" required placeholder="Ej. Premiación Trimestral Sucursal La Victoria" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-luxor-crimson">
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Edición / Año *</label>
+                            <input type="text" id="photo-edition" required placeholder="Ej. Cosecha Q3 - 2025" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-luxor-crimson">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Categoría *</label>
+                            <select id="photo-category" class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold bg-white focus:outline-none focus:ring-2 focus:ring-luxor-crimson">
+                                <option value="Cosecha en Equipo">Cosecha en Equipo</option>
+                                <option value="Cultivando Ideas">Cultivando Ideas (Extra Milla)</option>
+                                <option value="Premiamos tu Compra">Premiamos tu Compra</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Subir Imagen desde tu equipo (o pega URL abajo)</label>
+                        <input type="file" id="photo-file" accept="image/*" class="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-luxor-yellow file:text-luxor-navy hover:file:bg-luxor-orange cursor-pointer">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">URL de Imagen (Opcional si subiste archivo)</label>
+                        <input type="url" id="photo-url" placeholder="https://..." class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-luxor-crimson">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-extrabold uppercase text-luxor-navy mb-1">Reseña Breve *</label>
+                        <textarea id="photo-caption" required rows="2" placeholder="Describe qué celebramos en esta fotografía..." class="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-luxor-crimson resize-none"></textarea>
+                    </div>
+
+                    <div class="pt-3 flex justify-end gap-3 border-t border-slate-100">
+                        <button type="button" onclick="closePhotoModal()" class="px-4 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 cursor-pointer">Cancelar</button>
+                        <button type="submit" class="px-6 py-2.5 rounded-xl text-sm font-condensed font-bold uppercase tracking-wider bg-luxor-crimson hover:bg-luxor-darkRed text-white shadow-md cursor-pointer">Publicar en Carrusel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= MODAL DETALLE DEL PROYECTO ================= -->
+    <div id="detail-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-luxor-navyDark/80 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200">
+            <div id="detail-modal-content"></div>
+        </div>
+    </div>
+
+    <!-- ================= MODAL DE POSTULACIÓN (SÓLO GUÍA) =================
+         No tiene formulario ni escribe en la base: explica qué debe
+         contener la postulación, a qué correos se envía y ofrece las
+         guías que sube la consola. Quien postula arma su correo. -->
+    <div id="postulacion-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-luxor-navyDark/80 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl max-w-xl w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200">
+            <div class="h-2 w-full bg-gradient-to-r from-luxor-yellow via-luxor-orange to-luxor-crimson"></div>
+            <div class="p-6 sm:p-8">
+                <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+                    <div>
+                        <h3 class="font-condensed font-bold text-2xl uppercase text-luxor-navy">Postular Proyecto</h3>
+                        <p class="text-xs text-slate-500">Guía para postular: qué enviar, a qué correos y con qué plantillas.</p>
+                    </div>
+                    <button onclick="closePostulacion()" class="p-2 rounded-xl text-slate-400 hover:bg-slate-100 cursor-pointer">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+                <!-- Quién la recibe: los correos quedan a la vista para
+                     que no haya dudas dónde llega y a quién se copia. -->
+                <div class="mt-4 bg-luxor-navy rounded-2xl p-4 text-xs space-y-2">
+                    <p class="flex flex-wrap items-baseline gap-x-2">
+                        <span class="text-luxor-yellow font-extrabold uppercase tracking-wider shrink-0">Para</span>
+                        <span class="text-white font-bold break-all">coordinacion.evaluacion@supermercadoluxor.com</span>
+                    </p>
+                    <p class="flex flex-wrap items-baseline gap-x-2">
+                        <span class="text-luxor-yellow font-extrabold uppercase tracking-wider shrink-0">Con copia</span>
+                        <span class="text-white font-bold break-all">gerencia.mercadeo@supermercadoluxor.com · gerencia.talentohumano@supermercadoluxor.com</span>
+                    </p>
+                    <button onclick="copiarCorreos()" class="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-luxor-yellow/40 px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wider text-luxor-yellow hover:bg-luxor-yellow hover:text-luxor-navy transition-colors cursor-pointer">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                        <span>Copiar correos</span>
+                    </button>
+                </div>
+
+                <!-- Qué debe traer quien postula, resumido ANTES de los
+                     campos: título, integrantes con cédula y el PDF con los
+                     requisitos del programa. -->
+                <div class="mt-4 bg-luxor-ivory border border-slate-200 rounded-2xl p-4">
+                    <span class="block text-[11px] font-extrabold uppercase tracking-wider text-luxor-crimson mb-2">Qué debe contener tu postulación</span>
+                    <ul class="space-y-1.5 text-xs text-slate-600">
+                        <li>• Título del proyecto.</li>
+                        <li>• Integrantes: nombre y cédula de cada uno (mínimo 3).</li>
+                        <li>• Presentación en PDF con:
+                            <ul class="mt-1 ml-4 space-y-1 text-slate-500">
+                                <li>– Portada con el logotipo del proyecto.</li>
+                                <li>– Desarrollo del proyecto según el método SMART.</li>
+                                <li>– Presupuesto detallado de todo lo necesario para su ejecución (si requiere inversión).</li>
+                                <li>– Aporte significativo y perdurable en el tiempo para la empresa.</li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Las guías que el Líder sube en la consola (Página):
+                     se pintan como descarga; sin ninguna, sección oculta. -->
+                <div id="postulacion-guias" class="mt-4 hidden">
+                    <span class="block text-[11px] font-extrabold uppercase tracking-wider text-luxor-crimson mb-2">Descargá las guías del proyecto</span>
+                    <ul id="postulacion-guias-lista" class="space-y-2"></ul>
+                </div>
+
+                <p class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
+                    Enviá tu postulación desde tu correo: adjuntá el PDF y mandalo a la casilla <strong>Para</strong>, con copia a las gerencias. Usá las guías de arriba como plantilla.
+                </p>
+
+                <div class="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                    <button type="button" onclick="closePostulacion()" class="px-6 py-3 rounded-xl text-sm font-condensed font-bold uppercase tracking-wider bg-luxor-navy hover:bg-luxor-crimson text-white transition-colors cursor-pointer">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= TOAST FLOTANTE ================= -->
+    <div id="toast" class="fixed bottom-5 right-5 z-50 translate-y-24 opacity-0 transition-all duration-300 pointer-events-none">
+        <div class="bg-luxor-navy text-white px-5 py-3.5 rounded-2xl shadow-2xl border-2 border-luxor-yellow flex items-center gap-3">
+            <span id="toast-icon" class="text-lg">✅</span>
+            <span id="toast-message">¡Acción completada!</span>
+        </div>
+    </div>
+
+    <!-- ================= JAVASCRIPT ================= -->
+    <script>
+        // 1. Datos iniciales del Carrusel de Cosechas Pasadas
+        const initialCarouselSlides = [
+            {
+                id: 1,
+                edition: "EDICIÓN TRIMESTRAL • COSECHA EN EQUIPO",
+                category: "Cosecha en Equipo",
+                title: "Premiación Departamento Ganador y Entrega del Trofeo X Luxor",
+                caption: "Celebración con el equipo administrativo y operativo ganador del trimestre: reconocimiento oficial, entrega del trofeo institucional X, bonificación en Bs-BCV y sorteo de 2 motos entre los colaboradores.",
+                location: "Central Luxor & Operaciones",
+                image: "https://images.unsplash.com/photo-1511632765486-a01980e01a18?auto=format&fit=crop&w=1200&q=80",
+                fallback: "https://placehold.co/1200x700/C41E2E/F4B915?text=PREMIACION+COSECHA+EN+EQUIPO+LUXOR"
+            },
+            {
+                id: 2,
+                edition: "EDICIÓN SEMESTRAL • EXTRA MILLA S.M.A.R.T.",
+                category: "Cultivando Ideas",
+                title: "Presentación de Proyectos Interdepartamentales ante Comité de Liderazgo",
+                caption: "Equipos multidisciplinarios de Compras, Sistemas, Logística y Tiendas sustentando soluciones innovadoras bajo la metodología S.M.A.R.T. para optimizar procesos en toda la cadena.",
+                location: "Auditorio Central Luxor",
+                image: "https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=1200&q=80",
+                fallback: "https://placehold.co/1200x700/182348/F4B915?text=PROYECTOS+SMART+EXTRA+MILLA"
+            },
+            {
+                id: 3,
+                edition: "SORTEO DE FIDELIDAD • LUXOR & EUROMAXX",
+                category: "Premiamos tu Compra",
+                title: "Buzones de Cupones en Sucursales y Gran Sorteo Anual Carro 0KM",
+                caption: "Nuestros colaboradores de Central Luxor y sucursales Luxor & Euromaxx depositando sus facturas de compra mínima de $5 en los biombos identificados para los sorteos mensuales y el gran vehículo de diciembre.",
+                location: "Sucursales Luxor & Euromaxx",
+                image: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=80",
+                fallback: "https://placehold.co/1200x700/F4B915/182348?text=PREMIAMOS+TU+COMPRA+LUXOR+EUROMAXX"
+            },
+            {
+                id: 4,
+                edition: "CULTURA ORGANIZACIONAL • RECONOCIMIENTO",
+                category: "Cosecha en Equipo",
+                title: "Integración de Gerentes, Supervisores y Equipos de Piso de Venta",
+                caption: "Jornada de celebración donde reconocemos la proactividad, creatividad y orientación al logro que impulsan cada día el crecimiento de Supermercados Luxor y Euromaxx.",
+                location: "CENDIS & Red de Tiendas",
+                image: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1200&q=80",
+                fallback: "https://placehold.co/1200x700/B51726/FFFFFF?text=CULTURA+DE+RECONOCIMIENTO+LUXOR"
+            }
+        ];
+
+
+        const STORAGE_LIKED = 'luxor_oficial_liked_v4';
+        const STORAGE_CAROUSEL = 'luxor_oficial_carousel_v3';
+
+        // `projects` NO se guarda en el navegador: viene de la consola de
+        // Proyectos (el RPC `participantes`) cada vez que se abre la página.
+        // Lo local son tus apoyos (uuids reales) y las fotos agregadas.
+        let projects = [];
+        let likedIds = [];
+        let carouselSlides = [];
+        let currentSlide = 0;
+        let carouselInterval = null;
+
+        let currentFilter = 'Todos';
+        let currentSearch = '';
+        let currentSort = 'votes';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadState();
+            renderCarousel();
+            startCarouselAutoplay();
+            renderAll();
+        });
+
+        function loadState() {
+            try {
+                const savedLikes = localStorage.getItem(STORAGE_LIKED);
+                const savedCarousel = localStorage.getItem(STORAGE_CAROUSEL);
+
+                likedIds = savedLikes ? JSON.parse(savedLikes) : [];
+                carouselSlides = savedCarousel ? JSON.parse(savedCarousel) : [...initialCarouselSlides];
+            } catch (e) {
+                likedIds = [];
+                carouselSlides = [...initialCarouselSlides];
+            }
+        }
+
+        function saveState() {
+            try {
+                localStorage.setItem(STORAGE_LIKED, JSON.stringify(likedIds));
+                localStorage.setItem(STORAGE_CAROUSEL, JSON.stringify(carouselSlides));
+            } catch (e) {
+                console.warn("No se pudo guardar en localStorage", e);
+            }
+        }
+
+        // ================= LÓGICA DEL CARRUSEL DE COSECHAS PASADAS =================
+        function renderCarousel() {
+            const track = document.getElementById('carousel-track');
+            const dotsContainer = document.getElementById('carousel-dots');
+            const thumbsContainer = document.getElementById('carousel-thumbs');
+            if (!track || !dotsContainer || !thumbsContainer) return;
+
+            track.innerHTML = carouselSlides.map((slide, index) => `
+                <div class="w-full shrink-0 grid grid-cols-1 lg:grid-cols-12">
+                    <!-- Imagen con marco y recorte estilizado -->
+                    <div class="lg:col-span-7 relative h-72 sm:h-96 lg:h-[450px] overflow-hidden bg-luxor-navy group cursor-pointer" onclick="openLightbox(${index})">
+                        <img src="${slide.image}" alt="${escapeHTML(slide.title)}" onerror="this.onerror=null;this.src='${slide.fallback || 'https://placehold.co/1200x700/C41E2E/FFFFFF?text=GRAN+COSECHA+LUXOR'}'" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700">
+                        <div class="absolute inset-0 bg-gradient-to-t from-luxor-navyDark/80 via-transparent to-black/20"></div>
+
+                        <!-- Badge superior -->
+                        <div class="absolute top-4 left-4 flex items-center gap-2">
+                            <span class="bg-luxor-yellow text-luxor-navy font-condensed font-bold uppercase text-xs px-3.5 py-1 rounded-full shadow-md tracking-wider">
+                                ${escapeHTML(slide.edition)}
+                            </span>
+                        </div>
+
+                        <!-- Botón Ampliar Lightbox -->
+                        <button type="button" class="absolute bottom-4 right-4 bg-white/90 hover:bg-luxor-yellow text-luxor-navy px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-lg transition-colors">
+                            <i data-lucide="expand" class="w-4 h-4"></i>
+                            <span>Ampliar Foto</span>
+                        </button>
+
+                        <div class="absolute bottom-4 left-4 text-white text-xs font-bold flex items-center gap-1.5">
+                            <i data-lucide="map-pin" class="w-4 h-4 text-luxor-yellow"></i>
+                            <span>${escapeHTML(slide.location)}</span>
+                        </div>
+                    </div>
+
+                    <!-- Información de la Edición Pasada -->
+                    <div class="lg:col-span-5 p-6 sm:p-10 flex flex-col justify-between bg-white relative">
+                        <div>
+                            <div class="flex items-center justify-between gap-2 mb-4">
+                                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-luxor-crimson/10 text-luxor-crimson">
+                                    <i data-lucide="award" class="w-3.5 h-3.5"></i>
+                                    ${escapeHTML(slide.category)}
+                                </span>
+                                <span class="font-condensed font-bold text-sm text-slate-400">
+                                    ${index + 1} / ${carouselSlides.length}
+                                </span>
+                            </div>
+
+                            <h3 class="font-condensed font-bold text-2xl sm:text-3xl uppercase text-luxor-navy leading-tight mb-4">
+                                ${escapeHTML(slide.title)}
+                            </h3>
+
+                            <p class="text-slate-600 text-sm sm:text-base leading-relaxed">
+                                ${escapeHTML(slide.caption)}
+                            </p>
+                        </div>
+
+                        <div class="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="w-3 h-3 rounded-full bg-luxor-yellow"></span>
+                                <span class="w-3 h-3 rounded-full bg-luxor-orange"></span>
+                                <span class="w-3 h-3 rounded-full bg-luxor-crimson"></span>
+                                <span class="text-xs font-extrabold text-luxor-navy uppercase ml-1">Luxor & Euromaxx</span>
+                            </div>
+                            <button onclick="openLightbox(${index})" class="text-xs font-extrabold text-luxor-crimson hover:underline cursor-pointer">
+                                Ver ficha completa →
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            dotsContainer.innerHTML = carouselSlides.map((_, idx) => `
+                <button onclick="goToCarouselSlide(${idx})" aria-label="Ir a foto ${idx + 1}" class="h-2.5 rounded-full transition-all cursor-pointer ${
+                    idx === currentSlide ? 'w-8 bg-luxor-yellow' : 'w-2.5 bg-white/35 hover:bg-white/60'
+                }"></button>
+            `).join('');
+
+            thumbsContainer.innerHTML = carouselSlides.map((slide, idx) => `
+                <button onclick="goToCarouselSlide(${idx})" class="w-12 h-9 rounded-lg overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${
+                    idx === currentSlide ? 'border-luxor-yellow scale-105 opacity-100' : 'border-transparent opacity-55 hover:opacity-90'
+                }">
+                    <img src="${slide.image}" alt="" onerror="this.onerror=null;this.src='${slide.fallback || 'https://placehold.co/1200x700/C41E2E/FFFFFF?text=GRAN+COSECHA+LUXOR'}'" class="w-full h-full object-cover">
+                </button>
+            `).join('');
+
+            updateCarouselPosition();
+            lucide.createIcons();
+        }
+
+        function updateCarouselPosition() {
+            const track = document.getElementById('carousel-track');
+            if (track) {
+                track.style.transform = `translateX(-${currentSlide * 100}%)`;
+            }
+        }
+
+        // Navegar NO reconstruye la pista: sólo mueve el translateX y marca
+        // el punto / miniatura activos. Antes cada salto rehacía el
+        // innerHTML entero y las imágenes se volvían a pedir en bucle cada
+        // 5,5 s (el bug de recarga infinita). La pista se reconstruye SÓLO
+        // cuando cambia la lista (carga, contenido publicado, foto nueva).
+        function updateCarouselActive() {
+            const dotsContainer = document.getElementById('carousel-dots');
+            const thumbsContainer = document.getElementById('carousel-thumbs');
+            if (dotsContainer) {
+                Array.from(dotsContainer.children).forEach((btn, idx) => {
+                    btn.className = `h-2.5 rounded-full transition-all cursor-pointer ${idx === currentSlide ? 'w-8 bg-luxor-yellow' : 'w-2.5 bg-white/35 hover:bg-white/60'}`;
+                });
+            }
+            if (thumbsContainer) {
+                Array.from(thumbsContainer.children).forEach((btn, idx) => {
+                    btn.className = `w-12 h-9 rounded-lg overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${idx === currentSlide ? 'border-luxor-yellow scale-105 opacity-100' : 'border-transparent opacity-55 hover:opacity-90'}`;
+                });
+            }
+        }
+
+        function nextCarouselSlide() {
+            currentSlide = (currentSlide + 1) % carouselSlides.length;
+            updateCarouselPosition();
+            updateCarouselActive();
+        }
+
+        function prevCarouselSlide() {
+            currentSlide = (currentSlide - 1 + carouselSlides.length) % carouselSlides.length;
+            updateCarouselPosition();
+            updateCarouselActive();
+        }
+
+        function goToCarouselSlide(index) {
+            currentSlide = index;
+            updateCarouselPosition();
+            updateCarouselActive();
+        }
+
+        function startCarouselAutoplay() {
+            stopCarouselAutoplay();
+            carouselInterval = setInterval(() => {
+                nextCarouselSlide();
+            }, 5500);
+        }
+
+        function stopCarouselAutoplay() {
+            if (carouselInterval) clearInterval(carouselInterval);
+        }
+
+        function pauseCarouselAutoplay() { stopCarouselAutoplay(); }
+        function resumeCarouselAutoplay() { startCarouselAutoplay(); }
+
+        // Soporte teclado para el carrusel
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') nextCarouselSlide();
+            if (e.key === 'ArrowLeft') prevCarouselSlide();
+            if (e.key === 'Escape') {
+                cerrarMenuDescarga();
+                closeLightbox();
+                closeDetailModal();
+                closePostulacion();
+                closePhotoModal();
+            }
+        });
+
+        // Lightbox del Carrusel
+        function openLightbox(index) {
+            const slide = carouselSlides[index];
+            if (!slide) return;
+            const modal = document.getElementById('lightbox-modal');
+            const content = document.getElementById('lightbox-content');
+
+            content.innerHTML = `
+                <div class="relative bg-luxor-navyDark">
+                    <img src="${slide.image}" alt="${escapeHTML(slide.title)}" onerror="this.src='${slide.fallback}'" class="w-full max-h-[62vh] object-contain mx-auto">
+                    <button onclick="closeLightbox()" class="absolute top-4 right-4 w-10 h-10 rounded-xl bg-luxor-crimson text-white flex items-center justify-center shadow-lg cursor-pointer">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <div class="p-6 sm:p-8 bg-white">
+                    <div class="flex flex-wrap items-center gap-2 mb-2">
+                        <span class="bg-luxor-yellow text-luxor-navy text-xs font-extrabold uppercase px-3 py-1 rounded-full">${escapeHTML(slide.edition)}</span>
+                        <span class="text-xs font-bold text-luxor-crimson">• ${escapeHTML(slide.location)}</span>
+                    </div>
+                    <h3 class="font-condensed font-bold text-2xl sm:text-3xl uppercase text-luxor-navy mb-2">${escapeHTML(slide.title)}</h3>
+                    <p class="text-slate-600 text-sm sm:text-base leading-relaxed">${escapeHTML(slide.caption)}</p>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            lucide.createIcons();
+        }
+
+        function closeLightbox() {
+            const modal = document.getElementById('lightbox-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function openPhotoModal() {
+            const modal = document.getElementById('photo-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            lucide.createIcons();
+        }
+
+        function closePhotoModal() {
+            const modal = document.getElementById('photo-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function handlePhotoSubmit(e) {
+            e.preventDefault();
+            const title = document.getElementById('photo-title').value.trim();
+            const edition = document.getElementById('photo-edition').value.trim();
+            const category = document.getElementById('photo-category').value;
+            const caption = document.getElementById('photo-caption').value.trim();
+            const urlInput = document.getElementById('photo-url').value.trim();
+            const fileInput = document.getElementById('photo-file');
+
+            const addSlideToCarousel = (imgSrc) => {
+                const newSlide = {
+                    id: Date.now(),
+                    edition: edition.toUpperCase(),
+                    category,
+                    title,
+                    caption,
+                    location: "Supermercados Luxor & Euromaxx",
+                    image: imgSrc,
+                    fallback: "https://placehold.co/1200x700/C41E2E/F4B915?text=GRAN+COSECHA+LUXOR"
+                };
+                carouselSlides.unshift(newSlide);
+                currentSlide = 0;
+                saveState();
+                renderCarousel();
+                document.getElementById('photo-form').reset();
+                closePhotoModal();
+                triggerLuxorConfetti(0.5, 0.5);
+                showToast("¡Fotografía añadida a Cosechas Pasadas!", "📸");
+            };
+
+            if (fileInput.files && fileInput.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(evt) {
+                    addSlideToCarousel(evt.target.result);
+                };
+                reader.readAsDataURL(fileInput.files[0]);
+            } else {
+                const finalUrl = urlInput || "https://images.unsplash.com/photo-1511632765486-a01980e01a18?auto=format&fit=crop&w=1200&q=80";
+                addSlideToCarousel(finalUrl);
+            }
+        }
+
+        // ================= CONFETI OFICIAL LUXOR =================
+        function triggerLuxorConfetti(originX = 0.5, originY = 0.65) {
+            if (typeof confetti !== 'function') return;
+            confetti({
+                particleCount: 45,
+                spread: 65,
+                origin: { x: originX, y: originY },
+                colors: ['#F4B915', '#F39200', '#C41E2E', '#182348', '#FFFFFF'],
+                ticks: 160,
+                gravity: 1.1,
+                scalar: 0.95
+            });
+        }
+
+        // ================= RENDERIZADO DE PROYECTOS Y PODIO =================
+        function renderAll() {
+            updateStats();
+            updateFilterCounts();
+            renderPodium();
+            renderProjectsGrid();
+            lucide.createIcons();
+        }
+
+        function updateStats() {
+            const totalVotes = projects.reduce((sum, p) => sum + p.likes, 0);
+            const heroCount = document.getElementById('hero-project-count');
+            const heroVotes = document.getElementById('hero-total-likes');
+
+            if (heroCount) heroCount.textContent = projects.length;
+            if (heroVotes) heroVotes.textContent = totalVotes;
+        }
+
+        function updateFilterCounts() {
+            const allBtn = document.querySelector('[data-filter="Todos"]');
+            if (allBtn) allBtn.textContent = `Todas (${projects.length})`;
+
+            // El chip «Sin categoría» existe sólo si hay proyectos sin ella:
+            // los viejos (o los creados sin elegir) se filtran aparte.
+            const tabs = document.getElementById('filter-tabs');
+            if (tabs) {
+                const sin = projects.filter(p => !p.category).length;
+                let chip = document.getElementById('filter-sin-categoria');
+                if (sin > 0) {
+                    if (!chip) {
+                        chip = document.createElement('button');
+                        chip.id = 'filter-sin-categoria';
+                        chip.dataset.filter = 'Sin categoría';
+                        chip.type = 'button';
+                        chip.className = 'filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-slate-100 text-luxor-navy hover:bg-slate-200';
+                        chip.textContent = `Sin categoría (${sin})`;
+                        chip.addEventListener('click', () => setFilter('Sin categoría'));
+                        tabs.appendChild(chip);
+                    } else {
+                        chip.textContent = `Sin categoría (${sin})`;
+                    }
+                } else if (chip) {
+                    chip.remove();
+                    if (currentFilter === 'Sin categoría') setFilter('Todos');
+                }
+            }
+        }
+
+        function getModalityTheme(modality) {
+            switch (modality) {
+                case 'Cultivando Ideas':
+                    return {
+                        badge: 'bg-luxor-crimson/15 text-luxor-crimson border-luxor-crimson/30',
+                        bar: 'bg-luxor-crimson',
+                        topStripe: 'from-luxor-crimson to-luxor-darkRed',
+                        icon: 'lightbulb'
+                    };
+                case 'Premiamos tu Compra':
+                    return {
+                        badge: 'bg-luxor-orange/20 text-amber-900 border-luxor-orange/40',
+                        bar: 'bg-luxor-orange',
+                        topStripe: 'from-luxor-orange via-luxor-yellow to-luxor-crimson',
+                        icon: 'shopping-bag'
+                    };
+                default:
+                    return {
+                        badge: 'bg-slate-100 text-luxor-navy border-slate-300',
+                        bar: 'bg-luxor-navy',
+                        topStripe: 'from-luxor-navy to-luxor-crimson',
+                        icon: 'award'
+                    };
+            }
+        }
+
+        function getTeamAvatars(teamStr) {
+            const match = teamStr.match(/\(([^)]+)\)/);
+            const namesRaw = match ? match[1] : teamStr;
+            const names = namesRaw.split(',').map(n => n.trim()).filter(Boolean).slice(0, 4);
+
+            const avatarColors = [
+                'bg-luxor-crimson text-white',
+                'bg-luxor-yellow text-luxor-navy',
+                'bg-luxor-navy text-white',
+                'bg-luxor-orange text-white'
+            ];
+
+            return names.map((name, idx) => {
+                const parts = name.split(' ').filter(Boolean);
+                const initials = parts.length >= 2
+                    ? (parts[0][0] + parts[1][0]).toUpperCase()
+                    : name.slice(0, 2).toUpperCase();
+                return `<span title="${escapeHTML(name)}" class="w-7 h-7 rounded-full ${avatarColors[idx % avatarColors.length]} text-[10px] font-extrabold flex items-center justify-center ring-2 ring-white">${escapeHTML(initials)}</span>`;
+            }).join('');
+        }
+
+        function renderPodium() {
+            const container = document.getElementById('podium-container');
+            if (!container) return;
+
+            const sorted = [...projects].sort((a, b) => b.likes - a.likes);
+            const top3 = sorted.slice(0, 3);
+            if (top3.length === 0) return;
+
+            const podiumSlots = [];
+            if (top3[1]) podiumSlots.push({ project: top3[1], rank: 2 });
+            if (top3[0]) podiumSlots.push({ project: top3[0], rank: 1 });
+            if (top3[2]) podiumSlots.push({ project: top3[2], rank: 3 });
+
+            const rankConfigs = {
+                1: {
+                    orderClass: 'order-1 lg:order-2 lg:-translate-y-4',
+                    cardStyle: 'bg-gradient-to-b from-luxor-yellow/25 via-white/10 to-white/5 border-2 border-luxor-yellow shadow-2xl',
+                    badgeStyle: 'bg-luxor-yellow text-luxor-navy',
+                    label: '1° LUGAR • LÍDER COSECHA',
+                    pedestalHeight: 'h-20 bg-gradient-to-t from-luxor-yellow/40 to-luxor-yellow/10 border-t-2 border-luxor-yellow',
+                    icon: 'crown'
+                },
+                2: {
+                    orderClass: 'order-2 lg:order-1',
+                    cardStyle: 'bg-gradient-to-b from-luxor-crimson/25 via-white/10 to-white/5 border-2 border-luxor-crimson shadow-xl',
+                    badgeStyle: 'bg-luxor-crimson text-white',
+                    label: '2° LUGAR',
+                    pedestalHeight: 'h-12 bg-gradient-to-t from-luxor-crimson/40 to-luxor-crimson/10 border-t-2 border-luxor-crimson',
+                    icon: 'medal'
+                },
+                3: {
+                    orderClass: 'order-3 lg:order-3',
+                    cardStyle: 'bg-gradient-to-b from-luxor-orange/25 via-white/10 to-white/5 border-2 border-luxor-orange shadow-xl',
+                    badgeStyle: 'bg-luxor-orange text-white',
+                    label: '3° LUGAR',
+                    pedestalHeight: 'h-8 bg-gradient-to-t from-luxor-orange/40 to-luxor-orange/10 border-t-2 border-luxor-orange',
+                    icon: 'award'
+                }
+            };
+
+            container.innerHTML = podiumSlots.map(({ project, rank }) => {
+                const cfg = rankConfigs[rank];
+                const isLiked = likedIds.includes(project.id);
+
+                return `
+                    <div class="${cfg.orderClass} flex flex-col justify-end transition-all duration-500">
+                        <div class="rounded-3xl p-6 backdrop-blur-md ${cfg.cardStyle} transition-transform hover:-translate-y-1">
+                            <div class="flex items-center justify-between gap-2 mb-4">
+                                <span class="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-extrabold ${cfg.badgeStyle} shadow-md">
+                                    <i data-lucide="${cfg.icon}" class="w-3.5 h-3.5"></i>
+                                    ${cfg.label}
+                                </span>
+                                <span class="text-[11px] font-bold text-blue-200 bg-white/10 px-2.5 py-1 rounded-lg">
+                                    ${escapeHTML(project.category || 'Sin categoría')}
+                                </span>
+                            </div>
+
+                            <h3 onclick="openDetailModal('${project.id}')" class="font-condensed font-bold text-xl sm:text-2xl uppercase text-white leading-snug mb-1.5 cursor-pointer hover:text-luxor-yellow transition-colors line-clamp-2">
+                                ${escapeHTML(project.title)}
+                            </h3>
+                            ${project.branch ? `
+                            <p class="text-xs font-semibold text-blue-200/80 mb-5 flex items-center gap-1.5">
+                                <i data-lucide="map-pin" class="w-3.5 h-3.5 text-luxor-yellow shrink-0"></i>
+                                <span class="truncate">${escapeHTML(project.branch)}</span>
+                            </p>
+                            ` : ''}
+
+                            <div class="flex items-center justify-between pt-4 border-t border-white/15">
+                                <div class="flex items-baseline gap-1.5">
+                                    <span class="font-condensed font-bold text-3xl text-luxor-yellow">${project.likes}</span>
+                                    <span class="text-xs font-bold text-blue-200 uppercase">votos</span>
+                                </div>
+
+                                <button onclick="toggleLike('${project.id}', event)" class="px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                    isLiked
+                                    ? 'bg-luxor-yellow text-luxor-navy shadow-lg'
+                                    : 'bg-white/15 hover:bg-white/25 text-white border border-white/20'
+                                }">
+                                    <i data-lucide="heart" class="w-3.5 h-3.5 ${isLiked ? 'fill-luxor-navy' : 'text-luxor-crimson fill-luxor-crimson'}"></i>
+                                    <span>${isLiked ? 'Apoyado' : 'Votar'}</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="hidden lg:flex items-center justify-center rounded-b-2xl mx-4 ${cfg.pedestalHeight}">
+                            <span class="font-arena text-3xl tracking-widest text-white/40">#${rank}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderProjectsGrid() {
+            const grid = document.getElementById('projects-grid');
+            const emptyState = document.getElementById('empty-state');
+            if (!grid || !emptyState) return;
+
+            const maxLikes = Math.max(...projects.map(p => p.likes), 1);
+
+            let filtered = projects.filter(p => {
+                const categoria = p.category || 'Sin categoría';
+                const matchModality = currentFilter === 'Todos' || categoria === currentFilter;
+                const q = currentSearch.toLowerCase().trim();
+                const matchSearch = !q ||
+                    p.title.toLowerCase().includes(q) ||
+                    p.team.toLowerCase().includes(q) ||
+                    p.branch.toLowerCase().includes(q) ||
+                    p.description.toLowerCase().includes(q);
+                return matchModality && matchSearch;
+            });
+
+            if (currentSort === 'votes') {
+                filtered.sort((a, b) => b.likes - a.likes);
+            } else {
+                filtered.sort((a, b) => b.timestamp - a.timestamp);
+            }
+
+            if (filtered.length === 0) {
+                grid.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+
+            grid.innerHTML = filtered.map(proj => {
+                const isLiked = likedIds.includes(proj.id);
+                const theme = getModalityTheme(proj.category);
+                const popularityPct = Math.min(100, Math.max(12, Math.round((proj.likes / maxLikes) * 100)));
+                const avatarsHTML = getTeamAvatars(proj.team);
+                const docs = documentosDe(proj.adjuntos);
+
+                return `
+                    <article class="bg-white rounded-3xl border border-slate-200 shadow-xs hover:shadow-xl transition-all duration-300 flex flex-col justify-between overflow-hidden group hover:-translate-y-1.5">
+                        <div>
+                            <div class="h-2 w-full bg-gradient-to-r ${theme.topStripe}"></div>
+
+                            <div class="p-6 pb-4">
+                                <div class="flex items-center justify-between gap-2 mb-4">
+                                    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold border ${theme.badge}">
+                                        <i data-lucide="${theme.icon}" class="w-3 h-3"></i>
+                                        ${escapeHTML(proj.category || 'Sin categoría')}
+                                    </span>
+
+                                    <button onclick="openDetailModal('${proj.id}')" class="w-8 h-8 rounded-xl bg-luxor-ivory hover:bg-luxor-navy text-luxor-navy hover:text-white flex items-center justify-center transition-colors cursor-pointer" title="Ver propuesta completa">
+                                        <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+
+                                ${proj.branch ? `
+                                <div class="flex items-center gap-1.5 text-xs font-bold text-luxor-crimson mb-1.5">
+                                    <i data-lucide="map-pin" class="w-3.5 h-3.5 shrink-0"></i>
+                                    <span class="truncate">${escapeHTML(proj.branch)}</span>
+                                </div>
+                                ` : ''}
+
+                                <h3 onclick="openDetailModal('${proj.id}')" class="font-condensed font-bold text-2xl uppercase text-luxor-navy group-hover:text-luxor-crimson transition-colors cursor-pointer leading-tight mb-3">
+                                    ${escapeHTML(proj.title)}
+                                </h3>
+
+                                <p class="text-slate-600 text-sm leading-relaxed line-clamp-3 mb-5">
+                                    ${escapeHTML(proj.description)}
+                                </p>
+
+                                <div class="mb-5">
+                                    <div class="flex items-center justify-between text-[11px] font-bold text-slate-500 mb-1.5">
+                                        <span>Respaldo de Colaboradores</span>
+                                        <span class="text-luxor-navy font-extrabold">${popularityPct}%</span>
+                                    </div>
+                                    <div class="w-full h-2 bg-luxor-ivory rounded-full overflow-hidden">
+                                        <div class="h-full ${theme.bar} rounded-full transition-all duration-500" style="width: ${popularityPct}%"></div>
+                                    </div>
+                                </div>
+
+                                <div class="flex items-center justify-between gap-2 pt-3 border-t border-slate-100">
+                                    <div class="flex -space-x-2 shrink-0">
+                                        ${avatarsHTML}
+                                    </div>
+                                    <span class="text-xs font-semibold text-slate-500 truncate">
+                                        ${escapeHTML(proj.team.split('(')[0].trim())}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="px-6 py-4 bg-luxor-ivory/70 border-t border-slate-100 flex items-center gap-3 ${docs.length ? 'justify-between' : 'justify-end'}">
+                            ${docs.length ? `
+                            <div class="relative">
+                                <button type="button" onclick="toggleMenuDescarga('${proj.id}', event)" aria-label="Descargar los archivos de ${escapeHTML(proj.title)}" title="Descargar los archivos de la presentación" class="inline-flex items-center gap-1.5 text-xs font-extrabold text-luxor-navy/70 hover:text-luxor-crimson transition-colors cursor-pointer">
+                                    <i data-lucide="download" class="w-4 h-4"></i>
+                                    <span>Descargar</span>
+                                </button>
+                            </div>` : ''}
+
+                            <button id="like-btn-${proj.id}" onclick="toggleLike('${proj.id}', event)" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold transition-all cursor-pointer select-none ${
+                                isLiked
+                                ? 'bg-luxor-crimson text-white shadow-md shadow-red-700/25'
+                                : 'bg-white border-2 border-slate-200 text-luxor-navy hover:border-luxor-crimson hover:text-luxor-crimson'
+                            }">
+                                <i data-lucide="heart" class="w-4 h-4 ${isLiked ? 'fill-luxor-yellow text-luxor-yellow' : 'text-luxor-crimson'}"></i>
+                                <span>${isLiked ? 'Apoyado' : 'Apoyar'}</span>
+                                <span class="px-2 py-0.5 rounded-full text-xs ${isLiked ? 'bg-black/20 text-white' : 'bg-luxor-ivory text-luxor-navy'}">
+                                    ${proj.likes}
+                                </span>
+                            </button>
+                        </div>
+                    </article>
+                `;
+            }).join('');
+        }
+
+        function toggleLike(projectId, event) {
+            if (event) event.stopPropagation();
+
+            const idx = projects.findIndex(p => p.id === projectId);
+            if (idx === -1) return;
+
+            const alreadyLiked = likedIds.includes(projectId);
+
+            if (alreadyLiked) {
+                likedIds = likedIds.filter(id => id !== projectId);
+                projects[idx].likes = Math.max(0, projects[idx].likes - 1);
+                showToast("Has retirado tu apoyo de este proyecto", "↩️");
+            } else {
+                likedIds.push(projectId);
+                projects[idx].likes += 1;
+                showToast(`¡Voto sumado a "${projects[idx].title}"!`, "🏆");
+
+                let originX = 0.5;
+                let originY = 0.6;
+                if (event && event.clientX && event.clientY) {
+                    originX = event.clientX / window.innerWidth;
+                    originY = event.clientY / window.innerHeight;
+                }
+                triggerLuxorConfetti(originX, originY);
+            }
+
+            saveState();
+            renderAll();
+
+            const btn = document.getElementById(`like-btn-${projectId}`);
+            if (btn) {
+                btn.classList.add('animate-vote-pop');
+                setTimeout(() => btn.classList.remove('animate-vote-pop'), 420);
+            }
+
+            const detailModal = document.getElementById('detail-modal');
+            if (!detailModal.classList.contains('hidden') && String(detailModal.dataset.currentId) === String(projectId)) {
+                openDetailModal(projectId);
+            }
+        }
+
+        function setFilter(modality) {
+            currentFilter = modality;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                const f = btn.dataset.filter;
+                if (f === modality) {
+                    btn.className = 'filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-luxor-navy text-white shadow-sm';
+                } else if (f === 'Cultivando Ideas') {
+                    btn.className = 'filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-luxor-crimson/10 text-luxor-crimson hover:bg-luxor-crimson/20';
+                } else if (f === 'Premiamos tu Compra') {
+                    btn.className = 'filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-luxor-orange/15 text-amber-900 hover:bg-luxor-orange/25';
+                } else {
+                    btn.className = 'filter-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer bg-slate-100 text-luxor-navy hover:bg-slate-200';
+                }
+            });
+            renderProjectsGrid();
+            lucide.createIcons();
+        }
+
+        function filterByModalityFromCard(modality) {
+            setFilter(modality);
+            const section = document.getElementById('proyectos');
+            if (section) section.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function handleSearch(val) {
+            currentSearch = val;
+            renderProjectsGrid();
+            lucide.createIcons();
+        }
+
+        function handleSort(val) {
+            currentSort = val;
+            renderProjectsGrid();
+            lucide.createIcons();
+        }
+
+        function resetFilters() {
+            currentSearch = '';
+            const input = document.getElementById('search-input');
+            if (input) input.value = '';
+            setFilter('Todos');
+        }
+
+        // LOS ARCHIVOS DE LA PRESENTACIÓN: lo que cada equipo sube desde la
+        // consola. Los videos van embebidos y los documentos como enlace de
+        // DESCARGA (el bucket es público de lectura, así que la URL directa
+        // alcanza). Sin archivos no se pinta nada: enseñar un bloque vacío
+        // prometería material que no existe. Antes esto vivía en una sección
+        // propia —la de presentación por proyecto—, que ya no existe: el
+        // material se ve junto a SU proyecto, en la ficha que abre el nombre.
+        function adjuntosHtml(adjuntos) {
+            if (!Array.isArray(adjuntos) || !adjuntos.length) return '';
+            var html = '<div class="border-t border-slate-200 pt-5">'
+                + '<h4 class="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-3">Presentación del equipo</h4>'
+                + '<div class="space-y-3">';
+            adjuntos.forEach(function (a) {
+                if (!a || typeof a.url !== 'string' || !a.url) return;
+                var url = escapeHTML(a.url);
+                var nombre = escapeHTML(typeof a.nombre === 'string' && a.nombre ? a.nombre : 'Archivo');
+                var esVideo = typeof a.tipo === 'string' && a.tipo.indexOf('video/') === 0;
+                if (esVideo) {
+                    html += '<div>'
+                        + '<p class="mb-1.5 text-[11px] font-extrabold uppercase tracking-wide text-slate-400">Video · ' + nombre + '</p>'
+                        + '<video src="' + url + '" controls preload="metadata" playsinline class="w-full rounded-xl bg-black"></video>'
+                        + '</div>';
+                } else {
+                    // Mismo camino que el icono de la tarjeta: fetch → blob,
+                    // porque el bucket es de OTRO origen y el atributo
+                    // `download` no manda sobre un enlace cruzado.
+                    html += '<button type="button" data-url="' + url + '" data-nombre="' + nombre + '" onclick="bajarDesdeData(this)" '
+                        + 'class="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-bold text-luxor-navy transition-colors hover:border-luxor-crimson">'
+                        + '<i data-lucide="file-text" class="w-4 h-4 shrink-0 text-luxor-crimson"></i>'
+                        + '<span class="min-w-0 flex-1 truncate">' + nombre + '</span>'
+                        + '<span class="shrink-0 text-xs font-extrabold uppercase tracking-wide text-luxor-crimson">Descargar</span>'
+                        + '</button>';
+                }
+            });
+            return html + '</div></div>';
+        }
+
+        /**
+         * LOS DOCUMENTOS de la presentación de un proyecto: los que NO son
+         * video (los videos se ven en la ficha, no tienen nada que bajar).
+         * Sin archivos no hay nada que ofrecer, y la tarjeta no pinta el
+         * icono de descarga.
+         */
+        function documentosDe(adjuntos) {
+            if (!Array.isArray(adjuntos)) return [];
+            return adjuntos
+                .filter(function (a) {
+                    return a && typeof a.url === 'string' && a.url
+                        && !(typeof a.tipo === 'string' && a.tipo.indexOf('video/') === 0);
+                })
+                .map(function (a) {
+                    return {
+                        nombre: typeof a.nombre === 'string' && a.nombre ? a.nombre : 'Archivo',
+                        url: a.url
+                    };
+                });
+        }
+
+        /**
+         * BAJAR UN ARCHIVO: el bucket es de OTRO origen, así que el atributo
+         * `download` no manda (el navegador lo ignora). Se baja el archivo
+         * —el bucket admite CORS, así que el fetch pasa— y se guarda desde un
+         * blob, con el nombre que trae el archivo.
+         */
+        function guardarBlob(blob, nombre) {
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = nombre;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            // Se revoca después: si no, el blob queda en memoria hasta cerrar la pestaña.
+            setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+        }
+
+        function bajarArchivo(url, nombre) {
+            fetch(url)
+                .then(function (r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.blob();
+                })
+                .then(function (blob) { guardarBlob(blob, nombre); })
+                .catch(function () { showToast('No se pudo descargar «' + nombre + '».', '⚠️'); });
+        }
+
+        /** Lee los `data-url` / `data-nombre` del botón que se tocó. */
+        function bajarDesdeData(el) {
+            cerrarMenuDescarga();
+            var url = el && el.dataset ? el.dataset.url : '';
+            if (!url) return;
+            bajarArchivo(url, (el.dataset.nombre || 'archivo'));
+        }
+
+        // EL MENÚ DE DESCARGA de la tarjeta: la lista de documentos para
+        // elegir cuál bajar, o todos juntos en un .zip.
+
+        function cerrarMenuDescarga() {
+            var m = document.getElementById('menu-descarga');
+            if (m) m.remove();
+        }
+
+        function toggleMenuDescarga(id, event) {
+            if (event) event.stopPropagation();
+            var abierto = document.getElementById('menu-descarga');
+            var eraElMismo = abierto && abierto.dataset.proyecto === String(id);
+            cerrarMenuDescarga();
+            // Segundo toque sobre el MISMO icono: sólo cierra.
+            if (eraElMismo) return;
+            var proj = projects.find(function (p) { return String(p.id) === String(id); });
+            var docs = proj ? documentosDe(proj.adjuntos) : [];
+            var cont = event && event.currentTarget ? event.currentTarget.parentElement : null;
+            if (!docs.length || !cont) return;
+            var menu = document.createElement('div');
+            menu.id = 'menu-descarga';
+            menu.dataset.proyecto = String(id);
+            menu.className = 'absolute bottom-full left-0 mb-2 z-30 w-72 overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-xl';
+            var html = '<div class="border-b border-slate-100 bg-luxor-ivory/60 px-4 py-2.5 text-[11px] font-extrabold uppercase tracking-wide text-slate-400">Archivos de la presentación</div>';
+            docs.forEach(function (d) {
+                html += '<button type="button" data-url="' + escapeHTML(d.url) + '" data-nombre="' + escapeHTML(d.nombre) + '" onclick="bajarDesdeData(this)" class="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left text-sm font-bold text-luxor-navy transition-colors hover:bg-luxor-ivory">'
+                    + '<i data-lucide="file-text" class="w-4 h-4 shrink-0 text-luxor-crimson"></i>'
+                    + '<span class="min-w-0 flex-1 truncate">' + escapeHTML(d.nombre) + '</span>'
+                    + '</button>';
+            });
+            if (docs.length > 1) {
+                html += '<button type="button" data-proyecto="' + escapeHTML(String(id)) + '" onclick="bajarTodosDesdeData(this)" class="flex w-full cursor-pointer items-center gap-3 border-t border-slate-100 bg-luxor-ivory/50 px-4 py-3 text-left text-sm font-extrabold text-luxor-navy transition-colors hover:bg-luxor-ivory">'
+                    + '<i data-lucide="archive" class="w-4 h-4 shrink-0 text-luxor-crimson"></i>'
+                    + '<span class="min-w-0 flex-1">Todo en un .zip</span>'
+                    + '</button>';
+            }
+            menu.innerHTML = html;
+            cont.appendChild(menu);
+            if (window.lucide) lucide.createIcons();
+        }
+
+        /** Todos los documentos del proyecto, juntados en un .zip. */
+        function bajarTodosDesdeData(el) {
+            var id = el && el.dataset ? el.dataset.proyecto : '';
+            cerrarMenuDescarga();
+            var proj = projects.find(function (p) { return String(p.id) === String(id); });
+            if (!proj) return;
+            var docs = documentosDe(proj.adjuntos);
+            if (docs.length < 2) return;
+            showToast('Armando el .zip…', '📦');
+            Promise.all(
+                docs.map(function (d) {
+                    return fetch(d.url)
+                        .then(function (r) {
+                            if (!r.ok) throw new Error('HTTP ' + r.status);
+                            return r.arrayBuffer();
+                        })
+                        .then(function (buf) { return { nombre: d.nombre, bytes: new Uint8Array(buf) }; });
+                })
+            )
+                .then(function (archivos) {
+                    guardarBlob(armZip(archivos), nombreDeProyecto(proj) + '.zip');
+                })
+                .catch(function () {
+                    showToast('No se pudieron bajar todos los archivos.', '⚠️');
+                });
+        }
+
+        /** El título del proyecto, convertido en nombre de archivo. */
+        function nombreDeProyecto(proj) {
+            var t = String((proj && proj.title) || '').trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ');
+            return t.slice(0, 60) || 'proyecto';
+        }
+
+        /**
+         * UN .zip SIN DEPENDENCIAS, sólo para juntar los documentos de UN
+         * proyecto. Van SIN comprimir (método 0): los documentos ya vienen
+         * comprimidos (PDF, DOCX, XLSX…) y así no hace falta un deflate ni
+         * una librería nueva — la landing no se construye, se sirve tal cual.
+         *
+         * (.rar queda fuera: su códec es propietario y no hay implementación
+         * usable en el navegador; el .zip es el equivalente que abre todo el
+         * mundo.)
+         *
+         * `archivos`: `[{nombre, bytes}]` → Blob `application/zip`.
+         */
+        function armZip(archivos) {
+            var locales = [];
+            var centrales = [];
+            var vistos = {};
+            var offset = 0;
+            var ahora = new Date();
+            var fecha = ((ahora.getFullYear() - 1980) << 9) | ((ahora.getMonth() + 1) << 5) | ahora.getDate();
+            var hora = (ahora.getHours() << 11) | (ahora.getMinutes() << 5) | (ahora.getSeconds() >> 1);
+            archivos.forEach(function (f) {
+                var nombre = nombreUnico(f.nombre, vistos);
+                var bytes = f.bytes;
+                var crc = crc32(bytes);
+                var nb = new TextEncoder().encode(nombre);
+
+                // Encabezado local (30 bytes + nombre).
+                var local = new Uint8Array(30 + nb.length);
+                var vl = new DataView(local.buffer);
+                vl.setUint32(0, 0x04034b50, true);
+                vl.setUint16(4, 20, true);          // versión mínima
+                vl.setUint16(6, 0x0800, true);      // nombres en UTF-8
+                vl.setUint16(8, 0, true);           // método 0: sin comprimir
+                vl.setUint16(10, hora, true);
+                vl.setUint16(12, fecha, true);
+                vl.setUint32(14, crc, true);
+                vl.setUint32(18, bytes.length, true);
+                vl.setUint32(22, bytes.length, true);
+                vl.setUint16(26, nb.length, true);
+                local.set(nb, 30);
+
+                // Entrada del directorio central (46 bytes + nombre).
+                var central = new Uint8Array(46 + nb.length);
+                var vc = new DataView(central.buffer);
+                vc.setUint32(0, 0x02014b50, true);
+                vc.setUint16(4, 20, true);
+                vc.setUint16(6, 20, true);
+                vc.setUint16(8, 0x0800, true);
+                vc.setUint16(10, 0, true);
+                vc.setUint16(12, hora, true);
+                vc.setUint16(14, fecha, true);
+                vc.setUint32(16, crc, true);
+                vc.setUint32(20, bytes.length, true);
+                vc.setUint32(24, bytes.length, true);
+                vc.setUint16(28, nb.length, true);
+                vc.setUint32(42, offset, true);     // dónde está su local
+                central.set(nb, 46);
+
+                locales.push(local, bytes);
+                centrales.push(central);
+                offset += local.length + bytes.length;
+            });
+
+            var tamCentral = centrales.reduce(function (s, c) { return s + c.length; }, 0);
+            // Fin del directorio central: 22 bytes.
+            var fin = new Uint8Array(22);
+            var vf = new DataView(fin.buffer);
+            vf.setUint32(0, 0x06054b50, true);
+            vf.setUint16(8, archivos.length, true);
+            vf.setUint16(10, archivos.length, true);
+            vf.setUint32(12, tamCentral, true);
+            vf.setUint32(16, offset, true);
+
+            return new Blob(locales.concat(centrales, [fin]), { type: 'application/zip' });
+        }
+
+        /** CRC-32 (el que exige el formato zip), con su tabla en memoria. */
+        var tablaCrc32 = null;
+        function crc32(bytes) {
+            if (!tablaCrc32) {
+                tablaCrc32 = new Uint32Array(256);
+                for (var n = 0; n < 256; n++) {
+                    var c = n;
+                    for (var k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+                    tablaCrc32[n] = c >>> 0;
+                }
+            }
+            var crc = 0xffffffff;
+            for (var i = 0; i < bytes.length; i++) {
+                crc = (crc >>> 8) ^ tablaCrc32[(crc ^ bytes[i]) & 0xff];
+            }
+            return (crc ^ 0xffffffff) >>> 0;
+        }
+
+        /** El nombre dentro del .zip, sin repetir ni traer carpetas. */
+        function nombreUnico(nombre, vistos) {
+            var base = String(nombre || 'archivo').split(/[\\/]/).pop() || 'archivo';
+            var n = vistos[base] || 0;
+            vistos[base] = n + 1;
+            if (!n) return base;
+            var punto = base.lastIndexOf('.');
+            var raiz = punto > 0 ? base.slice(0, punto) : base;
+            var ext = punto > 0 ? base.slice(punto) : '';
+            return raiz + '-' + (n + 1) + ext;
+        }
+
+        function openDetailModal(projectId) {
+            const proj = projects.find(p => p.id === projectId);
+            if (!proj) return;
+
+            const modal = document.getElementById('detail-modal');
+            const content = document.getElementById('detail-modal-content');
+            const isLiked = likedIds.includes(proj.id);
+            const theme = getModalityTheme(proj.category);
+
+            modal.dataset.currentId = proj.id;
+
+            content.innerHTML = `
+                <div class="h-3 w-full bg-gradient-to-r ${theme.topStripe}"></div>
+                <div class="paper-texture-crimson text-white p-6 sm:p-8">
+                    <div class="flex items-center justify-between gap-3 mb-4">
+                        <span class="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-extrabold bg-luxor-yellow text-luxor-navy">
+                            <i data-lucide="${theme.icon}" class="w-3.5 h-3.5"></i>
+                            ${escapeHTML(proj.category || 'Sin categoría')}
+                        </span>
+                        <button onclick="closeDetailModal()" class="w-9 h-9 rounded-xl bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors cursor-pointer">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+
+                    <h3 class="font-condensed font-bold text-3xl sm:text-4xl uppercase text-white leading-tight mb-2">
+                        ${escapeHTML(proj.title)}
+                    </h3>
+                    ${proj.branch ? `
+                    <div class="flex items-center gap-2 text-xs sm:text-sm font-bold text-luxor-yellow">
+                        <i data-lucide="map-pin" class="w-4 h-4"></i>
+                        <span>${escapeHTML(proj.branch)}</span>
+                    </div>
+                    ` : ''}
+                </div>
+
+                <div class="p-6 sm:p-8 space-y-6 bg-white">
+                    <div class="bg-luxor-ivory border border-slate-200 rounded-2xl p-4 flex items-center gap-3.5">
+                        <div class="flex -space-x-2 shrink-0">
+                            ${getTeamAvatars(proj.team)}
+                        </div>
+                        <div>
+                            <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 block">Equipo Participante</span>
+                            <span class="text-sm font-bold text-luxor-navy">${escapeHTML(proj.team)}</span>
+                        </div>
+                    </div>
+
+                    ${adjuntosHtml(proj.adjuntos)}
+
+                    <div>
+                        <h4 class="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-2">Propuesta Metodología S.M.A.R.T.</h4>
+                        <p class="text-slate-700 text-sm sm:text-base leading-relaxed">
+                            ${escapeHTML(proj.description)}
+                        </p>
+                    </div>
+
+                    <div class="bg-blue-50 border-2 border-blue-200 rounded-2xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-[11px] font-extrabold uppercase tracking-wider text-luxor-crimson">Avance del proyecto</span>
+                            <span class="font-condensed font-bold text-lg text-luxor-navy">${proj.avance}%</span>
+                        </div>
+                        <div class="w-full h-2 bg-white rounded-full overflow-hidden">
+                            <div class="h-2 bg-luxor-crimson rounded-full transition-all duration-500" style="width: ${proj.avance}%"></div>
+                        </div>
+                        ${proj.nota ? `<p class="mt-2 text-sm text-slate-600 mt-2">${escapeHTML(proj.nota)}</p>` : ''}
+                    </div>
+
+                    <div class="pt-5 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div class="text-center sm:text-left">
+                            <span class="text-xs font-bold text-slate-400 block">Reconocimiento Interno Luxor & Euromaxx</span>
+                            <span class="text-sm font-extrabold text-luxor-navy">Apoya esta iniciativa con tu voto</span>
+                        </div>
+
+                        <button onclick="toggleLike('${proj.id}', event)" class="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-2xl text-sm font-extrabold transition-all cursor-pointer ${
+                            isLiked
+                            ? 'bg-luxor-crimson text-white shadow-lg'
+                            : 'bg-luxor-yellow hover:bg-luxor-orange text-luxor-navy shadow-md'
+                        }">
+                            <i data-lucide="heart" class="w-5 h-5 ${isLiked ? 'fill-luxor-yellow text-luxor-yellow' : 'fill-luxor-crimson text-luxor-crimson'}"></i>
+                            <span>${isLiked ? '¡Proyecto Apoyado!' : '¡Apoyar Proyecto!'}</span>
+                            <span class="px-2.5 py-0.5 rounded-full text-xs ${isLiked ? 'bg-black/20 text-white' : 'bg-luxor-navy text-white'}">
+                                ${proj.likes}
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            lucide.createIcons();
+        }
+
+        function closeDetailModal() {
+            const modal = document.getElementById('detail-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function openPostulacion() {
+            const modal = document.getElementById('postulacion-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            lucide.createIcons();
+        }
+
+        function closePostulacion() {
+            const modal = document.getElementById('postulacion-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        // La solicitud se arma como CORREO: el mailto abre el cliente con
+        // destino, copias y cuerpo ya cargados, y el PDF lo adjunta quien
+        // presenta — esta página no sube ni guarda nada. Las cédulas viajan
+        // en el cuerpo para que Coordinación las corrobore con la nómina.
+        // Copia los tres correos de la postulación al portapapeles: quien
+        // postula los pega en su cliente de correo (con el PDF adjunto)
+        // —este modal no envía nada por sí mismo.
+        function copiarCorreos() {
+            var correos = 'coordinacion.evaluacion@supermercadoluxor.com, gerencia.mercadeo@supermercadoluxor.com, gerencia.talentohumano@supermercadoluxor.com';
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(correos).then(function () {
+                    showToast('Correos copiados: pegálos en tu correo con el PDF adjunto.', '📋');
+                }).catch(function () {
+                    showToast('No se pudieron copiar: copialos a mano del recuadro.', '⚠️');
+                });
+            } else {
+                showToast('Copialos a mano del recuadro azul.', '⚠️');
+            }
+        }
+
+        function toggleMobileMenu() {
+            const menu = document.getElementById('mobile-menu');
+            menu.classList.toggle('hidden');
+        }
+
+        window.addEventListener('click', (e) => {
+            cerrarMenuDescarga();
+            if (e.target === document.getElementById('detail-modal')) closeDetailModal();
+            if (e.target === document.getElementById('postulacion-modal')) closePostulacion();
+            if (e.target === document.getElementById('lightbox-modal')) closeLightbox();
+            if (e.target === document.getElementById('photo-modal')) closePhotoModal();
+        });
+
+        let toastTimer;
+        function showToast(msg, icon = "🏆") {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-message').textContent = msg;
+            document.getElementById('toast-icon').textContent = icon;
+
+            toast.classList.remove('translate-y-24', 'opacity-0');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
+                toast.classList.add('translate-y-24', 'opacity-0');
+            }, 3000);
+        }
+
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str.replace(/[&<>'"]/g, tag => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                "'": '&#39;',
+                '"': '&quot;'
+            }[tag]));
+        }
+    </script>
+
+  <!-- CONTENIDO EDITABLE DESDE LA CONSOLA
+       La consola (sólo el Líder) guarda en la tabla `gran_cosecha_pagina` y
+       acá se lee con `ver_contenido_gran_cosecha`, la función abierta a anon
+       —el mismo camino de los enlaces públicos de la app—. Los marcadores
+       __SUPABASE_URL__ / __SUPABASE_ANON_KEY__ los reemplaza el build (ver
+       vite.config.ts): la anon key es pública por diseño, igual que en el
+       bundle de la app.
+       Lo que publica la consola MANDA sobre la semilla y sobre lo agregado
+       en este navegador (localStorage): si hay carrusel publicado, ése es el
+       de la página. El orden importa: este script corre DESPUÉS del
+       principal, así que en DOMContentLoaded su `loadState()` pinta primero
+       y la publicación llega después (el fetch es asíncrono) — si la
+       respuesta ganara la carrera, el `domListo` reaplica al terminar de
+       cargar. Si algo falla —sin red, sin config, tabla vacía— la página
+       se queda con sus valores: funciona aunque Supabase esté caído. -->
+  <script>
+    (function () {
+      var URL_BASE = '__SUPABASE_URL__';
+      var ANON_KEY = '__SUPABASE_ANON_KEY__';
+
+      // Sin config (build sin .env, archivo abierto a mano) no se pide nada:
+      // los marcadores siguen ahí y arrancan con "_".
+      if (URL_BASE.charAt(0) === '_' || ANON_KEY.charAt(0) === '_') return;
+
+      var contenido = null;
+      var domListo = false;
+
+      function texto(id, valor) {
+        var el = document.getElementById(id);
+        if (el && typeof valor === 'string' && valor.trim()) el.textContent = valor.trim();
+      }
+
+      // LAS GUÍAS: los dos archivos que sube la consola se listan como
+      // descarga dentro del modal «Postular Proyecto». Sin URLs, la sección
+      // queda oculta — la página no pide nada más.
+      function pintarGuias(guias) {
+        var caja = document.getElementById('postulacion-guias');
+        var lista = document.getElementById('postulacion-guias-lista');
+        if (!caja || !lista) return;
+        var validas = guias.filter(function (g) {
+          return g && typeof g.url === 'string' && g.url.trim();
+        });
+        lista.textContent = '';
+        if (!validas.length) {
+          caja.classList.add('hidden');
+          return;
+        }
+        validas.forEach(function (g) {
+          var li = document.createElement('li');
+          var a = document.createElement('a');
+          a.href = g.url;
+          a.target = '_blank';
+          a.rel = 'noreferrer';
+          a.setAttribute('download', '');
+          a.className = 'flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-luxor-navy hover:border-luxor-crimson transition-colors cursor-pointer';
+          var icono = document.createElement('i');
+          icono.setAttribute('data-lucide', 'download');
+          icono.className = 'w-4 h-4 shrink-0 text-luxor-crimson';
+          var nombre = document.createElement('span');
+          nombre.textContent = g.nombre || 'Guía del proyecto';
+          a.appendChild(icono);
+          a.appendChild(nombre);
+          li.appendChild(a);
+          lista.appendChild(li);
+        });
+        caja.classList.remove('hidden');
+        if (window.lucide) lucide.createIcons();
+      }
+
+      function aplicar() {
+        if (!contenido || typeof contenido !== 'object' || !domListo) return;
+
+        // LOS PROYECTOS: lo que se registra en la consola de Proyectos (la
+        // sección `participantes` del mismo RPC). El id real manda; los
+        // votos base son los RIEGOS reales y el apoyo local sólo suma el
+        // tuyo encima.
+        if (Array.isArray(contenido.participantes)) {
+          projects = contenido.participantes.map(function (p) {
+            return {
+              id: p.id,
+              title: p.titulo || 'Proyecto sin título',
+              description: p.descripcion || '',
+              category: p.categoria || '',
+              branch: p.sucursal || '',
+              team: Array.isArray(p.miembros) ? p.miembros.filter(Boolean).join(', ') : '',
+              nota: p.avance_nota || '',
+              avance: Number(p.avance || 0),
+              likes: Number(p.riegos || 0),
+              // Los archivos de la presentación: van a la ficha del
+              // proyecto (`adjuntosHtml`), no a una sección aparte.
+              adjuntos: Array.isArray(p.adjuntos)
+                ? p.adjuntos.filter(function (a) { return a && typeof a.url === 'string' && a.url; })
+                : [],
+              timestamp: Number(p.created_at || 0)
+            };
+          });
+          // Los apoyos guardados contra la semilla vieja (ids numéricos) ya
+          // no coinciden con los uuids reales: se limpian.
+          likedIds = likedIds.filter(function (id) {
+            return projects.some(function (p) { return p.id === id; });
+          });
+          saveState();
+          renderAll();
+        }
+
+        var hero = contenido.hero;
+        if (hero && typeof hero === 'object') {
+          // La bajada: el párrafo institucional del hero.
+          texto('heroBajada', hero.bajada);
+          // El carrusel publicado manda sobre la semilla/local del
+          // navegador. Los items de la consola son {tipo, url, título…} y
+          // la pista necesita SU forma (image/edition/title/…) — se mapean
+          // acá; sólo las FOTOS entran (el carrusel es de imágenes) y si no
+          // queda ninguna, la página conserva lo que trae.
+          if (Array.isArray(hero.carrusel) && hero.carrusel.length) {
+            var mapeados = hero.carrusel
+              .filter(function (m) {
+                return m && m.tipo === 'imagen' && typeof m.url === 'string' && m.url.trim();
+              })
+              .map(function (m, i) {
+                return {
+                  id: i + 1,
+                  edition: String(m.edicion || 'Cosechas Pasadas').toUpperCase(),
+                  category: m.categoria || 'Galería Histórica',
+                  title: m.titulo || 'Momento de Cosecha Pasada',
+                  caption: m.pie || '',
+                  location: m.ubicacion || 'Supermercados Luxor & Euromaxx',
+                  image: m.url,
+                  fallback: 'https://placehold.co/1200x700/C41E2E/F4B915?text=GRAN+COSECHA+LUXOR'
+                };
+              });
+            if (mapeados.length) {
+              carouselSlides = mapeados;
+              currentSlide = 0;
+              renderCarousel();
+              startCarouselAutoplay();
+            }
+          }
+          // LAS FOTOS DE LOS PÉTALOS: si la consola publicó las suyas,
+          // mandan sobre las de ejemplo del mosaico.
+          if (Array.isArray(hero.petalos)) {
+            hero.petalos.forEach(function (url, i) {
+              if (typeof url === 'string' && url) {
+                var petalo = document.getElementById('petalo-img-' + i);
+                if (petalo) petalo.src = url;
+              }
+            });
+          }
+          // EL VIDEO DE FONDO: con video, la textura queda tapada por el
+          // velo claro; sin video, todo vuelve a la textura.
+          var videoHero = document.getElementById('hero-video');
+          var veloHero = document.getElementById('hero-video-velo');
+          if (videoHero && veloHero) {
+            if (typeof hero.video === 'string' && hero.video) {
+              if (videoHero.getAttribute('src') !== hero.video) videoHero.src = hero.video;
+              videoHero.classList.remove('hidden');
+              veloHero.classList.remove('hidden');
+            } else {
+              videoHero.classList.add('hidden');
+              videoHero.removeAttribute('src');
+              veloHero.classList.add('hidden');
+            }
+          }
+        }
+      }
+
+      // El principal registra SU handler primero (este guion va después en
+      // el archivo), así que loadState corre antes que esto.
+      document.addEventListener('DOMContentLoaded', function () {
+        domListo = true;
+        aplicar();
+      });
+
+      fetch(URL_BASE + '/rest/v1/rpc/ver_contenido_gran_cosecha', {
+        method: 'POST',
+        headers: {
+          apikey: ANON_KEY,
+          Authorization: 'Bearer ' + ANON_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: '{}',
+        cache: 'no-store'
+      })
+        .then(function (respuesta) { return respuesta.ok ? respuesta.json() : null; })
+        .then(function (dato) {
+          contenido = dato;
+          aplicar();
+          // LAS GUÍAS DE LA POSTULACIÓN: archivos que sube la consola
+          // (Página) — se pintan como descarga en el modal guía.
+          pintarGuias(dato && Array.isArray(dato.guias) ? dato.guias : []);
+        })
+        .catch(function () { /* sin conexión, la página se queda con sus valores */ });
+    })();
+  </script>
+</body>
+</html>

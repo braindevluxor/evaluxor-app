@@ -1,3 +1,7 @@
+
+-- ###########################################################################
+-- Archivo consolidado: schema.sql
+-- ###########################################################################
 -- ============================================================================
 -- EvaLuxor - Esquema de base de datos (Supabase / Postgres)
 -- Ejecutar en: Dashboard Supabase -> SQL Editor -> pegar y ejecutar (todo a la vez)
@@ -15,8 +19,12 @@ create table if not exists public.sucursales (
   id uuid primary key default gen_random_uuid(),
   nombre text not null,
   shop_id text,
-  ciudad text,
   direccion text,
+  -- La FK a `profiles` va DESPUES de crear las dos tablas: se referencian
+  -- entre si (el gerente de la sucursal y la sucursal del perfil) y con la FK
+  -- en linea la segunda en aparecer fallaria con "relation does not exist",
+  -- que es lo que hace que este archivo no se pueda aplicar en una base nueva.
+  gerente_id uuid,
   activa boolean not null default true,
   created_at timestamptz not null default now()
 );
@@ -25,6 +33,35 @@ create table if not exists public.sucursales (
 alter table public.sucursales add column if not exists shop_id text;
 -- Migracion: se elimina la columna codigo (se usa solo shop_id)
 alter table public.sucursales drop column if exists codigo;
+-- Migracion: GERENTE S a cargo de la sucursal (opcional)
+alter table public.sucursales add column if not exists gerente_id uuid;
+-- Migracion: ID de sucursal para la API de trabajadores (branchID del edge listar-colaboradores)
+alter table public.sucursales add column if not exists branch_id text;
+
+-- ----------------------------------------------------------------------------
+-- DEPARTAMENTOS CENTRALIZADOS (areas de la organizacion que NO son sucursales)
+--
+-- Central es la oficina: lo que se evalua ahi son sus departamentos (Mercadeo,
+-- Taller, Talento Humano, Administracion, ...), y cada uno tiene su propia
+-- evaluacion. Van aparte porque no tienen shop_id, branch_id, direccion ni
+-- Gerente S.
+--
+-- El nombre lleva el sufijo "_centralizados" porque en la base ya existia una
+-- tabla `departamentos` de otro proceso (trae una columna `codigo NOT NULL`):
+-- no se pisa y no se depende de lo que tenga adentro. En la app se llaman
+-- "Departamentos". Ver el detalle y la siembra en
+-- `departamentos-centralizados.sql`.
+-- ----------------------------------------------------------------------------
+create table if not exists public.departamentos_centralizados (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  activa boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+drop index if exists uniq_departamentos_centralizados_nombre;
+create unique index if not exists uniq_departamentos_centralizados_nombre
+  on public.departamentos_centralizados (lower(nombre));
 
 -- ----------------------------------------------------------------------------
 -- PROFILES (1:1 con auth.users; el rol y sucursal se asignan desde invitacion)
@@ -35,18 +72,36 @@ create table if not exists public.profiles (
   usuario text not null default '',
   nombre text not null default '',
   rol text not null default 'SIN_ROL'
-    check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH')),
-  sucursal_id uuid references public.sucursales(id) on delete set null,
+    check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','GERENTE_TI','TECNICO_TI','COOR_ACU','AUD_EX')),
+  -- La FK a `sucursales` va DESPUES de crear las dos tablas: se referencian
+  -- entre si y con la FK en linea la segunda en aparecer fallaria.
+  sucursal_id uuid,
   activo boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
+-- Las dos FK circulares, ahora que las dos tablas existen. `drop constraint if
+-- exists` + `add constraint` es idempotente y ademas arregla las bases que
+-- quedaron con la FK vieja: el nombre es el que Postgres le pone solo.
+alter table public.sucursales drop constraint if exists sucursales_gerente_id_fkey;
+alter table public.sucursales add constraint sucursales_gerente_id_fkey
+  foreign key (gerente_id) references public.profiles(id) on delete set null;
+
+alter table public.profiles drop constraint if exists profiles_sucursal_id_fkey;
+alter table public.profiles add constraint profiles_sucursal_id_fkey
+  foreign key (sucursal_id) references public.sucursales(id) on delete set null;
+
 -- Idempotencia: si la tabla ya existia sin la columna usuario
 alter table public.profiles add column if not exists usuario text not null default '';
 create unique index if not exists uniq_profiles_usuario on public.profiles (lower(usuario)) where usuario <> '';
 
--- RPC: resolver el correo a partir del usuario para el login (accesible sin sesion)
+-- Migracion: bloqueo de usuario tras 5 intentos fallidos de login
+alter table public.profiles add column if not exists intentos_fallidos int not null default 0;
+alter table public.profiles add column if not exists bloqueado boolean not null default false;
+
+-- RPC: resolver el correo a partir del usuario para el login (accesible sin sesion).
+-- Ignora a los bloqueados (el login de frente no los deja pasar).
 create or replace function public.email_por_usuario(p_usuario text)
 returns text
 language sql stable security definer set search_path = public as $$
@@ -54,9 +109,98 @@ language sql stable security definer set search_path = public as $$
   from public.profiles p
   where lower(p.usuario) = lower(p_usuario)
     and p.activo
+    and not p.bloqueado
   limit 1;
 $$;
-grant execute on function public.email_por_usuario(text) to anon, authenticated;
+-- Solo `anon`: la pantalla de login corre sin sesiÃ³n. `authenticated` no la
+-- necesita (ya hay sesiÃ³n si hay usuario) y dejÃ¡rsela es lo que dispara dos de
+-- las alertas del advisor sin motivo. Ver `permisos-funcion.sql`.
+grant execute on function public.email_por_usuario(text) to anon;
+
+-- INTENTO_LOGIN: valida la contraseÃ±a (contra auth.users) y lleva el conteo.
+-- Se invoca SIN sesiÃ³n (pantalla de login). Por eso es security definer y puede
+-- ejecutarse por anon. Respuesta JSON: { ok, bloqueado, restantes }.
+-- Usuarios inactivos/inexistentes devuelven respuesta genÃ©rica (no revela existencia).
+-- El campo de login dice "Correo electrÃ³nico" y acepta tambiÃ©n el usuario de la
+-- casa: por eso se buscan las DOS identidades (usuario O correo). Sin esto, quien
+-- escriba el correo saldrÃ­a siempre "contraseÃ±a incorrecta" y ademÃ¡s el conteo
+-- de intentos no correrÃ­a para Ã©l.
+create or replace function public.intento_login(p_usuario text, p_password text)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions, auth as $$
+declare
+  v_prof public.profiles%rowtype;
+  v_usr auth.users%rowtype;
+  v_ok boolean;
+begin
+  select * into v_prof from public.profiles p
+    where (lower(p.usuario) = lower(p_usuario) or lower(p.email) = lower(p_usuario))
+      and p.activo
+    limit 1;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'bloqueado', false, 'restantes', 5);
+  end if;
+
+  if v_prof.bloqueado then
+    return jsonb_build_object('ok', false, 'bloqueado', true, 'restantes', 0);
+  end if;
+
+  select * into v_usr from auth.users u where u.id = v_prof.id;
+  if not found or v_usr.encrypted_password is null then
+    return jsonb_build_object('ok', false, 'bloqueado', false, 'restantes', 5);
+  end if;
+
+  v_ok := crypt(p_password, v_usr.encrypted_password::text) = v_usr.encrypted_password::text;
+
+  if v_ok then
+    update public.profiles set intentos_fallidos = 0, bloqueado = false where id = v_prof.id;
+    return jsonb_build_object('ok', true, 'bloqueado', false, 'restantes', 5);
+  end if;
+
+  v_prof.intentos_fallidos := v_prof.intentos_fallidos + 1;
+  if v_prof.intentos_fallidos >= 5 then
+    update public.profiles set intentos_fallidos = 5, bloqueado = true where id = v_prof.id;
+    return jsonb_build_object('ok', false, 'bloqueado', true, 'restantes', 0);
+  end if;
+
+  update public.profiles set intentos_fallidos = v_prof.intentos_fallidos where id = v_prof.id;
+  return jsonb_build_object('ok', false, 'bloqueado', false, 'restantes', 5 - v_prof.intentos_fallidos);
+end $$;
+-- Solo `anon`, por lo mismo que `email_por_usuario`: la login screen no tiene
+-- sesiÃ³n todavÃ­a.
+grant execute on function public.intento_login(text, text) to anon;
+
+-- DESBLOQUEAR_USUARIO: solo el LÃ­der activo. Limpia el contador/bloqueo y asigna
+-- una contraseÃ±a provisional (que el usuario deberÃ¡ cambiar luego).
+create or replace function public.desbloquear_usuario(p_usuario_id uuid, p_password_provisional text)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions, auth as $$
+declare
+  v_lider public.profiles%rowtype;
+  v_contador integer;
+begin
+  select * into v_lider from public.profiles p
+    where p.id = auth.uid() and p.rol = 'LIDER' and p.activo;
+  if not found then
+    raise exception 'Solo el lider puede desbloquear usuarios.';
+  end if;
+
+  if p_password_provisional is null or length(trim(p_password_provisional)) < 6 then
+    raise exception 'La contrasena provisional debe tener al menos 6 caracteres.';
+  end if;
+
+  select count(*) into v_contador from public.profiles where id = p_usuario_id;
+  if v_contador = 0 then
+    raise exception 'El usuario no existe.';
+  end if;
+
+  update public.profiles set intentos_fallidos = 0, bloqueado = false where id = p_usuario_id;
+  update auth.users set encrypted_password = crypt(p_password_provisional, gen_salt('bf')) where id = p_usuario_id;
+
+  return jsonb_build_object('ok', true);
+end $$;
+grant execute on function public.desbloquear_usuario(uuid, text) to authenticated;
 
 -- ----------------------------------------------------------------------------
 -- INVITACIONES (el LIDER "crea" usuarios emitiendo un link de registro por rol)
@@ -65,7 +209,7 @@ create table if not exists public.invitaciones (
   id uuid primary key default gen_random_uuid(),
   email text not null,
   usuario text not null,
-  rol text not null check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH')),
+  rol text not null check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','GERENTE_TI','TECNICO_TI','COOR_ACU','AUD_EX')),
   sucursal_id uuid references public.sucursales(id) on delete set null,
   token text not null unique default gen_random_uuid()::text,
   usado boolean not null default false,
@@ -76,7 +220,7 @@ create table if not exists public.invitaciones (
 -- Idempotencia
 alter table public.invitaciones add column if not exists usuario text not null default '';
 
--- Trigger: bloquea registros SIN invitación activa (solo el Líder crea usuarios).
+-- Trigger: bloquea registros SIN invitaciÃ³n activa (solo el LÃ­der crea usuarios).
 create or replace function public.validar_registro()
 returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -87,7 +231,7 @@ begin
     from public.invitaciones
     where lower(email) = lower(new.email) and usado = false;
   if v_count = 0 then
-    raise exception 'Registro no permitido: solo el Líder crea usuarios. Solicita tu invitación.';
+    raise exception 'Registro no permitido: solo el LÃ­der crea usuarios. Solicita tu invitaciÃ³n.';
   end if;
   return new;
 end $$;
@@ -98,7 +242,7 @@ create trigger validar_registro
   for each row execute function public.validar_registro();
 
 -- Trigger: al crearse un usuario en auth, se crea su perfil tomando rol/sucursal
--- de la invitación activa (consumida al primer uso).
+-- de la invitaciÃ³n activa (consumida al primer uso).
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -149,65 +293,406 @@ create table if not exists public.modulos (
   id uuid primary key default gen_random_uuid(),
   nombre text not null,
   descripcion text not null default '',
+  icono text not null default 'clipboard-list',
   orden integer not null default 0,
   activo boolean not null default true,
+  -- Compartido: varios evaluadores pueden llenar el mismo mÃ³dulo a la vez y ven
+  -- el avance del otro en vivo (colaboraciÃ³n). No compartido = un solo evaluador.
+  compartido boolean not null default false,
   created_at timestamptz not null default now()
 );
+-- Upgrade de instalaciones existentes.
+alter table public.modulos add column if not exists compartido boolean not null default false;
+alter table public.modulos add column if not exists icono text not null default 'clipboard-list';
 
 create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
   modulo_id uuid not null references public.modulos(id) on delete cascade,
   tipo text not null check (tipo in (
-    'CHECKLIST','COMENTARIO','FOTO','CUMPLE_NO_CUMPLE','DESCRIPCION','CANTIDAD','CONCILIACION'
+    'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES','UNIDAD_CHECKLIST','PLANO_XY','CONTENEDOR'
   )),
   texto text not null,
-  opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"..."}]
+  opciones jsonb not null default '[]'::jsonb, -- CHECKLIST: [{"id":"o1","etiqueta":"...","puntos":3?,"tipo_respuesta":"CHECK|RANGO","minimo":30?,"unidad":"cm"?}]; puntos por opcion (opcional, hasta 3 decimales y mÃ­n. 0.001): si TODAS las opciones del CHECKLIST tienen puntos, la puntuacion del item se reparte entre ellas. tipo_respuesta RANGO: el evaluador ingresa un valor numerico y el punto cumple si alcanza el minimo aceptable. LISTA_COLABORADORES: checklist compartido por cada trabajador. PLANO_XY: sin opciones; el evaluador sube la imagen del layout y marca puntos (pines) con cumple/no cumple
+  colaboradores_filtro text check (colaboradores_filtro in ('ACTIVOS','INACTIVOS','TODOS')), -- LISTA_COLABORADORES: filtro aplicado al cargar trabajadores
+  responsables jsonb not null default '[]'::jsonb, -- responsables configurables; cada opcion usa opciones[i].responsable
   orden integer not null default 0,
   requerido boolean not null default false,
   activo boolean not null default true,
+  puntaje numeric not null default 0 check (puntaje >= 0 and puntaje <= 100), -- puntos ponderados (hasta 3 decimales). Suma de secciones (ponderadas) + Ã­tems sueltos del mÃ³dulo â‰¤ 100; los Ã­tems de un grupo no superan los puntos de su secciÃ³n
+  padre_id uuid references public.items(id) on delete cascade, -- hijo de una seccion CONTENEDOR (un solo nivel)
   created_at timestamptz not null default now()
 );
 create index if not exists idx_items_modulo on public.items(modulo_id, orden);
 
--- compatibilidad con bases previas
+-- SecciÃ³n CONTENEDOR con API: al agregar registros se consulta una API
+-- (trabajadores | vehiculos | productos) y se guardan los valores elegidos
+-- (items.api_campos) con cada registro. Informativos, no afectan el puntaje.
+alter table public.items add column if not exists api_id text;
+alter table public.items add column if not exists api_campos jsonb not null default '[]'::jsonb;
+alter table public.items add column if not exists permitir_duplicados boolean not null default false;
+-- UNIDAD_CHECKLIST: repetible = permite cargar el checklist varias veces (una
+-- unidad por carga); con false solo se carga una sola vez.
+alter table public.items add column if not exists repetible boolean not null default true;
+-- CONCILIACION: dato del sistema que se usa como teÃ³rica de referencia al
+-- escanear un producto (soh â†’ stock o finalBase â†’ precio base). Se configura
+-- al crear/editar el Ã­tem en Config.
+alter table public.items add column if not exists contra_dato text not null default 'SOH';
+alter table public.items drop constraint if exists items_contra_dato_check;
+alter table public.items add constraint items_contra_dato_check check (contra_dato in ('SOH','FINAL_BASE'));
+-- CHECKLIST / UNIDAD_CHECKLIST: doble check = cada punto se marca dos veces
+-- ("existe" y "correcto") y sólo puntúa con las dos marcas. Se configura por
+-- ítem en Config → Ítems.
+alter table public.items add column if not exists doble_check boolean not null default false;
+-- Precarga desde la última visita: al abrir una evaluación nueva se copia el
+-- dato de la visita anterior (sección → sus registros; hijo → su respuesta
+-- dentro del registro; suelto → su respuesta directa). Se configura por ítem
+-- en Config → Ítems. El LISTA_COLABORADORES queda fuera siempre: los
+-- trabajadores rotan y la lista vieja no sirve.
+alter table public.items add column if not exists precarga boolean not null default true;
+-- Descripción opcional del ítem: texto auxiliar (contexto, criterio o ayuda)
+-- aparte del enunciado (`texto`). Se muestra debajo del enunciado en la
+-- evaluación y en el detalle; es informativo y no afecta el puntaje.
+-- Se configura por ítem en Config → Ítems.
+alter table public.items add column if not exists descripcion text not null default '';
+
+-- La suma de los puntajes de un mÃ³dulo no puede exceder 100: cuentan las secciones
+-- (CONTENEDOR, ponderadas) y los Ã­tems sueltos (sin secciÃ³n). Los Ã­tems dentro de
+-- una secciÃ³n no suman al mÃ³dulo: su tope es el puntaje de la secciÃ³n.
+create or replace function public.validar_suma_puntaje_items() returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_modulo uuid;
+  v_suma_modulo numeric;
+  v_suma_hijos numeric;
+  v_padre_puntaje numeric;
+begin
+  if tg_op = 'DELETE' then
+    v_modulo := old.modulo_id;
+    v_suma_modulo := coalesce((
+      select sum(puntaje) from public.items
+       where modulo_id = v_modulo and id <> old.id
+         and (tipo = 'CONTENEDOR' or padre_id is null)
+    ), 0);
+    if v_suma_modulo > 100 then
+      raise exception 'La suma de puntos de las secciones e Ã­tems sueltos del mÃ³dulo (%) supera 100', v_modulo;
+    end if;
+    return old;
+  end if;
+
+  v_modulo := new.modulo_id;
+
+  -- En una secciÃ³n, los hijos representan el 100% interno del grupo y el porcentaje
+  -- logrado se aplica sobre el puntaje de la secciÃ³n. Por eso no se impone un tope
+  -- directo entre ambos: la secciÃ³n es la ponderaciÃ³n final del resultado del grupo.
+
+  -- MÃ³dulo: secciones ponderadas e Ã­tems sueltos suman hasta 100.
+  v_suma_modulo := coalesce((
+    select sum(puntaje) from public.items
+     where modulo_id = v_modulo and (new.id is null or id <> new.id)
+       and (tipo = 'CONTENEDOR' or padre_id is null)
+  ), 0)
+  + case
+      when new.tipo = 'CONTENEDOR' then coalesce(new.puntaje, 0)
+      when new.padre_id is null then coalesce(new.puntaje, 0)
+      else 0
+    end;
+
+  if v_suma_modulo > 100 then
+    raise exception 'La suma de puntos de las secciones e Ã­tems sueltos del mÃ³dulo (%) supera 100', v_modulo;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_puntaje_items on public.items;
+create trigger trg_puntaje_items
+  before insert or update or delete on public.items
+  for each row execute function public.validar_suma_puntaje_items();
+
+-- compatibilidad con bases previas (se eliminan los tipos ya retirados)
+delete from public.items where tipo in ('COMENTARIO','FOTO','DESCRIPCION','CANTIDAD');
+alter table public.items add column if not exists padre_id uuid references public.items(id) on delete cascade;
 alter table public.items drop constraint if exists items_tipo_check;
 alter table public.items add constraint items_tipo_check check (tipo in (
-  'CHECKLIST','COMENTARIO','FOTO','CUMPLE_NO_CUMPLE','DESCRIPCION','CANTIDAD','CONCILIACION'
+  'CHECKLIST','CUMPLE_NO_CUMPLE','CONCILIACION','LISTA_COLABORADORES','UNIDAD_CHECKLIST','PLANO_XY','CONTENEDOR'
 ));
 
 -- ----------------------------------------------------------------------------
+-- ASIGNACIONES DE MODULOS (el LIDER asigna mÃ³dulos a evaluadores)
+-- Regla de negocio: un mÃ³dulo NO compartido se asigna a UN evaluador activo a la
+-- vez; un mÃ³dulo COMPARTIDO puede tener varios evaluadores (colaboraciÃ³n en vivo).
+-- ----------------------------------------------------------------------------
+create table if not exists public.asignaciones_modulos (
+  id uuid primary key default gen_random_uuid(),
+  evaluador_id uuid not null references public.profiles(id) on delete cascade,
+  modulo_id uuid not null references public.modulos(id) on delete cascade,
+  activa boolean not null default true,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  unique (evaluador_id, modulo_id)
+);
+
+-- Se limpian asignaciones duplicadas previas conservando la mas antigua.
+-- (Solo aplica a mÃ³dulos NO compartidos: los compartidos admiten varios evaluadores.)
+delete from public.asignaciones_modulos a
+using public.asignaciones_modulos b
+where a.activa and b.activa
+  and a.modulo_id = b.modulo_id
+  and a.created_at > b.created_at
+  and not exists (select 1 from public.modulos m where m.id = a.modulo_id and m.compartido);
+
+-- Exclusividad condicional: solo se exige Ãºnico evaluador para mÃ³dulos NO compartidos.
+drop index if exists uniq_asignaciones_modulos_activo;
+
+create or replace function public.validar_unico_evaluador_modulo()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_compartido boolean;
+begin
+  select coalesce(m.compartido, false) into v_compartido
+  from public.modulos m where m.id = new.modulo_id;
+  if not v_compartido and new.activa then
+    if exists (
+      select 1 from public.asignaciones_modulos a
+      where a.activa and a.modulo_id = new.modulo_id
+        and a.evaluador_id <> new.evaluador_id
+    ) then
+      raise exception 'El mÃ³dulo no estÃ¡ compartido: ya tiene un evaluador asignado.';
+    end if;
+  end if;
+  return new;
+end
+$$;
+
+drop trigger if exists trg_unico_evaluador_modulo on public.asignaciones_modulos;
+create trigger trg_unico_evaluador_modulo
+  before insert or update on public.asignaciones_modulos
+  for each row execute function public.validar_unico_evaluador_modulo();
+
+-- ProtecciÃ³n al desactivar "compartido": si ya hay varios evaluadores activos
+-- asignados, hay que desasignar primero.
+create or replace function public.validar_modulo_compartido()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_asignados integer;
+begin
+  if old.compartido and not new.compartido then
+    select count(*) into v_asignados
+    from public.asignaciones_modulos a where a.activa and a.modulo_id = old.id;
+    if v_asignados > 1 then
+      raise exception 'No se puede quitar "compartido": hay % evaluadores activos asignados. Desasignalo primero.', v_asignados;
+    end if;
+  end if;
+  return new;
+end
+$$;
+
+drop trigger if exists trg_modulo_compartido on public.modulos;
+create trigger trg_modulo_compartido
+  before update on public.modulos
+  for each row execute function public.validar_modulo_compartido();
+
+-- ----------------------------------------------------------------------------
+-- CONFIGURACION POR SUCURSAL (que mÃ³dulos e Ã­tems aplican en cada sucursal)
+-- SemÃ¡ntica: sin filas activas => aplican TODOS; con filas => solo las marcadas.
+-- ----------------------------------------------------------------------------
+create table if not exists public.sucursal_modulos (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  modulo_id uuid not null references public.modulos(id) on delete cascade,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (sucursal_id, modulo_id)
+);
+
+create table if not exists public.sucursal_items (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  item_id uuid not null references public.items(id) on delete cascade,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (sucursal_id, item_id)
+);
+
+-- Opciones de un Ã­tem tipo CHECKLIST que aplican en la sucursal.
+-- SemÃ¡ntica: sin filas activas => aplican TODAS las opciones del Ã­tem; con filas => solo las marcadas.
+create table if not exists public.sucursal_opciones (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  item_id uuid not null references public.items(id) on delete cascade,
+  opcion_id text not null,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (sucursal_id, item_id, opcion_id)
+);
+
+-- CONFIG POR DEPARTAMENTO: gemelo de la de sucursales, con la unidad apuntando
+-- a departamentos_centralizados. Misma semantica: sin filas activas aplica todo.
+create table if not exists public.departamento_modulos (
+  id uuid primary key default gen_random_uuid(),
+  departamento_id uuid not null references public.departamentos_centralizados(id) on delete cascade,
+  modulo_id uuid not null references public.modulos(id) on delete cascade,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (departamento_id, modulo_id)
+);
+
+create table if not exists public.departamento_items (
+  id uuid primary key default gen_random_uuid(),
+  departamento_id uuid not null references public.departamentos_centralizados(id) on delete cascade,
+  item_id uuid not null references public.items(id) on delete cascade,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (departamento_id, item_id)
+);
+
+create table if not exists public.departamento_opciones (
+  id uuid primary key default gen_random_uuid(),
+  departamento_id uuid not null references public.departamentos_centralizados(id) on delete cascade,
+  item_id uuid not null references public.items(id) on delete cascade,
+  opcion_id text not null,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (departamento_id, item_id, opcion_id)
+);
+
+-- ----------------------------------------------------------------------------
 -- EVALUACIONES / RESPUESTAS / FOTOS
+-- EvaluaciÃ³n compartida: la apertura/programa el LIDER (estado) y todos los
+-- evaluadores llenan esa misma evaluaciÃ³n, cada uno sus mÃ³dulos asignados.
 -- ----------------------------------------------------------------------------
 create table if not exists public.evaluaciones (
   id uuid primary key default gen_random_uuid(),
   offline_uuid uuid not null unique,          -- generado en el dispositivo (idem-potencia en sync)
-  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
-  evaluador_id uuid not null references public.profiles(id) on delete cascade,
+  -- UNIDAD: una sucursal O un departamento centralizado. Exactamente una de las
+  -- dos, nunca las dos ni ninguna (lo impone el check de abajo).
+  sucursal_id uuid references public.sucursales(id) on delete cascade,
+  departamento_id uuid references public.departamentos_centralizados(id) on delete cascade,
+  aperturada_por uuid references public.profiles(id) on delete set null,
   fecha date not null default current_date,
+  estado text not null default 'PROGRAMADA'
+    check (estado in ('PROGRAMADA','ACTIVA','CERRADA')),
   puntuacion numeric(5,2),
   comentario_general text,
-  completed_at timestamptz not null default now()
+  abierta_en timestamptz,
+  cerrada_en timestamptz,
+  created_at timestamptz not null default now(),
+  unique (sucursal_id, fecha),
+  -- XOR: la evaluación mide una sola unidad, sucursal O departamento.
+  constraint evaluaciones_unidad_check
+    check ((sucursal_id is null) <> (departamento_id is null))
 );
 create index if not exists idx_evaluaciones_sucursal on public.evaluaciones(sucursal_id, fecha);
+-- `unique (sucursal_id, fecha)` no cubre las de departamento: Postgres compara
+-- los null como distintos. Ellas llevan su propio índice único.
+create unique index if not exists uniq_evaluaciones_departamento_fecha
+  on public.evaluaciones (departamento_id, fecha) where departamento_id is not null;
+create index if not exists idx_evaluaciones_departamento on public.evaluaciones(departamento_id, fecha);
+
+-- Registros repetibles de una secciÃ³n (CONTENEDOR): cada fila es una "planilla"
+-- del grupo (ej. un vehÃ­culo, un productoâ€¦) identificada por su etiqueta (texto libre).
+create table if not exists public.instancias_grupo (
+  id uuid primary key default gen_random_uuid(),
+  evaluacion_id uuid not null references public.evaluaciones(id) on delete cascade,
+  item_id uuid not null references public.items(id) on delete cascade, -- el CONTENEDOR
+  etiqueta text not null default '',
+  orden integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_instancias_grupo_evaluacion on public.instancias_grupo(evaluacion_id, item_id, orden);
+
+-- Valores traÃ­dos de la API por registro (segÃºn items.api_campos de la secciÃ³n).
+alter table public.instancias_grupo add column if not exists api_id text;
+alter table public.instancias_grupo add column if not exists datos jsonb;
 
 create table if not exists public.respuestas (
   id uuid primary key default gen_random_uuid(),
   evaluacion_id uuid not null references public.evaluaciones(id) on delete cascade,
   item_id uuid not null references public.items(id) on delete cascade,
+  instancia_id uuid references public.instancias_grupo(id) on delete cascade, -- null = Ã­tem respondido directo
   valor jsonb not null default 'null'::jsonb,
-  created_at timestamptz not null default now(),
-  unique (evaluacion_id, item_id)
+  respondido_por uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
 );
 create index if not exists idx_respuestas_evaluacion on public.respuestas(evaluacion_id);
+-- Unicidad: una respuesta por (evaluaciÃ³n, Ã­tem, registro). Se usan dos Ã­ndices
+-- parciales (directas con instancia_id NULL; registros con instancia_id NOT NULL):
+-- PostgREST/ON CONFLICT no infiere Ã­ndices `NULLS NOT DISTINCT`, pero sÃ­ infiere
+-- Ã­ndices parciales cuando el conflicto declara su predicado. Como PostgREST no
+-- puede enviar predicados en `on_conflict`, el upsert se hace vÃ­a la funciÃ³n
+-- `upsert_respuestas` (definida abajo), que declara el predicado exacto.
+create unique index if not exists uniq_respuestas_directas
+  on public.respuestas(evaluacion_id, item_id) where instancia_id is null;
+create unique index if not exists uniq_respuestas_instancia
+  on public.respuestas(evaluacion_id, item_id, instancia_id) where instancia_id is not null;
 
 create table if not exists public.fotos (
   id uuid primary key default gen_random_uuid(),
   evaluacion_id uuid not null references public.evaluaciones(id) on delete cascade,
   item_id uuid not null references public.items(id) on delete cascade,
+  instancia_id uuid references public.instancias_grupo(id) on delete cascade,
   path text not null,
   created_at timestamptz not null default now()
 );
 create index if not exists idx_fotos_evaluacion on public.fotos(evaluacion_id);
+
+-- compatibilidad con bases previas (secciones repetibles / registros)
+alter table public.respuestas add column if not exists instancia_id uuid references public.instancias_grupo(id) on delete cascade;
+alter table public.respuestas drop constraint if exists respuestas_evaluacion_id_item_id_key;
+alter table public.fotos add column if not exists instancia_id uuid references public.instancias_grupo(id) on delete cascade;
+-- La migraciÃ³n anterior a un Ãºnico Ã­ndice `NULLS NOT DISTINCT` no funciona en
+-- todas las versiones de Postgres (no se infiere en ON CONFLICT). Se revierte al
+-- estado correcto: dos Ã­ndices parciales que sÃ­ se infieren declarando su
+-- predicado, y el upsert se hace vÃ­a la funciÃ³n `upsert_respuestas`.
+drop index if exists public.uniq_respuestas_por_instancia;
+create unique index if not exists uniq_respuestas_directas
+  on public.respuestas(evaluacion_id, item_id) where instancia_id is null;
+create unique index if not exists uniq_respuestas_instancia
+  on public.respuestas(evaluacion_id, item_id, instancia_id) where instancia_id is not null;
+
+-- Upsert transaccional de respuestas (directas y por registro). Recibe un arreglo
+-- jsonb; por cada fila ejecuta INSERT ... ON CONFLICT declarando el predicado
+-- exacto del Ã­ndice parcial correspondiente, asÃ­ la inferencia encuentra el Ã­ndice
+-- en cualquier versiÃ³n de Postgres (9.5+). Con `security invoker` se aplican las
+-- polÃ­ticas RLS de respuestas (insert/update), igual que con el upsert de PostgREST.
+-- El DO UPDATE lleva GUARDA (`where ... is distinct from ...`): una fila que
+-- llega igual que la que ya está NO se re-escribe. Sin eso, cada guardado del
+-- borrador —que manda el lote COMPLETO— reescribía las N respuestas aunque sólo
+-- hubiera cambiado una, y cada re-escritura es UN EVENTO de realtime por fila
+-- por suscriptor (el canal `ev-vivo-` de la evaluación): el consumo de mensajes
+-- se disparaba sin que nadie tocara nada. Con la guarda, sólo hablan las filas
+-- que cambiaron de verdad.
+create or replace function public.upsert_respuestas(rows jsonb)
+returns void
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  r jsonb;
+begin
+  for r in select jsonb_array_elements(rows) loop
+    if (r->>'instancia_id') is null then
+      insert into public.respuestas (evaluacion_id, item_id, valor, respondido_por)
+      values ((r->>'evaluacion_id')::uuid, (r->>'item_id')::uuid, r->'valor', (r->>'respondido_por')::uuid)
+      on conflict (evaluacion_id, item_id) where instancia_id is null
+      do update set valor = excluded.valor, respondido_por = excluded.respondido_por
+      where respuestas.valor is distinct from excluded.valor
+         or respuestas.respondido_por is distinct from excluded.respondido_por;
+    else
+      insert into public.respuestas (evaluacion_id, item_id, instancia_id, valor, respondido_por)
+      values ((r->>'evaluacion_id')::uuid, (r->>'item_id')::uuid, (r->>'instancia_id')::uuid, r->'valor', (r->>'respondido_por')::uuid)
+      on conflict (evaluacion_id, item_id, instancia_id) where instancia_id is not null
+      do update set valor = excluded.valor, respondido_por = excluded.respondido_por
+      where respuestas.valor is distinct from excluded.valor
+         or respuestas.respondido_por is distinct from excluded.respondido_por;
+    end if;
+  end loop;
+end;
+$$;
 
 -- ============================================================================
 -- ROW LEVEL SECURITY
@@ -216,8 +701,11 @@ alter table public.sucursales enable row level security;
 alter table public.profiles enable row level security;
 alter table public.invitaciones enable row level security;
 alter table public.asignaciones enable row level security;
+alter table public.asignaciones_modulos enable row level security;
 alter table public.modulos enable row level security;
 alter table public.items enable row level security;
+alter table public.sucursal_modulos enable row level security;
+alter table public.sucursal_items enable row level security;
 alter table public.evaluaciones enable row level security;
 alter table public.respuestas enable row level security;
 alter table public.fotos enable row level security;
@@ -228,27 +716,103 @@ returns boolean language sql stable security definer set search_path = public as
   select exists (select 1 from public.profiles p where p.id = auth.uid() and p.rol = 'LIDER' and p.activo);
 $$;
 
+-- ¿Aplica este mÃ³dulo a esta evaluaciÃ³n? La unidad de una evaluaciÃ³n puede ser
+-- una sucursal o un departamento centralizado, y cada una tiene su propia
+-- configuraciÃ³n (`sucursal_modulos` / `departamento_modulos`). Misma regla en
+-- los dos casos: si la configuraciÃ³n no tiene filas activas aplica todo; si
+-- tiene, solo lo marcado. Las funciones de permisos delegan acÃ¡ para no
+-- repetir el criterio.
+create or replace function public.modulo_aplica_a_ev(e public.evaluaciones, mod_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select case when e.departamento_id is not null then
+      not exists (select 1 from public.departamento_modulos dm
+                  where dm.departamento_id = e.departamento_id and dm.activa)
+      or exists (select 1 from public.departamento_modulos dm
+                 where dm.departamento_id = e.departamento_id and dm.activa
+                   and dm.modulo_id = mod_id)
+    else
+      not exists (select 1 from public.sucursal_modulos sm
+                  where sm.sucursal_id = e.sucursal_id and sm.activa)
+      or exists (select 1 from public.sucursal_modulos sm
+                 where sm.sucursal_id = e.sucursal_id and sm.activa
+                   and sm.modulo_id = mod_id)
+    end;
+$$;
+
+revoke execute on function public.modulo_aplica_a_ev(public.evaluaciones, uuid) from public, anon;
+grant  execute on function public.modulo_aplica_a_ev(public.evaluaciones, uuid) to authenticated;
+
 create or replace function public.puede_ver_evaluacion(e public.evaluaciones)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.profiles p
       where p.id = auth.uid() and p.activo and (
-        e.evaluador_id = p.id
-        or p.rol in ('LIDER','GERENTE_C','GERENTE_TH')
+        p.rol in ('LIDER','GERENTE_C','GERENTE_TH')
+        -- El GERENTE_S ve las de SU sucursal. Las de departamento no son de
+        -- ninguna sucursal, así que no entran por acá.
         or (p.rol = 'GERENTE_S' and e.sucursal_id = p.sucursal_id)
+        or (p.rol = 'EVALUADOR' and exists (
+              select 1
+              from public.asignaciones_modulos am
+              join public.modulos m on m.id = am.modulo_id and m.activo
+              where am.evaluador_id = p.id and am.activa
+                and public.modulo_aplica_a_ev(e, am.modulo_id)
+            )
+        )
       )
+  );
+$$;
+
+-- QuiÃ©n puede responder: LIDER siempre; EVALUADOR solo en evaluaciÃ³n ACTIVA y
+-- de Ã­tems cuyo mÃ³dulo le estÃ¡ asignado y aplica a la unidad de la evaluaciÃ³n
+-- (sucursal o departamento).
+create or replace function public.puede_responder(ev_id uuid, it_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.es_lider() or exists (
+    select 1
+    from public.evaluaciones ev
+    join public.items i on i.id = it_id and i.activo
+    join public.asignaciones_modulos am
+      on am.modulo_id = i.modulo_id and am.evaluador_id = auth.uid() and am.activa
+    where ev.id = ev_id and ev.estado = 'ACTIVA'
+      and public.modulo_aplica_a_ev(ev, i.modulo_id)
+  );
+$$;
+
+-- QuiÃ©n puede crear/editar registros de una secciÃ³n: LIDER siempre; EVALUADOR
+-- solo en evaluaciÃ³n ACTIVA y cuando el mÃ³dulo de la secciÃ³n le estÃ¡ asignado.
+create or replace function public.puede_manejar_instancia(ev_id uuid, it_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.es_lider() or exists (
+    select 1
+    from public.evaluaciones ev
+    join public.items i on i.id = it_id
+    join public.asignaciones_modulos am
+      on am.modulo_id = i.modulo_id and am.evaluador_id = auth.uid() and am.activa
+    where ev.id = ev_id and ev.estado = 'ACTIVA'
+      and public.modulo_aplica_a_ev(ev, i.modulo_id)
   );
 $$;
 
 -- SUCURSALES: lectura autenticados / escritura solo LIDER ---------------------
 drop policy if exists sucursales_select on public.sucursales;
-create policy sucursales_select on public.sucursales for select using (true);
+create policy sucursales_select on public.sucursales for select to authenticated using (true);
 drop policy if exists sucursales_lider on public.sucursales;
 create policy sucursales_lider on public.sucursales for all using (public.es_lider()) with check (public.es_lider());
 
+-- DEPARTAMENTOS CENTRALIZADOS: mismo trato que sucursales (lectura / solo LIDER)
+drop policy if exists departamentos_centralizados_select on public.departamentos_centralizados;
+create policy departamentos_centralizados_select on public.departamentos_centralizados for select to authenticated using (true);
+drop policy if exists departamentos_centralizados_lider on public.departamentos_centralizados;
+create policy departamentos_centralizados_lider on public.departamentos_centralizados for all using (public.es_lider()) with check (public.es_lider());
+
 -- PROFILES: lectura autenticados / gestion completa solo LIDER ------------------
+-- `to authenticated` es lo que cierra esta tabla a quien no iniciÃ³ sesiÃ³n. Con
+-- `using (true)` a secas (mÃ¡s el `grant all` inicial de Supabase) cualquiera desde
+-- internet hacÃ­a `select * from profiles` y se llevaba TODOS los correos, roles y
+-- sucursales. El detalle estÃ¡ en `cerrar-lectura-anon.sql`.
 drop policy if exists profiles_select on public.profiles;
-create policy profiles_select on public.profiles for select using (true);
+create policy profiles_select on public.profiles for select to authenticated using (true);
 drop policy if exists profiles_lider on public.profiles;
 create policy profiles_lider on public.profiles for all using (public.es_lider()) with check (public.es_lider());
 
@@ -262,49 +826,125 @@ create policy asignaciones_select on public.asignaciones for select using (auth.
 drop policy if exists asignaciones_lider on public.asignaciones;
 create policy asignaciones_lider on public.asignaciones for all using (public.es_lider()) with check (public.es_lider());
 
+-- ASIGNACIONES_MODULOS: evaluador ve las suyas / gestion solo LIDER ------------
+drop policy if exists asignaciones_modulos_select on public.asignaciones_modulos;
+create policy asignaciones_modulos_select on public.asignaciones_modulos for select using (auth.uid() = evaluador_id or public.es_lider());
+drop policy if exists asignaciones_modulos_lider on public.asignaciones_modulos;
+create policy asignaciones_modulos_lider on public.asignaciones_modulos for all using (public.es_lider()) with check (public.es_lider());
+
 -- MODULOS / ITEMS: lectura autenticados / gestion solo LIDER -------------------
+-- `to authenticated` en las de lectura: sin eso la polÃ­tica aplica a PUBLIC (o
+-- sea, tambiÃ©n a `anon`) y con el `grant all` inicial de Supabase cualquiera
+-- desde internet se lleva el catÃ¡logo entero. En `items` eso incluye la rÃºbrica
+-- completa: puntajes, pesos y umbrales de cada punto.
 drop policy if exists modulos_select on public.modulos;
-create policy modulos_select on public.modulos for select using (true);
+create policy modulos_select on public.modulos for select to authenticated using (true);
 drop policy if exists modulos_lider on public.modulos;
 create policy modulos_lider on public.modulos for all using (public.es_lider()) with check (public.es_lider());
 drop policy if exists items_select on public.items;
-create policy items_select on public.items for select using (true);
+create policy items_select on public.items for select to authenticated using (true);
 drop policy if exists items_lider on public.items;
 create policy items_lider on public.items for all using (public.es_lider()) with check (public.es_lider());
 
+-- CONFIG POR SUCURSAL: lectura autenticados / gestion solo LIDER ---------------
+drop policy if exists sucursal_modulos_select on public.sucursal_modulos;
+create policy sucursal_modulos_select on public.sucursal_modulos for select to authenticated using (true);
+drop policy if exists sucursal_modulos_lider on public.sucursal_modulos;
+create policy sucursal_modulos_lider on public.sucursal_modulos for all using (public.es_lider()) with check (public.es_lider());
+drop policy if exists sucursal_items_select on public.sucursal_items;
+create policy sucursal_items_select on public.sucursal_items for select to authenticated using (true);
+drop policy if exists sucursal_items_lider on public.sucursal_items;
+create policy sucursal_items_lider on public.sucursal_items for all using (public.es_lider()) with check (public.es_lider());
+drop policy if exists sucursal_opciones_select on public.sucursal_opciones;
+create policy sucursal_opciones_select on public.sucursal_opciones for select to authenticated using (true);
+drop policy if exists sucursal_opciones_lider on public.sucursal_opciones;
+create policy sucursal_opciones_lider on public.sucursal_opciones for all using (public.es_lider()) with check (public.es_lider());
+
+-- CONFIG POR DEPARTAMENTO: mismo trato (lectura autenticados / gestion solo LIDER)
+drop policy if exists departamento_modulos_select on public.departamento_modulos;
+create policy departamento_modulos_select on public.departamento_modulos for select to authenticated using (true);
+drop policy if exists departamento_modulos_lider on public.departamento_modulos;
+create policy departamento_modulos_lider on public.departamento_modulos for all using (public.es_lider()) with check (public.es_lider());
+drop policy if exists departamento_items_select on public.departamento_items;
+create policy departamento_items_select on public.departamento_items for select to authenticated using (true);
+drop policy if exists departamento_items_lider on public.departamento_items;
+create policy departamento_items_lider on public.departamento_items for all using (public.es_lider()) with check (public.es_lider());
+drop policy if exists departamento_opciones_select on public.departamento_opciones;
+create policy departamento_opciones_select on public.departamento_opciones for select to authenticated using (true);
+drop policy if exists departamento_opciones_lider on public.departamento_opciones;
+create policy departamento_opciones_lider on public.departamento_opciones for all using (public.es_lider()) with check (public.es_lider());
+
 -- EVALUACIONES -----------------------------------------------------------------
+-- Select: segÃºn rol + mÃ³dulos asignados. Insert/Update/Delete: solo LIDER.
 drop policy if exists evaluaciones_select on public.evaluaciones;
 create policy evaluaciones_select on public.evaluaciones for select using (public.puede_ver_evaluacion(evaluaciones));
 drop policy if exists evaluaciones_insert on public.evaluaciones;
-create policy evaluaciones_insert on public.evaluaciones for insert with check (
-  exists (
-    select 1 from public.profiles p
-      where p.id = auth.uid() and p.activo
-        and p.rol in ('EVALUADOR','LIDER')
-        and p.id = evaluador_id
-  )
-);
--- inmutables: no update/delete
+create policy evaluaciones_insert on public.evaluaciones for insert with check (public.es_lider());
+drop policy if exists evaluaciones_update on public.evaluaciones;
+create policy evaluaciones_update on public.evaluaciones for update using (public.es_lider()) with check (public.es_lider());
+drop policy if exists evaluaciones_delete on public.evaluaciones;
+create policy evaluaciones_delete on public.evaluaciones for delete using (public.es_lider());
 
 -- RESPUESTAS -------------------------------------------------------------------
 drop policy if exists respuestas_select on public.respuestas;
 create policy respuestas_select on public.respuestas for select using (
   exists (
     select 1 from public.evaluaciones e
-      where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
+    where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
   )
 );
 drop policy if exists respuestas_insert on public.respuestas;
 create policy respuestas_insert on public.respuestas for insert with check (
+  public.puede_responder(evaluacion_id, item_id)
+  and (respondido_por = auth.uid() or public.es_lider())
+);
+drop policy if exists respuestas_update on public.respuestas;
+create policy respuestas_update on public.respuestas for update
+  using (public.puede_responder(evaluacion_id, item_id))
+  with check (public.puede_responder(evaluacion_id, item_id)
+    and (respondido_por = auth.uid() or public.es_lider()));
+
+-- BORRAR ---------------------------------------------------------------------
+-- El camino de «deshacer la precarga»: limpiar de la evaluación las
+-- respuestas que se trajeron de la visita anterior, que a los segundos ya
+-- subieron a la nube (se suben apenas se abre). Sin este delete la limpieza
+-- sólo duraba hasta el próximo reload, porque lo propio vuelve a bajar.
+--
+-- Sólo lo PROPIO y sólo mientras la evaluación está ABierta: borrar de una
+-- cerrada sería reescribir el historial. No le da poder de más a nadie — ya
+-- puede reescribir sus propias respuestas con respuestas_update — sólo le
+-- quita filas, y las suyas.
+drop policy if exists respuestas_delete on public.respuestas;
+create policy respuestas_delete on public.respuestas for delete using (
+  respondido_por = auth.uid()
+  and exists (
+    select 1 from public.evaluaciones e
+    where e.id = evaluacion_id and e.estado = 'ACTIVA'
+  )
+);
+
+-- INSTANCIAS_GRUPO --------------------------------------------------------------
+-- Select: quien puede ver la evaluaciÃ³n. Insert/Update/Delete: quien puede
+-- manejar el mÃ³dulo de la secciÃ³n (el delete en cascada limpia sus respuestas).
+alter table public.instancias_grupo enable row level security;
+drop policy if exists instancias_grupo_select on public.instancias_grupo;
+create policy instancias_grupo_select on public.instancias_grupo for select using (
   exists (
     select 1 from public.evaluaciones e
-      where e.id = evaluacion_id
-        and exists (
-          select 1 from public.profiles p
-            where p.id = auth.uid() and p.activo
-              and p.rol in ('EVALUADOR','LIDER') and p.id = e.evaluador_id
-        )
+    where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
   )
+);
+drop policy if exists instancias_grupo_insert on public.instancias_grupo;
+create policy instancias_grupo_insert on public.instancias_grupo for insert with check (
+  public.puede_manejar_instancia(evaluacion_id, item_id)
+);
+drop policy if exists instancias_grupo_update on public.instancias_grupo;
+create policy instancias_grupo_update on public.instancias_grupo for update
+  using (public.puede_manejar_instancia(evaluacion_id, item_id))
+  with check (public.puede_manejar_instancia(evaluacion_id, item_id));
+drop policy if exists instancias_grupo_delete on public.instancias_grupo;
+create policy instancias_grupo_delete on public.instancias_grupo for delete using (
+  public.puede_manejar_instancia(evaluacion_id, item_id)
 );
 
 -- FOTOS -------------------------------------------------------------------------
@@ -312,21 +952,29 @@ drop policy if exists fotos_select on public.fotos;
 create policy fotos_select on public.fotos for select using (
   exists (
     select 1 from public.evaluaciones e
-      where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
+    where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
   )
 );
 drop policy if exists fotos_insert on public.fotos;
-create policy fotos_insert on public.fotos for insert with check (
-  exists (
-    select 1 from public.evaluaciones e
-      where e.id = evaluacion_id
-        and exists (
-          select 1 from public.profiles p
-            where p.id = auth.uid() and p.activo
-              and p.rol in ('EVALUADOR','LIDER') and p.id = e.evaluador_id
-        )
-  )
-);
+create policy fotos_insert on public.fotos for insert with check (public.puede_responder(evaluacion_id, item_id));
+
+-- REALTIME ----------------------------------------------------------------------
+-- Publica respuestas para que el LIDER vea en vivo lo que los evaluadores registran.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'respuestas'
+  ) then
+    alter publication supabase_realtime add table public.respuestas;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'instancias_grupo'
+  ) then
+    alter publication supabase_realtime add table public.instancias_grupo;
+  end if;
+end $$;
 
 -- ============================================================================
 -- STORAGE: bucket de evidencias (privado)
@@ -342,6 +990,30 @@ create policy "evidencias_insert" on storage.objects for insert to authenticated
   bucket_id = 'evidencias'
   and exists (select 1 from public.profiles p where p.id = auth.uid() and p.activo and p.rol in ('EVALUADOR','LIDER'))
 );
+-- Marcar fotos a mano (FotoEditor) re-graba el MISMO path: es un UPDATE, y sin
+-- esta politica la marca volvia con "no tenes permiso". Solo quien puede VER la
+-- evaluacion toca su evidencia (ev/<evaluacion>/...), la misma regla con la que
+-- se lee la tabla.
+drop policy if exists "evidencias_update" on storage.objects;
+create policy "evidencias_update" on storage.objects for update to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and name like 'ev/%'
+    and exists (
+      select 1 from public.evaluaciones e
+      where e.id::text = split_part(storage.objects.name, '/', 2)
+        and public.puede_ver_evaluacion(e)
+    )
+  )
+  with check (
+    bucket_id = 'evidencias'
+    and name like 'ev/%'
+    and exists (
+      select 1 from public.evaluaciones e
+      where e.id::text = split_part(storage.objects.name, '/', 2)
+        and public.puede_ver_evaluacion(e)
+    )
+  );
 
 -- ============================================================================
 -- SEED: catalogo de ejemplo (solo si no existe ningun modulo)
@@ -365,15 +1037,6727 @@ cross join (
   values
     ('Aseo y limpieza', 'CHECKLIST', 'Pisos limpios y secos', '[{"id":"a1","etiqueta":"Main entrada"},{"id":"a2","etiqueta":"Pasillos"},{"id":"a3","etiqueta":"Linea de cajas"}]'::text, 1, true),
     ('Aseo y limpieza', 'CUMPLE_NO_CUMPLE', 'Servicios sanitarios en condiciones', NULL, 2, true),
-    ('Aseo y limpieza', 'FOTO', 'Evidencia fotografica del area', NULL, 3, false),
-    ('Aseo y limpieza', 'COMENTARIO', 'Observaciones de aseo', NULL, 4, false),
     ('Presentacion', 'CUMPLE_NO_CUMPLE', 'Uniforme completo y limpio', NULL, 1, true),
     ('Presentacion', 'CUMPLE_NO_CUMPLE', 'Identificacion visible', NULL, 2, true),
-    ('Presentacion', 'DESCRIPCION', 'Describir hallazgos de presentacion', NULL, 3, false),
-    ('Frescos', 'CANTIDAD', 'Contenedores de madurez con fruta dañada (cantidad)', NULL, 1, false),
-    ('Frescos', 'CUMPLE_NO_CUMPLE', 'Temperatura de vitrinas adecuada', NULL, 2, true),
-    ('Atencion al cliente', 'CUMPLE_NO_CUMPLE', 'Colaboradores disponibles en la tienda', NULL, 1, true),
-    ('Atencion al cliente', 'COMENTARIO', 'Comentario sobre el trato recibido', NULL, 2, false)
+    ('Frescos', 'CUMPLE_NO_CUMPLE', 'Temperatura de vitrinas adecuada', NULL, 1, true),
+    ('Atencion al cliente', 'CUMPLE_NO_CUMPLE', 'Trabajadores disponibles en la tienda', NULL, 1, true)
   ) as it(modulo_nombre, tipo, texto, opciones, orden, requerido)
 where mod.nombre = it.modulo_nombre
   and not exists (select 1 from public.items);
+-- ============================================================================
+-- ULTIMA SINCRONIZACION POR USUARIO
+-- Ultima vez que cada usuario logro subir datos del dispositivo a la nube.
+-- Sirve para distinguir "esta trabajando offline" de "su avance no llega".
+-- El cliente la marca desde la RPC `registrar_sync` (ver src/lib/offline/sync.ts).
+-- ============================================================================
+alter table public.profiles add column if not exists ultima_sync timestamptz;
+
+-- Marca la subida del usuario actual. Es `security definer` para escribir sobre
+-- profiles sin abrir permisos de update a los usuarios sobre la fila de otro.
+create or replace function public.registrar_sync()
+returns timestamptz
+language sql
+security definer
+set search_path = public
+as $$
+  update public.profiles
+     set ultima_sync = now()
+   where id = auth.uid()
+  returning ultima_sync;
+$$;
+grant execute on function public.registrar_sync() to authenticated;
+
+-- ============================================================================
+-- PERMISOS DE LAS FUNCIONES
+-- Postgres da `EXECUTE` a PUBLIC por defecto en cada funciÃ³n nueva, asÃ­ que sin
+-- esto cualquiera las puede invocar por /rest/v1/rpc/<nombre>. El detalle de
+-- cuÃ¡les sÃ­ y cuÃ¡les no (y por quÃ©) estÃ¡ en `permisos-funcion.sql`.
+-- ============================================================================
+
+-- Trigger functions: nunca se llaman por RPC. Son security definer, asÃ­ que el
+-- trigger corre como dueÃ±o y no pierde nada.
+revoke execute on function public.validar_registro() from public;
+revoke execute on function public.handle_new_user() from public;
+revoke execute on function public.validar_modulo_compartido() from public;
+revoke execute on function public.validar_unico_evaluador_modulo() from public;
+
+-- La Ãºnica de trigger que NO es security definer: el trigger corre como el rol
+-- que escribe (el LÃ­der), asÃ­ que sÃ­ necesita el permiso.
+revoke execute on function public.validar_suma_puntaje_items() from public;
+grant execute on function public.validar_suma_puntaje_items() to authenticated;
+
+-- Solo para usuario con sesiÃ³n. El cuerpo de ambas ya exige auth.uid() (y para
+-- desbloquear, ademÃ¡s, ser LIDER); esto solo evita exponerlas a `anon`.
+revoke execute on function public.desbloquear_usuario(uuid, text) from public;
+revoke execute on function public.registrar_sync() from public;
+
+-- A propÃ³sito NO se revoca de es_lider, puede_ver_evaluacion, puede_responder,
+-- puede_manejar_instancia, puede_reportar_incidencia, puede_ver_incidencia: las
+-- invocan las polÃ­ticas RLS y sin EXECUTE se rompe la app entera.
+
+-- Las dos de la pantalla de login: necesitan `anon` (se llaman antes de
+-- signInWithPassword) y no necesitan `authenticated`. El revoke de PUBLIC es lo
+-- que hace el trabajo: los permisos de Postgres son aditivos, asÃ­ que alcanza con
+-- el `grant ... to anon` de arriba para dejarlas en manos de un solo rol.
+revoke execute on function public.intento_login(text, text) from public, authenticated;
+revoke execute on function public.email_por_usuario(text) from public, authenticated;
+
+-- Tabla, no funciÃ³n. Estas 7 son las que se leÃ­an sin sesiÃ³n: `profiles` (correos,
+-- roles), `items` (la rÃºbrica completa con puntajes y umbrales), `modulos`,
+-- `sucursales` (nombres, branch_id, gerente_id) y las tres de configuraciÃ³n por
+-- sucursal. La polÃ­tica con `to authenticated` ya las cierra; este revoke es la
+-- segunda mitad de la cerradura, porque los permisos de Postgres son ADITIVOS: si
+-- algÃºn dÃ­a RLS queda apagado en una de ellas (pasa, y no se ve), el `grant` por
+-- defecto de Supabase pasa a ser la Ãºnica puerta y quedarÃ­a abierta.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'profiles', 'sucursales', 'modulos', 'items',
+    'sucursal_modulos', 'sucursal_items', 'sucursal_opciones'
+  ] loop
+    execute format('revoke select on public.%I from anon', t);
+  end loop;
+end $$;
+
+
+-- ###########################################################################
+-- Archivo consolidado: incidencias.sql
+-- ###########################################################################
+-- ============================================================================
+-- Incidencias fuera de lo programado
+--
+-- Lo que el evaluador ve en la tienda y no estÃ¡ en el formulario: una bandeja de
+-- pechuga de pollo dentro de la nevera de helado, una puerta sin rotular, un
+-- FIGE sin fecha de vencimiento. Se reporta desde el botÃ³n flotante de la
+-- evaluaciÃ³n, se guarda en el telÃ©fono y sube cuando hay seÃ±al (igual que el resto
+-- del avance).
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de nuevo.
+-- ============================================================================
+
+create table if not exists public.incidencias (
+  id uuid primary key,
+  evaluacion_id uuid not null references public.evaluaciones(id) on delete cascade,
+  evaluador_id uuid not null references auth.users(id) on delete cascade,
+  -- Hereda la unidad de su evaluación: sucursal o departamento, una sola.
+  sucursal_id uuid references public.sucursales(id) on delete cascade,
+  departamento_id uuid references public.departamentos_centralizados(id) on delete cascade,
+  fecha date not null,
+  modulo_id uuid references public.modulos(id),
+  descripcion text not null,
+  fotos text[] not null default '{}'::text[],
+  created_at timestamptz not null default now(),
+  constraint incidencias_unidad_check
+    check ((sucursal_id is null) <> (departamento_id is null))
+);
+create index if not exists idx_incidencias_departamento on public.incidencias (departamento_id, created_at desc);
+
+-- Cargos responsables de la incidencia. Es un jsonb y no un text[] porque cada
+-- cargo lleva su propia marca: `por_validar` va en true cuando se escribiÃ³ a
+-- mano, que es lo que pasa siempre que no hay seÃ±al para consultar el catÃ¡logo.
+-- Ese cargo puede estar mal escrito, asÃ­ que no se da por bueno hasta que en la
+-- prÃ³xima oportunidad se lo contrasta contra el catÃ¡logo. El LÃ­der lo ve asÃ­
+-- desde la nube: un cargo sin verificar es informaciÃ³n, no un detalle de la UI.
+--
+-- jsonb (y no una tabla aparte) porque el catÃ¡logo de cargos vive en una Edge
+-- Function, no en la base: no hay un `cargo_id` al que apuntar, solo el texto.
+alter table public.incidencias add column if not exists responsables jsonb not null default '[]'::jsonb;
+
+create index if not exists idx_incidencias_evaluacion on public.incidencias (evaluacion_id, created_at desc);
+
+alter table public.incidencias enable row level security;
+
+-- QuiÃ©n puede reportar una incidencia de una evaluaciÃ³n: el LÃDER siempre; el
+-- EVALUADOR solo si tiene un mÃ³dulo activo asignado que aplique a la sucursal y
+-- la evaluaciÃ³n estÃ¡ ACTIVA. Mismas reglas que `puede_responder`, pero sin exigir
+-- un Ã­tem concreto: acÃ¡ la incidencia no viene de un Ã­tem, viene de la visita.
+create or replace function public.puede_reportar_incidencia(ev_id uuid, mod_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.es_lider() or exists (
+    select 1
+    from public.evaluaciones ev
+    join public.asignaciones_modulos am
+      on am.evaluador_id = auth.uid() and am.activa
+    where ev.id = ev_id
+      and ev.estado = 'ACTIVA'
+      and (mod_id is null or am.modulo_id = mod_id)
+      and public.modulo_aplica_a_ev(ev, am.modulo_id)
+  );
+$$;
+
+-- Ver una incidencia: LIDER todas; el EVALUADOR que participó en la evaluación
+-- (tiene un módulo asignado que aplica a ella), incluso cuando la evaluación ya
+-- se cerró: el detalle de la evaluación le sigue visible (`puede_ver_evaluacion`
+-- no mira el estado) y las incidencias las reportó él o sus compañeros durante
+-- la visita — cerrar no puede borrarles la memoria. Lo que SÓLO puede hacer con
+-- la evaluación ACTIVA es REPORTAR (`puede_reportar_incidencia`). La regla va en
+-- una función (como `puede_ver_evaluacion` y `puede_responder` en schema.sql)
+-- porque dentro del USING de una política no se puede volver a nombrar a la
+-- tabla propia: la columna se le pasa como argumento y es la política quien la
+-- resuelve.
+create or replace function public.puede_ver_incidencia(ev_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.es_lider() or exists (
+    select 1
+    from public.evaluaciones ev
+    where ev.id = ev_id
+      and exists (
+        select 1
+        from public.asignaciones_modulos am
+        where am.evaluador_id = auth.uid()
+          and am.activa
+          and public.modulo_aplica_a_ev(ev, am.modulo_id)
+      )
+  );
+$$;
+
+drop policy if exists incidencias_select on public.incidencias;
+create policy incidencias_select on public.incidencias
+  for select using (public.puede_ver_incidencia(evaluacion_id));
+
+-- Crear: el que reporta es el evaluador, y tiene que estar asignado a esa evaluaciÃ³n.
+drop policy if exists incidencias_insert on public.incidencias;
+create policy incidencias_insert on public.incidencias
+  for insert with check (
+    auth.uid() = evaluador_id
+    and public.puede_reportar_incidencia(evaluacion_id, modulo_id)
+  );
+
+-- Adjuntar las fotos al reporte (el telÃ©fono sube primero la fila y despuÃ©s los
+-- paths: el id del reporte lo genera el cliente y lo manda en el insert).
+drop policy if exists incidencias_update on public.incidencias;
+create policy incidencias_update on public.incidencias
+  for update using (auth.uid() = evaluador_id) with check (auth.uid() = evaluador_id);
+
+-- ----------------------------------------------------------------------------
+-- Fotos: bucket `evidencias`, ruta `incidencias/<reporte_id>/<foto_id>`.
+-- El evaluador dueÃ±o puede ver y quitar sus fotos; el LÃDER las puede ver.
+-- ----------------------------------------------------------------------------
+drop policy if exists storage_incidencias_insert on storage.objects;
+create policy storage_incidencias_insert on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1
+      from public.incidencias i
+      where i.evaluador_id = auth.uid()
+        and name like 'incidencias/' || i.id::text || '/%'
+    )
+  );
+
+-- El Lider tambien puede reescribir: es quien revisa estas fotos desde el
+-- detalle de la evaluacion ajena, y el editor de marcas las re-graba igual.
+drop policy if exists storage_incidencias_update on storage.objects;
+create policy storage_incidencias_update on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and (
+      public.es_lider()
+      or exists (
+        select 1
+        from public.incidencias i
+        where i.evaluador_id = auth.uid()
+          and name like 'incidencias/' || i.id::text || '/%'
+      )
+    )
+  )
+  with check (
+    bucket_id = 'evidencias'
+    and (
+      public.es_lider()
+      or exists (
+        select 1
+        from public.incidencias i
+        where i.evaluador_id = auth.uid()
+          and name like 'incidencias/' || i.id::text || '/%'
+      )
+    )
+  );
+
+drop policy if exists storage_incidencias_select on storage.objects;
+create policy storage_incidencias_select on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and (
+      public.es_lider()
+      or exists (
+        select 1
+        from public.incidencias i
+        where i.evaluador_id = auth.uid()
+          and name like 'incidencias/' || i.id::text || '/%'
+      )
+    )
+  );
+
+drop policy if exists storage_incidencias_delete on storage.objects;
+create policy storage_incidencias_delete on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1
+      from public.incidencias i
+      where i.evaluador_id = auth.uid()
+        and name like 'incidencias/' || i.id::text || '/%'
+    )
+  );
+
+comment on table public.incidencias is 'Incidencias fuera de lo programado, reportadas desde la evaluaciÃ³n (funciona sin conexiÃ³n).';
+comment on column public.incidencias.descripcion is 'Lo que vio el evaluador, con sus palabras.';
+comment on column public.incidencias.fotos is 'Rutas en el bucket evidencias: incidencias/<reporte_id>/<foto_id>.';
+comment on column public.incidencias.responsables is 'Cargos responsables: [{cargo, por_validar}]. por_validar=true cuando se agregÃ³ a mano sin catÃ¡logo y todavÃ­a no se confirmÃ³.';
+
+-- ----------------------------------------------------------------------------
+-- Verificacion
+-- ----------------------------------------------------------------------------
+-- La columna tiene que existir y traer el default. Si `existe` sale false, el
+-- `alter table` de arriba no llegÃ³ a aplicarse y los responsables no se guardan
+-- (la app sigue funcionando, pero los cargos se pierden al sincronizar).
+select
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'incidencias' and column_name = 'responsables'
+  ) as existe,
+  (select column_default from information_schema.columns
+   where table_schema = 'public' and table_name = 'incidencias' and column_name = 'responsables')
+    as default_col,
+  (select count(*) from public.incidencias
+   where responsables is null or jsonb_typeof(responsables) <> 'array')  as filas_rotoas;
+
+
+-- ###########################################################################
+-- Archivo consolidado: departamentos-centralizados.sql
+-- ###########################################################################
+-- ============================================================================
+-- DEPARTAMENTOS CENTRALIZADOS (áreas de la organización que no son sucursales)
+--
+-- Central no es una sucursal: es la oficina. Lo que ahí se evalúa son sus
+-- departamentos (Mercadeo, Taller, Talento Humano, Administración, ...), y
+-- cada uno se evalúa por su cuenta, como una tienda.
+--
+-- Van aparte de `sucursales` porque no tienen shop_id, ni branch_id, ni
+-- dirección, ni Gerente S, y `evaluaciones` tendrá que apuntar a ellos cuando
+-- se abra una evaluación de área.
+--
+-- EL NOMBRE NO ES `departamentos` A PROPÓSITO
+-- ------------------------------------------
+-- En la base ya existe una tabla `departamentos` (de otro proceso: trae una
+-- columna `codigo NOT NULL` que no conocíamos). Para no pisarla ni depender
+-- de lo que tenga adentro, la de acá se llama `departamentos_centralizados`.
+-- En la app se ven y se llaman igual que siempre: "Departamentos". El sufijo
+-- es solo del objeto físico.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de nuevo.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Catálogo
+-- ----------------------------------------------------------------------------
+create table if not exists public.departamentos_centralizados (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  activa boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+comment on table public.departamentos_centralizados is
+  'Departamento/área de la organización evaluada por separado (Mercadeo, Taller, Talento Humano, ...). No es una sucursal. Se llama *_centralizados para no chocar con la tabla departamentos preexistente.';
+
+-- Un departamento no se repite, ni siquiera con distinta capitalización
+-- ("Mercadeo" y "mercadeo" son el mismo). El índice es sobre minúsculas; si
+-- intentan guardar uno repetido, la pantalla lo dice con su propio mensaje.
+drop index if exists uniq_departamentos_centralizados_nombre;
+create unique index if not exists uniq_departamentos_centralizados_nombre
+  on public.departamentos_centralizados (lower(nombre));
+
+-- ----------------------------------------------------------------------------
+-- RLS: lectura para cualquiera autenticado, gestión solo LÍDER
+--
+-- Igual que `sucursales`. El `to authenticated` en la de lectura es lo que
+-- impide que el rol `anon` (con el `grant all` inicial del proyecto) lea el
+-- catálogo sin sesión: mismo criterio de `cerrar-lectura-anon.sql`.
+-- ----------------------------------------------------------------------------
+alter table public.departamentos_centralizados enable row level security;
+
+drop policy if exists departamentos_centralizados_select on public.departamentos_centralizados;
+create policy departamentos_centralizados_select on public.departamentos_centralizados
+  for select to authenticated using (true);
+
+drop policy if exists departamentos_centralizados_lider on public.departamentos_centralizados;
+create policy departamentos_centralizados_lider on public.departamentos_centralizados
+  for all using (public.es_lider()) with check (public.es_lider());
+
+-- ----------------------------------------------------------------------------
+-- Configuración por departamento: módulos, ítems y puntos que aplican.
+--
+-- Es el gemelo de sucursal_modulos / sucursal_items / sucursal_opciones, con la
+-- unidad apuntando al departamento. Misma semántica en las tres: SIN filas
+-- activas aplica todo (canónicamente "sin selección = todos"), CON filas aplica
+-- solo lo marcado. Los nombres no llevan prefijo "departamento_" porque esos
+-- ya son de esta tabla; acá sí, para que el nombre diga de qué unidad habla.
+-- ----------------------------------------------------------------------------
+create table if not exists public.departamento_modulos (
+  id uuid primary key default gen_random_uuid(),
+  departamento_id uuid not null references public.departamentos_centralizados(id) on delete cascade,
+  modulo_id uuid not null references public.modulos(id) on delete cascade,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (departamento_id, modulo_id)
+);
+
+create table if not exists public.departamento_items (
+  id uuid primary key default gen_random_uuid(),
+  departamento_id uuid not null references public.departamentos_centralizados(id) on delete cascade,
+  item_id uuid not null references public.items(id) on delete cascade,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (departamento_id, item_id)
+);
+
+create table if not exists public.departamento_opciones (
+  id uuid primary key default gen_random_uuid(),
+  departamento_id uuid not null references public.departamentos_centralizados(id) on delete cascade,
+  item_id uuid not null references public.items(id) on delete cascade,
+  opcion_id text not null,
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (departamento_id, item_id, opcion_id)
+);
+
+-- Mismo trato que la configuración por sucursal: leen los autenticados,
+-- gestiona solo el LÍDER.
+drop policy if exists departamento_modulos_select on public.departamento_modulos;
+create policy departamento_modulos_select on public.departamento_modulos
+  for select to authenticated using (true);
+drop policy if exists departamento_modulos_lider on public.departamento_modulos;
+create policy departamento_modulos_lider on public.departamento_modulos
+  for all using (public.es_lider()) with check (public.es_lider());
+
+drop policy if exists departamento_items_select on public.departamento_items;
+create policy departamento_items_select on public.departamento_items
+  for select to authenticated using (true);
+drop policy if exists departamento_items_lider on public.departamento_items;
+create policy departamento_items_lider on public.departamento_items
+  for all using (public.es_lider()) with check (public.es_lider());
+
+drop policy if exists departamento_opciones_select on public.departamento_opciones;
+create policy departamento_opciones_select on public.departamento_opciones
+  for select to authenticated using (true);
+drop policy if exists departamento_opciones_lider on public.departamento_opciones;
+create policy departamento_opciones_lider on public.departamento_opciones
+  for all using (public.es_lider()) with check (public.es_lider());
+
+-- ----------------------------------------------------------------------------
+-- La sucursal "Central" tampoco era una sucursal: pasa a llamarse
+-- "Taller Automotriz" (su fila queda intacta, solo cambia el rótulo).
+--
+-- Idempotente por el `where`: si ya se cambió a mano, no toca nada. También se
+-- puede hacer desde Configuración > Sucursales > lápiz.
+-- ----------------------------------------------------------------------------
+update public.sucursales set nombre = 'Taller Automotriz' where nombre = 'Central';
+
+-- ----------------------------------------------------------------------------
+-- Siembra inicial: SOLO si la tabla quedó vacía.
+--
+-- Son los cuatro primeros que nacen. Después se editan, agregan o desactivan
+-- desde Configuración > Departamentos; si ya hay filas, este bloque no vuelve
+-- a correr y no pisa lo que hayas renombrado.
+-- ----------------------------------------------------------------------------
+insert into public.departamentos_centralizados (nombre)
+select v.nombre
+from (values
+  ('Mercadeo'),
+  ('Taller'),
+  ('Talento Humano'),
+  ('Administración')
+) as v(nombre)
+where not exists (select 1 from public.departamentos_centralizados);
+
+
+-- ###########################################################################
+-- Archivo consolidado: departamentos-evaluaciones.sql
+-- ###########################################################################
+-- ============================================================================
+-- Evaluaciones por DEPARTAMENTO
+-- ============================================================================
+-- Hasta ahora una evaluación medía una sucursal y punto (`sucursal_id not
+-- null`). Ahora mide una UNIDAD, que puede ser una sucursal o un departamento
+-- centralizado (Mercadeo, Taller, Talento Humano, Administración…).
+--
+-- • La unidad es exactamente una de las dos: lo impone `evaluaciones_unidad_check`
+--   (XOR booleano: una en null y la otra no).
+-- • Una por unidad y fecha. La de sucursal ya la garantizaba
+--   `unique (sucursal_id, fecha)` y sigue vigente: Postgres compara los null
+--   como distintos, así que una evaluación de departamento no choca ahí. La del
+--   departamento necesita su propio índice único.
+-- • Qué módulos/ítems/opciones aplican se resuelve con la configuración de la
+--   unidad: `sucursal_modulos/_items/_opciones` para sucursales y sus gemelos
+--   `departamento_*` para departamentos. Las funciones de permisos no repiten
+--   esa lógica: la delegan en `modulo_aplica_a_ev`, así se comportan igual en
+--   las dos unidades.
+--
+-- Idempotente: se puede pegar más de una vez en el SQL Editor de Supabase.
+
+-- ------------------------------------------------------------------ evaluaciones
+-- Puede ser de sucursal O de departamento. El FK con `on delete cascade` hace
+-- que borrar el departamento borre sus evaluaciones (igual que borrar una
+-- sucursal borra las suyas).
+alter table public.evaluaciones
+  add column if not exists departamento_id uuid
+  references public.departamentos_centralizados(id) on delete cascade;
+
+alter table public.evaluaciones alter column sucursal_id drop not null;
+
+alter table public.evaluaciones drop constraint if exists evaluaciones_unidad_check;
+alter table public.evaluaciones add constraint evaluaciones_unidad_check
+  check ((sucursal_id is null) <> (departamento_id is null));
+
+create unique index if not exists uniq_evaluaciones_departamento_fecha
+  on public.evaluaciones (departamento_id, fecha)
+  where departamento_id is not null;
+
+create index if not exists idx_evaluaciones_departamento
+  on public.evaluaciones (departamento_id, fecha);
+
+-- ------------------------------------------------------------------ incidencias
+-- Una incidencia nace de la visita, así que hereda la unidad de su evaluación.
+alter table public.incidencias
+  add column if not exists departamento_id uuid
+  references public.departamentos_centralizados(id) on delete cascade;
+
+alter table public.incidencias alter column sucursal_id drop not null;
+
+alter table public.incidencias drop constraint if exists incidencias_unidad_check;
+alter table public.incidencias add constraint incidencias_unidad_check
+  check ((sucursal_id is null) <> (departamento_id is null));
+
+create index if not exists idx_incidencias_departamento
+  on public.incidencias (departamento_id, created_at desc);
+
+-- --------------------------------------------------------- reglas de permisos
+-- ¿Aplica este módulo a esta evaluación? Misma regla que siempre, dos veces:
+-- si la configuración de la unidad no tiene filas activas aplica todo; si
+-- tiene, solo lo marcado.
+create or replace function public.modulo_aplica_a_ev(e public.evaluaciones, mod_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select case when e.departamento_id is not null then
+      not exists (select 1 from public.departamento_modulos dm
+                  where dm.departamento_id = e.departamento_id and dm.activa)
+      or exists (select 1 from public.departamento_modulos dm
+                 where dm.departamento_id = e.departamento_id and dm.activa
+                   and dm.modulo_id = mod_id)
+    else
+      not exists (select 1 from public.sucursal_modulos sm
+                  where sm.sucursal_id = e.sucursal_id and sm.activa)
+      or exists (select 1 from public.sucursal_modulos sm
+                 where sm.sucursal_id = e.sucursal_id and sm.activa
+                   and sm.modulo_id = mod_id)
+    end;
+$$;
+
+revoke execute on function public.modulo_aplica_a_ev(public.evaluaciones, uuid) from public, anon;
+grant  execute on function public.modulo_aplica_a_ev(public.evaluaciones, uuid) to authenticated;
+
+-- Las mismas cuatro funciones de `schema.sql`, pero delegando en
+-- `modulo_aplica_a_ev`. Cambiar solo el cuerpo deja las políticas intactas: ya
+-- las llaman a estas.
+create or replace function public.puede_ver_evaluacion(e public.evaluaciones)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+      where p.id = auth.uid() and p.activo and (
+        p.rol in ('LIDER','GERENTE_C','GERENTE_TH')
+        -- El GERENTE_S ve las de SU sucursal. Las de departamento no son de
+        -- ninguna sucursal, así que no entran por acá.
+        or (p.rol = 'GERENTE_S' and e.sucursal_id = p.sucursal_id)
+        or (p.rol = 'EVALUADOR' and exists (
+              select 1
+              from public.asignaciones_modulos am
+              join public.modulos m on m.id = am.modulo_id and m.activo
+              where am.evaluador_id = p.id and am.activa
+                and public.modulo_aplica_a_ev(e, am.modulo_id)
+            )
+        )
+      )
+  );
+$$;
+
+create or replace function public.puede_responder(ev_id uuid, it_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.es_lider() or exists (
+    select 1
+    from public.evaluaciones ev
+    join public.items i on i.id = it_id and i.activo
+    join public.asignaciones_modulos am
+      on am.modulo_id = i.modulo_id and am.evaluador_id = auth.uid() and am.activa
+    where ev.id = ev_id and ev.estado = 'ACTIVA'
+      and public.modulo_aplica_a_ev(ev, i.modulo_id)
+  );
+$$;
+
+create or replace function public.puede_manejar_instancia(ev_id uuid, it_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.es_lider() or exists (
+    select 1
+    from public.evaluaciones ev
+    join public.items i on i.id = it_id
+    join public.asignaciones_modulos am
+      on am.modulo_id = i.modulo_id and am.evaluador_id = auth.uid() and am.activa
+    where ev.id = ev_id and ev.estado = 'ACTIVA'
+      and public.modulo_aplica_a_ev(ev, i.modulo_id)
+  );
+$$;
+
+create or replace function public.puede_reportar_incidencia(ev_id uuid, mod_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.es_lider() or exists (
+    select 1
+    from public.evaluaciones ev
+    join public.asignaciones_modulos am
+      on am.evaluador_id = auth.uid() and am.activa
+    where ev.id = ev_id
+      and ev.estado = 'ACTIVA'
+      and (mod_id is null or am.modulo_id = mod_id)
+      and public.modulo_aplica_a_ev(ev, am.modulo_id)
+  );
+$$;
+
+-- Listo. Después de esto:
+--   • el Líder apertura evaluaciones de departamento desde Historial;
+--   • el evaluador las ve en /evaluar junto a las sucursales, y lo que responde
+--     respeta los módulos/ítems/opciones marcados en Configuración → Departamentos.
+
+
+-- ###########################################################################
+-- Archivo consolidado: departamentos-backfill.sql
+-- ###########################################################################
+-- ----------------------------------------------------------------------------
+-- DEPARTAMENTO DE LOS PRODUCTOS QUE YA ESTABAN ESCANEADOS (backfill)
+-- ----------------------------------------------------------------------------
+-- `departamento` (el `department.name` de la API de precios) se empezó a guardar
+-- después de que muchas conciliaciones ya estuvieran escaneadas, así que sus
+-- productos quedaron sin el campo y salen todos juntos en el grupo "Sin
+-- departamento".
+--
+-- Estas funciones lo rellenan a partir de un mapa {"<código de barras>": "<departamento>"}
+-- sin tocar ningún otro dato de la respuesta.
+--
+-- Herramienta manual de un solo uso: las funciones quedan instaladas aunque no
+-- las llame la app. Los scripts que armaban el mapa desde la API de precios se
+-- eliminaron del repositorio; si hay que repetir el relleno, hay que rearmar ese
+-- mapa a mano (o recuperar esos scripts del historial de git).
+--
+-- CÓMO SE USA
+-- -----------
+--   1. Corré este archivo una vez (crea las dos funciones).
+--   2. Corré primero `previsualizar_departamentos('<mapa>'::jsonb)` para ver a
+--      cuántos productos les va a poner departamento, sin escribir nada.
+--   3. Después corré `select public.aplicar_departamentos('<mapa>'::jsonb)`.
+--
+-- QUÉ TOCA Y QUÉ NO TOCA
+-- ----------------------
+-- Solo escribe donde `departamento` está ausente. Si el producto ya tiene valor, o
+-- si su código no viene en el mapa, la fila queda como está. No toca
+-- `perdidaEstimada`, ni `teorica`, ni `fisica`, ni `finalBase`/`finalTax`.
+--
+-- El departamento es un rótulo descriptivo: no entra en ningún cálculo de puntaje,
+-- veredicto, tasa de descuadre ni pérdida estimada. Por eso rellenarlo no cambia
+-- el resultado de ninguna evaluación, solo la forma en que se muestran las filas.
+-- La `perdidaEstimada` congelada de las conciliaciones viejas sigue valuada como
+-- se valuó ese día, que es lo correcto para un informe ya firmado.
+--
+-- Es idempotente: correrla dos veces con el mismo mapa no hace nada la segunda.
+--
+-- Se ejecuta a mano desde el SQL Editor. No se le da EXECUTE a la app: nadie
+-- desde el navegador necesita llamarlas.
+
+-- ---------------------------------------------------------------- PREVIEW ----
+-- Lista los productos que el mapa les pondría departamento, SIN escribir nada.
+-- Sirve para dos cosas: confirmar que el mapa está bien y ver cuántos productos y
+-- respuestas van a quedar tocados. Conviene llamarla antes de la que aplica,
+-- para confirmar el mapa antes de escribir.
+create or replace function public.previsualizar_departamentos(mapa jsonb)
+returns table (
+  codigo text,
+  nombre text,
+  evaluacion uuid,
+  departamento_nuevo text
+)
+language sql
+stable
+set search_path = public
+as $$
+with entradas as (
+  -- `jsonb_each_text` devuelve las columnas con nombre `key` y `value`. Se les
+  -- pone alias para no depender de esos nombres.
+  select upper(btrim(t.clave)) as codigo, btrim(t.departamento) as departamento
+  from jsonb_each_text(mapa) as t(clave, departamento)
+  where btrim(t.departamento) <> ''
+)
+select
+  upper(btrim(coalesce(y.prod->>'sku', ''))) as codigo,
+  y.prod->>'nombre' as nombre,
+  r.evaluacion_id as evaluacion,
+  m.departamento as departamento_nuevo
+from public.respuestas r
+cross join lateral jsonb_array_elements(
+  case
+    when jsonb_typeof(r.valor->'productos') = 'array' then r.valor->'productos'
+    else '[]'::jsonb
+  end
+) as y(prod)
+join entradas m on m.codigo = upper(btrim(coalesce(y.prod->>'sku', '')))
+-- Solo los que están sin departamento: es lo único que la función de abajo cambia.
+where (y.prod->>'departamento') is null
+order by 1, 3;
+$$;
+
+-- ---------------------------------------------------------------- APLICAR ----
+-- Escribe `departamento` en los productos que lo tienen ausente y cuyo código está
+-- en el mapa. Devuelve cuántas respuestas (filas de `respuestas`) tocó, no cuántos
+-- productos: un producto suele aparecer en más de una evaluación.
+create or replace function public.aplicar_departamentos(mapa jsonb)
+returns integer
+language sql
+set search_path = public
+as $$
+with entradas as (
+  select upper(btrim(t.clave)) as codigo, btrim(t.departamento) as departamento
+  from jsonb_each_text(mapa) as t(clave, departamento)
+  where btrim(t.departamento) <> ''
+),
+actualizadas as (
+  update public.respuestas r
+  set valor = jsonb_set(r.valor, '{productos}', (
+        select jsonb_agg(
+            case
+              when m.departamento is not null and (prod->>'departamento') is null
+                then jsonb_set(prod, '{departamento}', to_jsonb(m.departamento), true)
+              else prod
+            end
+            order by pos
+          )
+        from jsonb_array_elements(r.valor->'productos') with ordinality as x(prod, pos)
+        left join entradas m on m.codigo = upper(btrim(coalesce(prod->>'sku', '')))
+      ))
+  where jsonb_typeof(r.valor->'productos') = 'array'
+    and exists (
+      select 1
+      from jsonb_array_elements(r.valor->'productos') as y(prod)
+      left join entradas m on m.codigo = upper(btrim(coalesce(y.prod->>'sku', '')))
+      where m.departamento is not null and (y.prod->>'departamento') is null
+    )
+  returning 1
+)
+select count(*)::int from actualizadas;
+$$;
+
+-- La app no las llama: quedan solo para quien las corre a mano.
+revoke execute on function public.previsualizar_departamentos(jsonb) from public, anon, authenticated;
+revoke execute on function public.aplicar_departamentos(jsonb) from public, anon, authenticated;
+
+
+-- ###########################################################################
+-- Archivo consolidado: revision-pre-entrega.sql
+-- ###########################################################################
+-- ============================================================================
+-- Revisión Pre-Entrega (herramienta)
+--
+-- Herramienta independiente de la evaluación: no pertenece a `evaluaciones` ni
+-- compite con los módulos del cuestionario. El LÍDER configura sus preguntas
+-- como cualquier otro módulo (Ítems de evaluación) y el evaluador las llena
+-- generando un PDF de entrega firmada por el chofer.
+--
+-- Para distinguirla de los módulos que forman parte de la evaluación se agrega
+-- `modulos.herramienta`: los módulos con esta columna vacía son los de siempre.
+-- Así la herramienta no aparece nunca en la lista de /evaluar.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de nuevo.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Marca de herramienta en los módulos. NULL = módulo de evaluación (el normal).
+-- ----------------------------------------------------------------------------
+alter table public.modulos add column if not exists herramienta text;
+
+drop index if exists idx_modulos_herramienta;
+create unique index if not exists uniq_modulos_herramienta
+  on public.modulos(herramienta) where herramienta is not null;
+
+comment on column public.modulos.herramienta is
+  'Identifica un módulo como herramienta externa (ej. REVISION_PRE_ENTREGA). NULL = módulo normal de evaluación.';
+
+-- ----------------------------------------------------------------------------
+-- Cabecera de la revisión + respuestas del check list.
+--
+-- Las respuestas van en un jsonb `{ item_id: valor }` porque el valor ya es
+-- jsonb en `respuestas.valor` (lo produce ItemRenderer) y así la herramienta
+-- no necesita una tabla hija ni entrar en el flujo de `evaluaciones`.
+-- ----------------------------------------------------------------------------
+create table if not exists public.revision_pre_entrega (
+  id uuid primary key default gen_random_uuid(),
+  evaluador_id uuid not null references auth.users(id) on delete cascade,
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  modulo_id uuid references public.modulos(id) on delete set null,
+  placa text not null,
+  -- Datos del vehículo traídos de la API de flota (o a mano si no se encontró).
+  vehiculo jsonb not null default '{}'::jsonb,
+  -- Datos del chofer: los de la API de trabajadores o los capturados a mano.
+  chofer jsonb not null default '{}'::jsonb,
+  -- Firma del chofer como data URL (la imprime el PDF). Se firma en el
+  -- dispositivo, así que se sube tal cual.
+  chofer_firma text,
+  observaciones text,
+  -- Respuestas del check list: `{ [item_id]: <valor de ItemRenderer> }`.
+  respuestas jsonb not null default '{}'::jsonb,
+  estado text not null default 'BORRADOR' check (estado in ('BORRADOR', 'FINALIZADA')),
+  fecha date not null default current_date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_revision_pre_entrega_evaluador
+  on public.revision_pre_entrega(evaluador_id, created_at desc);
+create index if not exists idx_revision_pre_entrega_sucursal
+  on public.revision_pre_entrega(sucursal_id, created_at desc);
+
+-- ----------------------------------------------------------------------------
+-- RLS
+--
+-- La herramienta la usan el LÍDER y el EVALUADOR. Cada uno ve y edita las
+-- suyas; el LÍDER ve todas y puede corregir cualquier revisión. No se exige
+-- que haya `evaluaciones` abierta: la revisión se hace aunque la sucursal no
+-- tenga ninguna evaluación en curso (es una entrega, no una medición).
+-- ----------------------------------------------------------------------------
+alter table public.revision_pre_entrega enable row level security;
+
+create or replace function public.puede_usar_revision_pre_entrega()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.activo and p.rol in ('LIDER', 'EVALUADOR')
+  );
+$$;
+
+-- Es security definer, pero la invocan las politicas RLS, que corren con
+-- sesion. Para anon no aporta nada y sobra. El revoke va aca (despues de la
+-- definicion) y no en otro bloque: `create or replace` reactiva el permiso
+-- heredado de PUBLIC, asi que el revoke tiene que seguir a la definicion.
+revoke execute on function public.puede_usar_revision_pre_entrega() from public, anon;
+grant  execute on function public.puede_usar_revision_pre_entrega() to authenticated;
+
+drop policy if exists revision_pre_entrega_select on public.revision_pre_entrega;
+create policy revision_pre_entrega_select on public.revision_pre_entrega
+  for select using (evaluador_id = auth.uid() or public.es_lider());
+
+-- Guardar el borrador y finalizarla: el dueño, y solo con la herramienta activa.
+drop policy if exists revision_pre_entrega_insert on public.revision_pre_entrega;
+create policy revision_pre_entrega_insert on public.revision_pre_entrega
+  for insert with check (evaluador_id = auth.uid() and public.puede_usar_revision_pre_entrega());
+
+drop policy if exists revision_pre_entrega_update on public.revision_pre_entrega;
+create policy revision_pre_entrega_update on public.revision_pre_entrega
+  for update using (evaluador_id = auth.uid() or public.es_lider())
+  with check (evaluador_id = auth.uid() or public.es_lider());
+
+drop policy if exists revision_pre_entrega_delete on public.revision_pre_entrega;
+create policy revision_pre_entrega_delete on public.revision_pre_entrega
+  for delete using (evaluador_id = auth.uid() or public.es_lider());
+
+-- ----------------------------------------------------------------------------
+-- Fotos de la revisión: bucket `evidencias`, ruta `pre-entrega/<revision_id>/<foto_id>`.
+-- ----------------------------------------------------------------------------
+drop policy if exists storage_pre_entrega_insert on storage.objects;
+create policy storage_pre_entrega_insert on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1 from public.revision_pre_entrega r
+      where r.evaluador_id = auth.uid()
+        and name like 'pre-entrega/' || r.id::text || '/%'
+    )
+  );
+
+drop policy if exists storage_pre_entrega_update on storage.objects;
+create policy storage_pre_entrega_update on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1 from public.revision_pre_entrega r
+      where r.evaluador_id = auth.uid()
+        and name like 'pre-entrega/' || r.id::text || '/%'
+    )
+  )
+  with check (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1 from public.revision_pre_entrega r
+      where r.evaluador_id = auth.uid()
+        and name like 'pre-entrega/' || r.id::text || '/%'
+    )
+  );
+
+drop policy if exists storage_pre_entrega_select on storage.objects;
+create policy storage_pre_entrega_select on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and (
+      public.es_lider()
+      or exists (
+        select 1 from public.revision_pre_entrega r
+        where r.evaluador_id = auth.uid()
+          and name like 'pre-entrega/' || r.id::text || '/%'
+      )
+    )
+  );
+
+drop policy if exists storage_pre_entrega_delete on storage.objects;
+create policy storage_pre_entrega_delete on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1 from public.revision_pre_entrega r
+      where r.evaluador_id = auth.uid()
+        and name like 'pre-entrega/' || r.id::text || '/%'
+    )
+  );
+
+-- ----------------------------------------------------------------------------
+-- Módulo y check list iniciales.
+--
+-- Se inserts solo lo que falta (por `herramienta` y por `texto` dentro del
+-- módulo): correrlo de nuevo no toca lo que el LÍDER ya haya editado, así que
+-- las respuestas guardadas siguen apuntando a ítems que no desaparecen.
+-- Los puntos se dejan en 0 a propósito: la revisión no puntúa, es un check
+-- list de entrega.
+-- ----------------------------------------------------------------------------
+do $$
+declare
+  v_mod uuid;
+begin
+  select id into v_mod from public.modulos where herramienta = 'REVISION_PRE_ENTREGA';
+  if v_mod is null then
+    insert into public.modulos (nombre, descripcion, orden, activo, compartido, herramienta)
+    values (
+      'Revisión Pre-Entrega',
+      'Check list de entrega del vehículo: se llena al entregar y la firma el chofer. No forma parte de la evaluación.',
+      900,
+      true,
+      false,
+      'REVISION_PRE_ENTREGA'
+    )
+    returning id into v_mod;
+  end if;
+
+  -- Cada ítem: (texto, opciones). Se numera por el orden en que aparecen para
+  -- que la pantalla y el PDF salgan siempre igual.
+  insert into public.items (modulo_id, tipo, texto, opciones, responsables, orden, requerido, activo, puntaje, api_campos, contra_dato)
+  select v_mod, 'CHECKLIST', t.texto, t.opciones, '[]'::jsonb, t.orden, false, true, 0, '[]'::jsonb, 'SOH'
+  from (
+    select texto, opciones, row_number() over () - 1 as orden
+    from (values
+      ('Documentación del vehículo y del conductor', '[
+        {"id":"ppe-doc-1","etiqueta":"SOAT vigente"},
+        {"id":"ppe-doc-2","etiqueta":"Revisión técnico-mecánica vigente"},
+        {"id":"ppe-doc-3","etiqueta":"Licencia de conducir vigente y corresponde al conductor"},
+        {"id":"ppe-doc-4","etiqueta":"Permiso de operación vigente"},
+        {"id":"ppe-doc-5","etiqueta":"Póliza de seguro vigente"}
+      ]'::jsonb),
+      ('Carrocería y exterior', '[
+        {"id":"ppe-car-1","etiqueta":"Sin abolladuras ni golpes"},
+        {"id":"ppe-car-2","etiqueta":"Sin rayones"},
+        {"id":"ppe-car-3","etiqueta":"Pintura en buen estado"},
+        {"id":"ppe-car-4","etiqueta":"Parabrisas sin fisura ni deformación"},
+        {"id":"ppe-car-5","etiqueta":"Vidrios laterales y luneta sin roturas"},
+        {"id":"ppe-car-6","etiqueta":"Plumillas y limpiaparabrisas en buen estado"},
+        {"id":"ppe-car-7","etiqueta":"Tapa de combustible y tapa de agua presentes"}
+      ]'::jsonb),
+      ('Llantas y ruedas', '[
+        {"id":"ppe-lla-1","etiqueta":"Llantas con dibujo suficiente"},
+        {"id":"ppe-lla-2","etiqueta":"Presión de inflado correcta"},
+        {"id":"ppe-lla-3","etiqueta":"Sin deformaciones, cortes ni raíces"},
+        {"id":"ppe-lla-4","etiqueta":"Tuercas con apriete adecuado"},
+        {"id":"ppe-lla-5","etiqueta":"Llanta de repuesto en condiciones"},
+        {"id":"ppe-lla-6","etiqueta":"Sin desgaste irregular (desalineación)"}
+      ]'::jsonb),
+      ('Frenos', '[
+        {"id":"ppe-fre-1","etiqueta":"Freno de servicio sin falla"},
+        {"id":"ppe-fre-2","etiqueta":"Freno de estacionamiento funciona"},
+        {"id":"ppe-fre-3","etiqueta":"Testigo de freno apagado con el motor encendido"},
+        {"id":"ppe-fre-4","etiqueta":"Discos y pastillas sin desgaste crítico"},
+        {"id":"ppe-fre-5","etiqueta":"Pedal de freno sin hundimiento excesivo"},
+        {"id":"ppe-fre-6","etiqueta":"Líquido de frenos por encima del mínimo"}
+      ]'::jsonb),
+      ('Luces y señalización', '[
+        {"id":"ppe-luc-1","etiqueta":"Luces delanteras (bajas y altas)"},
+        {"id":"ppe-luc-2","etiqueta":"Luces traseras y stop"},
+        {"id":"ppe-luc-3","etiqueta":"Luces direccionales"},
+        {"id":"ppe-luc-4","etiqueta":"Luces de emergencia"},
+        {"id":"ppe-luc-5","etiqueta":"Luces de retroceso"},
+        {"id":"ppe-luc-6","etiqueta":"Bocina y alarma de retroceso"},
+        {"id":"ppe-luc-7","etiqueta":"Luces de posición y matrícula"}
+      ]'::jsonb),
+      ('Niveles y fluidos', '[
+        {"id":"ppe-niv-1","etiqueta":"Aceite de motor"},
+        {"id":"ppe-niv-2","etiqueta":"Refrigerante"},
+        {"id":"ppe-niv-3","etiqueta":"Líquido de frenos"},
+        {"id":"ppe-niv-4","etiqueta":"Líquido hidráulico de dirección"},
+        {"id":"ppe-niv-5","etiqueta":"Líquido limpiaparabrisas"},
+        {"id":"ppe-niv-6","etiqueta":"Batería con bornes limpios y apretados"}
+      ]'::jsonb),
+      ('Elementos de seguridad', '[
+        {"id":"ppe-seg-1","etiqueta":"Extintor vigente y con carga"},
+        {"id":"ppe-seg-2","etiqueta":"Botiquín de primeros auxilios"},
+        {"id":"ppe-seg-3","etiqueta":"Chaleco reflectante"},
+        {"id":"ppe-seg-4","etiqueta":"Juego de triángulos"},
+        {"id":"ppe-seg-5","etiqueta":"Cinturones de seguridad en buen estado"},
+        {"id":"ppe-seg-6","etiqueta":"Tapabarrotes y faldones"}
+      ]'::jsonb),
+      ('Motor y tablero', '[
+        {"id":"ppe-mot-1","etiqueta":"Arranque normal, sin ruidos"},
+        {"id":"ppe-mot-2","etiqueta":"Ralentí estable"},
+        {"id":"ppe-mot-3","etiqueta":"Temperatura de motor normal"},
+        {"id":"ppe-mot-4","etiqueta":"Sin humos ni fugas visibles"},
+        {"id":"ppe-mot-5","etiqueta":"Testigos del tablero apagados con el motor encendido"}
+      ]'::jsonb)
+    ) as v(texto, opciones)
+  ) t
+  where not exists (
+    select 1 from public.items i where i.modulo_id = v_mod and i.texto = t.texto
+  );
+
+  -- Dictamen de entrega: sin opciones, cumple / no cumple. Va al final (orden 99).
+  insert into public.items (modulo_id, tipo, texto, opciones, responsables, orden, requerido, activo, puntaje, api_campos, contra_dato)
+  select v_mod, 'CUMPLE_NO_CUMPLE', '¿El vehículo queda en condiciones de ser entregado?', '[]'::jsonb, '[]'::jsonb, 99, true, true, 0, '[]'::jsonb, 'SOH'
+  where not exists (
+    select 1 from public.items where modulo_id = v_mod and texto = '¿El vehículo queda en condiciones de ser entregado?'
+  );
+end $$;
+
+comment on table public.revision_pre_entrega is
+  'Revisión Pre-Entrega: check list de entrega con datos de vehículo, chofer y firma (funciona sin conexión).';
+comment on column public.revision_pre_entrega.respuestas is
+  'Respuestas del check list: { [item_id]: <valor jsonb de ItemRenderer> }.';
+comment on column public.revision_pre_entrega.estado is
+  'BORRADOR = en proceso en el teléfono. FINALIZADA = entregada y con PDF generado.';
+
+
+-- ###########################################################################
+-- Archivo consolidado: inspeccion-vehiculo.sql
+-- ###########################################################################
+-- ============================================================================
+-- Inspección de vehículo (herramienta)
+--
+-- Inspección de vehículo PARTICULAR: estética, mecánica y sistema de gas
+-- vehicular (GNV), con fotos/incidencias por punto y salida a PDF.
+--
+-- ES AUTOSUFICIENTE: trae el andamiaje de la Revisión Pre-Entrega
+-- (`supabase/revision-pre-entrega.sql`) con guardas `if not exists`, porque en
+-- una base donde esa semilla nunca se corrió no existen ni la columna
+-- `modulos.herramienta` ni la tabla `revision_pre_entrega`. Así se aplica con
+-- un solo archivo y en cualquier orden respecto de la otra semilla:
+--
+--   * `modulos.herramienta`  → marca este módulo como herramienta, así no
+--     aparece nunca en /evaluar ni puntúa en ninguna evaluación.
+--   * `revision_pre_entrega` → guarda la inspección. Es la misma tabla porque
+--     la ficha es la misma (placa, vehículo, persona, respuestas jsonb, firma,
+--     estado, sync) y porque así RLS y storage la cubren sin reglas nuevas.
+--     Lo que distingue una inspección de una pre-entrega es `modulo_id`, que
+--     apunta a este módulo; las fotos suben a la misma carpeta
+--     `pre-entrega/<registro_id>/`. Una inspección va **sin sucursal**
+--     (`sucursal_id` null): el vehículo no es de ninguna unidad, y el paso 0
+--     suelta el `NOT NULL` con que la pre-entrega creó la tabla.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo sin pisar lo que el Líder haya editado después desde Ítems de
+-- evaluación (se inserta solo lo que falta, por `herramienta` y por `texto`
+-- dentro del módulo).
+--
+-- Nota: si un vehículo no es de gas, las opciones de la sección GNV se marcan
+-- como informativas desde la pantalla o esa sección se desactiva en Ítems de
+-- evaluación; no hace falta tocar este archivo.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 0. Andamiaje de la herramienta (idempotente)
+--
+-- Todo con guarda: si la semilla de la pre-entrega ya se corrió, esto no toca
+-- nada; si nunca se corrió, la trae igual para que la inspección funcione sola.
+-- ----------------------------------------------------------------------------
+
+-- Marca de herramienta en los módulos. NULL = módulo de evaluación (el normal).
+alter table public.modulos add column if not exists herramienta text;
+
+drop index if exists idx_modulos_herramienta;
+create unique index if not exists uniq_modulos_herramienta
+  on public.modulos(herramienta) where herramienta is not null;
+
+comment on column public.modulos.herramienta is
+  'Identifica un módulo como herramienta externa (ej. REVISION_PRE_ENTREGA, INSPECCION_VEHICULO). NULL = módulo normal de evaluación.';
+
+-- Cabecera de la revisión + respuestas del check list.
+--
+-- Las respuestas van en un jsonb `{ item_id: valor }` porque el valor ya es
+-- jsonb en `respuestas.valor` (lo produce ItemRenderer) y así la herramienta
+-- no necesita una tabla hija ni entrar en el flujo de `evaluaciones`.
+create table if not exists public.revision_pre_entrega (
+  id uuid primary key default gen_random_uuid(),
+  evaluador_id uuid not null references auth.users(id) on delete cascade,
+  -- Sucursal: la pre-entrega siempre es de una; la inspección no tiene (se hace
+  -- donde esté el vehículo), por eso la columna admite null.
+  sucursal_id uuid references public.sucursales(id) on delete cascade,
+  modulo_id uuid references public.modulos(id) on delete set null,
+  placa text not null,
+  -- Datos del vehículo: de la API por placa o capturados a mano.
+  vehiculo jsonb not null default '{}'::jsonb,
+  -- Datos de la persona (chofer en la pre-entrega, propietario aquí).
+  chofer jsonb not null default '{}'::jsonb,
+  -- Firma como data URL (la imprime el PDF). Se firma en el dispositivo.
+  chofer_firma text,
+  observaciones text,
+  -- Respuestas del check list: `{ [item_id]: <valor de ItemRenderer> }`.
+  respuestas jsonb not null default '{}'::jsonb,
+  estado text not null default 'BORRADOR' check (estado in ('BORRADOR', 'FINALIZADA')),
+  fecha date not null default current_date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_revision_pre_entrega_evaluador
+  on public.revision_pre_entrega(evaluador_id, created_at desc);
+create index if not exists idx_revision_pre_entrega_sucursal
+  on public.revision_pre_entrega(sucursal_id, created_at desc);
+
+-- Instalaciones donde la tabla ya existía (la pre-entrega la creó como NOT
+-- NULL): la inspección se hace sin sucursal, así que la columna se suelta.
+alter table public.revision_pre_entrega alter column sucursal_id drop not null;
+
+-- ----------------------------------------------------------------------------
+-- RLS
+--
+-- La herramienta la usan el LÍDER y el EVALUADOR. Cada uno ve y edita las
+-- suyas; el LÍDER ve todas. No se exige que haya `evaluaciones` abierta ni que
+-- la fila tenga sucursal: la inspección se hace donde esté el vehículo.
+-- ----------------------------------------------------------------------------
+alter table public.revision_pre_entrega enable row level security;
+
+create or replace function public.puede_usar_revision_pre_entrega()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.activo and p.rol in ('LIDER', 'EVALUADOR')
+  );
+$$;
+
+-- Es security definer, pero la invocan las politicas RLS, que corren con
+-- sesion. Para anon no aporta nada y sobra. El revoke va aca (despues de la
+-- definicion) y no en otro bloque: `create or replace` reactiva el permiso
+-- heredado de PUBLIC, asi que el revoke tiene que seguir a la definicion.
+revoke execute on function public.puede_usar_revision_pre_entrega() from public, anon;
+grant  execute on function public.puede_usar_revision_pre_entrega() to authenticated;
+
+drop policy if exists revision_pre_entrega_select on public.revision_pre_entrega;
+create policy revision_pre_entrega_select on public.revision_pre_entrega
+  for select using (evaluador_id = auth.uid() or public.es_lider());
+
+drop policy if exists revision_pre_entrega_insert on public.revision_pre_entrega;
+create policy revision_pre_entrega_insert on public.revision_pre_entrega
+  for insert with check (evaluador_id = auth.uid() and public.puede_usar_revision_pre_entrega());
+
+drop policy if exists revision_pre_entrega_update on public.revision_pre_entrega;
+create policy revision_pre_entrega_update on public.revision_pre_entrega
+  for update using (evaluador_id = auth.uid() or public.es_lider())
+  with check (evaluador_id = auth.uid() or public.es_lider());
+
+drop policy if exists revision_pre_entrega_delete on public.revision_pre_entrega;
+create policy revision_pre_entrega_delete on public.revision_pre_entrega
+  for delete using (evaluador_id = auth.uid() or public.es_lider());
+
+-- ----------------------------------------------------------------------------
+-- Fotos de la revisión: bucket `evidencias`, ruta `pre-entrega/<registro_id>/<foto_id>`.
+-- ----------------------------------------------------------------------------
+drop policy if exists storage_pre_entrega_insert on storage.objects;
+create policy storage_pre_entrega_insert on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1 from public.revision_pre_entrega r
+      where r.evaluador_id = auth.uid()
+        and name like 'pre-entrega/' || r.id::text || '/%'
+    )
+  );
+
+drop policy if exists storage_pre_entrega_update on storage.objects;
+create policy storage_pre_entrega_update on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1 from public.revision_pre_entrega r
+      where r.evaluador_id = auth.uid()
+        and name like 'pre-entrega/' || r.id::text || '/%'
+    )
+  )
+  with check (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1 from public.revision_pre_entrega r
+      where r.evaluador_id = auth.uid()
+        and name like 'pre-entrega/' || r.id::text || '/%'
+    )
+  );
+
+drop policy if exists storage_pre_entrega_select on storage.objects;
+create policy storage_pre_entrega_select on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and (
+      public.es_lider()
+      or exists (
+        select 1 from public.revision_pre_entrega r
+        where r.evaluador_id = auth.uid()
+          and name like 'pre-entrega/' || r.id::text || '/%'
+      )
+    )
+  );
+
+drop policy if exists storage_pre_entrega_delete on storage.objects;
+create policy storage_pre_entrega_delete on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1 from public.revision_pre_entrega r
+      where r.evaluador_id = auth.uid()
+        and name like 'pre-entrega/' || r.id::text || '/%'
+    )
+  );
+
+-- ----------------------------------------------------------------------------
+-- Módulo y check list de la inspección.
+--
+-- Se inserta solo lo que falta (por `herramienta` y por `texto` dentro del
+-- módulo): correrlo de nuevo no toca lo que el LÍDER ya haya editado, así que
+-- las respuestas guardadas siguen apuntando a ítems que no desaparecen.
+-- ----------------------------------------------------------------------------
+
+do $$
+declare
+  v_mod uuid;
+begin
+  select id into v_mod from public.modulos where herramienta = 'INSPECCION_VEHICULO';
+  if v_mod is null then
+    insert into public.modulos (nombre, descripcion, orden, activo, compartido, herramienta)
+    values (
+      'Inspección de vehículo',
+      'Revisión estética, mecánica y de gas vehicular de un vehículo particular: se llena con fotos y dictamen, y se imprime en PDF. No forma parte de la evaluación.',
+      910,
+      true,
+      false,
+      'INSPECCION_VEHICULO'
+    )
+    returning id into v_mod;
+  end if;
+
+  -- ----------------------------------------------------------------------------
+  -- Secciones (CONTENEDOR). Van primero en la pantalla y en el PDF, que abre
+  -- una banda con el nombre de cada una sobre sus filas.
+  -- ----------------------------------------------------------------------------
+  insert into public.items (modulo_id, tipo, texto, opciones, responsables, orden, requerido, activo, puntaje, padre_id, api_campos, contra_dato)
+  select v_mod, 'CONTENEDOR', t.texto, '[]'::jsonb, '[]'::jsonb, t.orden, false, true, 0, null, '[]'::jsonb, 'SOH'
+  from (values
+    ('Estética', 0),
+    ('Mecánica', 1),
+    ('Sistema de gas vehicular (GNV)', 2)
+  ) as t(texto, orden)
+  where not exists (
+    select 1 from public.items i where i.modulo_id = v_mod and i.texto = t.texto
+  );
+
+  -- ----------------------------------------------------------------------------
+  -- Preguntas por sección. Cada una es un CHECKLIST de puntos concretos: son
+  -- los que el PDF lista con su estado, y sobre cada punto va la foto o la
+  -- incidencia que se haya cargado.
+  -- Los puntos se dejan en 0: la inspección no puntúa, es un dictamen.
+  -- ----------------------------------------------------------------------------
+  insert into public.items (modulo_id, tipo, texto, opciones, responsables, orden, requerido, activo, puntaje, padre_id, api_campos, contra_dato)
+  select v_mod, 'CHECKLIST', t.texto, t.opciones::jsonb, '[]'::jsonb, t.orden, false, true, 0, s.id, '[]'::jsonb, 'SOH'
+  from (values
+    -- ---------------- Estética ----------------
+    ('Estética', 'Carrocería y pintura', '[
+      {"id":"ins-est-1","etiqueta":"Sin abolladuras ni golpes"},
+      {"id":"ins-est-2","etiqueta":"Sin rayones profundos"},
+      {"id":"ins-est-3","etiqueta":"Pintura uniforme, sin descascarada"},
+      {"id":"ins-est-4","etiqueta":"Puertas, capó y baúl alineados y cerran bien"},
+      {"id":"ins-est-5","etiqueta":"Sin óxido visible"}
+    ]', 0),
+    ('Estética', 'Vidrios y espejos', '[
+      {"id":"ins-vis-1","etiqueta":"Parabrisas sin fisuras ni estrellas"},
+      {"id":"ins-vis-2","etiqueta":"Vidrios laterales y luneta sin roturas"},
+      {"id":"ins-vis-3","etiqueta":"Espejos retrovisores completos y firmes"},
+      {"id":"ins-vis-4","etiqueta":"Cristales suben y bajan sin ruido"}
+    ]', 1),
+    ('Estética', 'Luces exteriores', '[
+      {"id":"ins-luz-1","etiqueta":"Luz baja y alta"},
+      {"id":"ins-luz-2","etiqueta":"Luz de freno y stop"},
+      {"id":"ins-luz-3","etiqueta":"Direccional delantera y trasera"},
+      {"id":"ins-luz-4","etiqueta":"Luz de reversa"},
+      {"id":"ins-luz-5","etiqueta":"Luz de matrícula"},
+      {"id":"ins-luz-6","etiqueta":"Luces de emergencia"}
+    ]', 2),
+    ('Estética', 'Interior', '[
+      {"id":"ins-int-1","etiqueta":"Asientos y tapizados sin roturas"},
+      {"id":"ins-int-2","etiqueta":"Alfombrillas y piso en buen estado"},
+      {"id":"ins-int-3","etiqueta":"Tablero sin piezas rotas ni sueltas"},
+      {"id":"ins-int-4","etiqueta":"Aire acondicionado enfría"}
+    ]', 3),
+
+    -- ---------------- Mecánica ----------------
+    ('Mecánica', 'Frenos', '[
+      {"id":"ins-fre-1","etiqueta":"Freno de servicio firme, sin hundirse"},
+      {"id":"ins-fre-2","etiqueta":"Freno de estacionamiento sostiene la pendiente"},
+      {"id":"ins-fre-3","etiqueta":"Pastillas y discos con espesor suficiente"},
+      {"id":"ins-fre-4","etiqueta":"Líquido de frenos por encima del mínimo"},
+      {"id":"ins-fre-5","etiqueta":"Sin ruidos chirriantes al frenar"}
+    ]', 0),
+    ('Mecánica', 'Motor y niveles', '[
+      {"id":"ins-mot-1","etiqueta":"Nivel de aceite correcto"},
+      {"id":"ins-mot-2","etiqueta":"Refrigerante en el depósito"},
+      {"id":"ins-mot-3","etiqueta":"Batería con bornes limpios y apretados"},
+      {"id":"ins-mot-4","etiqueta":"Arranca sin esfuerzo y ralentí estable"},
+      {"id":"ins-mot-5","etiqueta":"Sin humos anormales ni fugas de fluidos"},
+      {"id":"ins-mot-6","etiqueta":"Testigos del tablero apagados con el motor encendido"}
+    ]', 1),
+    ('Mecánica', 'Suspensión, dirección y llantas', '[
+      {"id":"ins-sus-1","etiqueta":"Volante sin vibración ni tironeo"},
+      {"id":"ins-sus-2","etiqueta":"Amortiguadores sin fugas y sin golpes al pasar baches"},
+      {"id":"ins-sus-3","etiqueta":"Llantas con dibujo suficiente y presión correcta"},
+      {"id":"ins-sus-4","etiqueta":"Sin desgaste irregular en los neumáticos"},
+      {"id":"ins-sus-5","etiqueta":"Llanta de repuesto en condiciones"}
+    ]', 2),
+    ('Mecánica', 'Transmisión y embrague', '[
+      {"id":"ins-tra-1","etiqueta":"Embrague sin patinar"},
+      {"id":"ins-tra-2","etiqueta":"Cambios entran sin esfuerzo ni ruido"},
+      {"id":"ins-tra-3","etiqueta":"Sin vibraciones a velocidad de crucero"}
+    ]', 3),
+
+    -- ------------- Sistema de gas vehicular (GNV) -------------
+    ('Sistema de gas vehicular (GNV)', 'Instalación y cilindro', '[
+      {"id":"ins-gnv-1","etiqueta":"Cilindro con soportes y abrazaderas firmes"},
+      {"id":"ins-gnv-2","etiqueta":"Prueba hidrostática vigente y rotulada"},
+      {"id":"ins-gnv-3","etiqueta":"Válvula de corte operativa"},
+      {"id":"ins-gnv-4","etiqueta":"Sin deformaciones ni golpes en el cilindro"},
+      {"id":"ins-gnv-5","etiqueta":"Rótulo de certificación de la instalación visible"}
+    ]', 0),
+    ('Sistema de gas vehicular (GNV)', 'Líneas y regulador', '[
+      {"id":"ins-lin-1","etiqueta":"Tuberías sin olores de fuga"},
+      {"id":"ins-lin-2","etiqueta":"Conexiones y abrazaderas sin holguras"},
+      {"id":"ins-lin-3","etiqueta":"Regulador sin escapes"},
+      {"id":"ins-lin-4","etiqueta":"Electroválvula de corte responde"},
+      {"id":"ins-lin-5","etiqueta":"Revestimiento de las líneas en buen estado"}
+    ]', 1),
+    ('Sistema de gas vehicular (GNV)', 'Funcionamiento', '[
+      {"id":"ins-fun-1","etiqueta":"Arranca en gas sin problema"},
+      {"id":"ins-fun-2","etiqueta":"Cambia solo entre gasolina y gas"},
+      {"id":"ins-fun-3","etiqueta":"Ralentí estable funcionando a gas"},
+      {"id":"ins-fun-4","etiqueta":"Sin pérdida notable de potencia"},
+      {"id":"ins-fun-5","etiqueta":"Sin olores de gas en cabina"},
+      {"id":"ins-fun-6","etiqueta":"Testigo de selección de combustible operativo"}
+    ]', 2),
+    ('Sistema de gas vehicular (GNV)', 'Documentación del GNV', '[
+      {"id":"ins-doc-1","etiqueta":"Permiso de instalación vigente"},
+      {"id":"ins-doc-2","etiqueta":"Certificado del instalador"},
+      {"id":"ins-doc-3","etiqueta":"Manual de operación a bordo"}
+    ]', 3)
+  ) as t(seccion, texto, opciones, orden)
+  join public.items s
+    on s.modulo_id = v_mod and s.tipo = 'CONTENEDOR' and s.texto = t.seccion
+  where not exists (
+    select 1 from public.items i where i.modulo_id = v_mod and i.texto = t.texto
+  );
+
+  -- ----------------------------------------------------------------------------
+  -- Dictamen: cumple / no cumple, sin sección (se llena al final, después de
+  -- las tres revisiones). Es el que hace «No aplica» cuando el vehículo no es
+  -- de gas, por eso se deja como cierre y no dentro de una sección.
+  -- ----------------------------------------------------------------------------
+  insert into public.items (modulo_id, tipo, texto, opciones, responsables, orden, requerido, activo, puntaje, padre_id, api_campos, contra_dato)
+  select v_mod, 'CUMPLE_NO_CUMPLE', '¿El vehículo queda en condiciones de circular?', '[]'::jsonb, '[]'::jsonb, 99, true, true, 0, null, '[]'::jsonb, 'SOH'
+  where not exists (
+    select 1 from public.items where modulo_id = v_mod and texto = '¿El vehículo queda en condiciones de circular?'
+  );
+end $$;
+
+
+-- ###########################################################################
+-- Archivo consolidado: compartir-evaluacion.sql
+-- ###########################################################################
+-- ============================================================================
+-- ENLACE PÚBLICO DE CONCILIACIÓN (pantalla de invitado)
+--
+-- Corre esto en el SQL Editor. Es idempotente: se puede repetir.
+--
+-- QUÉ RESUELVE
+-- ------------
+-- El coordinador de inventario quiere ver cómo va la conciliación de una
+-- evaluación sin tener cuenta en la app. El backend está cerrado a `anon` a
+-- propósito (ver `cerrar-permisos-anon.sql`), así que esto NO es abrir una
+-- tabla: es abrir UNA función que devuelve UNA evaluación y sólo si el
+-- enlace está activo.
+--
+-- CÓMO SE CIERRA
+-- --------------
+-- · La tabla nueva nace cerrada para `anon` (el `alter default privileges
+--   ... revoke all on tables from anon` de `cerrar-permisos-anon.sql` lo
+--   garantiza para toda tabla futura).
+-- · `anon` no tiene ninguna política sobre ella: RLS le devuelve cero filas
+--   aunque por error tuviera permiso de tabla.
+-- · La única entrada es `ver_conciliacion_compartida(p_token)`, SECURITY
+--   DEFINER, con `search_path` fijo. Si el token no existe o el enlace está
+--   apagado, devuelve un objeto con `evaluacion: null` y listas vacías: no
+--   se distingue entre "token equivocado" y "no hay nada", que es lo que
+--   impide adivinar tokens enumerando respuestas.
+-- · El token se GENERA en el cliente (32 bytes aleatorios en hex). No hay
+--   forma de derivarlo de la evaluación: 2^256 de espacio, adivinarlo por
+--   fuerza bruta no es viable.
+--
+-- RIESGO QUE QUEDA Y POR QUÉ ES ACEPTABLE
+-- ---------------------------------------
+-- El enlace es un secreto compartido: cualquiera que lo reciba puede ver la
+-- conciliación mientras esté activo. Por eso existe `activo` y la fila se
+-- puede apagar desde la app sin tocar la base. Lo que el enlace NO expone:
+-- fotos, incidencias, colaboradores, otros ítems, la identidad del evaluador
+-- ni el resto de las evaluaciones.
+--
+-- ROLLBACK
+-- --------
+--     revoke execute on function public.ver_conciliacion_compartida(text) from public, anon;
+--     drop function public.ver_conciliacion_compartida(text);
+--     drop table if exists public.evaluaciones_compartidas;
+--
+-- Apagar todos los enlaces sin borrar nada (una sola fila):
+--     update public.evaluaciones_compartidas set activo = false;
+-- ============================================================================
+
+begin;
+
+-- ----------------------------------------------------------------------------
+-- 1) La tabla: una fila por evaluación, con su token
+-- ----------------------------------------------------------------------------
+-- La PK es la evaluación, no el token: así "compartir" de nuevo la misma
+-- evaluación REEMPLAZA el enlace anterior en vez de acumular links viejos que
+-- nadie puede revocar. Es el patrón de `invitaciones.token`, con la diferencia
+-- de que acá hay una sola fila por unidad de trabajo.
+create table if not exists public.evaluaciones_compartidas (
+  evaluacion_id uuid primary key
+    references public.evaluaciones (id) on delete cascade,
+  token         text   not null unique,
+  activo        boolean not null default true,
+  creado_por    uuid   references public.profiles (id) on delete set null,
+  creado_at     timestamptz not null default now()
+);
+
+alter table public.evaluaciones_compartidas enable row level security;
+
+-- ----------------------------------------------------------------------------
+-- 2) Políticas: para sesion, nunca para anon
+-- ----------------------------------------------------------------------------
+-- Quien ya puede ver la evaluación puede ver que está compartida (sino, el
+-- botón de compartir no tendría memoria entre sesiones).
+drop policy if exists evaluaciones_compartidas_select on public.evaluaciones_compartidas;
+create policy evaluaciones_compartidas_select on public.evaluaciones_compartidas
+  for select to authenticated
+  using (exists (
+    select 1 from public.evaluaciones e
+    where e.id = evaluaciones_compartidas.evaluacion_id
+      and public.puede_ver_evaluacion(e)
+  ));
+
+-- Crear y apagar enlaces es configuración: mismo criterio que el catálogo.
+-- Un líder apaga cualquiera, no sólo el que él creó.
+drop policy if exists evaluaciones_compartidas_lider on public.evaluaciones_compartidas;
+create policy evaluaciones_compartidas_lider on public.evaluaciones_compartidas
+  for all to authenticated
+  using (public.es_lider()) with check (public.es_lider());
+
+-- ----------------------------------------------------------------------------
+-- 3) La única puerta: leer la conciliación de un enlace
+-- ----------------------------------------------------------------------------
+-- SECURITY DEFINER porque corre SIN sesión y `anon` no tiene permiso de tabla
+-- sobre nada. El token es la autorización.
+--
+-- Devuelve sólo lo que la pantalla pública pinta: la evaluación (con su
+-- sucursal o departamento), las respuestas de los ítems de conciliación, esos
+-- ítems y sus contenedores, sus módulos y las opciones marcadas de la unidad.
+-- NO devuelve fotos, incidencias, colaboradores ni el resto de los ítems.
+--
+-- `stable` a propósito: no escribe nada y PostgREST puede cachearla por
+-- petición.
+create or replace function public.ver_conciliacion_compartida(p_token text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  with enlace as (
+    select c.evaluacion_id
+    from public.evaluaciones_compartidas c
+    where c.activo and c.token = p_token
+  ),
+  ev as (
+    -- Sólo columnas que la app escribe o lee por nombre en otros lados, y que
+    -- la pantalla pública usa. `created_at` y `aperturada_por` quedaron fuera
+    -- a propósito: la primera no está en la tabla real de algunas bases y la
+    -- segunda expondría al evaluador, que el enlace no debe mostrar.
+    select e.id, e.sucursal_id, e.departamento_id, e.fecha,
+           e.estado, e.puntuacion, e.comentario_general, e.cerrada_en
+    from public.evaluaciones e
+    where e.id in (select evaluacion_id from enlace)
+  ),
+  resp as (
+    select r.evaluacion_id, r.item_id, r.instancia_id, r.valor, r.respondido_por
+    from public.respuestas r
+    where r.evaluacion_id in (select evaluacion_id from enlace)
+  ),
+  -- Sólo los ítems de conciliación. El filtro va por `tipo` y no por los que
+  -- traigan respuesta: si mañana aparece un ítem de conciliación sin responder,
+  -- la pantalla lo muestra vacío en vez de no mostrarlo.
+  its as (
+    select i.*
+    from public.items i
+    where i.tipo = 'CONCILIACION'
+      and i.id in (select item_id from resp)
+  ),
+  -- Los contenedores que los agrupan: sin ellos no se sabe en qué módulo
+  -- está cada conciliación.
+  padres as (
+    select p.*
+    from public.items p
+    where p.id in (select padre_id from its where padre_id is not null)
+  ),
+  mods as (
+    select m.*
+    from public.modulos m
+    where m.id in (select modulo_id from its)
+  ),
+  suc as (
+    select s.id, s.nombre from public.sucursales s
+    where s.id in (select sucursal_id from ev)
+  ),
+  dep as (
+    select d.id, d.nombre from public.departamentos_centralizados d
+    where d.id in (select departamento_id from ev)
+  ),
+  -- Las opciones activas de la unidad. Una evaluación es de sucursal O de
+  -- departamento, así que una de las dos mitades siempre viene vacía.
+  ops as (
+    select o.* from public.sucursal_opciones o
+     where o.sucursal_id in (select sucursal_id from ev) and o.activa
+    union all
+    select o.* from public.departamento_opciones o
+     where o.departamento_id in (select departamento_id from ev) and o.activa
+  )
+  select jsonb_build_object(
+    'evaluacion', (
+      -- El alias hace falta en los tres: `from ev` no crea el alias `e`, y sin
+      -- él Postgres resuelve `to_jsonb(e)` como una COLUMNA llamada "e".
+      select to_jsonb(e) || jsonb_build_object(
+        'sucursal', (select to_jsonb(s) from suc s),
+        'departamento', (select to_jsonb(d) from dep d)
+      )
+      from ev e
+    ),
+    'respuestas', (select coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb) from resp r),
+    -- `its` y `padres` vienen de la misma tabla, así que la unión sólo
+    -- desduplica y no puede mezclar columnas.
+    'items',      (select coalesce(jsonb_agg(to_jsonb(i) order by i.orden), '[]'::jsonb)
+                     from (select * from its union select * from padres) i),
+    'modulos',    (select coalesce(jsonb_agg(to_jsonb(m)), '[]'::jsonb) from mods m),
+    'opciones',   (select coalesce(jsonb_agg(to_jsonb(o)), '[]'::jsonb) from ops o)
+  );
+$$;
+
+-- ----------------------------------------------------------------------------
+-- 4) Permisos de la función
+-- ----------------------------------------------------------------------------
+-- `anon`, porque la pantalla corre sin sesión; y `authenticated`, porque el
+-- enlace lo puede abrir alguien que YA tiene sesion (un líder mirando su
+-- propio link desde un navegador con la app abierta). Sin el segundo grant,
+-- abrir el enlace con la sesión puesta daba "permission denied" y parecía
+-- que el enlace estaba roto.
+--
+-- El revoke va con PUBLIC porque los permisos en Postgres son aditivos: sin
+-- quitar el grant heredado, cualquier rol seguiría pudiendo llamarla.
+revoke execute on function public.ver_conciliacion_compartida(text) from public, anon;
+grant  execute on function public.ver_conciliacion_compartida(text) to anon, authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 7) Utilerias que se corren a mano desde el SQL Editor
+-- ----------------------------------------------------------------------------
+-- Esta seccion queda VACIA a proposito. Los permisos de cada funcion los deja
+-- el bloque que la define, y en ese mismo lugar:
+--
+-- - `create or replace function` reactiva el permiso heredado de PUBLIC, asi
+--   que el revoke tiene que ir DESPUES de la definicion. Si el revoke queda en
+--   otro bloque, la instalacion se frena (Postgres no acepta el revoke de una
+--   funcion que todavia no existe) y ademas la funcion queda ejecutable por
+--   cualquiera.
+-- - Un bloque con revokes de funciones de otro bloque no se puede correr
+--   solo: al ejecutarlo aislado (que es lo que hacen los tests contra un
+--   Postgres real) falla con "function does not exist".
+--
+-- Los de `previsualizar_departamentos` y `aplicar_departamentos` estan en el
+-- bloque `departamentos-backfill.sql`; los de `puede_usar_revision_pre_entrega`
+-- en los bloques de la pre-entrega y de la inspeccion de vehiculo; los de
+-- `mergear_conciliacion` en el de `conciliacion-borrar-productos.sql`.
+
+commit;
+
+-- ============================================================================
+-- Verificación (sólo lectura)
+-- ============================================================================
+
+-- 1) La tabla tiene que dar anon_select = false. Si da true, el revoke general
+--    de `cerrar-permisos-anon.sql` no cubrió a esta y hay que correrlo.
+select
+  c.relname as tabla,
+  has_table_privilege('anon', c.oid, 'select')          as anon_select,
+  has_table_privilege('authenticated', c.oid, 'select')  as sesion_select
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'evaluaciones_compartidas';
+
+-- 2) La función tiene que ser la única abierta a anon además de las dos del
+--    login. Si aparece otra acá, es una fuga.
+select
+  p.proname,
+  has_function_privilege('anon', p.oid, 'execute') as anon_puede,
+  has_function_privilege('authenticated', p.oid, 'execute') as sesion_puede
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and has_function_privilege('anon', p.oid, 'execute')
+order by p.proname;
+
+-- 3) Las dos políticas existen y la tabla tiene RLS encendido.
+select
+  c.relname,
+  c.relrowsecurity as rls,
+  (select count(*)::int from pg_policies pp
+    where pp.schemaname = 'public' and pp.tablename = c.relname) as politicas
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'evaluaciones_compartidas';
+
+
+-- ###########################################################################
+-- Archivo consolidado: compartir-cargos.sql
+-- ###########################################################################
+-- ============================================================================
+-- ENLACE PÚBLICO DE FALLAS POR CARGO (la bitácora de atención del trabajador)
+--
+-- Corre esto en el SQL Editor. Es idempotente: se puede repetir.
+--
+-- QUÉ RESUELVE
+-- ------------
+-- El Líder quiere mandarle al trabajador el listado de SUS pendientes para
+-- que lo tenga como bitácora de atención, sin cuenta en la app. Es el mismo
+-- dato que baja en PDF desde «Por cargo»: un bloque por cargo con los ítems
+-- que fallaron, los puntos concretos, los puntos que le costaron y, por
+-- punto, cuántas faltas y reincidencias acumula en esa unidad.
+--
+-- POR QUÉ ES UNA FOTO Y NO UNA LECTURA VIVA
+-- -----------------------------------------
+-- El enlace guarda el reporte CONGELADO en el momento de generarlo (`datos`,
+-- jsonb), a diferencia del enlace de conciliación, que recalcula al abrirse.
+-- Acá hay dos razones:
+--
+--  * Las reincidencias se deciden contra el histórico de la unidad: para
+--    recalcularlas al abrir habría que devolver TODAS las respuestas de todas
+--    las evaluaciones de la sucursal, que es justo lo que un enlace público
+--    no debe exponer.
+--  * Es una bitácora: lo que se le manda al trabajador es lo que se le mandó.
+--    Si la evaluación cambia después, se genera un enlace nuevo (un toque) y
+--    el anterior deja de servir.
+--
+-- Las FOTOS van por ruta y no por URL firmada: las firma la pantalla pública
+-- cada vez que alguien abre el enlace, así el enlace no se vence con el
+-- tiempo ni hay que guardar URLs con caducidad en la base.
+--
+-- CÓMO SE CIERRA
+-- --------------
+-- · La tabla nace cerrada para `anon` (el `alter default privileges ...
+--   revoke all on tables from anon` de `cerrar-permisos-anon.sql` lo
+--   garantiza para toda tabla futura) y RLS no le da políticas a `anon`.
+-- · La única entrada es `ver_cargos_compartidos(p_token)`, SECURITY DEFINER,
+--   con `search_path` fijo. Si el token no existe o el enlace está apagado,
+--   devuelve `{"evaluacion": null}`: no se distingue entre "token equivocado"
+--   y "no hay nada", que es lo que impide adivinar tokens enumerando.
+-- · El token se GENERA en el cliente (32 bytes aleatorios en hex): 2^256 de
+--   espacio, no se deriva de la evaluación ni se adivina por fuerza bruta.
+--
+-- RIESGO QUE QUEDA Y POR QUÉ ES ACEPTABLE
+-- ---------------------------------------
+-- El enlace es un secreto compartido: cualquiera que lo reciba ve los
+-- pendientes de los cargos elegidos mientras esté activo. Por eso existe
+-- `activo` y la fila se apaga desde la app sin tocar la base. Lo que el
+-- enlace NO expone: respuestas, quién contestó qué, fotos de otros ítems,
+-- incidencias, colaboradores ni el resto de las evaluaciones.
+--
+-- ROLLBACK
+-- --------
+--     revoke execute on function public.ver_cargos_compartidos(text) from public, anon;
+--     drop function public.ver_cargos_compartidos(text);
+--     drop table if exists public.cargos_compartidos;
+--
+-- Apagar todos los enlaces sin borrar nada (una sola fila):
+--     update public.cargos_compartidos set activo = false;
+-- ============================================================================
+
+begin;
+
+-- ----------------------------------------------------------------------------
+-- 1) La tabla: una fila por evaluación, con su token y su reporte congelado
+-- ----------------------------------------------------------------------------
+-- La PK es la evaluación y no el token: así "compartir" de nuevo REEMPLAZA el
+-- enlace anterior en vez de acumular links viejos que nadie puede revocar
+-- (mismo criterio que `evaluaciones_compartidas`).
+create table if not exists public.cargos_compartidos (
+  evaluacion_id uuid primary key
+    references public.evaluaciones (id) on delete cascade,
+  token         text   not null unique,
+  -- El reporte armado por la app (jsonb), con las RUTAS de las fotos: ver el
+  -- encabezado de este bloque. Es el único dato que viaja al que recibe el
+  -- enlace, así que lo que no está acá, el enlace no lo muestra.
+  datos         jsonb  not null,
+  activo        boolean not null default true,
+  creado_por    uuid   references public.profiles (id) on delete set null,
+  creado_at     timestamptz not null default now()
+);
+
+alter table public.cargos_compartidos enable row level security;
+
+-- ----------------------------------------------------------------------------
+-- 2) Políticas: para sesión, nunca para anon
+-- ----------------------------------------------------------------------------
+-- Quien ya puede ver la evaluación puede ver que está compartida (sino, el
+-- botón no tendría memoria entre sesiones).
+drop policy if exists cargos_compartidos_select on public.cargos_compartidos;
+create policy cargos_compartidos_select on public.cargos_compartidos
+  for select to authenticated
+  using (exists (
+    select 1 from public.evaluaciones e
+    where e.id = cargos_compartidos.evaluacion_id
+      and public.puede_ver_evaluacion(e)
+  ));
+
+-- Generar y apagar enlaces es configuración: mismo criterio que el catálogo.
+drop policy if exists cargos_compartidos_lider on public.cargos_compartidos;
+create policy cargos_compartidos_lider on public.cargos_compartidos
+  for all to authenticated
+  using (public.es_lider()) with check (public.es_lider());
+
+-- ----------------------------------------------------------------------------
+-- 3) La única puerta: leer el reporte de un enlace
+-- ----------------------------------------------------------------------------
+-- SECURITY DEFINER porque corre SIN sesión y `anon` no tiene permiso de tabla
+-- sobre nada. El token es la autorización.
+--
+-- Devuelve SÓLO lo que la pantalla pública pinta: la evaluación (con su
+-- sucursal o departamento) y el reporte congelado. Nada más: no hay respuestas
+-- ni ítems sueltos que filtrar porque no se devuelven.
+--
+-- `stable` a propósito: no escribe nada y PostgREST puede cachearla por
+-- petición.
+create or replace function public.ver_cargos_compartidos(p_token text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  with enlace as (
+    select c.evaluacion_id, c.datos, c.creado_at
+    from public.cargos_compartidos c
+    where c.activo and c.token = p_token
+  ),
+  ev as (
+    -- Mismas columnas que `ver_conciliacion_compartida`: sólo las que la
+    -- pantalla pública usa. `aperturada_por` queda fuera porque expondría al
+    -- evaluador, que el enlace no debe mostrar.
+    select e.id, e.sucursal_id, e.departamento_id, e.fecha,
+           e.estado, e.puntuacion, e.comentario_general, e.cerrada_en
+    from public.evaluaciones e
+    where e.id in (select evaluacion_id from enlace)
+  ),
+  suc as (
+    select s.id, s.nombre from public.sucursales s
+    where s.id in (select sucursal_id from ev)
+  ),
+  dep as (
+    select d.id, d.nombre from public.departamentos_centralizados d
+    where d.id in (select departamento_id from ev)
+  )
+  select case
+    when exists (select 1 from enlace) then jsonb_build_object(
+      'evaluacion', (
+        -- El alias hace falta en los tres: `from ev` no crea el alias `e`, y
+        -- sin él Postgres resuelve `to_jsonb(e)` como una COLUMNA llamada "e".
+        select to_jsonb(e) || jsonb_build_object(
+          'sucursal', (select to_jsonb(s) from suc s),
+          'departamento', (select to_jsonb(d) from dep d)
+        )
+        from ev e
+      ),
+      'datos', (select datos from enlace),
+      -- Cuándo se generó: en una bitácora hace falta saber de cuándo es lo
+      -- que se está leyendo, no sólo de qué evaluación.
+      'generado', (select creado_at from enlace)
+    )
+    -- Token equivocado, enlace apagado o evaluación borrada: lo mismo, para
+    -- que no se pueda adivinar un token comparando respuestas.
+    else jsonb_build_object('evaluacion', null)
+  end;
+$$;
+
+-- ----------------------------------------------------------------------------
+-- 4) Permisos de la función
+-- ----------------------------------------------------------------------------
+-- `anon`, porque la pantalla corre sin sesión; y `authenticated`, porque el
+-- enlace lo puede abrir alguien que YA tiene sesión (el propio Líder mirando
+-- su link con la app abierta). Sin el segundo grant, abrir el enlace con la
+-- sesión puesta daba "permission denied" y parecía que estaba roto.
+--
+-- El revoke va con PUBLIC porque los permisos en Postgres son aditivos: sin
+-- quitar el grant heredado, cualquier rol seguiría pudiendo llamarla. Y el
+-- revoke va DESPUÉS del `create or replace`, que reactiva ese permiso.
+revoke execute on function public.ver_cargos_compartidos(text) from public, anon;
+grant  execute on function public.ver_cargos_compartidos(text) to anon, authenticated;
+
+commit;
+
+-- ============================================================================
+-- Verificación (sólo lectura)
+-- ============================================================================
+
+-- 1) La tabla tiene que dar anon_select = false.
+select
+  c.relname as tabla,
+  has_table_privilege('anon', c.oid, 'select')          as anon_select,
+  has_table_privilege('authenticated', c.oid, 'select')  as sesion_select
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'cargos_compartidos';
+
+-- 2) La función, abierta a las dos sesiones y cerrada a PUBLIC.
+select
+  p.proname,
+  has_function_privilege('anon', p.oid, 'execute')          as anon_puede,
+  has_function_privilege('authenticated', p.oid, 'execute') as sesion_puede,
+  has_function_privilege('public', p.oid, 'execute')         as public_puede
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.proname = 'ver_cargos_compartidos';
+
+-- 3) RLS encendido y las dos políticas.
+select
+  c.relname,
+  c.relrowsecurity as rls,
+  (select count(*)::int from pg_policies pp
+    where pp.schemaname = 'public' and pp.tablename = c.relname) as politicas
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'cargos_compartidos';
+
+
+-- ###########################################################################
+-- Archivo consolidado: conciliacion-borrar-productos.sql
+-- ###########################################################################
+-- ============================================================================
+-- Borrar un producto escaneado: hace falta una marca, porque el servidor fusiona
+-- ============================================================================
+--
+-- Problema: en produccion `upsert_respuestas` no reemplaza el valor de una
+-- conciliacion, lo FUSIONA con el que ya esta en la nube usando
+-- `mergear_conciliacion`, y esa fusion es una union por SKU de las dos listas.
+--
+-- Con esa regla borrar era imposible, y no de vez en cuando: era imposible en
+-- la misma escritura. Se mandaba una lista sin el producto X, el servidor la
+-- unia con la anterior (que todavia traia X), agrupaba por sku y X volvia. El
+-- usuario veia que en el editor desaparecia y en el detalle seguia.
+--
+-- Arreglo: el que borra manda una MARCA, no una lista corta.
+--
+--   * `borrados`  : skus que hay que sacar. Vive en el valor guardado a proposito.
+--                   Un telefono que todavia no sincronizo manda el sku de vuelta,
+--                   y como la marca sigue ahi el servidor lo vuelve a matar: sin
+--                   persistirla, el borrado dependia de que nadie mas subiera.
+--   * `reabrir`   : skus que vuelven a la lista a proposito (alguien lo
+--                   re-escaneo) y con eso se levanta su marca. Es de una sola
+--                   pasada: el servidor lo consume y no lo guarda.
+--
+-- `reabrir` hace falta porque es lo unico que distingue los dos casos que suben
+-- el mismo sku: "lo re-escaneo porque lo quiero" y "este equipo no se entero del
+-- borrado y me manda la lista vieja". Sin el aviso, los dos se ven igual y el
+-- re-escaneo se moria igual que el producto borrado.
+--
+-- Como correrlo: pegar tal cual en el SQL Editor de Supabase y ejecutar. Es
+-- idempotente (create or replace), se puede correr mas de una vez.
+--
+-- La FIRMA NO CAMBIA: `upsert_respuestas` (que es security invoker y llama a
+-- esta con los permisos de quien sube) sigue llamandola igual y no hay que
+-- tocarlo. Los privilegios tampoco.
+-- ============================================================================
+
+create or replace function public.mergear_conciliacion(previo jsonb, entrante jsonb, contra_dato text default 'SOH')
+returns jsonb
+language sql
+immutable
+set search_path = public
+as $$
+  with base as (
+    -- Lo que sube manda por clave; lo que solo existia en la nube se conserva.
+    -- Sin photoIds: son ids locales del telefono, no rutas del bucket.
+    select (coalesce(previo, '{}'::jsonb) || coalesce(entrante, '{}'::jsonb)) - 'photoIds' as v
+  ),
+  -- Skus que quedan fuera de la fusion. Se unen las dos marcas y solo
+  -- `entrante.reabrir` las levanta. Sale como texto: `sku` es un jsonb escalar
+  -- y compararlo contra el `->>'sku'` de los productos da "operator does not
+  -- exist: jsonb = text".
+  borrados as (
+    select distinct (t.sku #>> '{}') as sku
+    from (
+      select jsonb_array_elements(
+        case when jsonb_typeof(previo->'borrados') = 'array' then previo->'borrados' else '[]'::jsonb end
+      ) as sku
+      union all
+      select jsonb_array_elements(
+        case when jsonb_typeof(entrante->'borrados') = 'array' then entrante->'borrados' else '[]'::jsonb end
+      ) as sku
+    ) t
+    where jsonb_typeof(t.sku) = 'string'
+      and not exists (
+        select 1
+        from jsonb_array_elements(
+          case when jsonb_typeof(entrante->'reabrir') = 'array' then entrante->'reabrir' else '[]'::jsonb end
+        ) r
+        where r = t.sku
+      )
+  ),
+  viejos as (
+    select value as p, value->>'sku' as sku
+    from jsonb_array_elements(previo->'productos') value
+    where previo ? 'productos'
+      and value->>'sku' is not null and value->>'sku' <> ''
+      and not exists (select 1 from borrados b where b.sku = value->>'sku')
+  ),
+  nuevos as (
+    select value as p, value->>'sku' as sku
+    from jsonb_array_elements(entrante->'productos') value
+    where entrante ? 'productos'
+      and value->>'sku' is not null and value->>'sku' <> ''
+      and not exists (select 1 from borrados b where b.sku = value->>'sku')
+  ),
+  unidos as (
+    select p, sku, 'n' as o from nuevos
+    union all
+    select p, sku, 'v' from viejos
+  ),
+  -- Evidencia por producto: la union de las `paths` de la nube con las que suben,
+  -- casada al sku. Solo strings.
+  --
+  -- El filtro va adentro del join y no como `t.e is null or ...`: con el left
+  -- join lateral, un producto al que le falta `paths` daba UNA fila con `e` en
+  -- null, esa fila pasaba el `is null`, y `jsonb_agg` la metía al arreglo —el
+  -- producto quedaba con `["ev/f1.jpg", null]`. Sacando el null del where, ese
+  -- producto no da fila, el left join de abajo lo deja en null y el coalesce lo
+  -- devuelve con `'[]'`.
+  fotos_por_sku as (
+    select u.sku,
+           coalesce(jsonb_agg(distinct t.e order by t.e), '[]'::jsonb) as arr
+    from unidos u
+    left join lateral jsonb_array_elements(
+      case when jsonb_typeof(u.p -> 'paths') = 'array' then u.p -> 'paths' else '[]'::jsonb end
+    ) as t(e) on true
+    where jsonb_typeof(t.e) = 'string'
+    group by u.sku
+  ),
+  por_sku as (
+    select sku,
+      coalesce(max(p->>'nombre')       filter (where o = 'n'), max(p->>'nombre')       filter (where o = 'v')) as nombre,
+      coalesce(max(p->>'teorica')      filter (where o = 'n'), max(p->>'teorica')      filter (where o = 'v')) as teorica,
+      max(coalesce((p->>'fisica')::numeric, 0))                                           as fisica,
+      coalesce(max(p->>'soh')          filter (where o = 'n'), max(p->>'soh')          filter (where o = 'v')) as soh,
+      coalesce(max(p->>'lastSync')     filter (where o = 'n'), max(p->>'lastSync')     filter (where o = 'v')) as lastSync,
+      coalesce(max(p->>'finalBase')    filter (where o = 'n'), max(p->>'finalBase')    filter (where o = 'v')) as finalBase,
+      coalesce(max(p->>'finalTax')     filter (where o = 'n'), max(p->>'finalTax')     filter (where o = 'v')) as finalTax,
+      coalesce(max(p->>'departamento') filter (where o = 'n'), max(p->>'departamento') filter (where o = 'v')) as departamento,
+      coalesce(max(p->>'apiId')        filter (where o = 'n'), max(p->>'apiId')        filter (where o = 'v')) as api_id,
+      coalesce(max(p->>'escaneadoPor') filter (where o = 'n'), max(p->>'escaneadoPor') filter (where o = 'v')) as escaneado_por,
+      coalesce(max(p->>'sinHablador')  filter (where o = 'n'), max(p->>'sinHablador')  filter (where o = 'v')) as sinHablador
+    from unidos
+    group by sku
+  ),
+  ajustados as (
+    select *,
+      case when sinHablador = 'true' then null else fisica end as fisica_efectiva
+    from por_sku
+  ),
+  lista as (
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'sku', a.sku,
+      'apiId', case when a.api_id ~ '^[0-9]+$' then a.api_id::bigint else null end,
+      'escaneadoPor', a.escaneado_por,
+      'nombre', a.nombre,
+      'teorica', a.teorica::numeric,
+      'fisica', a.fisica_efectiva,
+      'soh', a.soh::numeric,
+      'lastSync', a.lastSync,
+      'finalBase', a.finalBase::numeric,
+      'finalTax', a.finalTax::numeric,
+      'departamento', a.departamento,
+      'sinHablador', (a.sinHablador = 'true'),
+      'paths', coalesce(fp.arr, '[]'::jsonb),
+      'perdidaEstimada',
+        case
+          when contra_dato = 'SOH'
+           and a.teorica::numeric is not null
+           and a.fisica_efectiva is not null
+           and a.finalBase::numeric is not null
+          then greatest(0::numeric, a.teorica::numeric - a.fisica_efectiva)
+               * (a.finalBase::numeric + coalesce(a.finalTax::numeric, 0))
+          else null
+        end
+    ) order by a.sku), '[]'::jsonb) as arr
+    from ajustados a
+    left join fotos_por_sku fp on fp.sku = a.sku
+  ),
+  con_productos as (
+    select jsonb_set(base.v, '{productos}', (select arr from lista), true) as v
+    from base
+  ),
+  con_gerente as (
+    select jsonb_set(
+      con_productos.v,
+      '{responsablesGerente}',
+      coalesce(previo->'responsablesGerente', entrante->'responsablesGerente', 'null'::jsonb),
+      true
+    ) as v
+    from con_productos
+  ),
+  -- Las marcas quedan guardadas: son las que matan al sku en la proxima subida
+  -- de un telefono que no se entero. Vacias, se caen solas para no dejar el
+  -- valor lleno de listas muertas.
+  con_marcas as (
+    select case
+      when (select count(*) from borrados) > 0
+        then jsonb_set(con_gerente.v, '{borrados}',
+               (select coalesce(jsonb_agg(to_jsonb(sku) order by sku), '[]'::jsonb) from borrados), true)
+      else con_gerente.v - 'borrados'
+    end as v
+    from con_gerente
+  ),
+  -- Hereda de una version vieja del formato, donde las `paths` estaban arriba del
+  -- valor y no dentro del producto: se unen igual para no perderlas.
+  fotos as (
+    select distinct e
+    from (
+      (select jsonb_array_elements(
+        case when jsonb_typeof(previo->'paths') = 'array' then previo->'paths' else '[]'::jsonb end
+      ) as e)
+      union all
+      (select jsonb_array_elements(
+        case when jsonb_typeof(entrante->'paths') = 'array' then entrante->'paths' else '[]'::jsonb end
+      ) as e)
+    ) x
+    where jsonb_typeof(e) = 'string'
+  ),
+  paths_union as (
+    select coalesce(jsonb_agg(e order by e), '[]'::jsonb) as arr
+    from fotos
+  )
+  select case
+    when (select jsonb_array_length(arr) from paths_union) > 0
+      then jsonb_set(con_marcas.v, '{paths}', (select arr from paths_union), true)
+    else con_marcas.v
+  -- `reabrir` es de una sola pasada: ya cumplio su funcion de levantar la marca
+  -- y guardarla seria dejar un comando pegado al valor para siempre.
+  end - 'reabrir'
+  from con_marcas;
+$$;
+
+-- Privilegios como los del resto de helpers internos de `upsert_respuestas`.
+revoke execute on function public.mergear_conciliacion(jsonb, jsonb, text) from public, anon;
+grant  execute on function public.mergear_conciliacion(jsonb, jsonb, text) to authenticated;
+
+-- ============================================================================
+-- Verificacion (solo lectura). Correr despues del parche.
+-- ============================================================================
+
+-- 1) Lo que se pide: borrar mata al sku aunque el valor anterior lo traiga.
+-- select public.mergear_conciliacion(
+--   '{"productos":[{"sku":"A","teorica":2,"fisica":1},{"sku":"B"}]}'::jsonb,
+--   '{"productos":[{"sku":"A","teorica":2,"fisica":1}],"borrados":["B"]}'::jsonb,
+--   'SOH'
+-- );
+-- Esperado: solo el producto A, y el valor guardado sigue con borrados = ["B"].
+
+-- 2) El caso que resiste: otro telefono manda el sku borrado sin saber nada, y la
+--    marca que quedo guardada lo vuelve a matar.
+-- select public.mergear_conciliacion(
+--   '{"productos":[{"sku":"A"}],"borrados":["B"]}'::jsonb,
+--   '{"productos":[{"sku":"A"},{"sku":"B"}]}'::jsonb,
+--   'SOH'
+-- );
+-- Esperado: solo A. B no vuelve.
+
+-- 3) Y el caso contrario: alguien lo re-escanea a proposito y lo levanta.
+-- select public.mergear_conciliacion(
+--   '{"productos":[{"sku":"A"}],"borrados":["B"]}'::jsonb,
+--   '{"productos":[{"sku":"A"},{"sku":"B"}],"reabrir":["B"]}'::jsonb,
+--   'SOH'
+-- );
+-- Esperado: A y B, y el valor guardado ya sin borrados (la marca se levanto).
+
+-- 4) Sin cambios de nada, se comporta igual que siempre.
+-- select public.mergear_conciliacion(
+--   '{"productos":[{"sku":"A","teorica":2,"fisica":1,"paths":["ev/e/i/f1.jpg"]}]}'::jsonb,
+--   '{"productos":[{"sku":"A","teorica":2,"fisica":1,"informativo":false}]}'::jsonb,
+--   'SOH'
+-- );
+-- Esperado: A conserva paths = ["ev/e/i/f1.jpg"].
+
+
+-- ###########################################################################
+-- Archivo consolidado: taller-automotriz-a-departamento.sql
+-- ###########################################################################
+-- ============================================================================
+-- TALLER AUTOMOTRIZ: DE SUCURSAL A DEPARTAMENTO
+--
+-- POR QUÉ EXISTE ESTE ARCHIVO
+-- ---------------------------
+-- `departamentos-centralizados.sql` termina con:
+--
+--     update public.sucursales set nombre = 'Taller Automotriz' where nombre = 'Central';
+--
+-- Es decir: le cambió el nombre a la sucursal "Central" pero la dejó en la tabla
+-- `sucursales`. El comentario de ese archivo decía "su fila queda intacta, solo
+-- cambia el rótulo", y el efecto práctico es que el área se sigue evaluando como
+-- sucursal. Por eso sale en Configuración > Sucursales, en /evaluar como unidad
+-- disponible y —lo que se ve en el dashboard— como columna de "Ponderación por
+-- sucursal y módulo", cuando su registro ya existe en `departamentos_centralizados`.
+--
+-- ESTE ARCHIVO
+-- ------------
+-- Mueve al departamento: evaluaciones, incidencias y configuración (módulos,
+-- ítems, opciones). Después deja la sucursal inactiva, que es lo que la saca de
+-- los tres lugares de arriba.
+--
+-- CÓMO SE USA
+-- -----------
+--   1. Corré SOLO el bloque PREVIEW y leé los cuatro puntos que imprime.
+--   2. Si `colisiones_de_fecha` vino vacío, corré el APLICAR.
+--   3. Es idempotente: se puede correr de nuevo y no repite nada (las filas ya
+--      movidas dejan de tener `sucursal_id`, así que no vuelven a matchear).
+--
+-- QUÉ NO TOCA
+-- -----------
+-- * NO borra la fila de `sucursales`, sólo la desactiva. Borrarla dispararía el
+--   `on delete cascade` de nueve tablas (evaluaciones, incidencias, asignaciones,
+--   revision_pre_entrega, ...) y se llevaría el histórico puesto.
+-- * Las filas de `sucursal_modulos/_items/_opciones` se COPIAN al departamento y
+--   quedan donde están. Si algún día se reactiva la sucursal, su configuración
+--   sigue siendo la que era, y poder deshacer vale más que ahorrar cinco filas.
+-- * `profiles`, `invitaciones`, `asignaciones`, `proyectos` y
+--   `revision_pre_entrega` siguen apuntando a esa sucursal: son los cinco
+--   objetos que NO tienen columna de departamento a la que moverse. El punto 3
+--   del PREVIEW los lista.
+--
+-- DESHACER
+-- --------
+--   update public.sucursales set activa = true where lower(nombre) = 'taller automotriz';
+-- (la sucursal reaparece con su configuración intacta; las evaluaciones ya
+--  movidas hay que moverlas a mano con el espejo de los UPDATE de abajo)
+--
+-- Aplicar en el SQL Editor de Supabase.
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- PREVIEW 1 — ¿Se cruzan las dos filas?
+-- Si `sucursal_id` o `departamento_id` sale vacío, NO corras el APLICAR.
+-- ----------------------------------------------------------------------------
+select s.id          as sucursal_id,
+       s.nombre      as sucursal,
+       s.activa      as sucursal_activa,
+       d.id          as departamento_id,
+       d.nombre      as departamento
+from public.sucursales s
+join public.departamentos_centralizados d
+  on lower(d.nombre) = lower(s.nombre)
+where lower(s.nombre) = 'taller automotriz';
+
+
+-- ----------------------------------------------------------------------------
+-- PREVIEW 2 — ¿Hay choque de fechas?
+--
+-- `uniq_evaluaciones_departamento_fecha` impide que el departamento tenga dos
+-- evaluaciones el mismo día. Si la de la sucursal cae un día que el departamento
+-- ya evaluó, el UPDATE no puede moverla y el APLICAR entero se cae.
+--
+-- TENER QUE SALIR VACÍO. Si trae filas, esas fechas hay que resolverlas a mano
+-- (borrar la repetida o mover la fecha) antes de correr nada.
+-- ----------------------------------------------------------------------------
+with u as (
+  select s.id as suc_id, d.id as dep_id
+  from public.sucursales s
+  join public.departamentos_centralizados d
+    on lower(d.nombre) = lower(s.nombre)
+  where lower(s.nombre) = 'taller automotriz'
+)
+select ev.fecha,
+       count(*) as evaluaciones_de_la_sucursal_ese_dia
+from public.evaluaciones ev, u
+where ev.sucursal_id = u.suc_id
+  and exists (
+    select 1
+    from public.evaluaciones otra
+    where otra.departamento_id = u.dep_id
+      and otra.fecha = ev.fecha
+  )
+group by ev.fecha
+order by ev.fecha;
+
+
+-- ----------------------------------------------------------------------------
+-- PREVIEW 3 — Qué se mueve.
+-- ----------------------------------------------------------------------------
+with u as (
+  select s.id as suc_id, d.id as dep_id
+  from public.sucursales s
+  join public.departamentos_centralizados d
+    on lower(d.nombre) = lower(s.nombre)
+  where lower(s.nombre) = 'taller automotriz'
+)
+select 'evaluaciones' as tabla, count(*)::int as filas_a_mover
+  from public.evaluaciones x, u where x.sucursal_id = u.suc_id
+union all
+select 'incidencias', count(*)::int
+  from public.incidencias x, u where x.sucursal_id = u.suc_id
+union all
+select 'sucursal_modulos (se copia)', count(*)::int
+  from public.sucursal_modulos x, u where x.sucursal_id = u.suc_id
+union all
+select 'sucursal_items (se copia)', count(*)::int
+  from public.sucursal_items x, u where x.sucursal_id = u.suc_id
+union all
+select 'sucursal_opciones (se copia)', count(*)::int
+  from public.sucursal_opciones x, u where x.sucursal_id = u.suc_id
+order by 1;
+
+
+-- ----------------------------------------------------------------------------
+-- PREVIEW 4 — Qué queda atrás, apuntando a la sucursal que va a quedar inactiva.
+--
+-- Ninguno de estos cinco rompe: siguen con su FK viva porque la fila no se borra.
+-- Van acá para que los tengas a la vista antes de desactivar. Si hay algo que
+-- te importe (p. ej. perfiles con `sucursal_id` del taller), lo resolvés después
+-- con su propio update.
+-- ----------------------------------------------------------------------------
+with u as (
+  select s.id as suc_id
+  from public.sucursales s
+  where lower(s.nombre) = 'taller automotriz'
+)
+select 'profiles (usuarios con esa sucursal)' as tabla, count(*)::int as filas
+  from public.profiles x, u where x.sucursal_id = u.suc_id
+union all
+select 'invitaciones', count(*)::int
+  from public.invitaciones x, u where x.sucursal_id = u.suc_id
+union all
+select 'asignaciones (evaluadores asignados)', count(*)::int
+  from public.asignaciones x, u where x.sucursal_id = u.suc_id
+union all
+select 'revision_pre_entrega', count(*)::int
+  from public.revision_pre_entrega x, u where x.sucursal_id = u.suc_id
+order by 1;
+
+
+-- ============================================================================
+-- APLICAR
+-- ============================================================================
+do $$
+declare
+  v_suc uuid;
+  v_dep uuid;
+  v_col integer;
+  v_fechas text;
+  v_eval integer;
+  v_inc integer;
+  v_mod integer;
+  v_ite integer;
+  v_opc integer;
+begin
+  select s.id into v_suc
+    from public.sucursales s
+   where lower(s.nombre) = 'taller automotriz';
+
+  -- Ya no hay sucursal: o se corrió, o alguien la borró. Nada que mover.
+  if v_suc is null then
+    raise notice 'Taller Automotriz: no existe la sucursal. Nada que hacer (¿ya se corrió?).';
+    return;
+  end if;
+
+  select d.id into v_dep
+    from public.departamentos_centralizados d
+   where lower(d.nombre) = 'taller automotriz';
+
+  if v_dep is null then
+    raise exception 'Hay una sucursal "Taller Automotriz" pero no el departamento con ese nombre. Crealo desde Configuracion > Departamentos y vuelve a correr este archivo.';
+  end if;
+
+  -- El índice único (departamento, fecha) haría fallar el UPDATE de abajo.
+  -- Se chequea antes para que el error diga qué fechas chocan en lugar de un
+  -- "duplicate key value violates unique constraint" sin contexto.
+  select count(*) into v_col
+    from public.evaluaciones ev
+   where ev.sucursal_id = v_suc
+     and exists (
+       select 1
+       from public.evaluaciones otra
+       where otra.departamento_id = v_dep
+         and otra.fecha = ev.fecha
+     );
+
+  if v_col > 0 then
+    -- Se listan las fechas, no sólo el conteo: "duplicate key" sin contexto no
+    -- dice qué día hay que mirar en Historial.
+    select coalesce(string_agg(to_char(ev.fecha, 'YYYY-MM-DD'), ', ' order by ev.fecha), '')
+      into v_fechas
+      from public.evaluaciones ev
+     where ev.sucursal_id = v_suc
+       and exists (
+         select 1
+         from public.evaluaciones otra
+         where otra.departamento_id = v_dep
+           and otra.fecha = ev.fecha
+       );
+
+    raise exception 'Estas fechas ya tienen evaluacion en el departamento: %. El indice uniq_evaluaciones_departamento_fecha no deja dos el mismo dia. Resuelvelas a mano (borra la repetida o mueve la fecha) y vuelve a correr este archivo.', v_fechas;
+  end if;
+
+  -- 1) Evaluaciones: cambian de unidad. Las dos columnas se cambian en el MISMO
+  --    update porque `evaluaciones_unidad_check` exige exactamente una de las dos.
+  update public.evaluaciones
+     set sucursal_id = null,
+         departamento_id = v_dep
+   where sucursal_id = v_suc;
+  get diagnostics v_eval = row_count;
+
+  -- 2) Incidencias heredan la unidad de su evaluación: mismo criterio, mismo check.
+  update public.incidencias
+     set sucursal_id = null,
+         departamento_id = v_dep
+   where sucursal_id = v_suc;
+  get diagnostics v_inc = row_count;
+
+  -- 3) Configuración: se copia, no se mueve. Los `not exists` respetan el índice
+  --    único de la tabla de destino, así que correrlo dos veces no duplica ni falla.
+  insert into public.departamento_modulos (departamento_id, modulo_id, activa, created_at)
+  select v_dep, x.modulo_id, x.activa, x.created_at
+    from public.sucursal_modulos x
+   where x.sucursal_id = v_suc
+     and not exists (
+       select 1 from public.departamento_modulos d
+        where d.departamento_id = v_dep and d.modulo_id = x.modulo_id
+     );
+  get diagnostics v_mod = row_count;
+
+  insert into public.departamento_items (departamento_id, item_id, activa, created_at)
+  select v_dep, x.item_id, x.activa, x.created_at
+    from public.sucursal_items x
+   where x.sucursal_id = v_suc
+     and not exists (
+       select 1 from public.departamento_items d
+        where d.departamento_id = v_dep and d.item_id = x.item_id
+     );
+  get diagnostics v_ite = row_count;
+
+  insert into public.departamento_opciones (departamento_id, item_id, opcion_id, activa, created_at)
+  select v_dep, x.item_id, x.opcion_id, x.activa, x.created_at
+    from public.sucursal_opciones x
+   where x.sucursal_id = v_suc
+     and not exists (
+       select 1 from public.departamento_opciones d
+        where d.departamento_id = v_dep
+          and d.item_id = x.item_id
+          and d.opcion_id = x.opcion_id
+     );
+  get diagnostics v_opc = row_count;
+
+  -- 4) La sucursal deja de ser una unidad evaluable. No se borra: sólo sale del
+  --    catálogo, que es lo que la saca de los gráficos y de Configuración.
+  update public.sucursales
+     set activa = false
+   where id = v_suc;
+
+  raise notice 'Taller Automotriz movido al departamento: % evaluaciones, % incidencias; copiados % modulos, % items y % opciones de la sucursal.',
+    v_eval, v_inc, v_mod, v_ite, v_opc;
+end $$;
+
+
+-- ###########################################################################
+-- Archivo consolidado: cerrar-lectura-anon.sql
+-- ###########################################################################
+-- ============================================================================
+-- CERRAR LA LECTURA ANÃ“NIMA
+--
+-- Corre esto PRIMERO. No depende de ningÃºn otro archivo y se puede correr las
+-- veces que haga falta.
+--
+-- QUÃ‰ HACE
+-- --------
+-- Cierra a quien no iniciÃ³ sesiÃ³n la lectura de 7 tablas:
+--
+--   profiles            correos, usuario, rol y sucursal de cada persona
+--   items               la rÃºbrica completa: puntajes, pesos y umbrales
+--   modulos             la estructura de la evaluaciÃ³n
+--   sucursales          nombres, branch_id, shop_id, gerente_id
+--   sucursal_modulos    quÃ© mÃ³dulo tiene cada sucursal
+--   sucursal_items      quÃ© Ã­tem tiene cada sucursal
+--   sucursal_opciones   quÃ© opciÃ³n tiene cada sucursal
+--
+-- EL AGUJERO
+-- ----------
+-- Las 7 tenÃ­an su polÃ­tica de lectura asÃ­:
+--
+--     create policy <tabla>_select on public.<tabla> for select using (true);
+--
+-- Sin `to`, una polÃ­tica RLS aplica a PUBLIC â€” y PUBLIC incluye al rol `anon`.
+-- AdemÃ¡s los proyectos de Supabase arrancan con un `grant all on all tables` para
+-- `anon`. Las dos cosas juntas significaban que cualquiera, sin cuenta y sin
+-- contraseÃ±a, podÃ­a hacer:
+--
+--     curl 'https://<proyecto>.supabase.co/rest/v1/items?select=*' \
+--          -H "apikey: <anon key>"
+--
+-- y llevarse el contenido. La app expuesta en evaluxor.vercel.app tiene la anon
+-- key adentro del bundle: no es un secreto. O sea que era pÃºblico para internet.
+--
+-- Lo que mÃ¡s pesa acÃ¡ es `items`: no hay credenciales, pero sÃ­ la forma completa
+-- de puntuar â€”quÃ© vale cada punto y desde quÃ© umbral cuenta como aprobadoâ€” que
+-- es informaciÃ³n comercial de la empresa.
+--
+-- POR QUÃ‰ SUPABASE NO LO AVISÃ“
+-- -----------------------------
+-- Las 29 alertas del advisor que habÃ­a eran todas de funciones. Ni una de
+-- tablas. Por eso conviene no usar el advisor como lista de pendientes: es un
+-- linter de un tipo de objeto, no un inventario de la base.
+--
+-- POR QUÃ‰ `to authenticated` Y NO ALGO MÃS
+-- ----------------------------------------
+-- Un evaluador con sesiÃ³n tiene que poder leer las 7: el catÃ¡logo entero sale de
+-- ahÃ­ (src/lib/data/catalog.ts, que carga CatalogContext reciÃ©n cuando ya hay
+-- perfil), y los joins por FK como
+-- `sucursal:sucursales!profiles_sucursal_id_fkey(id, nombre)` dependen de que
+-- `sucursales` sea legible. Cerrarlas a "solo yo" o a "solo el LÃ­der" rompe esas
+-- pantallas. Lo que no puede es un visitante sin sesiÃ³n.
+--
+-- LO QUE NO SE ROMPE
+-- ------------------
+-- Â· La pantalla de login sigue funcionando: `email_por_usuario` e
+--   `intento_login` son `SECURITY DEFINER`, asÃ­ que corren como el dueÃ±o de la
+--   tabla y no les aplica ni la polÃ­tica ni el revoke. Por eso hacen falta esas
+--   funciones y no un select directo.
+-- Â· El registro por invitaciÃ³n sigue funcionando: el token lo valida el trigger
+--   `validar_registro` sobre `auth.users`, no una consulta desde el navegador.
+-- Â· El resto de las tablas (`evaluaciones`, `respuestas`, `instancias_grupo`,
+--   `fotos`, `asignaciones`, `invitaciones`, `incidencias`) ya devolvÃ­an cero
+--   filas para `anon`, porque su `using` pregunta por `auth.uid()` o por
+--   `es_lider()`. No hace falta tocarlas.
+--
+-- POR QUÃ‰ TAMBIÃ‰N HAY UN `revoke`
+-- ------------------------------
+-- La polÃ­tica es la puerta de RLS. El `revoke` es la segunda: los permisos de
+-- Postgres son aditivos, asÃ­ que si algÃºn dÃ­a RLS quedara apagado en una de estas
+-- tablas (pasa, y no se ve en ningÃºn aviso), el `grant` por defecto de Supabase
+-- pasarÃ­a a ser la Ãºnica puerta. Con las dos, `anon` no tiene ninguna vÃ­a.
+--
+-- CÃ“MO CORRERLO
+-- -------------
+--   1. PegÃ¡ el bloque de abajo en el SQL Editor y dale Run.
+--   2. Es idempotente: se puede correr las veces que haga falta.
+--   3. Al final estÃ¡ la verificaciÃ³n. Lo que importa es que en la primera tabla
+--      (`lectura_anon`) las 7 filas de abajo salgan en `CERRADA`.
+--
+-- DESPUÃ‰S DE ESTO
+-- ---------------
+-- ReciÃ©n ahora corrÃ© `incidencias.sql` y despuÃ©s `reactivar-politicas.sql` (que
+-- ya trae este mismo fix). El orden va en el README de `supabase/`.
+-- ============================================================================
+
+-- Cada tabla: primero se borra la polÃ­tica que pueda existir (por eso el `drop`
+-- va explÃ­cito y no dentro de un DO: `create policy` a secas tira 42710 si ya
+-- hay una, y en el SQL Editor eso corta el resto del bloque).
+drop policy if exists profiles_select on public.profiles;
+drop policy if exists sucursales_select on public.sucursales;
+drop policy if exists modulos_select on public.modulos;
+drop policy if exists items_select on public.items;
+drop policy if exists sucursal_modulos_select on public.sucursal_modulos;
+drop policy if exists sucursal_items_select on public.sucursal_items;
+drop policy if exists sucursal_opciones_select on public.sucursal_opciones;
+
+-- El `to authenticated` es lo que cierra. Sin esta palabra, la polÃ­tica sigue
+-- aplicando a PUBLIC y por lo tanto a `anon`, diga lo que diga el `using`.
+create policy profiles_select on public.profiles for select to authenticated using (true);
+create policy sucursales_select on public.sucursales for select to authenticated using (true);
+create policy modulos_select on public.modulos for select to authenticated using (true);
+create policy items_select on public.items for select to authenticated using (true);
+create policy sucursal_modulos_select on public.sucursal_modulos for select to authenticated using (true);
+create policy sucursal_items_select on public.sucursal_items for select to authenticated using (true);
+create policy sucursal_opciones_select on public.sucursal_opciones for select to authenticated using (true);
+
+-- La segunda mitad de la cerradura.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'profiles', 'sucursales', 'modulos', 'items',
+    'sucursal_modulos', 'sucursal_items', 'sucursal_opciones'
+  ] loop
+    execute format('revoke select on public.%I from anon', t);
+  end loop;
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- VerificaciÃ³n
+-- ----------------------------------------------------------------------------
+-- Las 7 filas tienen que salir en `CERRADA`.
+--
+-- `puede_select` en `anon` tiene que dar false en las siete. Si alguna da true, el
+-- revoke no llegÃ³ a esa tabla.
+--
+-- Lo que sigue siendo verdad y es correcto: `authenticated` todavÃ­a puede leer
+-- las 7, y en `profiles` eso incluye los correos. Cada persona ve nombre, rol y
+-- sucursal del resto. Afinar `profiles` a `auth.uid() = id or es_lider()`
+-- romperÃ­a los joins por FK de `aperturador` y `sucursales.gerente_id`, asÃ­ que
+-- eso hay que hacerlo junto con la app, no antes.
+select
+  t.tabla,
+  has_table_privilege('anon', t.tabla, 'select') as anon_puede_select,
+  has_table_privilege('authenticated', t.tabla, 'select') as sesion_puede_select,
+  case
+    when not has_table_privilege('anon', t.tabla, 'select') then 'CERRADA'
+    when exists (
+      select 1 from pg_policies p
+      where p.schemaname = 'public'
+        and p.tablename = t.tabla
+        and p.policyname = t.tabla || '_select'
+        and 'anon' = any (p.roles)
+    ) then 'ABIERTA (la politica le da acceso a anon)'
+    else 'CERRADA por politica (el permiso de tabla sigue)'
+  end as lectura_anon
+from unnest(array[
+  'profiles', 'sucursales', 'modulos', 'items',
+  'sucursal_modulos', 'sucursal_items', 'sucursal_opciones'
+]) as t(tabla)
+order by t.tabla;
+
+-- Y las polÃ­ticas, para confirmar que quedaron con `to authenticated`:
+select tablename, policyname, roles, cmd
+from pg_policies
+where schemaname = 'public'
+  and tablename in (
+    'profiles', 'sucursales', 'modulos', 'items',
+    'sucursal_modulos', 'sucursal_items', 'sucursal_opciones'
+  )
+  and policyname like '%\_select'
+order by tablename, policyname;
+
+-- Y que el login siga con su permiso: `intento_login` y `email_por_usuario`
+-- tienen que dar true, son las dos funciones de la pantalla sin sesiÃ³n.
+select
+  p.proname,
+  has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede,
+  has_function_privilege('authenticated', p.oid, 'EXECUTE') as sesion_puede
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in ('intento_login', 'email_por_usuario')
+order by p.proname;
+
+-- ###########################################################################
+-- Archivo consolidado: cerrar-permisos-anon.sql
+-- ###########################################################################
+-- ============================================================================
+-- SACARLE A `anon` TODO LO QUE LE SOBRA
+--
+-- Corre esto DESPUÃ‰S de `cerrar-lectura-anon.sql`. Es idempotente.
+--
+-- QUÃ‰ HACE, EN DOS PARTES QUE SON UNA SOLA COSA
+-- ---------------------------------------------
+-- 1) Le saca a `anon` el permiso sobre TODAS las tablas de `public`.
+--
+-- 2) Le saca a `anon` el EXECUTE de los 6 ayudantes de polÃ­tica RLS.
+--
+-- La 2 depende de la 1, y por eso van en el mismo archivo. No son dos
+-- ajustes de seguridad sueltos: la 2 es IMPOSIBLE de hacer bien sin la 1.
+--
+-- POR QUÃ‰
+-- --------
+-- Las polÃ­ticas RLS se evalÃºan con los privilegios de quien consulta, asÃ­ que
+-- una funciÃ³n llamada desde un `using (...)` necesita que ese rol tenga EXECUTE.
+-- Eso es lo que bloqueaba la 2 antes: con `anon` teniendo permiso de tabla en
+-- las 19 tablas, llegaba a evaluar polÃ­ticas, y ahÃ­ `es_lider()` y compaÃ±Ã­a
+-- necesitan su EXECUTE. Revocarlo tiraba la app entera con "permission denied
+-- for function".
+--
+-- Con la 1, `anon` ya no alcanza ninguna tabla. Postgres revisa el permiso de
+-- tabla ANTES que las polÃ­ticas, asi que nunca llega a evaluarlas y nunca
+-- llama a un ayudante. Ahi la 2 es inocua.
+--
+-- Ojo con el orden de las dos cosas dentro de la misma transaccion: si se
+-- revocara el EXECUTE sin haber sacado los permisos de tabla, `anon` podria
+-- seguir tocando las otras 12 tablas y ahi si reventaria con error. Por eso van
+-- en un solo `begin`/`commit`.
+--
+-- LAS 19 TABLAS, NO LAS 7
+-- -----------------------
+-- `cerrar-lectura-anon.sql` cerro el SELECT de 7. Este archivo va mas alla por
+-- dos razones:
+--   Â· Motivo de seguridad: `anon` tambien tenia INSERT, UPDATE y DELETE sobre
+--     todo el schema, y eso solo lo frenaba RLS. RLS es una capa; el permiso es
+--     la otra. Con las dos capas, un `alter table ... disable row level security`
+--     accidental no abre la puerta.
+--   Â· Es lo que habilita la parte 2 con seguridad.
+--
+-- LO QUE NO SE ROMPE
+-- ------------------
+-- Â· La pantalla de login: `intento_login` y `email_por_usuario` siguen con
+--   `anon` porque son SECURITY DEFINER y cor como el dueno de la tabla. No
+--   dependen de ningun permiso de tabla. Este archivo no las toca.
+-- Â· El registro por invitacion: el token lo valida el trigger `validar_registro`
+--   sobre `auth.users`, no una consulta del navegador.
+-- Â· La app: todos los providers que leen tablas (Catalog, Presencia) arrancan
+--   recien cuando hay perfil, y todas las rutas con datos detras de RequireAuth.
+--   El unico camino que consulta tablas sin sesion es la cola offline con
+--   pendientes si el usuario cierra sesion sin sincronizar, y eso ya fallaba
+--   antes de este archivo (RLS le devolvia cero filas); ahora falla con un
+--   error, que es mas honesto y deja los items en la cola en vez de darlos por
+--   subidos.
+-- Â· Storage: `storage.objects` vive en el esquema `storage`, no en `public`, asi
+--   que la barrida de tablas no lo toca. Los buckets siguen andando.
+--
+-- LAS ALERTAS QUE QUEDAN
+-- -----------------------
+-- Se van 6 de las 21 (las de `anon` sobre los ayudantes). Quedan 15, y 15 es
+-- el piso correcto:
+--   Â· 6 ayudantes para `authenticated`: necesarias. Las politicas se evaluan
+--     con los privilegios del rol que consulta, y TODAS las consultas de la
+--     app son con sesion.
+--   Â· `intento_login` y `email_por_usuario` para `anon`: es la pantalla de login.
+--   Â· `ver_conciliacion_compartida` para `anon`: la UNICA apertura posterior al
+--     login, y es deliberada. Es el enlace publico de conciliacion
+--     (`/compartir/:token`); no da permiso de tabla, es SECURITY DEFINER y su
+--     autorizacion es el token, no el rol. Ver `compartir-evaluacion.sql`.
+--   Â· `desbloquear_usuario` y `registrar_sync` para `authenticated`: la app las
+--     llama con sesion.
+--   Â· 4 triggers para `authenticated`: margen de seguridad (ver
+--     `permisos-funcion.sql`).
+--   Â· 1 de leaked password protection: es un toggle del dashboard.
+--
+-- Las 6 de los ayudantes para `authenticated` se pueden sacar un dia moviendo
+-- los 6 a un esquema que no este expuesto. Es un cambio mas grande, con su
+-- propio archivo.
+-- ============================================================================
+
+begin;
+
+-- ----------------------------------------------------------------------------
+-- 1) Ninguna tabla de `public` queda accesible para `anon`
+-- ----------------------------------------------------------------------------
+revoke all on all tables in schema public from anon;
+
+-- Y para las que se creen en el futuro: sin esto, una tabla nueva bornaria con
+-- el `grant all` por defecto de Supabase y habria que acordarse de cerrarla a
+-- mano. Es el error que produjo las 7 fugas que acabamos de cerrar.
+alter default privileges in schema public revoke all on tables from anon;
+
+-- ----------------------------------------------------------------------------
+-- 2) Los 6 ayudantes de politica: fuera `anon`, dentro `authenticated`
+-- ----------------------------------------------------------------------------
+-- Se revoca de PUBLIC y de `anon` por el motivo aditivo de siempre (ver
+-- `permisos-funcion.sql`), y despues se devuelve solo lo que corresponde.
+-- `authenticated` los necesita porque TODAS las consultas de la app pasan por
+-- ahi, y las politicas los invocan.
+revoke execute on function public.es_lider() from public, anon;
+grant  execute on function public.es_lider() to authenticated;
+
+revoke execute on function public.puede_ver_evaluacion(public.evaluaciones) from public, anon;
+grant  execute on function public.puede_ver_evaluacion(public.evaluaciones) to authenticated;
+
+revoke execute on function public.puede_responder(uuid, uuid) from public, anon;
+grant  execute on function public.puede_responder(uuid, uuid) to authenticated;
+
+revoke execute on function public.puede_manejar_instancia(uuid, uuid) from public, anon;
+grant  execute on function public.puede_manejar_instancia(uuid, uuid) to authenticated;
+
+revoke execute on function public.puede_reportar_incidencia(uuid, uuid) from public, anon;
+grant  execute on function public.puede_reportar_incidencia(uuid, uuid) to authenticated;
+
+revoke execute on function public.puede_ver_incidencia(uuid) from public, anon;
+grant  execute on function public.puede_ver_incidencia(uuid) to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 3) `upsert_respuestas`: se le habia olvidado a todo el mundo
+-- ----------------------------------------------------------------------------
+-- Esta NO es security definer, asi que el advisor de Supabase no la marca: los
+-- avisos que arma son solo de funciones security definer. Pero `anon` si la
+-- puede ejecutar, porque el proyecto de Supabase deja un
+-- 'grant all on all functions in schema public' inicial que nadie le revoco:
+-- `permisos-funcion.sql` recorre las security definer y esta se le quedo
+-- afuera. Por eso es la razon por la que la cuenta de arriba da 3 y no 2.
+--
+-- Que sea invoker la hace menos grave que a los ayudantes: corre con los
+-- privilegios de quien llama, asi que sin permiso de tabla (parte 1) no puede
+-- escribir nada. Es defensa en profundidad, no una fuga abierta.
+--
+-- La app la llama por RPC desde `subirRespuestas` en src/lib/offline/sync.ts,
+-- siempre con sesion.
+revoke execute on function public.upsert_respuestas(jsonb) from public, anon;
+grant  execute on function public.upsert_respuestas(jsonb) to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Verificacion
+-- ----------------------------------------------------------------------------
+-- 1) Las tablas. TODAS tienen que dar anon_select = false.
+--    sesion_select tiene que dar true en todas: si alguna da false, el
+--    catalogo o el historial no cargan y hay que revertir este archivo.
+select
+  c.relname as tabla,
+  has_table_privilege('anon', c.oid, 'select')          as anon_select,
+  has_table_privilege('authenticated', c.oid, 'select')  as sesion_select
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relkind in ('r', 'p')
+order by c.relname;
+
+-- 2) Las funciones. Esta tabla es la que hay que leer contra las 21 alertas:
+--    Â· los 6 ayudantes tienen que dar anon_puede = false, sesion_puede = true
+--    Â· intento_login, email_por_usuario y ver_conciliacion_compartida al reves: anon_puede = true
+--    Â· cualquier otro anon_puede = true que aparezca aca es una alerta que
+--      falta cerrar
+select
+  p.proname,
+  has_function_privilege('anon', p.oid, 'execute')         as anon_puede,
+  has_function_privilege('authenticated', p.oid, 'execute') as sesion_puede
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+order by p.proname;
+
+-- 3) El resumen. LAS TABLAS TIENEN QUE DAR 0.
+--
+--    En funciones NO da 0, y no es un error: da 3, que son `intento_login`,
+--    `email_por_usuario` y `ver_conciliacion_compartida` (el enlace publico de
+--    conciliacion). Las dos primeras son la pantalla de login, que corre sin
+--    sesion por definicion; la tercera es la unica apertura deliberada
+--    posterior al login y su autorizacion es el token, no el rol. Lo que no
+--    puede aparecer es ninguna otra.
+select
+  (select count(*) from pg_class c
+     join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public' and c.relkind in ('r','p')
+     and has_table_privilege('anon', c.oid, 'select'))      as tablas_que_anon_abre,
+  (select count(*) from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and has_function_privilege('anon', p.oid, 'execute')
+     and p.proname not in ('intento_login', 'email_por_usuario'))  as funciones_que_anon_abre_sin_el_login;
+
+-- Si la de funciones da 0, lo unico que queda abierto a anon son las dos del
+-- login. Es el piso correcto.
+select
+  p.proname,
+  has_function_privilege('anon', p.oid, 'execute') as anon_puede
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and has_function_privilege('anon', p.oid, 'execute')
+order by p.proname;
+-- ============================================================================
+commit;
+
+-- ###########################################################################
+-- Archivo consolidado: permisos-funcion.sql
+-- ###########################################################################
+-- ============================================================================
+-- PERMISOS DE LAS FUNCIONES (alertas de seguridad de Supabase)
+--
+-- POR QUE HACE FALTA UNA SEGUNDA RONDA
+-- --------------------------------------
+-- La primera vez se revoco `from public` y no cambio nada: las alertas de `anon`
+-- siguieron igual. La razon es que los permisos en Postgres son ADITIVOS y los
+-- proyectos de Supabase traen un `grant all on all functions in schema public`
+-- que deja un permiso EXPLICITO para `anon`. Quitar el de PUBLIC no alcanza si
+-- el rol tiene el suyo:
+--
+--   revoke ... from public  ->  quita el de PUBLIC, anon conserva el suyo
+--   revoke ... from anon    ->  quita el de anon, PUBLIC sigue sirviendo
+--
+-- Por eso ahora cada revoke quita PUBLIC y el rol, y despues se vuelve a dar
+-- solo lo que corresponde. Ver la nota tecnica al final del archivo.
+--
+-- LO QUE NO SE TOCA Y POR QUE
+-- ----------------------------
+-- es_lider, puede_ver_evaluacion, puede_responder, puede_manejar_instancia,
+-- puede_reportar_incidencia, puede_ver_incidencia:
+--   Los invocan las politicas RLS (`using (public.es_lider())`), y las politicas
+--   se evaluan con los privilegios de quien consulta, asi que necesitan que
+--   `authenticated` tenga EXECUTE: TODAS las consultas de la app van con sesion.
+--   Eso no se puede tocar.
+--   Para `anon` SI se pueden quitar, pero solo despues de quitarle a `anon` el
+--   permiso de tabla: con permiso de tabla llega a evaluar politicas y ahi los
+--   helpers le son indispensables, y revocar el EXECUTE sin el permiso primero
+--   rompia la app con "permission denied for function". Ese orden esta en
+--   `cerrar-permisos-anon.sql`, que hace las dos cosas en una transaccion.
+--   El cliente nunca los llama por RPC (solo existen dentro de las politicas),
+--   asi que el paso que de verdad las cerraria del todo es mudarlas a un esquema
+--   no expuesto; es un cambio mas grande, con su propio archivo. Sin sesion
+--   devuelven false igual, porque preguntan por auth.uid().
+--
+-- intento_login y email_por_usuario:
+--   La pantalla de login corre antes de autenticar: necesitan `anon`. De
+--   `authenticated` no lo necesitan (ver abajo).
+--
+-- LAS DE TRIGGER
+-- --------------
+-- valider_registro, handle_new_user, validar_modulo_compartido y
+-- validar_unico_evaluador_modulo son `returns trigger`: Postgres ya impide
+-- llamarlas por RPC ("trigger functions can only be called as triggers"), asi
+-- que la alerta es puro ruido. Se les quita el acceso a `anon` y se les DEJA el
+-- de `authenticated` a proposito: son security definer, asi que el trigger corre
+-- como dueno y no lo necesita, pero no se juega a que Postgres no vuelva a
+-- verificar el permiso al disparar. Si alguna vez hiciera falta, el grant de
+-- abajo lo restaura en una linea.
+--
+-- Es idempotente: se puede correr las veces que haga falta.
+-- ============================================================================
+
+begin;
+
+-- ----------------------------------------------------------------------------
+-- 1) search_path inmutable
+-- ----------------------------------------------------------------------------
+-- Con el search_path modificable, un esquema anterior en el camino de busqueda
+-- podria resolver una tabla homonima y hacer que la funcion lea otra.
+alter function public.validar_suma_puntaje_items() set search_path = public;
+
+-- ----------------------------------------------------------------------------
+-- 2) Trigger functions: `anon` no tiene por que llamarlas
+-- ----------------------------------------------------------------------------
+revoke execute on function public.validar_registro() from public, anon;
+revoke execute on function public.handle_new_user() from public, anon;
+revoke execute on function public.validar_modulo_compartido() from public, anon;
+revoke execute on function public.validar_unico_evaluador_modulo() from public, anon;
+
+-- Excepcion a proposito: esta NO es security definer, asi que el trigger corre
+-- como el rol que escribe (el Lider) y si necesita el permiso. Sin el grant,
+-- cualquier edicion de un item falla con "permission denied for function".
+revoke execute on function public.validar_suma_puntaje_items() from public, anon;
+grant  execute on function public.validar_suma_puntaje_items() to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 3) Solo para quien tiene sesion
+-- ----------------------------------------------------------------------------
+-- Los cuerpos ya se autoprotegen: `desbloquear_usuario` exige que auth.uid() sea
+-- un Lider activo (sin sesion aborta con excepcion) y `registrar_sync` escribe
+-- en `where id = auth.uid()`, que para anon es NULL y no actualiza nada. Esto
+-- solo evita que un anon sin sesion pueda siquiera invocarlas.
+revoke execute on function public.desbloquear_usuario(uuid, text) from public, anon;
+grant  execute on function public.desbloquear_usuario(uuid, text) to authenticated;
+
+revoke execute on function public.registrar_sync() from public, anon;
+grant  execute on function public.registrar_sync() to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 4) Login: `anon` si, `authenticated` no
+-- ----------------------------------------------------------------------------
+-- En src/context/AuthContext.tsx, `intentoLogin` y `emailPorUsuario` se llaman
+-- dentro de signIn() ANTES de supabase.auth.signInWithPassword: en ese momento
+-- todavia no hay sesion, asi que la peticion va con el rol `anon`. Nunca se
+-- llaman con un usuario ya autenticado, asi que el permiso para `authenticated`
+-- sobra.
+revoke execute on function public.intento_login(text, text) from public, authenticated;
+grant  execute on function public.intento_login(text, text) to anon;
+
+revoke execute on function public.email_por_usuario(text) from public, authenticated;
+grant  execute on function public.email_por_usuario(text) to anon;
+
+-- ----------------------------------------------------------------------------
+-- 5) La que este archivo recorre por falta de aviso: `upsert_respuestas`
+-- ----------------------------------------------------------------------------
+-- Todo lo de arriba son security definer, que es lo unico que el advisor de
+-- Supabase marca. `upsert_respuestas` es security INVOKER, asi que no genera
+-- ninguna alerta y a este archivo (que recorre las del advisor) se le escapaba:
+-- `anon` podia ejecutarla con el 'grant all on all functions in schema public'
+-- inicial de Supabase.
+--
+-- Invoker la hace poco grave: corre con los privilegios de quien llama, asi que
+-- sin permiso de tabla sobre `respuestas` no escribe nada. Pero es defensa en
+-- profundidad. La app la llama por RPC desde src/lib/offline/sync.ts:145, siempre
+-- con sesion.
+revoke execute on function public.upsert_respuestas(jsonb) from public, anon;
+grant  execute on function public.upsert_respuestas(jsonb) to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 6) Enlace publico de conciliacion: `anon` SI, a proposito
+-- ----------------------------------------------------------------------------
+-- Es una de las DOS aperturas a `anon` despues del login (la otra es el
+-- enlace de fallas por cargo, de mas abajo), y ambas son deliberadas. Existe
+-- una pantalla publica (`/compartir/:token`) que muestra la conciliacion de
+-- UNA evaluacion a quien no tiene cuenta: el coordinador de inventario que
+-- quiere ver el proceso sin que le den acceso a la app.
+--
+-- Lo que la hace segura no es el permiso de tabla (no tiene ninguno: el revoke
+-- general de `cerrar-permisos-anon.sql` se la deja quitada) sino que es
+-- SECURITY DEFINER con `search_path` fijo y devuelve exactamente una
+-- evaluacion, y sólo si el token coincide con un enlace activo. Sin token
+-- valido devuelve `evaluacion: null`, que es indistinguible de "no existe",
+-- asi que no se pueden enumerar enlaces probando tokens.
+--
+-- Tambien va para `authenticated` porque el enlace lo puede abrir alguien que
+-- YA tiene sesion (un lider mirando su propio link con la app abierta): sin
+-- ese grant, con la sesion puesta el enlace daba "permission denied".
+--
+-- La app la llama por RPC desde src/lib/data/compartir.ts, SIN sesion.
+revoke execute on function public.ver_conciliacion_compartida(text) from public, anon;
+grant  execute on function public.ver_conciliacion_compartida(text) to anon, authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 7) Enlace publico de fallas por cargo: `anon` SI, a proposito
+-- ----------------------------------------------------------------------------
+-- La otra apertura deliberada. Una pantalla publica
+-- (`/compartir/cargos/:token`) muestra los pendientes de los cargos que el
+-- lider eligio: la bitacora de atencion del trabajador, que la mira sin
+-- cuenta en la app.
+--
+-- Lo que devuelve es distinto al de conciliacion y por eso es un bloque
+-- aparte: el reporte CONGELADO (`datos`, jsonb) que se genero al compartir,
+-- con las rutas de las fotos —que la pantalla firma al abrirse, asi el
+-- enlace no se vence con el tiempo—. No hay respuestas ni items sueltos que
+-- filtrar porque no se devuelven: el enlace expone exactamente los pendientes
+-- de los cargos elegidos y nada mas.
+--
+-- SECURITY DEFINER con `search_path` fijo, y sin token valido devuelve
+-- `evaluacion: null`, indistinguible de "no existe": no se pueden enumerar
+-- enlaces probando tokens.
+--
+-- La app la llama por RPC desde src/lib/data/compartirCargos.ts, SIN sesion.
+revoke execute on function public.ver_cargos_compartidos(text) from public, anon;
+grant  execute on function public.ver_cargos_compartidos(text) to anon, authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 8) Utilerias que se corren a mano desde el SQL Editor
+-- ----------------------------------------------------------------------------
+-- Estas cuatro no las llama la app, asi que quedan cerradas para todos:
+--
+-- - `previsualizar_departamentos` y `aplicar_departamentos`: el mapa del
+--   backfill de departamentos se arma a mano (los scripts que lo generaban se
+--   eliminaron del repo).
+-- - `puede_usar_revision_pre_entrega`: es security definer, pero la invocan
+--   las politicas RLS, que corren con sesion. Para anon no aporta nada.
+-- - `mergear_conciliacion`: es el helper con el que `upsert_respuestas` fusiona
+--   el valor de una conciliacion en vez de pisarlo (union por SKU de las dos
+--   listas). Corre como el que sube, asi que `authenticated` si la necesita.
+--
+-- Este bloque esta pensado para correrse SOLO, sobre una base ya instalada
+-- (por eso los revoke apuntan a funciones que viven en otros bloques). Al
+-- aplicar el archivo COMPLETO, cada revoke queda ademas pegado a su
+-- definicion: `create or replace function` reactiva el permiso heredado de
+-- PUBLIC, asi que un revoke separado de la definicion deja la funcion
+-- ejecutable por cualquiera.
+revoke execute on function public.previsualizar_departamentos(jsonb) from public, anon, authenticated;
+revoke execute on function public.aplicar_departamentos(jsonb) from public, anon, authenticated;
+
+revoke execute on function public.puede_usar_revision_pre_entrega() from public, anon;
+grant  execute on function public.puede_usar_revision_pre_entrega() to authenticated;
+
+revoke execute on function public.mergear_conciliacion(jsonb, jsonb, text) from public, anon;
+grant  execute on function public.mergear_conciliacion(jsonb, jsonb, text) to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 9) Menu publico por sucursal: `anon` SI, a proposito
+-- ----------------------------------------------------------------------------
+-- La pantalla publica `/menu/:sucursalId` muestra el menu de UNA sucursal a
+-- cualquiera sin cuenta (el QR que escanea el cliente), y la app la llama por
+-- RPC desde src/lib/data/menuSucursal.ts. Mismo patron que los enlaces:
+-- SECURITY DEFINER con search_path fijo y devolucion acotada.
+--
+-- El `do` es a proposito: este bloque corre ANTES de que el bloque
+-- `menu-sucursal.sql` (al final del archivo) cree la funcion, y un grant
+-- plano a una funcion inexistente tiraria el pegado entero. En la segunda
+-- corrida —o corriendo este bloque solo— la funcion existe y el grant sale.
+-- Siempre acompana al revoke+grant que vive junto a la definicion.
+do $$
+begin
+  execute 'grant execute on function public.ver_menu_publico(uuid) to anon, authenticated';
+exception when undefined_function then null;
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- 10) Menú: registrar visita, su reporte y el selector de sucursales
+-- ----------------------------------------------------------------------------
+-- Las tres funciones del menú que faltan, llamadas por RPC desde la app:
+--
+-- - `registrar_visita_menu`: la página pública cuenta SU apertura sin
+--   sesión (el cliente sólo llama una vez por hora). Va para `anon` a
+--   propósito — la tercera apertura deliberada además del login y los
+--   enlaces, y por el mismo motivo: hay una pantalla pública. Sólo inserta
+--   si la sucursal existe y está activa.
+-- - `ver_visitas_menu`: el reporte por día/hora del editor: sólo con
+--   sesión, y el cuerpo además exige ser encargado de esa sucursal o Líder.
+-- - `ver_sucursales_menu`: el selector de la cabecera pública: id y nombre
+--   de las activas, para poder cambiar de tienda sin QR nuevo.
+--
+-- Los `do` con la misma razón que en el punto 9: este bloque corre ANTES
+-- de que el bloque `menu-sucursal.sql` (al final del archivo) cree las
+-- funciones, y un grant plano a una función inexistente tiraría el pegado.
+do $$
+begin
+  execute 'grant execute on function public.registrar_visita_menu(uuid) to anon, authenticated';
+exception when undefined_function then null;
+end $$;
+
+do $$
+begin
+  execute 'grant execute on function public.ver_visitas_menu(uuid, date, date) to authenticated';
+exception when undefined_function then null;
+end $$;
+
+do $$
+begin
+  execute 'grant execute on function public.ver_sucursales_menu() to anon, authenticated';
+exception when undefined_function then null;
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- Verificacion
+-- ----------------------------------------------------------------------------
+-- Correr `diagnostico-permisos.sql` despues de esto: la columna `estado` deberia
+-- salir en `ok` para todas. Si alguna sigue en otro valor, el permiso viene de
+-- otro lado (mirar p.proacl en ese archivo).
+--
+-- Lo que queda marcado a proposito, y no se va a corregir:
+--   Â· los 6 ayudantes de politica para `authenticated`: las politicas RLS los
+--     necesitan. Para `anon` ya no, y eso lo cierra `cerrar-permisos-anon.sql`.
+--   Â· `intento_login`/`email_por_usuario` con `anon`: es la pantalla de login.
+--     Son las dos unicas funciones que deben quedar ejecutables por anon.
+--   Â· `authenticated` en las de trigger: `returns trigger` ya las hace
+--     inalcanzables por RPC y se deja como margen de seguridad.
+-- ============================================================================
+commit;
+
+-- ###########################################################################
+-- Archivo consolidado: reactivar-politicas.sql
+-- ###########################################################################
+-- ============================================================================
+-- REACTIVAR LAS REGLAS (RLS) Y LAS POLITICAS
+--
+-- PARA QUE SIRVE
+-- -------------
+-- Si las reglas de la base quedaron desactivadas (por ejemplo con el boton de
+-- RLS del dashboard), la app no da ningun error raro: simplemente no guarda, o
+-- peor, deja ver y escribir tablas que deberian estar cerradas. Este archivo
+-- vuelve a encender RLS en todas las tablas y repone las 50 politicas tal como
+-- estan definidas en este mismo archivo, que desde ahora es el unico.
+--
+-- NO TOCA: ninguna tabla, ninguna columna, ningun dato. Solo RLS y politicas.
+-- Por eso corre limpio sobre una base que ya tiene todo aplicado.
+--
+-- COMO CORRERLO
+-- -------------
+--   1. Pegar el archivo entero en el SQL Editor de Supabase y dale Run.
+--   2. Tiene que salir sin errores (esta en una transaccion: o entra todo o nada).
+--   3. Despues correr 'validar-politicas.sql', que es solo lectura, y mandarme
+--      el resultado. Alli se ve, fila por fila, si quedo algo sin regla.
+--
+-- ES IDEMPOTENTE
+-- --------------
+-- Cada politica va con su 'drop policy if exists' antes, asi que se puede correr
+-- las veces que haga falta sin acumular duplicados ni fallar.
+--
+-- De donde sale el texto: las politicas estan copiadas de los archivos del repo,
+-- y un test (politicas-sql.test.ts) falla si alguna queda sin copiar. Para
+-- cambiar una politica se cambia en su archivo de origen, no aca.
+-- ============================================================================
+
+begin;
+
+-- ----------------------------------------------------------------------------
+-- 1) RLS encendido en todas las tablas de public
+-- ----------------------------------------------------------------------------
+-- Con RLS apagado la tabla queda abierta para anon y para cualquiera con sesion.
+-- Esto va primero y sin lista: si maÃ±ana se agrega una tabla y se olvida
+-- actualizar el archivo, queda cerrada igual (fallo visible) en vez de abierta
+-- sin que nadie se entere (fallo invisible).
+do $$
+declare
+  t record;
+begin
+  for t in
+    select c.relname
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relkind in ('r', 'p')
+  loop
+    execute format('alter table public.%I enable row level security', t.relname);
+  end loop;
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- 2) Las 50 politicas
+-- ----------------------------------------------------------------------------
+-- Las de `public.marcajes` y `public.proyectos` no estan: eran del puente
+-- biometrico (Anviz D100) y de la seccion Proyectos, que se quitaron del
+-- proyecto. Sus tablas tampoco tienen `create table` aca, asi que dejar sus
+-- politicas hacia que este archivo no se pudiera aplicar en una base nueva.
+-- En una base vieja la tabla sigue existiendo con su RLS: este archivo no
+-- borra nada, solo deja de reponerle las politicas.
+
+-- public.asignaciones (2 polÃ­ticas)
+alter table public.asignaciones enable row level security;
+drop policy if exists "asignaciones_select" on public.asignaciones;
+create policy asignaciones_select on public.asignaciones for select using (auth.uid() = evaluador_id or public.es_lider());
+drop policy if exists "asignaciones_lider" on public.asignaciones;
+create policy asignaciones_lider on public.asignaciones for all using (public.es_lider()) with check (public.es_lider());
+
+-- public.asignaciones_modulos (2 polÃ­ticas)
+alter table public.asignaciones_modulos enable row level security;
+drop policy if exists "asignaciones_modulos_select" on public.asignaciones_modulos;
+create policy asignaciones_modulos_select on public.asignaciones_modulos for select using (auth.uid() = evaluador_id or public.es_lider());
+drop policy if exists "asignaciones_modulos_lider" on public.asignaciones_modulos;
+create policy asignaciones_modulos_lider on public.asignaciones_modulos for all using (public.es_lider()) with check (public.es_lider());
+
+-- public.evaluaciones (4 polÃ­ticas)
+alter table public.evaluaciones enable row level security;
+drop policy if exists "evaluaciones_select" on public.evaluaciones;
+create policy evaluaciones_select on public.evaluaciones for select using (public.puede_ver_evaluacion(evaluaciones));
+drop policy if exists "evaluaciones_insert" on public.evaluaciones;
+create policy evaluaciones_insert on public.evaluaciones for insert with check (public.es_lider());
+drop policy if exists "evaluaciones_update" on public.evaluaciones;
+create policy evaluaciones_update on public.evaluaciones for update using (public.es_lider()) with check (public.es_lider());
+drop policy if exists "evaluaciones_delete" on public.evaluaciones;
+create policy evaluaciones_delete on public.evaluaciones for delete using (public.es_lider());
+
+-- public.fotos (2 polÃ­ticas)
+alter table public.fotos enable row level security;
+drop policy if exists "fotos_select" on public.fotos;
+create policy fotos_select on public.fotos for select using (
+  exists (
+    select 1 from public.evaluaciones e
+    where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
+  )
+);
+drop policy if exists "fotos_insert" on public.fotos;
+create policy fotos_insert on public.fotos for insert with check (public.puede_responder(evaluacion_id, item_id));
+
+-- public.incidencias (3 polÃ­ticas)
+alter table public.incidencias enable row level security;
+drop policy if exists "incidencias_select" on public.incidencias;
+create policy incidencias_select on public.incidencias
+  for select using (public.puede_ver_incidencia(evaluacion_id));
+drop policy if exists "incidencias_insert" on public.incidencias;
+create policy incidencias_insert on public.incidencias
+  for insert with check (
+    auth.uid() = evaluador_id
+    and public.puede_reportar_incidencia(evaluacion_id, modulo_id)
+  );
+drop policy if exists "incidencias_update" on public.incidencias;
+create policy incidencias_update on public.incidencias
+  for update using (auth.uid() = evaluador_id) with check (auth.uid() = evaluador_id);
+
+-- public.instancias_grupo (4 polÃ­ticas)
+alter table public.instancias_grupo enable row level security;
+drop policy if exists "instancias_grupo_select" on public.instancias_grupo;
+create policy instancias_grupo_select on public.instancias_grupo for select using (
+  exists (
+    select 1 from public.evaluaciones e
+    where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
+  )
+);
+drop policy if exists "instancias_grupo_insert" on public.instancias_grupo;
+create policy instancias_grupo_insert on public.instancias_grupo for insert with check (
+  public.puede_manejar_instancia(evaluacion_id, item_id)
+);
+drop policy if exists "instancias_grupo_update" on public.instancias_grupo;
+create policy instancias_grupo_update on public.instancias_grupo for update
+  using (public.puede_manejar_instancia(evaluacion_id, item_id))
+  with check (public.puede_manejar_instancia(evaluacion_id, item_id));
+drop policy if exists "instancias_grupo_delete" on public.instancias_grupo;
+create policy instancias_grupo_delete on public.instancias_grupo for delete using (
+  public.puede_manejar_instancia(evaluacion_id, item_id)
+);
+
+-- public.invitaciones (1 polÃ­tica)
+alter table public.invitaciones enable row level security;
+drop policy if exists "invitaciones_lider" on public.invitaciones;
+create policy invitaciones_lider on public.invitaciones for all using (public.es_lider()) with check (public.es_lider());
+
+-- public.items (2 polÃ­ticas)
+alter table public.items enable row level security;
+drop policy if exists "items_select" on public.items;
+create policy items_select on public.items for select to authenticated using (true);
+drop policy if exists "items_lider" on public.items;
+create policy items_lider on public.items for all using (public.es_lider()) with check (public.es_lider());
+
+-- public.modulos (2 polÃ­ticas)
+alter table public.modulos enable row level security;
+drop policy if exists "modulos_select" on public.modulos;
+create policy modulos_select on public.modulos for select to authenticated using (true);
+drop policy if exists "modulos_lider" on public.modulos;
+create policy modulos_lider on public.modulos for all using (public.es_lider()) with check (public.es_lider());
+
+-- public.profiles (2 polÃ­ticas)
+alter table public.profiles enable row level security;
+drop policy if exists "profiles_select" on public.profiles;
+create policy profiles_select on public.profiles for select to authenticated using (true);
+drop policy if exists "profiles_lider" on public.profiles;
+create policy profiles_lider on public.profiles for all using (public.es_lider()) with check (public.es_lider());
+
+-- public.respuestas (3 polÃ­ticas)
+alter table public.respuestas enable row level security;
+drop policy if exists "respuestas_select" on public.respuestas;
+create policy respuestas_select on public.respuestas for select using (
+  exists (
+    select 1 from public.evaluaciones e
+    where e.id = evaluacion_id and public.puede_ver_evaluacion(e)
+  )
+);
+drop policy if exists "respuestas_insert" on public.respuestas;
+create policy respuestas_insert on public.respuestas for insert with check (
+  public.puede_responder(evaluacion_id, item_id)
+  and (respondido_por = auth.uid() or public.es_lider())
+);
+drop policy if exists "respuestas_update" on public.respuestas;
+create policy respuestas_update on public.respuestas for update
+  using (public.puede_responder(evaluacion_id, item_id))
+  with check (public.puede_responder(evaluacion_id, item_id)
+    and (respondido_por = auth.uid() or public.es_lider()));
+
+-- public.sucursal_items (2 polÃ­ticas)
+alter table public.sucursal_items enable row level security;
+drop policy if exists "sucursal_items_select" on public.sucursal_items;
+create policy sucursal_items_select on public.sucursal_items for select to authenticated using (true);
+drop policy if exists "sucursal_items_lider" on public.sucursal_items;
+create policy sucursal_items_lider on public.sucursal_items for all using (public.es_lider()) with check (public.es_lider());
+
+-- public.sucursal_modulos (2 polÃ­ticas)
+alter table public.sucursal_modulos enable row level security;
+drop policy if exists "sucursal_modulos_select" on public.sucursal_modulos;
+create policy sucursal_modulos_select on public.sucursal_modulos for select to authenticated using (true);
+drop policy if exists "sucursal_modulos_lider" on public.sucursal_modulos;
+create policy sucursal_modulos_lider on public.sucursal_modulos for all using (public.es_lider()) with check (public.es_lider());
+
+-- public.sucursal_opciones (2 polÃ­ticas)
+alter table public.sucursal_opciones enable row level security;
+drop policy if exists "sucursal_opciones_select" on public.sucursal_opciones;
+create policy sucursal_opciones_select on public.sucursal_opciones for select to authenticated using (true);
+drop policy if exists "sucursal_opciones_lider" on public.sucursal_opciones;
+create policy sucursal_opciones_lider on public.sucursal_opciones for all using (public.es_lider()) with check (public.es_lider());
+
+-- public.departamento_modulos / _items / _opciones (2 politicas cada una)
+alter table public.departamento_modulos enable row level security;
+drop policy if exists "departamento_modulos_select" on public.departamento_modulos;
+create policy departamento_modulos_select on public.departamento_modulos for select to authenticated using (true);
+drop policy if exists "departamento_modulos_lider" on public.departamento_modulos;
+create policy departamento_modulos_lider on public.departamento_modulos for all using (public.es_lider()) with check (public.es_lider());
+alter table public.departamento_items enable row level security;
+drop policy if exists "departamento_items_select" on public.departamento_items;
+create policy departamento_items_select on public.departamento_items for select to authenticated using (true);
+drop policy if exists "departamento_items_lider" on public.departamento_items;
+create policy departamento_items_lider on public.departamento_items for all using (public.es_lider()) with check (public.es_lider());
+alter table public.departamento_opciones enable row level security;
+drop policy if exists "departamento_opciones_select" on public.departamento_opciones;
+create policy departamento_opciones_select on public.departamento_opciones for select to authenticated using (true);
+drop policy if exists "departamento_opciones_lider" on public.departamento_opciones;
+create policy departamento_opciones_lider on public.departamento_opciones for all using (public.es_lider()) with check (public.es_lider());
+
+-- public.sucursales (2 polÃ­ticas)
+alter table public.sucursales enable row level security;
+drop policy if exists "sucursales_select" on public.sucursales;
+create policy sucursales_select on public.sucursales for select to authenticated using (true);
+drop policy if exists "sucursales_lider" on public.sucursales;
+create policy sucursales_lider on public.sucursales for all using (public.es_lider()) with check (public.es_lider());
+
+-- public.departamentos_centralizados (2 politicas)
+alter table public.departamentos_centralizados enable row level security;
+drop policy if exists "departamentos_centralizados_select" on public.departamentos_centralizados;
+create policy departamentos_centralizados_select on public.departamentos_centralizados for select to authenticated using (true);
+drop policy if exists "departamentos_centralizados_lider" on public.departamentos_centralizados;
+create policy departamentos_centralizados_lider on public.departamentos_centralizados for all using (public.es_lider()) with check (public.es_lider());
+
+-- storage.objects (33 políticas: 11 distintas de fotos, cada una re-declarada
+-- por el bloque que la trae y por `reactivar-politicas.sql` —7 de evidencias
+-- e incidencias + 4 de la pre-entrega—, y 11 que sólo se declaran en su
+-- propio bloque: 3 de la Gran Cosecha (la página y las fotos de proyecto),
+-- 2 del menú, 2 de fotos de módulos y 4 de Acuerdos Comerciales)
+-- (storage.objects ya tiene RLS; solo se reponen sus polÃ­ticas)
+drop policy if exists "evidencias_select" on storage.objects;
+create policy "evidencias_select" on storage.objects for select to authenticated using (bucket_id = 'evidencias');
+drop policy if exists "evidencias_insert" on storage.objects;
+create policy "evidencias_insert" on storage.objects for insert to authenticated with check (
+  bucket_id = 'evidencias'
+  and exists (select 1 from public.profiles p where p.id = auth.uid() and p.activo and p.rol in ('EVALUADOR','LIDER'))
+);
+-- Marcar fotos de evidencia (re-graba el mismo path): misma regla que arriba.
+drop policy if exists "evidencias_update" on storage.objects;
+create policy "evidencias_update" on storage.objects for update to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and name like 'ev/%'
+    and exists (
+      select 1 from public.evaluaciones e
+      where e.id::text = split_part(storage.objects.name, '/', 2)
+        and public.puede_ver_evaluacion(e)
+    )
+  )
+  with check (
+    bucket_id = 'evidencias'
+    and name like 'ev/%'
+    and exists (
+      select 1 from public.evaluaciones e
+      where e.id::text = split_part(storage.objects.name, '/', 2)
+        and public.puede_ver_evaluacion(e)
+    )
+  );
+drop policy if exists "storage_incidencias_insert" on storage.objects;
+create policy storage_incidencias_insert on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1
+      from public.incidencias i
+      where i.evaluador_id = auth.uid()
+        and name like 'incidencias/' || i.id::text || '/%'
+    )
+  );
+drop policy if exists "storage_incidencias_update" on storage.objects;
+create policy storage_incidencias_update on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and (
+      public.es_lider()
+      or exists (
+        select 1
+        from public.incidencias i
+        where i.evaluador_id = auth.uid()
+          and name like 'incidencias/' || i.id::text || '/%'
+      )
+    )
+  )
+  with check (
+    bucket_id = 'evidencias'
+    and (
+      public.es_lider()
+      or exists (
+        select 1
+        from public.incidencias i
+        where i.evaluador_id = auth.uid()
+          and name like 'incidencias/' || i.id::text || '/%'
+      )
+    )
+  );
+drop policy if exists "storage_incidencias_select" on storage.objects;
+create policy storage_incidencias_select on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and (
+      public.es_lider()
+      or exists (
+        select 1
+        from public.incidencias i
+        where i.evaluador_id = auth.uid()
+          and name like 'incidencias/' || i.id::text || '/%'
+      )
+    )
+  );
+drop policy if exists "storage_incidencias_delete" on storage.objects;
+create policy storage_incidencias_delete on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'evidencias'
+    and exists (
+      select 1
+      from public.incidencias i
+      where i.evaluador_id = auth.uid()
+        and name like 'incidencias/' || i.id::text || '/%'
+    )
+  );
+
+-- ----------------------------------------------------------------------------
+-- 3) Permisos de ejecucion de las funciones
+-- ----------------------------------------------------------------------------
+-- En Postgres los permisos son ADITIVOS. Por eso no alcanza con revocar de
+-- PUBLIC: el proyecto de Supabase deja un permiso propio de 'anon' (trae un
+-- 'grant all on all functions in schema public' inicial), y quitar el de PUBLIC
+-- deja el de anon intacto. Cada revoke quita PUBLIC y el rol, y despues se vuelve
+-- a dar solo lo que corresponde.
+
+-- Trigger functions. Son 'returns trigger', asi que por RPC no se pueden
+-- llamar igual; se les saca el acceso de anon para que no figuren como
+-- exposures. Se les DEJA el de authenticated a proposito: son security definer
+-- (el trigger corre como dueno) y no se juega a que Postgres no vuelva a
+-- verificar el permiso al disparar.
+revoke execute on function public.validar_registro() from public, anon;
+revoke execute on function public.handle_new_user() from public, anon;
+revoke execute on function public.validar_modulo_compartido() from public, anon;
+revoke execute on function public.validar_unico_evaluador_modulo() from public, anon;
+
+-- Excepcion: esta NO es security definer, asi que el trigger corre como el rol
+-- que escribe (el Lider) y si necesita el permiso. Sin el grant, editar un
+-- item falla con 'permission denied for function'.
+revoke execute on function public.validar_suma_puntaje_items() from public, anon;
+grant  execute on function public.validar_suma_puntaje_items() to authenticated;
+
+-- Solo para quien tiene sesion. Los cuerpos ya se autoprotegen:
+-- 'desbloquear_usuario' exige que auth.uid() sea un Lider activo y
+-- 'registrar_sync' escribe en 'where id = auth.uid()'.
+revoke execute on function public.desbloquear_usuario(uuid, text) from public, anon;
+grant  execute on function public.desbloquear_usuario(uuid, text) to authenticated;
+
+revoke execute on function public.registrar_sync() from public, anon;
+grant  execute on function public.registrar_sync() to authenticated;
+
+-- La pantalla de login corre SIN sesion: necesita anon y no necesita
+-- authenticated (ver src/context/AuthContext.tsx, se llaman antes de
+-- signInWithPassword).
+revoke execute on function public.intento_login(text, text) from public, authenticated;
+grant  execute on function public.intento_login(text, text) to anon;
+
+revoke execute on function public.email_por_usuario(text) from public, authenticated;
+grant  execute on function public.email_por_usuario(text) to anon;
+
+-- ----------------------------------------------------------------------------
+-- 3b) Las 7 tablas que se leian sin sesion, cerradas a `anon`
+-- ----------------------------------------------------------------------------
+-- `profiles` (correos, roles), `items` (la rubrica completa con puntajes y
+-- umbrales), `modulos`, `sucursales` (nombres, branch_id, gerente_id) y las tres
+-- de configuracion por sucursal. Con la politica de lectura a `authenticated` y
+-- estos revoke, quien no inicio sesion no puede leer ninguna: la politica por el
+-- lado RLS, el revoke por el lado del permiso (que es aditivo y por si solo
+-- habria bastado para saltarse la politica).
+--
+-- Las dos funciones del login siguen funcionando: son security definer, asi que
+-- corren como dueno y no les aplica ni la politica ni el revoke.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'profiles', 'sucursales', 'modulos', 'items',
+    'sucursal_modulos', 'sucursal_items', 'sucursal_opciones'
+  ] loop
+    execute format('revoke select on public.%I from anon', t);
+  end loop;
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- 3c) Ni tablas ni ayudantes para `anon`
+-- ----------------------------------------------------------------------------
+-- Estas dos cosas van juntas. La segunda depende de la primera: las politicas RLS
+-- se evaluan con los privilegios de quien consulta, asi que una funcion llamada
+-- desde un `using (...)` necesita EXECUTE de ese rol. Con `anon` teniendo
+-- permiso de tabla, llegaba a evaluar politicas y `es_lider()` le era
+-- indispensable; quitarle el EXECUTE ahi rompia la app con "permission denied
+-- for function".
+--
+-- Sin permiso de tabla, Postgres revisa el permiso ANTES que las politicas, asi
+-- que `anon` ya no llega a evaluarlas y nunca las llama. Por eso los ayudantes
+-- le sobran a `anon` y no a `authenticated`: TODAS las consultas de la app van
+-- con sesion, y ahi las politicas los necesitan.
+--
+-- El revoke de tablas va mas alla de las 7 de la seccion 3b: `anon` tambien
+-- tenia INSERT, UPDATE y DELETE sobre todo el schema, y eso solo lo frenaba
+-- RLS. Con las dos capas, un `disable row level security` accidental no abre.
+revoke all on all tables in schema public from anon;
+alter default privileges in schema public revoke all on tables from anon;
+
+revoke execute on function public.es_lider() from public, anon;
+grant  execute on function public.es_lider() to authenticated;
+
+revoke execute on function public.puede_ver_evaluacion(public.evaluaciones) from public, anon;
+grant  execute on function public.puede_ver_evaluacion(public.evaluaciones) to authenticated;
+
+revoke execute on function public.puede_responder(uuid, uuid) from public, anon;
+grant  execute on function public.puede_responder(uuid, uuid) to authenticated;
+
+revoke execute on function public.puede_manejar_instancia(uuid, uuid) from public, anon;
+grant  execute on function public.puede_manejar_instancia(uuid, uuid) to authenticated;
+
+revoke execute on function public.puede_reportar_incidencia(uuid, uuid) from public, anon;
+grant  execute on function public.puede_reportar_incidencia(uuid, uuid) to authenticated;
+
+revoke execute on function public.puede_ver_incidencia(uuid) from public, anon;
+grant  execute on function public.puede_ver_incidencia(uuid) to authenticated;
+
+-- Invoker, asi que el advisor de Supabase no la marca (sus avisos son solo de
+-- security definer) y a `permisos-funcion.sql` se le quedo afuera. Corre con los
+-- privilegios de quien llama, asi que sin permiso de tabla no escribe nada.
+-- La app la llama por RPC desde src/lib/offline/sync.ts, siempre con sesion.
+revoke execute on function public.upsert_respuestas(jsonb) from public, anon;
+grant  execute on function public.upsert_respuestas(jsonb) to authenticated;
+
+-- `intento_login` y `email_por_usuario` NO entran aqui: son security definer, no
+-- dependen de ningun permiso de tabla, y la pantalla de login corre sin sesion.
+-- ============================================================================
+commit;
+
+
+-- ###########################################################################
+-- Archivo consolidado: crear-lider.sql
+-- ###########################################################################
+-- ============================================================================
+-- CREAR EL PRIMER USUARIO LIDER (mÃ©todo CORRECTO)
+--
+-- NO se inserta manualmente en auth.users (eso corrompe el login, 500).
+-- En su lugar se crea una INVITACIÃ“N ACTIVA y el usuario se registra por
+-- goTrue (igual que cualquier invitado), lo que le da perfil LIDER.
+--
+-- ANTES DE EJECUTAR: cambia EMAIL, USUARIO y luego registra la contraseÃ±a
+-- desde el enlace generado (o el register en la app).
+-- ============================================================================
+
+-- 0) Limpiar cualquier usuario LIDER manual corrupto (borra cascade identity+profile) ----
+-- OJO: este delete es sólo para el bootstrap inicial (auth.users insertado a mano,
+-- que rompe el login con 500). Si se ejecuta con un LIDER ya creado por registro,
+-- lo borra a él y a su perfil en cascada. Por eso ahora sólo borra cuando el
+-- usuario NO tiene un perfil LIDER activo: re-ejecutar schema.sql ya no puede
+-- eliminar un líder que funciona.
+delete from auth.users u
+where lower(u.email) = 'lider@evaluxor.com'
+  and not exists (
+    select 1
+    from public.profiles p
+    where p.id = u.id
+      and p.rol = 'LIDER'
+      and p.activo
+  );
+
+-- 1) InvitaciÃ³n activa para el futuro LIDER -----------------------------
+-- Si ya existe una invitaciÃ³n no usada, la reactivamos; si no, la creamos.
+update public.invitaciones
+set usado = false
+where lower(email) = 'lider@evaluxor.com'
+  and rol = 'LIDER';
+
+insert into public.invitaciones (email, usuario, rol, sucursal_id, token, created_by)
+select 'lider@evaluxor.com', 'lider', 'LIDER', null, 'bootstrap-lider', null
+where not exists (select 1 from public.profiles where rol = 'LIDER')
+  and not exists (select 1 from public.invitaciones where lower(email) = 'lider@evaluxor.com' and usado = false)
+on conflict (token) do nothing
+returning id, email, usuario, rol, token;
+
+-- 2) Obtener el enlace de registro (cambia el dominio por el tuyo) -------
+-- Abre en el navegador:
+--   https://TU_DOMINIO/registro?token=bootstrap-lider&email=lider@evaluxor.com&usuario=lider
+-- o desde local:
+--   http://localhost:5173/registro?token=bootstrap-lider&email=lider@evaluxor.com&usuario=lider
+-- AhÃ­ defines la contraseÃ±a. La cuenta se crea con rol LIDER.
+
+-- VerificaciÃ³n posterior: debe mostrar el LIDER con su usuario
+-- select id, usuario, email, rol, activo from public.profiles where rol = 'LIDER';
+
+-- ###########################################################################
+-- Archivo consolidado: diagnostico-guardado.sql
+-- ###########################################################################
+-- DiagnÃ³stico: por quÃ© el servidor rechaza el guardado de un evaluador
+-- =====================================================================
+-- La app antes mostraba "No se pudo sincronizar, revisÃ¡ tu conexiÃ³n" para
+-- CUALQUIER error. Casi nunca era la conexiÃ³n: era el servidor rechazando el
+-- guardado por las polÃ­ticas de RLS. Esta consulta lista las causas
+-- concretas, para no adivinar.
+--
+-- CÃ³mo usarlo:
+--   1. Reemplazar 'USUARIO' por el usuario, nombre o correo del telÃ©fono afectado.
+--   2. Correr en el SQL Editor de Supabase.
+--   3. Si no devuelve filas, no hay bloqueos por polÃ­tica: el problema es otro
+--      (red, caÃ­da del servidor, o falta aplicar parte del schema.sql) y la
+--      app ahora muestra el detalle tÃ©cnico en pantalla.
+--
+-- La regla que aplica el servidor (funciÃ³n puede_responder) exige, para un
+-- EVALUADOR, las cuatro cosas a la vez:
+--   1. que la evaluaciÃ³n estÃ© en estado ACTIVA;
+--   2. que el Ã­tem estÃ© activo;
+--   3. que el mÃ³dulo estÃ© asignado al evaluador con asignaciones_modulos.activa;
+--   4. que el mÃ³dulo estÃ© habilitado para esa sucursal (sucursal_modulos.activa).
+--
+-- Los registros de secciÃ³n repetible (`instancias_grupo`) los governs
+-- puede_manejar_instancia, que pide lo mismo SALVO el punto 2: un Ã­tem
+-- desactivado no impide guardar sus registros, solo sus respuestas. Por eso la
+-- columna `bloquea` dice a quÃ© tabla aplica cada problema, para no ir a buscar
+-- al lugar equivocado.
+--
+-- Las cuatro aparecen abajo. `sucursal_items` NO aparece porque no bloquea el
+-- guardado: RLS no lo consulta (sÃ­ afecta quÃ© Ã­tems se muestran en la app).
+-- ============================================================================
+
+with objetivo as (
+  select p.id, p.nombre, p.usuario
+  from public.profiles p
+  where p.usuario ilike '%USUARIO%'
+     or p.nombre ilike '%USUARIO%'
+     or p.email ilike '%USUARIO%'
+  limit 1
+),
+
+-- 1. Evaluaciones que le impedirÃ­an guardar: no ACTIVA (CERRADA, PROGRAMADA...).
+evaluaciones_bloqueadas as (
+  select distinct ev.id, ev.sucursal_id, s.nombre as sucursal, ev.fecha, ev.estado
+  from public.evaluaciones ev
+  join public.sucursales s on s.id = ev.sucursal_id
+  join public.asignaciones_modulos am on am.evaluador_id = (select id from objetivo)
+  where ev.estado <> 'ACTIVA'
+    and exists (
+      select 1
+      from public.sucursal_modulos sm
+      where sm.sucursal_id = ev.sucursal_id and sm.modulo_id = am.modulo_id and sm.activa
+    )
+)
+
+-- 1.
+select 'EVALUACION NO ACTIVA' as problema,
+       'bloquea respuestas e instancias_grupo Â· estado = ' || ev.estado as detalle,
+       ev.sucursal || ' Â· ' || to_char(ev.fecha, 'DD/MM/YYYY') as donde
+from evaluaciones_bloqueadas ev
+
+union all
+
+-- 2.
+select 'ASIGNACION DADA DE BAJA',
+       'bloquea respuestas e instancias_grupo Â· el mÃ³dulo "' || m.nombre || '" ya no le estÃ¡ asignado (activa = false)',
+       coalesce(o.nombre, o.usuario)
+from public.asignaciones_modulos am
+join public.modulos m on m.id = am.modulo_id
+join objetivo o on o.id = am.evaluador_id
+where not am.activa
+
+union all
+
+-- 3. El Ã­tem se llama `texto` en la tabla items (no tiene columna `nombre`).
+select 'ITEM DESACTIVADO',
+       'bloquea SOLO respuestas (las instancias sÃ­ se guardan) Â· ' || m.nombre || ' â†’ ' || left(i.texto, 60) || ' (items.activo = false)',
+       coalesce(o.nombre, o.usuario)
+from public.items i
+join public.modulos m on m.id = i.modulo_id
+join public.asignaciones_modulos am on am.modulo_id = m.id and am.activa
+join objetivo o on o.id = am.evaluador_id
+where not i.activo
+
+union all
+
+-- 4. El mÃ³dulo no estÃ¡ habilitado en una sucursal que SÃ tiene otros mÃ³dulos
+--    activos: el `exists` de puede_responder no lo encuentra y bloquea.
+select 'MODULO NO APLICA A LA SUCURSAL',
+       'bloquea respuestas e instancias_grupo Â· ' || m.nombre || ' â†’ ' || b.sucursal || ' (tiene ' || b.bloqueadas || ' mÃ³dulo/s activo/s, no este)',
+       coalesce(o.nombre, o.usuario)
+from public.asignaciones_modulos am
+join public.modulos m on m.id = am.modulo_id
+join objetivo o on o.id = am.evaluador_id
+join lateral (
+  select s.nombre as sucursal, count(*)::int as bloqueadas
+  from public.sucursales s
+  where exists (
+          select 1 from public.sucursal_modulos sm
+          where sm.sucursal_id = s.id and sm.activa
+        )
+    and not exists (
+          select 1 from public.sucursal_modulos sm
+          where sm.sucursal_id = s.id and sm.modulo_id = m.id and sm.activa
+        )
+  group by s.nombre
+) b on true
+where am.activa
+
+order by 1, 2;
+
+
+-- ###########################################################################
+-- Archivo consolidado: diagnostico-permisos.sql
+-- ###########################################################################
+-- ============================================================================
+-- DIAGNOSTICO DE PERMISOS DE LAS FUNCIONES (solo lectura)
+--
+-- Por que existe: el linter de Supabase dice "cualquiera puede ejecutar esta
+-- funcion por /rest/v1/rpc/<nombre>". Eso es cierto, pero no dice SI DEBE.
+-- Este archivo muestra quien puede en realidad y por que.
+--
+-- Correlo cuando quieras: no modifica nada.
+-- ============================================================================
+
+-- Ejecuta este bloque y mandame el resultado si algo no cuadra con lo esperado.
+select
+  p.proname                                        as funcion,
+  p.prosecdef                                      as security_definer,
+  coalesce(p.proconfig::text, '(sin search_path)')  as search_path,
+  has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede,
+  has_function_privilege('authenticated', p.oid, 'EXECUTE') as autenticado_puede,
+  -- CASE buscado: cada rama es una condición, no un valor contra `proname`.
+  case
+    -- Se invocan desde las politicas RLS (`using (public.es_lider())`). Revocar
+    -- EXECUTE no es endurecimiento: rompe toda la base con "permission denied".
+    when p.proname in ('es_lider','puede_ver_evaluacion','puede_responder',
+             'puede_manejar_instancia','puede_reportar_incidencia',
+             'puede_ver_incidencia')
+      then 'ayudante de politica RLS -> NO revocar'
+    -- Pantalla de login: corre antes de autenticar, necesita anon.
+    when p.proname in ('intento_login','email_por_usuario')
+      then 'login sin sesion -> anon OK, authenticated innecesario'
+    -- Solo un usuario con sesion (y para desbloquear, ademas un Lider).
+    when p.proname in ('desbloquear_usuario','registrar_sync')
+      then 'solo authenticated'
+    -- Trigger: `returns trigger` ya impide llamarla por RPC.
+    else 'trigger -> sin uso por RPC'
+  end                                              as por_que,
+  case
+    when p.proname = 'validar_suma_puntaje_items'
+      and not (coalesce(p.proconfig::text, '') like '%search_path%')
+      then 'FALTA search_path'
+    when p.proname in ('desbloquear_usuario','registrar_sync')
+      and has_function_privilege('anon', p.oid, 'EXECUTE')
+      then 'anon todavia puede llamarla'
+    when p.proname in ('validar_registro','handle_new_user',
+                       'validar_modulo_compartido','validar_unico_evaluador_modulo')
+      and has_function_privilege('anon', p.oid, 'EXECUTE')
+      then 'anon todavia puede llamarla'
+    when p.proname in ('intento_login','email_por_usuario')
+      and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      then 'authenticated no hace falta'
+    else 'ok'
+  end                                              as estado
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in (
+    'validar_suma_puntaje_items','validar_registro','handle_new_user',
+    'validar_modulo_compartido','validar_unico_evaluador_modulo',
+    'desbloquear_usuario','registrar_sync','es_lider','puede_ver_evaluacion',
+    'puede_responder','puede_manejar_instancia','puede_reportar_incidencia',
+    'puede_ver_incidencia','intento_login','email_por_usuario'
+  )
+order by (p.proname in ('es_lider','puede_ver_evaluacion','puede_responder',
+                        'puede_manejar_instancia','puede_reportar_incidencia',
+                        'puede_ver_incidencia')), p.proname;
+
+-- ----------------------------------------------------------------------------
+-- Por que `revoke ... from anon` NO alcanza (el error del primer intento)
+-- ----------------------------------------------------------------------------
+-- Postgres da EXECUTE al rol PUBLIC en cada funcion nueva, y ademas los
+-- proyectos de Supabase traen un `grant all on all functions in schema public`
+-- inicial que deja un permiso EXPLICITO para anon y authenticated.
+--
+-- Los permisos son ADITIVOS. Por eso:
+--   revoke ... from public   ->  quita el de PUBLIC, pero anon conserva el suyo
+--   revoke ... from anon     ->  quita el de anon, pero PUBLIC sigue sirviendo
+-- Hay que quitar AMBOS (y volver a dar solo lo que corresponda).
+--
+-- Comprobacion rapida del ACL crudo de una funcion:
+--
+-- select p.proname, p.proacl
+-- from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+-- where n.nspname = 'public' and p.proname = 'registrar_sync';
+--
+-- While p.proacl -> hay permiso heredado de PUBLIC.
+-- X,X=.../postgres  -> hay permiso explicito para algun rol.
+
+-- ###########################################################################
+-- Archivo consolidado: validar-politicas.sql
+-- ###########################################################################
+-- ============================================================================
+-- VALIDAR LAS REGLAS (solo lectura: este archivo no modifica nada)
+--
+-- Para que sirve: correr 'reactivar-politicas.sql' y despues este, para
+-- comprobar tabla por tabla que quedo todo cerrado como debe ser.
+--
+-- Son cuatro consultas independientes. Se pueden correr de a una o todas juntas;
+-- cada una se lee sola. Lo que hay que mirar es la columna 'estado': tiene que
+-- decir 'ok'. Cualquier otra cosa es un problema y esta escrito por que.
+--
+--   1) RLS encendido en cada tabla y con al menos una politica.
+--   2) Las 61 politicas del repo, una por fila, marcando las que falten.
+--   3) Que los helpers de RLS conserven EXECUTE para authenticated.
+--   4) Que las funciones con datos no hayan quedado abiertas a anon.
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- 1) RLS encendido en todas las tablas
+-- ----------------------------------------------------------------------------
+-- Con RLS apagado la tabla esta abierta para anon y para cualquiera con sesion:
+-- eso no da error, simplemente deja ver y escribir lo que deberia estar cerrado.
+-- Con RLS encendido y cero politicas pasa lo contrario: tampoco da error, pero
+-- no devuelve nada. Son dos fallos distintos y por eso dos columnas.
+select
+  n.nspname || '.' || c.relname as tabla,
+  case when c.relrowsecurity then 'ok' else 'FALTA RLS' end as rls,
+  (select count(*)::int
+   from pg_policies pp
+   where pp.schemaname = n.nspname and pp.tablename = c.relname) as politicas,
+  case
+    when not c.relrowsecurity
+      then 'abierta para todos: correr reactivar-politicas.sql'
+    when not exists (select 1 from pg_policies pp
+                    where pp.schemaname = n.nspname and pp.tablename = c.relname)
+      then 'RLS ok pero sin politicas: no devuelve nada, falta reponerlas'
+    else 'ok'
+  end as que_pasa
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relkind in ('r', 'p')
+order by c.relrowsecurity, n.nspname || '.' || c.relname;
+
+-- Si TODAS las filas dicen 'ok' en las tres primeras columnas, esta parte esta bien.
+
+
+-- ----------------------------------------------------------------------------
+-- 2) Las politicas del repo, una por fila
+-- ----------------------------------------------------------------------------
+-- Si esta consulta NO devuelve filas, estan las 70. Cada fila que aparezca es
+-- una politica que falta: se creo la tabla pero no su regla, y queda abierta o
+-- inaccesible segun el caso.
+with esperadas (politica, tabla) as (
+  values
+    ('asignaciones_lider', 'public.asignaciones'),
+    ('asignaciones_select', 'public.asignaciones'),
+    ('asignaciones_modulos_lider', 'public.asignaciones_modulos'),
+    ('asignaciones_modulos_select', 'public.asignaciones_modulos'),
+    ('evaluaciones_compartidas_lider', 'public.evaluaciones_compartidas'),
+    ('evaluaciones_compartidas_select', 'public.evaluaciones_compartidas'),
+    ('evaluaciones_delete', 'public.evaluaciones'),
+    ('evaluaciones_insert', 'public.evaluaciones'),
+    ('evaluaciones_select', 'public.evaluaciones'),
+    ('evaluaciones_update', 'public.evaluaciones'),
+    ('fotos_insert', 'public.fotos'),
+    ('fotos_select', 'public.fotos'),
+    ('incidencias_insert', 'public.incidencias'),
+    ('incidencias_select', 'public.incidencias'),
+    ('incidencias_update', 'public.incidencias'),
+    ('instancias_grupo_delete', 'public.instancias_grupo'),
+    ('instancias_grupo_insert', 'public.instancias_grupo'),
+    ('instancias_grupo_select', 'public.instancias_grupo'),
+    ('instancias_grupo_update', 'public.instancias_grupo'),
+    ('invitaciones_lider', 'public.invitaciones'),
+    ('items_lider', 'public.items'),
+    ('items_select', 'public.items'),
+    ('modulos_lider', 'public.modulos'),
+    ('modulos_select', 'public.modulos'),
+    ('profiles_lider', 'public.profiles'),
+    ('profiles_select', 'public.profiles'),
+    ('respuestas_delete', 'public.respuestas'),
+    ('respuestas_insert', 'public.respuestas'),
+    ('respuestas_select', 'public.respuestas'),
+    ('respuestas_update', 'public.respuestas'),
+    ('sucursal_items_lider', 'public.sucursal_items'),
+    ('sucursal_items_select', 'public.sucursal_items'),
+    ('sucursal_modulos_lider', 'public.sucursal_modulos'),
+    ('sucursal_modulos_select', 'public.sucursal_modulos'),
+    ('sucursal_opciones_lider', 'public.sucursal_opciones'),
+    ('sucursal_opciones_select', 'public.sucursal_opciones'),
+    ('sucursales_lider', 'public.sucursales'),
+    ('sucursales_select', 'public.sucursales'),
+    ('evidencias_insert', 'storage.objects'),
+    ('evidencias_select', 'storage.objects'),
+    ('evidencias_update', 'storage.objects'),
+    ('storage_incidencias_delete', 'storage.objects'),
+    ('storage_incidencias_insert', 'storage.objects'),
+    ('storage_incidencias_select', 'storage.objects'),
+    ('storage_incidencias_update', 'storage.objects'),
+    ('departamentos_centralizados_lider', 'public.departamentos_centralizados'),
+    ('departamentos_centralizados_select', 'public.departamentos_centralizados'),
+    ('departamento_items_lider', 'public.departamento_items'),
+    ('departamento_items_select', 'public.departamento_items'),
+    ('departamento_modulos_lider', 'public.departamento_modulos'),
+    ('departamento_modulos_select', 'public.departamento_modulos'),
+    ('departamento_opciones_lider', 'public.departamento_opciones'),
+    ('departamento_opciones_select', 'public.departamento_opciones'),
+    ('revision_pre_entrega_delete', 'public.revision_pre_entrega'),
+    ('revision_pre_entrega_insert', 'public.revision_pre_entrega'),
+    ('revision_pre_entrega_select', 'public.revision_pre_entrega'),
+    ('revision_pre_entrega_update', 'public.revision_pre_entrega'),
+    ('storage_pre_entrega_delete', 'storage.objects'),
+    ('storage_pre_entrega_insert', 'storage.objects'),
+    ('storage_pre_entrega_select', 'storage.objects'),
+    ('storage_pre_entrega_update', 'storage.objects'),
+    ('gran_cosecha_pagina_select', 'public.gran_cosecha_pagina'),
+    ('gran_cosecha_pagina_lider', 'public.gran_cosecha_pagina'),
+    ('gran_cosecha_pagina_fotos_select', 'storage.objects'),
+    ('gran_cosecha_pagina_fotos_lider', 'storage.objects'),
+    ('gran_cosecha_fotos_proyecto', 'storage.objects'),
+    ('menu_productos_select', 'public.menu_productos'),
+    ('menu_productos_gestion', 'public.menu_productos'),
+    ('menu_fotos_select', 'storage.objects'),
+    ('menu_fotos_encargado', 'storage.objects')
+)
+select
+  e.tabla,
+  e.politica,
+  'FALTA' as estado,
+  case
+    when e.tabla like 'storage.%' then 'fotos e incidencias: sin esta politica la foto no se sube ni se ve'
+    else 'sin esta politica la tabla no se puede usar como la espera la app'
+  end as por_que_importa
+from esperadas e
+where not exists (
+  select 1
+  from pg_policies pp
+  where pp.schemaname || '.' || pp.tablename = e.tabla
+    and pp.policyname = e.politica
+)
+order by e.tabla, e.politica;
+
+
+-- ----------------------------------------------------------------------------
+-- 3) Los helpers de RLS siguen siendo ejecutables por authenticated
+-- ----------------------------------------------------------------------------
+-- Si a estos se les saca EXECUTE, el error no dice 'no tenes permiso': dice
+-- 'permission denied for function' en cada select, insert y update, y parece que
+-- se rompiÃ³ la app entera. Ojo: los permisos en Postgres son aditivos, asi que
+-- revocar de PUBLIC no los saca si el rol tiene un permiso propio.
+select
+  p.proname as funcion,
+  case when has_function_privilege('authenticated', p.oid, 'EXECUTE')
+       then 'ok'
+       else 'SIN EXECUTE: la app no va a poder leer ni guardar nada'
+  end as estado
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in (
+    'es_lider', 'puede_ver_evaluacion', 'puede_responder',
+    'puede_manejar_instancia', 'puede_reportar_incidencia', 'puede_ver_incidencia'
+  )
+order by p.proname;
+
+
+-- ----------------------------------------------------------------------------
+-- 4) Funciones con datos que NO pueden quedar abiertas a anon
+-- ----------------------------------------------------------------------------
+-- 'intento_login' y 'email_por_usuario' si van abiertas: son la pantalla de
+-- login, que corre antes de autenticar, y por ahi no se puede evitar.
+-- 'ver_conciliacion_compartida' tambien: es el enlace publico de
+-- conciliacion (`/compartir/:token`). Es SECURITY DEFINER, con search_path
+-- fijo y con el token como unica autorizacion; ver `compartir-evaluacion.sql`.
+-- 'ver_cargos_compartidos' es la de fallas por cargo
+-- (`/compartir/cargos/:token`), con las mismas condiciones; ver
+-- `compartir-cargos.sql`. La quinta es `ver_contenido_gran_cosecha`: sirve
+-- el contenido de la landing `/gran-cosecha.html` sin sesion, y no expone
+-- nada que la propia página no muestre a cualquiera; ver
+-- `gran-cosecha-pagina.sql`.
+-- Las demas deberian dar 'ok' (cerradas para anon).
+select
+  p.proname as funcion,
+  has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede,
+  case
+    when p.proname in ('intento_login', 'email_por_usuario', 'ver_conciliacion_compartida',
+                       'ver_cargos_compartidos', 'ver_contenido_gran_cosecha',
+                       'registrar_visita_menu', 'ver_menu_publico', 'ver_sucursales_menu')
+      then 'permitido sin sesion'
+    when has_function_privilege('anon', p.oid, 'EXECUTE')
+      then 'ABIERTA A ANON: correr reactivar-politicas.sql'
+    else 'ok'
+  end as estado
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in (
+    'validar_suma_puntaje_items', 'validar_registro', 'handle_new_user',
+    'validar_modulo_compartido', 'validar_unico_evaluador_modulo',
+    'desbloquear_usuario', 'registrar_sync',
+    'intento_login', 'email_por_usuario', 'ver_conciliacion_compartida',
+    'ver_cargos_compartidos', 'ver_contenido_gran_cosecha',
+    'ver_menu_publico', 'registrar_visita_menu', 'ver_visitas_menu',
+    'ver_sucursales_menu',
+    'mergear_conciliacion', 'puede_usar_revision_pre_entrega',
+    'previsualizar_departamentos', 'aplicar_departamentos'
+  )
+order by p.proname;
+
+
+-- ###########################################################################
+-- Archivo consolidado: parametros-sucursal.sql
+-- ###########################################################################
+-- ============================================================================
+-- PARAMETROS OPERATIVOS DE LA SUCURSAL
+--
+-- La ficha de la tienda: cuantos equipos de cada tipo hay, que computadores
+-- atiende cada puesto y que permisos operativos tiene la sucursal al dia.
+-- Es distinto de `sucursal_modulos` / `sucursal_items`: eso define QUE se
+-- evalua en la tienda; esto define CON QUE CUENTA la tienda, que es con lo que
+-- despues se mide y se compara.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+--
+-- 1) CONTADORES DE EQUIPOS (columnas de la propia sucursal)
+--
+-- Van como columnas y no en una tabla porque son cinco contadores fijos,
+-- siempre presentes, y asi se suman y se comparan de un `select` sin agrupar:
+-- son parametros de la sucursal, no una lista que crezca. Los computadores
+-- (que llevan nombre) y los permisos (con vigencia) SI son listas y viven en
+-- sus tablas del punto 2 y 3.
+--
+-- `default 0` y `not null`: un cero explicito ("no hay ninguno") es un dato, y
+-- deja el `sum()` de un reporte sin `coalesce` ni huecos. El `?? 0` del cliente
+-- cubre las filas cacheadas antes de esta migracion.
+-- ============================================================================
+alter table public.sucursales add column if not exists equipos_pos integer not null default 0;
+alter table public.sucursales add column if not exists verificadores_precio integer not null default 0;
+alter table public.sucursales add column if not exists pantallas_publicitarias integer not null default 0;
+alter table public.sucursales add column if not exists cabezales integer not null default 0;
+alter table public.sucursales add column if not exists pda integer not null default 0;
+
+-- La guarda de >= 0 vive en la base, no solo en la pantalla: un contador
+-- negativo no describe ninguna tienda y arruina cualquier promedio. La app ya
+-- recorta, pero una escritura a mano (un script, un dato importado) no pasa
+-- por ahi.
+alter table public.sucursales drop constraint if exists sucursales_contadores_no_negativos;
+alter table public.sucursales add constraint sucursales_contadores_no_negativos
+  check (equipos_pos >= 0 and verificadores_precio >= 0 and pantallas_publicitarias >= 0
+         and cabezales >= 0 and pda >= 0);
+
+-- ----------------------------------------------------------------------------
+-- 2) COMPUTADORES DE LA SUCURSAL (administrativos y operativos, con nombre)
+--
+-- A diferencia de los contadores de `sucursales` (POS, cabezales, PDA), los
+-- computadores llevan NOMBRE porque el puesto importa: "RRHH" o "Recibidor" no
+-- son solo un numero, son el area que atiende ese equipo. `tipo` los separa en
+-- administrativos y operativos para poder contarlos por separado en los
+-- reportes. `cantidad` permite 2 equipos en el mismo puesto sin duplicar la
+-- fila.
+-- ----------------------------------------------------------------------------
+create table if not exists public.sucursal_computadores (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  nombre text not null,
+  tipo text not null default 'OPERATIVO' check (tipo in ('ADMINISTRATIVO', 'OPERATIVO')),
+  cantidad integer not null default 1 check (cantidad >= 0),
+  created_at timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
+-- 3) PERMISOS OPERATIVOS DE LA SUCURSAL (sanitarios, bomberos, ...)
+--
+-- Cada permiso que la tienda debe tener al dia: nombre, numero de referencia y
+-- vigencia. `vigente` es la marca rapida de si aplica hoy; `vence` es la fecha
+-- con la que se avisa lo que esta por vencer. `emision` es opcional (no todo
+-- permiso la trae) y `observacion` recibe lo que no entra en los campos.
+-- ----------------------------------------------------------------------------
+create table if not exists public.sucursal_permisos (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  nombre text not null,
+  numero text,
+  vigente boolean not null default true,
+  emision date,
+  vence date,
+  observacion text,
+  created_at timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
+-- 4) ROW LEVEL SECURITY: mismo trato que el resto de la configuracion por
+--    sucursal (lectura a cualquiera con sesion, gestion solo al LIDER). Los
+--    contadores no tienen politica propia: son columnas de `sucursales`, que ya
+--    tiene las suyas.
+-- ----------------------------------------------------------------------------
+alter table public.sucursal_computadores enable row level security;
+alter table public.sucursal_permisos enable row level security;
+
+drop policy if exists sucursal_computadores_select on public.sucursal_computadores;
+create policy sucursal_computadores_select on public.sucursal_computadores for select to authenticated using (true);
+drop policy if exists sucursal_computadores_lider on public.sucursal_computadores;
+create policy sucursal_computadores_lider on public.sucursal_computadores for all using (public.es_lider()) with check (public.es_lider());
+drop policy if exists sucursal_permisos_select on public.sucursal_permisos;
+create policy sucursal_permisos_select on public.sucursal_permisos for select to authenticated using (true);
+drop policy if exists sucursal_permisos_lider on public.sucursal_permisos;
+create policy sucursal_permisos_lider on public.sucursal_permisos for all using (public.es_lider()) with check (public.es_lider());
+
+-- Segunda mitad de la cerradura: si algun dia RLS queda apagado en una de
+-- estas tablas (pasa, y no se ve), el `grant` por defecto de Supabase pasa a ser
+-- la unica puerta. Con el revoke sigue cerrada.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['sucursal_computadores', 'sucursal_permisos'] loop
+    execute format('revoke select on public.%I from anon', t);
+  end loop;
+end $$;
+
+
+-- ###########################################################################
+-- Archivo consolidado: permisos-checklist.sql
+-- ###########################################################################
+-- ============================================================================
+-- CHECKLIST QUE TOMA SU LISTA DE LOS PERMISOS DE LA SUCURSAL
+--
+-- Un ítem CHECKLIST puede llenar su lista con los permisos de la tienda en vez
+-- de la escrita a mano. La columna decide el origen y el filtro; la lista en sí
+-- se arma en cada pantalla desde `sucursal_permisos`, así que no se guarda una
+-- copia en la evaluación y siempre refleja los permisos actuales.
+--
+--   NULL       -> lista manual en `items.opciones` (comportamiento de siempre)
+--   'TODOS'    -> los permisos ACTIVOS de la sucursal evaluada
+--   'VENCIDOS' -> sólo los ACTIVOS cuya `vence` ya pasó
+--
+-- El estado vigente/vencido de cada permiso se calcula contra la fecha de hoy en
+-- el dispositivo, no acá: es el mismo criterio que usa Config para la ficha de
+-- parámetros de la sucursal.
+-- ============================================================================
+alter table public.items
+  add column if not exists permisos_sucursal text;
+
+alter table public.items
+  drop constraint if exists items_permisos_sucursal_valido;
+alter table public.items
+  add constraint items_permisos_sucursal_valido
+  check (permisos_sucursal is null or permisos_sucursal in ('TODOS', 'VENCIDOS'));
+
+comment on column public.items.permisos_sucursal is
+  'CHECKLIST: origen de la lista de opciones. NULL = manual; TODOS / VENCIDOS = generada desde los permisos activos de la sucursal evaluada.';
+
+
+-- ###########################################################################
+-- Archivo consolidado: alertas-cargo.sql
+-- ###########################################################################
+-- ============================================================================
+-- ALERTAS DE SEGUIMIENTO POR CARGO (AMONESTACION Y LLAMADO DE ATENCION)
+--
+-- El dashboard de seguimiento muestra, por unidad, cada EVALUACION cerrada y
+-- la nota que saco cada cargo EN ESA VISITA. Cuando esa nota cae por debajo
+-- del umbral (80% amonestacion, 70% llamado de atencion) el LIDER registra un
+-- llamado de atencion: queda PENDIENTE hasta que alguien lo atiende, y ahi
+-- pasa a ATENDIDA con fecha y quien lo atendio.
+--
+-- No es un indicador calculado: la nota de la visita se recalcula siempre
+-- desde las evaluaciones cerradas (seguimientoPorEvaluacion). Esta tabla
+-- guarda lo que se decidio HACER en esa visita, con la nota que tenia el
+-- cargo ese dia. Por eso la fila del panel se arma cruzando las dos cosas.
+--
+-- UNA ALERTA POR (CARGO, UNIDAD, EVALUACION): el llamado pertenece a una
+-- visita concreta, no a la relacion historica entre el cargo y la tienda. Al
+-- atenderla esa celda queda LIMPIA y no vuelve a pedir accion hasta la
+-- proxima evaluacion, que trae sus propias fallas y dice cuales son
+-- reincidencias.
+--
+-- Las alertas que no tienen evaluacion (el modelo viejo, que era por cargo y
+-- unidad sobre el PROMEDIO historico) se BORRAN al aplicar este bloque: no
+-- describen ninguna visita y el panel por evaluacion no sabe que hacer con
+-- ellas.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+create table if not exists public.alertas_cargo (
+  id uuid primary key default gen_random_uuid(),
+  clave_cargo text not null,
+  cargo text not null,
+  -- La unidad de la matriz: sucursal o departamento, una sola, igual que en
+  -- `evaluaciones` e `incidencias`.
+  sucursal_id uuid references public.sucursales(id) on delete cascade,
+  departamento_id uuid references public.departamentos_centralizados(id) on delete cascade,
+  -- LA VISITA que origina el llamado. Sin ella no hay fila que armar en el
+  -- panel por evaluacion: por eso termina siendo not null.
+  evaluacion_id uuid,
+  nivel text not null check (nivel in ('AMONESTACION', 'LLAMADO')),
+  -- La nota CON la que se decidio actuar. Va de 0 a 100: es un porcentaje
+  -- redondeado que sale de `notaDe`, y un valor fuera de ese rango describe
+  -- una evaluacion que no existe.
+  nota integer not null check (nota >= 0 and nota <= 100),
+  estado text not null default 'PENDIENTE' check (estado in ('PENDIENTE', 'ATENDIDA')),
+  atendida_en timestamptz,
+  atendida_por uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint alertas_cargo_unidad_check check ((sucursal_id is null) <> (departamento_id is null))
+);
+
+-- La columna nueva nace sin `references` y sin `not null` a propósito: el
+-- bloque tiene que migrar una tabla que ya existe en producción. Se agrega,
+-- se borran las filas del modelo viejo (las que no tienen evaluacion) y recien
+-- ahi se cierra con la FK y el `not null`. Un `create table` nuevo no puede
+-- hacer ese orden, y el bloque tiene que poder correr dos veces.
+alter table public.alertas_cargo
+  add column if not exists evaluacion_id uuid;
+
+delete from public.alertas_cargo where evaluacion_id is null;
+
+alter table public.alertas_cargo
+  alter column evaluacion_id set not null;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'alertas_cargo_evaluacion_fkey'
+  ) then
+    alter table public.alertas_cargo
+      add constraint alertas_cargo_evaluacion_fkey
+      foreign key (evaluacion_id) references public.evaluaciones(id) on delete cascade;
+  end if;
+end $$;
+
+-- El indice que sostiene la regla de "una sola pendiente POR VISITA". Va sobre
+-- una EXPRESION, no sobre las dos columnas: en un indice unico dos NULL no se
+-- consideran iguales y sin el `coalesce` cabrian dos pendientes con la misma
+-- unidad. El `where estado = 'PENDIENTE'` deja las atendidas acumularse: son
+-- el historial. El indice viejo, sin la visita, se va con su regla.
+drop index if exists public.alertas_cargo_pendiente;
+
+create unique index if not exists alertas_cargo_pendiente
+  on public.alertas_cargo (clave_cargo, coalesce(sucursal_id, departamento_id), evaluacion_id)
+  where estado = 'PENDIENTE';
+
+create index if not exists idx_alertas_cargo_unidad
+  on public.alertas_cargo (coalesce(sucursal_id, departamento_id), created_at desc);
+
+create index if not exists idx_alertas_cargo_evaluacion
+  on public.alertas_cargo (evaluacion_id, clave_cargo);
+
+-- A QUIÉN SE LE NOTIFICÓ
+-- El llamado o la amonestación se aplica a PERSONAS, no a un cargo abstracto:
+-- el Líder elige del listado de trabajadores activos de esa sucursal con ese
+-- cargo a quién se lo está aplicando, y esa elección queda acá. Va en una tabla
+-- hija y no en una columna array porque el historial por persona es el dato que
+-- después sirve para contar reincidencias de cada trabajador, y un array sólo
+-- se puede leer completo.
+create table if not exists public.alerta_trabajadores (
+  id uuid primary key default gen_random_uuid(),
+  alerta_id uuid not null references public.alertas_cargo(id) on delete cascade,
+  -- La identidad es (nacionalidad, dni), la misma con la que viene de la API
+  -- de trabajadores: el DNI sólo no basta porque se repite entre países.
+  nacionalidad text not null default 'V',
+  dni bigint not null,
+  nombre text not null,
+  created_at timestamptz not null default now(),
+  constraint alerta_trabajadores_unico unique (alerta_id, nacionalidad, dni)
+);
+
+create index if not exists idx_alerta_trabajadores_persona
+  on public.alerta_trabajadores (nacionalidad, dni);
+
+-- Mismo trato que su tabla madre: lectura con sesión, gestión sólo al LÍDER.
+alter table public.alerta_trabajadores enable row level security;
+
+drop policy if exists alerta_trabajadores_select on public.alerta_trabajadores;
+create policy alerta_trabajadores_select on public.alerta_trabajadores for select to authenticated using (true);
+drop policy if exists alerta_trabajadores_lider on public.alerta_trabajadores;
+create policy alerta_trabajadores_lider on public.alerta_trabajadores for all using (public.es_lider()) with check (public.es_lider());
+
+do $$
+begin
+  execute 'revoke select on public.alerta_trabajadores from anon';
+end $$;
+
+-- ROW LEVEL SECURITY: lectura con sesion, gestion solo al LIDER, igual que el
+-- resto de la configuracion. La pantalla de seguimiento es del LIDER; el
+-- `select` abierto a authenticated es el mismo trato que `sucursal_permisos`.
+alter table public.alertas_cargo enable row level security;
+
+drop policy if exists alertas_cargo_select on public.alertas_cargo;
+create policy alertas_cargo_select on public.alertas_cargo for select to authenticated using (true);
+drop policy if exists alertas_cargo_lider on public.alertas_cargo;
+create policy alertas_cargo_lider on public.alertas_cargo for all using (public.es_lider()) with check (public.es_lider());
+
+-- Segunda mitad de la cerradura, igual que en `parametros-sucursal.sql`: si
+-- algun dia RLS queda apagado en esta tabla, el grant por defecto de Supabase
+-- pasa a ser la unica puerta. Con el revoke sigue cerrada.
+do $$
+begin
+  execute 'revoke select on public.alertas_cargo from anon';
+end $$;
+
+-- Archivo consolidado: push-suscripciones.sql
+-- ###########################################################################
+-- ============================================================================
+-- SUSCRIPCIONES A NOTIFICACIONES PUSH
+--
+-- QUE GUARDA Y POR QUE ES UNA TABLA Y NO UN CAMPO EN `profiles`
+-- ------------------------------------------------------------
+-- Un usuario puede estar suscrito desde VARIOS dispositivos (el teléfono y la
+-- tableta del gerente), y cada uno tiene su propio `endpoint` con sus propias
+-- claves `p256dh`/`auth`. Meterlo en `profiles` obligaría a un campo jsonb
+-- multi-dispositivo y a perder el endpoint viejo al suscribir el nuevo.
+--
+-- El `endpoint` es la dirección a la que se manda: es única por definición
+-- (lo decide el push service del navegador), y de ahí sale el `unique`. Si un
+-- navegador rota su suscripción —que lo hace— llega un endpoint nuevo y se
+-- inserta otro registro; el viejo queda con `activa = false` o se borra al
+-- devolver 410 Gone.
+--
+-- QUIEN LEE Y QUIEN ESCRIBE
+-- -------------------------
+-- Sólo el dueño de la fila: cada uno gestiona las suyas (`user_id =
+-- auth.uid()`). El endpoint que manda (`api/push.js`) NO lee por RLS: usa la
+-- service role key del servidor, que bypasea las políticas. Si leyera con el
+-- JWT del usuario sólo vería las suscripciones de él y no podría avisarle a
+-- nadie.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+create table if not exists public.push_suscripciones (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  -- La dirección del push service. Texto largo y único: es la clave natural
+  -- de la fila, no un id que se genere.
+  endpoint text not null unique,
+  -- Las dos claves de cifrado del canal (RFC 8291). Sin ellas el payload se
+  -- mandaría en claro al push service.
+  p256dh text not null,
+  auth text not null,
+  -- Preferencia del usuario: apagar las notificaciones desde la app sin
+  -- destruir la suscripción (se puede re-encender sin volver a pedir permiso).
+  activa boolean not null default true,
+  created_at timestamptz not null default now(),
+  -- La escribe el cliente al suscribirse/re-suscribirse. Es lo que permite
+  -- podar suscripciones que llevan meses sin refrescarse: un navegador que no
+  -- vuelve a suscribirse en ese tiempo ya no recibe nada.
+  updated_at timestamptz not null default now()
+);
+
+-- La consulta del endpoint es "todas las activas"; la del usuario es "las mías".
+create index if not exists idx_push_suscripciones_usuario
+  on public.push_suscripciones (user_id, activa);
+create index if not exists idx_push_suscripciones_activas
+  on public.push_suscripciones (updated_at) where activa;
+
+-- ----------------------------------------------------------------------------
+-- RLS: cada uno con las suyas. Nadie más las ve — ni siquiera otro Líder,
+-- porque un endpoint de push es una dirección de entrega y no hay motivo para
+-- que otro usuario la tenga.
+-- ----------------------------------------------------------------------------
+alter table public.push_suscripciones enable row level security;
+
+drop policy if exists push_suscripciones_select on public.push_suscripciones;
+create policy push_suscripciones_select on public.push_suscripciones
+  for select to authenticated using (user_id = auth.uid());
+
+drop policy if exists push_suscripciones_insert on public.push_suscripciones;
+create policy push_suscripciones_insert on public.push_suscripciones
+  for insert to authenticated with check (user_id = auth.uid());
+
+drop policy if exists push_suscripciones_update on public.push_suscripciones;
+create policy push_suscripciones_update on public.push_suscripciones
+  for update to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+drop policy if exists push_suscripciones_delete on public.push_suscripciones;
+create policy push_suscripciones_delete on public.push_suscripciones
+  for delete to authenticated using (user_id = auth.uid());
+
+-- Segunda mitad de la cerradura, igual que en `parametros-sucursal.sql`: el
+-- grant por defecto de Supabase le da acceso a anon.
+do $$
+begin
+  execute 'revoke all on public.push_suscripciones from anon';
+end $$;
+
+-- Archivo consolidado: bonos.sql
+-- ###########################################################################
+-- ============================================================================
+-- BONOS POR DESEMPEÑO: QUÉ CARGOS GOZAN DE BONO Y QUIÉN LO COBRA
+--
+-- Dos tablas y una sola regla de negocio:
+--
+--  * `bonos_cargo` dice QUÉ cargo goza de bono: su monto base, su nota
+--    mínima (el umbral, 70 por defecto) y cada cuánto se paga —MENSUAL o
+--    TRIMESTRAL— elegido por cargo. El mismo cargo puede repetirse en otra
+--    fila SI sus sucursales no se cruzan con las de la primera: es la forma
+--    de darle monto, umbral o período distinto a otro conjunto de tiendas.
+--  * `bonos_cargo_sucursal` es el ALCANCE de ese cargo: sin filas aplica a
+--    TODAS las sucursales con el monto base; con filas aplica sólo a ese
+--    conjunto y cada sucursal puede traer su propio monto (montos distintos
+--    por tipo de tienda, sin tocar umbral ni periodicidad).
+--  * `bonos_cargo_excluido` y `bonos_cargo_ocupante` son las dos excepciones
+--    persona × cargo: QUIÉN NO COBRA (excluido, «hay 5, pero sólo 3») y QUIÉN
+--    SÍ COBRA A PESAR DE NO TENER ESE CARGO EN LA NÓMINA (ocupante por
+--    excepción, para quien está apoyando o preparándose para ocuparlo).
+--  * `bonos_pago` es el pago de UN colaborador en UN período. La nota se
+--    carga A MANO (no se cruza con las evaluaciones) y el monto a cobrar lo
+--    calcula el cliente con `montoACobrar`: por debajo del umbral no se paga
+--    nada (0 a 69 con umbral 70); desde el umbral en adelante se paga el
+--    porcentaje obtenido, es decir monto × nota / 100.
+--
+-- Al GENERAR la fila se congelan cargo, monto_base y nota_minima: cambiar la
+-- configuración de un cargo mañana no reescribe los pagos ya generados. El
+-- `check` de pagar con nota impide marcar como PAGADO algo sin nota —sin nota
+-- no hay porcentaje que pagar—, y el monto guardado es la foto de esa nota.
+--
+-- Período: `2026-11` para los mensuales y `2026-T1`…`2026-T4` para los
+-- trimestrales, con el `check` de formato para que no entre cualquier texto.
+--
+-- Quién entra: LÍDER y GERENTE DE TALENTO HUMANO. La misma cerradura en el
+-- menú, en la ruta y acá abajo (`puede_bonos`), con el RLS como segunda.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+create table if not exists public.bonos_cargo (
+  id uuid primary key default gen_random_uuid(),
+  cargo text not null,
+  -- El cargo normalizado (sin acentos ni mayúsculas, sólo alfanumérico), la
+  -- misma que calcula el cliente con `claveNormalizada`. NO es único: el
+  -- mismo cargo puede repetirse en otra fila con OTRO conjunto de sucursales
+  -- (montos, umbrales o períodos distintos por tienda), y la regla de que esas
+  -- filas no compartan sucursales la valida la app (`sucursalesTomadas`) —un
+  -- unique no puede expresar «sin filas = todas las sucursales».
+  clave text not null,
+  activo boolean not null default true,
+  monto numeric not null check (monto >= 0),
+  -- Umbral de la nota: por debajo no se cobra nada. Va por cargo porque el
+  -- umbral del cargo es el que decide el prorrateo de sus pagos.
+  nota_minima numeric not null default 70 check (nota_minima >= 0 and nota_minima <= 100),
+  periodicidad text not null default 'MENSUAL' check (periodicidad in ('MENSUAL', 'TRIMESTRAL')),
+  -- Nombre de EXHIBICIÓN, opcional: sirve para distinguir dos filas del mismo
+  -- cargo («Gerente de mercado (Tienda tipo A)»). NO participa del cruce con
+  -- la nómina: eso lo sigue decidiendo `cargo`.
+  alias text,
+  -- Departamento al que ACOTA el bono (NULL = cualquier departamento). La
+  -- nómina trae `department_name` por persona, así que con esto «Comprador/a»
+  -- de Compras no se junta con «Comprador/a» de Servicios Generales: son dos
+  -- filas del mismo cargo que conviven porque sus áreas no se cruzan.
+  departamento text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- MIGRACIÓN: las columnas nuevas nacen en el `create table` de arriba, pero
+-- una tabla ya creada por una versión anterior no las tiene. El `if not
+-- exists` hace que el bloque las agregue sin romper nada y sea idempotente.
+alter table public.bonos_cargo add column if not exists alias text;
+alter table public.bonos_cargo add column if not exists departamento text;
+
+-- MIGRACIÓN: la versión anterior de este bloque traía
+-- `constraint bonos_cargo_unico unique (clave)`, que impedía repetir el
+-- cargo. Se cae acá para que el bloque actualice una tabla ya creada (el
+-- `create table if not exists` no toca la que existe). Sobre una tabla nueva
+-- no hace nada.
+alter table public.bonos_cargo drop constraint if exists bonos_cargo_unico;
+
+create index if not exists idx_bonos_cargo_clave on public.bonos_cargo (clave);
+
+-- ALCANCE POR SUCURSAL: el cargo es una PLANTILLA y este conjunto decide
+-- DÓNDE se paga y con CUÁNTO.
+--
+--  * Sin filas acá, el cargo aplica a TODAS las sucursales con su monto base.
+--  * Con filas, aplica SÓLO a esas sucursales (un conjunto concreto), y cada
+--    una puede traer su propio monto: NULL = el del cargo, con valor = el de
+--    ESA sucursal, que es como se cubre «montos distintos por tipo de tienda».
+--
+-- El umbral de nota y la periodicidad NO se copian acá: siguen siendo del
+-- cargo. Lo que cambia por sucursal es cuánto se paga, no la regla.
+create table if not exists public.bonos_cargo_sucursal (
+  bono_cargo_id uuid not null references public.bonos_cargo(id) on delete cascade,
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  -- NULL = usa el monto base del cargo.
+  monto numeric check (monto is null or monto >= 0),
+  created_at timestamptz not null default now(),
+  constraint bonos_cargo_sucursal_pkey primary key (bono_cargo_id, sucursal_id)
+);
+
+create index if not exists idx_bonos_cargo_sucursal_sucursal
+  on public.bonos_cargo_sucursal (sucursal_id);
+
+-- TRABAJADORES EXCLUIDOS DE UN BONO
+-- Para cargos donde sólo parte de la gente cobra («Comprador/a: hay 5, pero
+-- sólo quiero 3»). Se excluye por PERSONA (nacionalidad + DNI) dentro de un
+-- cargo, desde el modal de ocupantes, y se puede deshacer en cualquier
+-- momento: la fila no se borra de la nómina, sólo deja de contar y de
+-- generar pago en ESTE cargo.
+create table if not exists public.bonos_cargo_excluido (
+  bono_cargo_id uuid not null references public.bonos_cargo(id) on delete cascade,
+  nacionalidad text not null default 'V',
+  dni bigint not null,
+  created_at timestamptz not null default now(),
+  constraint bonos_cargo_excluido_pkey primary key (bono_cargo_id, nacionalidad, dni)
+);
+
+create index if not exists idx_bonos_cargo_excluido_dni
+  on public.bonos_cargo_excluido (nacionalidad, dni);
+
+-- OCUPANTES POR EXCEPCIÓN: LA OTRA CARA DE LA LISTA DE ARRIBA
+--
+-- El cruce con la nómina es EXACTO por cargo, así que una persona que está
+-- apoyando o preparándose para ocupar un cargo —su figura en la nómina todavía
+-- es OTRA— no lo encuentra y no contaría ni cobrara. Desde el modal de
+-- ocupantes se la busca por cédula entre los trabajadores y se la agrega a
+-- mano: queda como ocupante de pleno derecho, cuenta para el conteo y para el
+-- gasto proyectado, y genera su fila de pago con el monto de la sucursal
+-- elegida (que tiene que estar dentro del alcance del cargo: fuera de él
+-- `montoParaSucursal` devuelve NULL y no se contaría).
+--
+-- La identidad es la misma que la de los excluidos: (cargo, nacionalidad,
+-- DNI) —una sola fila por persona por cargo—. El `nombre` va CONGELADO como
+-- en `bonos_pago`, porque la nómina es una foto que cambia; y la `sucursal_id`
+-- es donde cobra ESTE bono, que no siempre es la de su cargo en la nómina.
+create table if not exists public.bonos_cargo_ocupante (
+  bono_cargo_id uuid not null references public.bonos_cargo(id) on delete cascade,
+  nacionalidad text not null default 'V',
+  dni bigint not null,
+  nombre text not null,
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  constraint bonos_cargo_ocupante_pkey primary key (bono_cargo_id, nacionalidad, dni)
+);
+
+create index if not exists idx_bonos_cargo_ocupante_dni
+  on public.bonos_cargo_ocupante (nacionalidad, dni);
+
+-- (El RLS de estas dos tablas va más abajo, con el resto: necesita que
+-- exista `puede_bonos`, que se define después de las tablas.)
+
+create table if not exists public.bonos_pago (
+  id uuid primary key default gen_random_uuid(),
+  bono_cargo_id uuid not null references public.bonos_cargo(id) on delete cascade,
+  -- `2026-11` para MENSUAL, `2026-T1`…`2026-T4` para TRIMESTRAL.
+  periodo text not null check (periodo ~ '^\d{4}-((0[1-9]|1[0-2])|T[1-4])$'),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  -- La identidad es (nacionalidad, dni), la misma de `alerta_trabajadores`:
+  -- la nómina viene de la API de trabajadores y el DNI sólo se repite entre
+  -- países.
+  nacionalidad text not null default 'V',
+  dni bigint not null,
+  nombre text not null,
+  -- Congelados al generar la fila: ver cabecera del bloque.
+  cargo text not null,
+  -- El nombre de exhibición del cargo EN ESTE PAGO, congelado igual que el
+  -- cargo: así dos filas del mismo cargo se distinguen también en la lista
+  -- de pagos (NULL = se muestra el cargo tal cual).
+  alias text,
+  -- El departamento del cargo EN ESTE PAGO, congelado igual que el cargo:
+  -- distingue los «Comprador/a» de un área de los de la otra en la lista.
+  departamento text,
+  monto_base numeric not null check (monto_base >= 0),
+  nota_minima numeric not null check (nota_minima >= 0 and nota_minima <= 100),
+  -- Cargada a mano, de 0 a 100. Sin nota no hay monto y no se puede pagar.
+  nota numeric check (nota is null or (nota >= 0 and nota <= 100)),
+  -- Lo que se le paga: 0 mientras no haya nota y `monto × nota / 100` una
+  -- vez que la hay. Se guarda para que el histórico no dependa de recalcular.
+  monto numeric not null default 0 check (monto >= 0),
+  estado text not null default 'PENDIENTE' check (estado in ('PENDIENTE', 'PAGADO')),
+  pagado_en date,
+  pagado_por uuid references public.profiles(id) on delete set null,
+  observaciones text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  -- Una fila por (cargo, período, sucursal y persona): la generación se
+  -- puede volver a correr sin duplicar cobros.
+  constraint bonos_pago_unico unique (bono_cargo_id, periodo, sucursal_id, nacionalidad, dni),
+  constraint bonos_pago_paga_con_nota check (estado <> 'PAGADO' or nota is not null)
+);
+
+-- MIGRACIÓN: el `create table if not exists` NO agrega columnas a una tabla
+-- ya creada, así que las columnas nuevas se agregan aparte. Sin esto, una
+-- base que ya tenía esta tabla fallaría al generar los pagos.
+alter table public.bonos_pago add column if not exists departamento text;
+alter table public.bonos_pago add column if not exists alias text;
+
+create index if not exists idx_bonos_pago_periodo on public.bonos_pago (periodo, estado);
+create index if not exists idx_bonos_pago_sucursal on public.bonos_pago (sucursal_id, periodo);
+
+-- Quién gestiona bonos: el LÍDER y el GERENTE DE TALENTO HUMANO. Es la misma
+-- pregunta que el menú y la ruta, así que se responde una sola vez.
+create or replace function public.puede_bonos()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.rol in ('LIDER', 'GERENTE_TH') and p.activo
+  );
+$$;
+
+-- ROW LEVEL SECURITY: sólo quien gestiona bonos los ve ni los toca. A
+-- diferencia del resto de la configuración, el `select` NO va abierto a
+-- todo `authenticated`: un bono es una cifra de sueldo y un EVALUADOR o un
+-- GERENTE_S no tienen por qué leerla.
+alter table public.bonos_cargo enable row level security;
+
+drop policy if exists bonos_cargo_select on public.bonos_cargo;
+create policy bonos_cargo_select on public.bonos_cargo
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_cargo_gestion on public.bonos_cargo;
+create policy bonos_cargo_gestion on public.bonos_cargo
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+-- El alcance por sucursal se lee y se escribe con las MISMAS reglas que la
+-- plantilla que lo trae: es la mitad de la misma configuración.
+alter table public.bonos_cargo_sucursal enable row level security;
+
+drop policy if exists bonos_cargo_sucursal_select on public.bonos_cargo_sucursal;
+create policy bonos_cargo_sucursal_select on public.bonos_cargo_sucursal
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_cargo_sucursal_gestion on public.bonos_cargo_sucursal;
+create policy bonos_cargo_sucursal_gestion on public.bonos_cargo_sucursal
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+-- Los excluidos de un cargo se leen y se escriben con las mismas reglas que
+-- el cargo al que pertenecen: es otra mitad de la misma configuración.
+alter table public.bonos_cargo_excluido enable row level security;
+
+drop policy if exists bonos_cargo_excluido_select on public.bonos_cargo_excluido;
+create policy bonos_cargo_excluido_select on public.bonos_cargo_excluido
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_cargo_excluido_gestion on public.bonos_cargo_excluido;
+create policy bonos_cargo_excluido_gestion on public.bonos_cargo_excluido
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+do $$
+begin
+  execute 'revoke all on public.bonos_cargo_excluido from anon';
+end $$;
+
+-- Las excepciones de ocupantes se leen y se escriben con las mismas reglas
+-- que el cargo al que pertenecen: es otra mitad de la misma configuración.
+alter table public.bonos_cargo_ocupante enable row level security;
+
+drop policy if exists bonos_cargo_ocupante_select on public.bonos_cargo_ocupante;
+create policy bonos_cargo_ocupante_select on public.bonos_cargo_ocupante
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_cargo_ocupante_gestion on public.bonos_cargo_ocupante;
+create policy bonos_cargo_ocupante_gestion on public.bonos_cargo_ocupante
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+do $$
+begin
+  execute 'revoke all on public.bonos_cargo_ocupante from anon';
+end $$;
+
+alter table public.bonos_pago enable row level security;
+
+drop policy if exists bonos_pago_select on public.bonos_pago;
+create policy bonos_pago_select on public.bonos_pago
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists bonos_pago_gestion on public.bonos_pago;
+create policy bonos_pago_gestion on public.bonos_pago
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+-- Segunda mitad de la cerradura, igual que en `parametros-sucursal.sql`: si
+-- algún día RLS queda apagado en estas tablas, el grant por defecto de
+-- Supabase pasa a ser la única puerta. Con el revoke sigue cerrada.
+do $$
+begin
+  execute 'revoke all on public.bonos_cargo from anon';
+  execute 'revoke all on public.bonos_cargo_sucursal from anon';
+  execute 'revoke all on public.bonos_pago from anon';
+end $$;
+
+-- `puede_bonos` sólo con sesión. Sus políticas son todas `to authenticated`,
+-- así que anon nunca las evalúa y no tiene por qué poder llamarla (y con eso
+-- se limpia el aviso de la advisor). Lo que SÍ necesita es `authenticated`:
+-- RLS ejecuta la función con el rol que consulta.
+revoke execute on function public.puede_bonos() from public, anon;
+grant execute on function public.puede_bonos() to authenticated;
+
+-- Archivo consolidado: nomina-trabajadores.sql
+-- ###########################################################################
+-- ============================================================================
+-- NÓMINA ESPEJO: LA TABLA DE TRABAJADORES ACTUALES
+--
+-- POR QUÉ EXISTE
+-- -------------
+-- Los bonos contaban ocupantes contra la API de trabajadores, UNA VEZ POR
+-- SUCURSAL, cada vez que se abría la pantalla: el número dependía de que el
+-- API externa estuviera arriba y de que cada tienda tuviera su branchID. Con
+-- esta tabla la nómina queda GUARDADA y se refresca de madrugada; la app lee
+-- rápido y estable, y si algo falta se ve el motivo en pantalla.
+--
+-- QUÉ SE GUARDA
+-- -------------
+-- El REGISTRO CRUDO (`datos`): role_name, department_name, status, active…
+-- La normalización —¿está activo?, qué departamento, qué estado— la sigue
+-- haciendo el cliente con sus propias funciones probadas (`esActivo` y cía),
+-- así no hay dos versiones de la regla que puedan divergir.
+--
+-- QUÉ NO HACE
+-- -----------
+-- NO borra si una sucursal no responde: sus filas se quedan como estaban (el
+-- último estado bueno). Sólo reemplaza las de las tiendas que respondieron
+-- con gente; una respuesta vacía tampoco borra, porque puede ser un bache del
+-- API y no una tienda deshabitada.
+--
+-- QUIÉN LA ESCRIBE
+-- ----------------
+-- La Edge Function `actualizar-nomina`, con la service role (bypasea RLS).
+-- La lee la app con sesión, sólo los que gestionan bonos (`puede_bonos`).
+--
+-- PROGRAMACIÓN DEL CRON (pg_cron + pg_net, en Database → Extensions)
+-- ------------------------------------------------------------------
+-- Requiere el bloque `bonos.sql` aplicado antes (por `puede_bonos`). Una vez
+-- aplicado este bloque, se configura y se programa:
+--
+--   insert into public.nomina_cron (id, activo, url, secreto)
+--   values (true, true,
+--           'https://<REF>.supabase.co/functions/v1/actualizar-nomina',
+--           '<un-secreto-largo>');
+--   select public.programar_nomina_cron();
+--
+-- El mismo secreto se setea en la función (`NOMINA_CRON_SECRET`) y el cron
+-- lo manda en el header `x-cron-secret` a las 05:00 diarias (hora del
+-- servidor). Si las extensiones no están, el bloque no falla: sólo no crea
+-- la función de programación.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+create table if not exists public.trabajadores_nomina (
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  nacionalidad text not null default 'V',
+  dni bigint not null,
+  -- El registro COMO LO DEVUELVE LA API. Guardar el crudo es lo que permite
+  -- que la normalización viva en un solo lugar (el cliente).
+  datos jsonb not null,
+  actualizado_en timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  constraint trabajadores_nomina_unico primary key (sucursal_id, nacionalidad, dni)
+);
+
+create index if not exists idx_trabajadores_nomina_cargo
+  on public.trabajadores_nomina ((datos ->> 'role_name'));
+
+-- Quién la lee: los mismos que gestionan bonos. Quién la ESCRIBE es el cron
+-- con la service role, que bypasea RLS: por eso no hay política de
+-- escritura, y sin política el rol autenticado no puede tocarla.
+alter table public.trabajadores_nomina enable row level security;
+
+drop policy if exists trabajadores_nomina_select on public.trabajadores_nomina;
+create policy trabajadores_nomina_select on public.trabajadores_nomina
+  for select to authenticated using (public.puede_bonos());
+
+do $$
+begin
+  execute 'revoke all on public.trabajadores_nomina from anon';
+end $$;
+
+-- Configuración del cron: dónde apunta y con qué secreto. Se llena con un
+-- update (ver cabecera del bloque). Sin grants para `authenticated`: es
+-- configuración del servidor y nadie más la necesita leer.
+create table if not exists public.nomina_cron (
+  id boolean primary key default true,
+  activo boolean not null default false,
+  url text,
+  secreto text,
+  actualizado_en timestamptz
+);
+
+alter table public.nomina_cron enable row level security;
+
+-- Política de DENEGACIÓN explícita. Sin ella la tabla también está cerrada
+-- (los grants están revocados y el RLS sin política no deja pasar a nadie),
+-- pero con una sola capa: si algún día alguien le otorga un grant «para
+-- arreglar» algo, no habría nada que lo frenara. Con ésta, la segunda capa
+-- sobrevive — el mismo criterio de doble capa del resto del archivo.
+drop policy if exists nomina_cron_cerrada on public.nomina_cron;
+create policy nomina_cron_cerrada on public.nomina_cron
+  for all using (false) with check (false);
+
+do $$
+begin
+  execute 'revoke all on public.nomina_cron from anon';
+  execute 'revoke all on public.nomina_cron from authenticated';
+end $$;
+
+-- La función que (re)programa el diario. Sólo se crea si pg_cron y pg_net
+-- están habilitadas: sin ellas no hay ni cron ni http, y el bloque entero no
+-- puede fallar por una extensión que falta. Se vuelve a llamar con el mismo
+-- nombre para que reprogramar sea repetir el `select`.
+do $$
+begin
+  if exists (
+        select 1 from pg_proc p
+          join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'cron' and p.proname = 'schedule'
+      )
+      and exists (
+        select 1 from pg_proc p
+          join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'net' and p.proname = 'http_post'
+      ) then
+    execute $fn$
+      create or replace function public.programar_nomina_cron()
+      returns void
+      language plpgsql
+      security definer
+      set search_path = public
+      as $body$
+      begin
+        -- Sin configuración no se programa: un job que apunta a NULL sólo
+        -- generaría ruido en el log todas las noches.
+        if exists (
+          select 1 from public.nomina_cron
+           where activo and coalesce(url, '') <> '' and coalesce(secreto, '') <> ''
+        ) then
+          perform cron.schedule(
+            'actualizar-nomina-diaria',
+            '0 5 * * *',
+            $job$
+              select net.http_post(
+                url := (select url from public.nomina_cron where activo),
+                headers := jsonb_build_object(
+                  'Content-Type', 'application/json',
+                  'x-cron-secret', (select secreto from public.nomina_cron where activo)
+                ),
+                body := '{}'::jsonb,
+                timeout_milliseconds := 120000
+              );
+            $job$
+          );
+        end if;
+      end;
+      $body$;
+    $fn$;
+
+    -- `perform` y no `select`: una función `void` no deja destino para el
+    -- resultado y el `select` tumba el bloque en el SQL Editor.
+    perform public.programar_nomina_cron();
+
+    -- La cierra el propio bloque, como el resto del archivo: sin sesión no se
+    -- programa nada. Va acá (y no en `permisos-funcion.sql`) porque ese bloque
+    -- corre ANTES de que esta función exista. Sólo la usa el dueño desde el
+    -- SQL Editor: a `authenticated` no la llama nadie por RPC, así que se le
+    -- quita también (y se limpia el aviso de la advisor).
+    execute 'revoke execute on function public.programar_nomina_cron() from public, anon';
+    execute 'revoke execute on function public.programar_nomina_cron() from authenticated';
+    execute 'grant execute on function public.programar_nomina_cron() to postgres';
+  end if;
+end $$;
+
+-- Archivo consolidado: gran-cosecha.sql
+-- ###########################################################################
+-- ============================================================================
+-- GRAN COSECHA: EL CONCURSO INTERNO DE PROYECTOS
+--
+-- Un concurso por TRIMESTRE del año: los trabajadores arman equipos de
+-- MÍNIMO 3 personas y presentan una propuesta de proyecto con 3 meses de
+-- desarrollo. Tres JUECES le dan seguimiento y la empresa ve los avances.
+--
+-- TRES TABLAS Y UNA REGLA DE ACCESO
+--
+--  * `gran_cosecha_proyecto` es la ficha: el trimestre en que participa
+--    (`2026-T1`…`2026-T4`), el título, la descripción, el equipo, cómo va y
+--    sus DOS fotos (`imagen` = la cara de la tarjeta en la landing; `foto` =
+--    la del equipo, que la página revela al tocarla). Vacías, la tarjeta usa
+--    la inicial del título.
+--    El equipo va en `miembros` (jsonb) y no en una tabla aparte porque el
+--    "mínimo 3" es una regla del PROYECTO: así entra en un `check` y no se
+--    puede guardar un proyecto sin equipo ni borrarle gente hasta dejarlo en
+--    dos. Cada entrada guarda `usuario_id` + el nombre de la foto, para que
+--    la fila se lea aunque el usuario algún día no esté.
+--    `avance` (0 a 100) y `estado` son el estado ACTUAL; el historial está
+--    abajo, en la bitácora.
+--
+--  * `gran_cosecha_bitacora` es la bitácora DE CADA PROYECTO: toda alta,
+--    todo avance, todo cambio de estado, de equipo o de datos queda en una
+--    fila con fecha y quién lo hizo. Los avances son filas `tipo='AVANCE'`
+--    con su `porcentaje`, así el "cómo fue avanzando" sale de la misma
+--    tabla que el "quién cambió qué" —una sola fuente, no dos historiales
+--    que se pueden contradecir.
+--
+--  * `gran_cosecha_riego` es el riego de jardín: el "me gusta" del concurso,
+--    con regadera en vez de pulgar. Lo mandan los portales hermanos (Academia
+--    Luxor y Desarrollo Luxor), donde un usuario riega UNA VEZ cada proyecto
+--    participante —igual que un post de Facebook—. La PRIMARY KEY es
+--    (proyecto_id, usuario): la unicidad la garantiza la base, no la app, y
+--    un riego repetido simplemente no se duplica. `usuario` es la clave
+--    ESTABLE del usuario en SU portal (cédula, id o email): es opaca y no
+--    cruza contra `profiles`, porque esos usuarios no tienen cuenta acá.
+--    Ni la app ni la sesión la tocan: la escribe la edge function
+--    `registrar-riego` con la service_role, y el conteo que muestra la
+--    landing (/gran-cosecha.html) lo publica `ver_contenido_gran_cosecha`.
+--
+-- QUIÉN PUEDE QUÉ  (la misma cerradura en el menú, en la ruta y acá)
+--
+--  * CUALQUIER usuario autenticado CREA su proyecto (`creador_id` lo pone el
+--    servidor con `auth.uid()`: no se puede crear un proyecto "de otro").
+--  * CREA y EDITA su propio proyecto: el equipo reporta sus avances.
+--  * JUEZ y LÍDER editan EL DE CUALQUIERA: son los que dan seguimiento.
+--  * BORRAR: el equipo que lo creó y JUEZ/LÍDER (la MISMA cerradura que
+--    editar). Es un borrado completo: el `on delete cascade` de la bitácora
+--    y el de los riegos se llevan historia y «me gusta» con la fila, y la
+--    app retira las dos fotos del bucket. Quien sólo quiera SACARLO del
+--    concurso sin borrar nada lo CANCELA con `estado`, que es reversible y
+--    queda registrado en esa misma bitácora.
+--
+-- Cómo se registra: POR UN TRIGGER, no desde la app. Un `update` del proyecto
+-- (cualquiera que lo haga) dispara `gran_cosecha_registrar_cambio`, que en la
+-- MISMA transacción escribe la fila de bitácora que corresponda. Así "todo
+-- cambio queda en la bitácora" no depende de que alguien se acuerde de
+-- escribirla: no hay forma de cambiar el proyecto sin dejar registro, y si la
+-- bitácora no puede escribirse, el cambio tampoco se guarda (se revierte
+-- entero). La app no tiene política de INSERT sobre la bitácora: sólo lee.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+-- EL ROL JUEZ
+--
+-- `create table if not exists` no toca el `check` de una tabla ya creada, y
+-- un `check` que no conoce JUEZ haría fallar el INSERT de los jueces con un
+-- 23514 crudo. Se rehace el constraint con el mismo nombre (patrón de
+-- `items_tipo_check`): soltarlo y volver a ponerlo con JUEZ adentro.
+-- `invitaciones.rol` es la otra boca del mismo rol: por ahí el Líder invita
+-- al juez, y con el check viejo la invitación no se podría emitir.
+alter table public.profiles drop constraint if exists profiles_rol_check;
+alter table public.profiles add constraint profiles_rol_check
+  check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ','GERENTE_TI','TECNICO_TI'));
+
+alter table public.invitaciones drop constraint if exists invitaciones_rol_check;
+alter table public.invitaciones add constraint invitaciones_rol_check
+  check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ','GERENTE_TI','TECNICO_TI'));
+
+create table if not exists public.gran_cosecha_proyecto (
+  id uuid primary key default gen_random_uuid(),
+  -- El trimestre del evento, con el mismo formato que los períodos de bonos.
+  periodo text not null check (periodo ~ '^\d{4}-T[1-4]$'),
+  titulo text not null check (length(trim(titulo)) > 0),
+  descripcion text not null default '',
+  -- El equipo, mínimo 3. Jsonb con `{usuario_id, nombre}` —o con la cédula
+  -- del trabajador SIN cuenta (`{nacionalidad, dni, nombre}`): acepta
+  -- usuarios de la app y trabajadores de la nómina de cualquier sucursal.
+  -- `usuario_id` sólo si tiene cuenta (es el que cruza contra `profiles`);
+  -- el `nombre` es la foto que se lee en pantalla, igual que en alertas.
+  miembros jsonb not null check (jsonb_array_length(miembros) >= 3),
+  -- El estado actual. El historial es la bitácora; esto es para leer rápido.
+  avance integer not null default 0 check (avance >= 0 and avance <= 100),
+  -- La nota del ÚLTIMO avance. Vive acá porque quien la escribe es el
+  -- `update`, y es el trigger quien la copia a la bitácora: sin esta columna
+  -- no habría dónde poner el comentario que acompaña al porcentaje.
+  avance_nota text,
+  estado text not null default 'PROPUESTA'
+    check (estado in ('PROPUESTA','EN_CURSO','COMPLETADO','CANCELADO')),
+  -- NULL si el creador algún día se borra: el proyecto no se borra con él
+  -- (su bitácora sigue siendo historia del concurso).
+  creador_id uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_gran_cosecha_proyecto_periodo
+  on public.gran_cosecha_proyecto (periodo, estado);
+
+-- Las DOS FOTOS del participante, ahora en el PROYECTO (antes vivían en la
+-- Página y se migraron acá, porque el dato del participante lo manda la
+-- consola de Proyectos): `imagen` es la del proyecto —la cara de la tarjeta,
+-- siempre visible— y `foto` la del equipo, que la landing revela al pasar el
+-- mouse. Vacías = la tarjeta usa la inicial del título. Las edita el que
+-- puede editar el proyecto (la RLS de UPDATE es por fila, así que cubre estas
+-- columnas sin tocar políticas).
+-- `if not exists` porque la tabla ya existe en bases instaladas.
+alter table public.gran_cosecha_proyecto
+  add column if not exists imagen text not null default '',
+  add column if not exists foto   text not null default '';
+
+-- LOS ADJUNTOS DE LA PRESENTACIÓN: documentos y videos que el equipo sube
+-- para presentar el proyecto (PDF, Word, Excel, PowerPoint y video). Va en
+-- jsonb y no en tabla aparte porque es UNA lista por proyecto que sólo se
+-- lee entera — misma decisión que `miembros`. Cada elemento es
+-- `{ ruta, nombre, tipo, bytes, url, subido_at }`: la `ruta` es la del
+-- bucket `gran-cosecha` bajo `proyectos/<id>/…`, que la MISMA política de
+-- las fotos ya cubre (`gran_cosecha_fotos_proyecto`), así que subir y borrar
+-- no necesita regla nueva. Lo público lo decide la RPC de la landing.
+alter table public.gran_cosecha_proyecto
+  add column if not exists adjuntos jsonb not null default '[]';
+
+-- LAS CATEGORÍAS Y EL ÁREA DEL PROGRAMA: lo que la landing Arena pinta en
+-- cada tarjeta (badge, franja de color, filtro) y en su ficha. `categoria`
+-- es una de las DOS categorías en las que se PRESENTA un proyecto —
+-- «Cosecha en Equipo» no: es el PREMIO al departamento con los KPI más
+-- altos, no algo en lo que se postule—. Nullable: los proyectos viejos
+-- quedan «Sin categoría» hasta que se editen. `sucursal` es la etiqueta
+-- libre «Sucursal o Área» que muestra el pin del mapa.
+alter table public.gran_cosecha_proyecto
+  add column if not exists categoria text
+    check (categoria is null or categoria in (
+      'Cultivando Ideas', 'Premiamos tu Compra'
+    ));
+alter table public.gran_cosecha_proyecto
+  add column if not exists sucursal text not null default '';
+
+-- En una base donde la columna YA existiera con las tres (el `add column
+-- if not exists` se saltea), el check se rehace con las DOS que sí se
+-- registran. Idempotente: dropear un constraint inexistente no falla.
+alter table public.gran_cosecha_proyecto
+  drop constraint if exists gran_cosecha_proyecto_categoria_check;
+alter table public.gran_cosecha_proyecto
+  add constraint gran_cosecha_proyecto_categoria_check
+    check (categoria is null or categoria in (
+      'Cultivando Ideas', 'Premiamos tu Compra'
+    ));
+
+create table if not exists public.gran_cosecha_bitacora (
+  id uuid primary key default gen_random_uuid(),
+  proyecto_id uuid not null references public.gran_cosecha_proyecto(id) on delete cascade,
+  -- Lo que pasó, en una palabra. El detalle humano va en `detalle`, que arma
+  -- el trigger con valores viejos y nuevos, para que no haya que interpretar
+  -- un jsonb en pantalla.
+  tipo text not null check (tipo in ('ALTA','AVANCE','ESTADO','EDICION','MIEMBROS')),
+  -- Sólo en los avances; los demás cambios no tienen porcentaje.
+  porcentaje integer check (porcentaje is null or (porcentaje >= 0 and porcentaje <= 100)),
+  detalle text not null default '',
+  autor_id uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+-- El orden de la bitácora es por proyecto y por fecha: es lo que lee el
+-- detalle para reconstruir cómo avanzó.
+create index if not exists idx_gran_cosecha_bitacora_proyecto
+  on public.gran_cosecha_bitacora (proyecto_id, created_at);
+
+-- Quién gestiona: los JUECES y el LÍDER. Es la misma pregunta que el menú y
+-- la ruta, así que se responde una sola vez. `security definer` para leer
+-- `profiles` sin que las políticas de esa tabla se interpongan, igual que
+-- `puede_bonos`.
+create or replace function public.puede_gran_cosecha()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.rol in ('JUEZ','LIDER') and p.activo
+  );
+$$;
+
+-- ROW LEVEL SECURITY
+--
+-- El concurso es de TODA la empresa: cualquiera con sesión ve los proyectos
+-- y su bitácora (SELECT abierto). Lo que se RESTRINGE es escribir.
+alter table public.gran_cosecha_proyecto enable row level security;
+
+drop policy if exists gran_cosecha_proyecto_select on public.gran_cosecha_proyecto;
+create policy gran_cosecha_proyecto_select on public.gran_cosecha_proyecto
+  for select to authenticated using (true);
+
+drop policy if exists gran_cosecha_proyecto_insert on public.gran_cosecha_proyecto;
+create policy gran_cosecha_proyecto_insert on public.gran_cosecha_proyecto
+  for insert to authenticated
+  with check (creador_id = auth.uid());
+
+-- Crear el de uno mismo, editar el de cualquiera si es Juez o Líder. El
+-- `with check` repite la misma condición: sin eso, quien edita su proyecto
+-- podría reasignárselo a otra persona en el mismo update.
+drop policy if exists gran_cosecha_proyecto_update on public.gran_cosecha_proyecto;
+create policy gran_cosecha_proyecto_update on public.gran_cosecha_proyecto
+  for update to authenticated
+  using (public.puede_gran_cosecha() or creador_id = auth.uid())
+  with check (public.puede_gran_cosecha() or creador_id = auth.uid());
+
+-- BORRAR UN PROYECTO: el equipo que lo creó y JUEZ/LÍDER —la MISMA
+-- cerradura que el update, así no conviven dos reglas para «quién puede con
+-- éste». Es un borrado DE VERDAD: el `on delete cascade` de la bitácora y el
+-- de la tabla de riegos se llevan historial y «me gusta» junto con la fila,
+-- y las dos fotos del participante las retira la app del bucket.
+-- Para sacar un proyecto del concurso SIN borrar su historia sigue estando
+-- `estado = 'CANCELADO'`, que además queda registrado en esa misma bitácora.
+drop policy if exists gran_cosecha_proyecto_delete on public.gran_cosecha_proyecto;
+create policy gran_cosecha_proyecto_delete on public.gran_cosecha_proyecto
+  for delete to authenticated
+  using (public.puede_gran_cosecha() or creador_id = auth.uid());
+
+-- LA BITÁCORA LA ESCRIBE UN TRIGGER, NO LA APP
+--
+-- Un `update` del proyecto dispara ésta y, en la MISMA transacción, escribe
+-- la fila de bitácora que corresponda. Con eso "todo cambio queda en la
+-- bitácora" deja de depender de que alguien se acuerde de escribirla: no hay
+-- forma de cambiar el proyecto sin dejar registro, y si la bitácora no puede
+-- escribirse, el cambio entero se revierte.
+--
+-- Se comparan CAMPO POR CAMPO y no `to_jsonb(new) is distinct from
+-- to_jsonb(old)`: éste último dispararía con cualquier `update` (el
+-- `updated_at` solo ya lo haría) y llenaría la bitácora de filas que no
+-- dicen nada. Acá sólo entra lo que alguien leyó como un cambio.
+--
+-- `security definer` para que la inserción corra como el dueño de la tabla y
+-- no se choque con la RLS de la bitácora (que no tiene política de INSERT
+-- justamente para que nadie escriba desde la app).
+create or replace function public.gran_cosecha_registrar_cambio()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_autor uuid := auth.uid();
+begin
+  if tg_op = 'INSERT' then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'ALTA', null, 'Se presentó el proyecto «' || new.titulo || '»', v_autor);
+    return new;
+  end if;
+
+  -- El avance, con la nota que lo acompaña. La nota sola (mismo porcentaje,
+  -- comentario nuevo) también cuenta: es el equipo contando qué hizo.
+  if new.avance is distinct from old.avance
+     or (new.avance_nota is distinct from old.avance_nota and coalesce(new.avance_nota, '') <> '') then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'AVANCE', new.avance, coalesce(trim(new.avance_nota), ''), v_autor);
+  end if;
+
+  if new.estado is distinct from old.estado then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'ESTADO', null, old.estado || ' → ' || new.estado, v_autor);
+  end if;
+
+  if new.titulo is distinct from old.titulo then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'EDICION', null, 'Título: «' || old.titulo || '» → «' || new.titulo || '»', v_autor);
+  end if;
+
+  if new.descripcion is distinct from old.descripcion then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'EDICION', null, 'Se actualizó la descripción', v_autor);
+  end if;
+
+  if new.periodo is distinct from old.periodo then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'EDICION', null, 'Trimestre: ' || old.periodo || ' → ' || new.periodo, v_autor);
+  end if;
+
+  if new.miembros is distinct from old.miembros then
+    insert into public.gran_cosecha_bitacora (proyecto_id, tipo, porcentaje, detalle, autor_id)
+    values (new.id, 'MIEMBROS', null,
+            'El equipo pasó de ' || jsonb_array_length(old.miembros) || ' a ' || jsonb_array_length(new.miembros) || ' integrantes',
+            v_autor);
+  end if;
+
+  return new;
+end $$;
+
+drop trigger if exists gran_cosecha_registrar_cambio on public.gran_cosecha_proyecto;
+create trigger gran_cosecha_registrar_cambio
+  after insert or update on public.gran_cosecha_proyecto
+  for each row
+  execute function public.gran_cosecha_registrar_cambio();
+
+-- La bitácora se LEE desde la app y la escribe sólo el trigger: sin política
+-- de INSERT, RLS no deja pasar ningún intento de escribirla desde el cliente,
+-- y sin UPDATE ni DELETE el registro no se puede reescribir después de hecho.
+alter table public.gran_cosecha_bitacora enable row level security;
+
+drop policy if exists gran_cosecha_bitacora_select on public.gran_cosecha_bitacora;
+create policy gran_cosecha_bitacora_select on public.gran_cosecha_bitacora
+  for select to authenticated using (true);
+
+-- La función de trigger también se cierra: no la llama nadie desde la app
+-- (la dispara el propio motor), y sin el revoke quedaría ejecutable por
+-- `anon` con el grant por defecto de Supabase.
+revoke execute on function public.gran_cosecha_registrar_cambio() from public, anon;
+grant execute on function public.gran_cosecha_registrar_cambio() to authenticated;
+
+-- Las dos tablas nacen con el `alter default privileges ... revoke from anon`
+-- de `cerrar-permisos-anon.sql` (que corre antes, más arriba en el archivo),
+-- pero el revoke explícito no deja nada al azar: es el mismo cierre que hace
+-- el bloque de bonos.
+do $$
+begin
+  execute 'revoke all on public.gran_cosecha_proyecto from anon';
+  execute 'revoke all on public.gran_cosecha_bitacora from anon';
+end $$;
+
+-- `puede_gran_cosecha` sólo con sesión: sus políticas son todas
+-- `to authenticated`, así que anon nunca las evalúa. `authenticated` sí la
+-- necesita, porque RLS llama a la función con el rol que consulta.
+revoke execute on function public.puede_gran_cosecha() from public, anon;
+grant execute on function public.puede_gran_cosecha() to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Elegir INTEGRANTES del equipo: usuarios de la app Y trabajadores de la
+-- nómina, de cualquier sucursal (aunque no tengan cuenta en EvaLuxor)
+-- ----------------------------------------------------------------------------
+-- La nómina (`trabajadores_nomina`) sólo la leen LÍDER y GERENTE_TH por su
+-- política, y armar equipo puede cualquiera: por eso la lectura va por esta
+-- función `security definer`, que devuelve SÓLO lo que el picker necesita —
+-- nacionalidad, cédula, nombre, sucursal y los flags crudos de actividad—
+-- y nunca el resto del `datos` crudo de la API (sueldos, fechas, cargos).
+--
+-- La normalización queda donde siempre estaba, en el cliente: `name` /
+-- `lastname` y los flags viajan tal cual, y `nombreCompleto` / `esActivo` de
+-- `colaboradores.ts` los interpretan —el mismo criterio con el que se paga la
+-- nómina—, porque guardar el crudo es lo que permite que viva en un solo
+-- lugar (así lo dice también la tabla).
+--
+-- La búsqueda va EN EL SERVIDOR: la nómina tiene miles de filas, así que la
+-- RPC filtra por texto (nombre, apellido, sucursal o cédula) con límite, en
+-- vez de tirarla entera al navegador. Y cada persona aparece UNA sola vez:
+-- `distinct on (nacionalidad, dni)` gana del registro más reciente, para que
+-- quien se cambió de sucursal no figure dos veces.
+create or replace function public.listar_trabajadores_equipo(p_texto text)
+returns jsonb
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'nacionalidad', n.nacionalidad,
+        'dni', n.dni,
+        'name', n.datos -> 'name',
+        'lastname', n.datos -> 'lastname',
+        'sucursal', n.datos -> 'branch_name',
+        'status', n.datos -> 'status',
+        'estado', n.datos -> 'estado',
+        'status_display', n.datos -> 'status_display',
+        'estado_display', n.datos -> 'estado_display',
+        'active', n.datos -> 'active',
+        'is_active', n.datos -> 'is_active'
+      )
+      order by n.datos ->> 'lastname', n.datos ->> 'name'
+    ),
+    '[]'::jsonb
+  )
+  from (
+    select distinct on (nacionalidad, dni) nacionalidad, dni, datos
+      from public.trabajadores_nomina
+     where p_texto <> ''
+       and (
+             datos ->> 'name' ilike '%' || p_texto || '%'
+          or datos ->> 'lastname' ilike '%' || p_texto || '%'
+          or datos ->> 'branch_name' ilike '%' || p_texto || '%'
+          or (nacionalidad || '-' || dni) ilike '%' || p_texto || '%'
+       )
+     order by nacionalidad, dni, actualizado_en desc
+     limit 300
+  ) n;
+$$;
+
+revoke execute on function public.listar_trabajadores_equipo(text) from public, anon;
+grant  execute on function public.listar_trabajadores_equipo(text) to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Los riegos: un "me gusta" con regadera, uno por usuario y proyecto
+-- ----------------------------------------------------------------------------
+-- La idea viene de fuera: desde los portales hermanos (Academia Luxor y
+-- Desarrollo Luxor) un usuario riega un proyecto participante y la landing
+-- /concurso muestra cuántas veces se regó cada uno.
+--
+-- QUIÉN ESCRIBE: DOS puertas, y NINGUNA por tabla directa — la tabla sigue
+-- cerrada para `anon` y para `authenticated` (sin privilegio y sin política):
+--  * La edge function `supabase/functions/registrar-riego`, con service_role
+--    y después de validar su API key (`RIEGO_API_KEY`): la llaman los
+--    portales hermanos (Academia/Desarrollo Luxor).
+--  * `regar_proyecto(uuid)` CON SESIÓN, para regar desde la consola de
+--    EvaLuxor: la clave no es un parámetro, la arma la función con
+--    `profiles.usuario` de quien aprieta — la MISMA clave que mandan los
+--    portales, así que un mismo humano cuenta UNA vez entre los tres lados.
+--
+-- UNA VEZ POR USUARIO: la restricción NO es un índice aparte, es la PRIMARY
+-- KEY. El segundo insert del mismo par choca con 23505 (o el `on conflict`
+-- de la función lo salta) y no queda fila doble — la invariante vive donde
+-- se guarda el dato, no en el código que la manda.
+--
+-- UNA VEZ POR USUARIO: la restricción NO es un índice aparte, es la PRIMARY
+-- KEY. El segundo insert del mismo par choca con 23505, la función lo
+-- traduce a `ya_regado: true` y no queda fila doble — la invariante vive
+-- donde se guarda el dato, no en el código que la manda.
+create table if not exists public.gran_cosecha_riego (
+  proyecto_id uuid not null references public.gran_cosecha_proyecto(id) on delete cascade,
+  -- La clave del usuario EN SU PORTAL: opaca (cédula, id o email) y sin
+  -- espacios de más, que un usuario con y sin espacios es el mismo riego.
+  usuario text not null
+    check (length(trim(usuario)) > 0 and length(usuario) <= 120 and usuario = trim(usuario)),
+  regado_en timestamptz not null default now(),
+  primary key (proyecto_id, usuario)
+);
+
+-- Cerrada por DOS capas, en este orden: el revoke es la primera (RLS sólo se
+-- evalúa si antes hay privilegio de tabla) y la segunda es el RLS sin ninguna
+-- política — sin política no pasa nadie, por más rol que se traiga.
+alter table public.gran_cosecha_riego enable row level security;
+
+do $$
+begin
+  execute 'revoke all on public.gran_cosecha_riego from anon';
+  execute 'revoke all on public.gran_cosecha_riego from authenticated';
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- Las DOS puertas de la escritura: siguen sin tocar la tabla desde afuera
+-- ----------------------------------------------------------------------------
+
+-- 1) Regar DESDE EvaLuxor, con sesión. El `usuario` que se guarda NO es un
+--    parámetro —la función lo arma con la sesión—, así que nadie puede regar
+--    "por otro": es el `profiles.usuario` de quien aprieta. Es LA MISMA clave
+--    que los portales hermanos mandan en el campo `usuario` del endpoint: si
+--    un portal mandara otra cosa, ese humano contaría dos veces.
+create or replace function public.regar_proyecto(p_proyecto_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_clave text;
+  v_estado text;
+  v_filas integer;
+  v_riegos integer;
+begin
+  -- Quién riega: el usuario ACTIVO de la sesión, normalizado.
+  select u.usuario into v_clave
+    from public.profiles u
+   where u.id = auth.uid() and u.activo;
+  v_clave := coalesce(trim(v_clave), '');
+  if v_clave = '' then
+    raise exception 'Tu perfil no tiene usuario de EvaLuxor: no se puede regar.';
+  end if;
+  if length(v_clave) > 120 then
+    raise exception 'El usuario de tu perfil es demasiado largo para regar.';
+  end if;
+
+  select pr.estado into v_estado
+    from public.gran_cosecha_proyecto pr
+   where pr.id = p_proyecto_id;
+  if v_estado is null then
+    raise exception 'No existe ese proyecto.';
+  end if;
+  if v_estado = 'CANCELADO' then
+    raise exception 'Ese proyecto ya no participa en el concurso.';
+  end if;
+
+  -- El riego: `on conflict do nothing` NO toca la fila vieja (conserva su
+  -- fecha) y el row_count dice si éste fue el primero de este usuario.
+  insert into public.gran_cosecha_riego (proyecto_id, usuario)
+  values (p_proyecto_id, v_clave)
+  on conflict (proyecto_id, usuario) do nothing;
+  get diagnostics v_filas = row_count;
+
+  select count(*) into v_riegos
+    from public.gran_cosecha_riego
+   where proyecto_id = p_proyecto_id;
+
+  return jsonb_build_object('ya_regado', v_filas = 0, 'riegos', v_riegos);
+end;
+$$;
+
+revoke execute on function public.regar_proyecto(uuid) from public, anon;
+grant  execute on function public.regar_proyecto(uuid) to authenticated;
+
+-- 1b) Quitar el PROPIO riego, con sesión: el "deshacer" del me gusta. Va en
+--     espejo con `regar_proyecto`: la identidad NO es parámetro — la arma la
+--     función con `profiles.usuario` de quien aprieta—, así que sólo se
+--     deshace el riego propio y el de nadie más. Devuelve el conteo nuevo
+--     para que la consola repinte el chip sin volver a leer el mapa.
+create or replace function public.quitar_riego(p_proyecto_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_clave text;
+  v_filas integer;
+  v_riegos integer;
+begin
+  -- Quién quita: el usuario ACTIVO de la sesión, con el MISMO criterio que
+  -- `regar_proyecto` — misma clave, mismo normalizado.
+  select u.usuario into v_clave
+    from public.profiles u
+   where u.id = auth.uid() and u.activo;
+  v_clave := coalesce(trim(v_clave), '');
+  if v_clave = '' then
+    raise exception 'Tu perfil no tiene usuario de EvaLuxor: no se puede quitar el riego.';
+  end if;
+
+  -- Sólo la fila PROPIA: el `where` lleva la clave de la sesión, así que el
+  -- riego de los demás queda intacto con cualquier proyecto que se mande.
+  delete from public.gran_cosecha_riego
+   where proyecto_id = p_proyecto_id and usuario = v_clave;
+  get diagnostics v_filas = row_count;
+
+  select count(*) into v_riegos
+    from public.gran_cosecha_riego
+   where proyecto_id = p_proyecto_id;
+
+  -- `quitado: false` = no había riego propio (doble clic, o el proyecto no
+  -- existe): sin error y con el conteo VERDADERO, para no pintar un mentira.
+  return jsonb_build_object('quitado', v_filas > 0, 'riegos', v_riegos);
+end;
+$$;
+
+revoke execute on function public.quitar_riego(uuid) from public, anon;
+grant  execute on function public.quitar_riego(uuid) to authenticated;
+
+-- 2) El conteo para la consola: por proyecto, cuántas veces se regó y si YO
+--    ya lo regué (`mio`), para pintar el botón. Saliendo de acá sólo el
+--    número y el booleano mío: NINGÚN `usuario` se expone, ni con sesión.
+create or replace function public.riegos_de_la_cosecha()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  with mi as (
+    select coalesce((select u.usuario from public.profiles u where u.id = auth.uid()), '') as clave
+  )
+  select coalesce(
+    jsonb_object_agg(
+      d.proyecto_id,
+      jsonb_build_object('riegos', d.riegos, 'mio', d.mio)
+    ),
+    '{}'::jsonb
+  )
+  from (
+    select r.proyecto_id,
+           count(*)::int as riegos,
+           bool_or(r.usuario = (select clave from mi)) as mio
+      from public.gran_cosecha_riego r
+     group by r.proyecto_id
+  ) d;
+$$;
+
+revoke execute on function public.riegos_de_la_cosecha() from public, anon;
+grant  execute on function public.riegos_de_la_cosecha() to authenticated;
+
+-- ###########################################################################
+-- Archivo consolidado: gran-cosecha-pagina.sql
+-- ###########################################################################
+-- ============================================================================
+-- LA PÁGINA PÚBLICA DE LA GRAN COSECHA
+--
+-- `public/gran-cosecha.html` es una landing estática: se sirve desde `dist/`
+-- y queda FUERA del router de React, así que no puede usar el cliente de la
+-- app ni la sesión de nadie. Lo que cambia en esa página —el hero con su
+-- carrusel, los premios y las tarjetas de participantes— vive acá, en UNA sola
+-- fila, y la página lo lee con `ver_contenido_gran_cosecha`: una función
+-- `security definer` con `grant ... to anon`, el mismo camino de lo público
+-- que usan `ver_conciliacion_compartida` y `ver_cargos_compartidos`. En este
+-- repo ningún dato llega a `anon` por tabla, y ésta no es la excepción.
+--
+-- QUIÉN APARECE EN LA SECCIÓN DE PARTICIPANTES: los proyectos REGISTRADOS en
+-- la consola (`gran_cosecha_proyecto`), NO lo que se escriba a mano — la
+-- función los arma abajo con su equipo, su avance y su conteo de riegos. Esta
+-- fila sólo aporta el hero y los premios.
+--
+-- Escribe sólo el LÍDER (`es_lider()`), la misma cerradura del menú de
+-- consola (`SoloLider`), y cada sección nace con un `check` de forma: ni una
+-- sesión con rol ni una llamada mal armada dejan un JSON que la página no
+-- sabe leer.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+
+-- Una sola fila de contenido: el `check` del id no deja meter una segunda
+-- (mismo patrón que `nomina_cron`).
+create table if not exists public.gran_cosecha_pagina (
+  id boolean primary key default true,
+  constraint gran_cosecha_pagina_fila_unica check (id),
+  -- Cada sección es un JSON con su forma mínima acá. La consola además
+  -- valida antes de guardar —para explicar el problema en pantalla—, pero
+  -- esa validación es del cliente: el `check` es la del límite de confianza.
+  hero jsonb not null default '{}'::jsonb
+    constraint gran_cosecha_pagina_hero check (jsonb_typeof(hero) = 'object'),
+  premios jsonb not null default '[]'::jsonb
+    constraint gran_cosecha_pagina_premios check (jsonb_typeof(premios) = 'array'),
+  -- LEGACY: las tarjetas de fotos de participantes, retiradas con la sección
+  -- (los datos del participante los manda `gran_cosecha_proyecto`). La
+  -- columna queda con su `check` por si hay filas viejas; no la lee ni la
+  -- escribe nadie.
+  equipos jsonb not null default '[]'::jsonb
+    constraint gran_cosecha_pagina_equipos check (jsonb_typeof(equipos) = 'array'),
+  imagenes jsonb not null default '{}'::jsonb
+    constraint gran_cosecha_pagina_imagenes check (jsonb_typeof(imagenes) = 'object'),
+  actualizado_en timestamptz not null default now()
+);
+
+-- LAS GUÍAS DE LA POSTULACIÓN: los dos archivos que el Líder sube desde la
+-- consola (Página) y que la landing ofrece como descarga dentro del modal
+-- «Postular Proyecto». Sección nueva en la MISMA fila: el `add column if
+-- not exists` cubre las bases donde la tabla ya existe —mismo criterio que
+-- las columnas de `gran_cosecha_proyecto`—, y el `check` de forma es el de
+-- todas las secciones: un objeto no puede entrar donde va la lista.
+alter table public.gran_cosecha_pagina
+  add column if not exists guias jsonb not null default '[]'::jsonb
+    constraint gran_cosecha_pagina_guias check (jsonb_typeof(guias) = 'array');
+
+alter table public.gran_cosecha_pagina enable row level security;
+
+-- Con sesión se lee —el form de la consola tiene que mostrar lo que ya está
+-- guardado— y sólo el Líder toca cualquier cosa.
+drop policy if exists gran_cosecha_pagina_select on public.gran_cosecha_pagina;
+create policy gran_cosecha_pagina_select on public.gran_cosecha_pagina
+  for select to authenticated using (true);
+
+drop policy if exists gran_cosecha_pagina_lider on public.gran_cosecha_pagina;
+create policy gran_cosecha_pagina_lider on public.gran_cosecha_pagina
+  for all using (public.es_lider()) with check (public.es_lider());
+
+-- La tabla nace con el `alter default privileges ... revoke from anon` de
+-- `cerrar-permisos-anon.sql`, pero el revoke explícito no deja nada al azar
+-- (es el mismo cierre que hacen los bloques de gran cosecha y de bonos).
+do $$
+begin
+  execute 'revoke all on public.gran_cosecha_pagina from anon';
+end $$;
+
+-- Lo que lee la landing: el contenido entero en una sola llamada. Va por
+-- función y no por la tabla porque la página NO tiene sesión — exponer la
+-- tabla sería dejar la escritura a merced de una política mal puesta. Sin
+-- argumentos y `stable`: no cambia dentro de una corrida.
+create or replace function public.ver_contenido_gran_cosecha()
+returns jsonb
+language sql stable security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'hero', g.hero,
+    'premios', g.premios,
+    -- LAS GUÍAS DE LA POSTULACIÓN: nombre y URL pública de cada archivo,
+    -- para el enlace de descarga del modal guía. Se suben desde la
+    -- consola; vacía la lista, la landing oculta la sección.
+    'guias', g.guias,
+    -- LOS PARTICIPANTES: los proyectos REGISTRADOS en la consola, del
+    -- trimestre en curso y sin cancelados («los que ya están compitiendo»).
+    -- Cada uno trae SU conteo de riegos: sólo el número, la tabla está
+    -- cerrada y quién regó no es contenido público.
+    'participantes', (
+      select coalesce(jsonb_agg(
+        jsonb_build_object(
+          -- El `id` viaja para que los portales hermanos puedan descubrir de
+          -- qué proyecto regar (leen esta misma RPC pública): un uuid de
+          -- concurso no da ningún permiso — la tabla de riegos está cerrada.
+          'id', pr.id,
+          'titulo', pr.titulo,
+          -- Lo que la landing Arena pinta en la tarjeta: la descripción,
+          -- la categoría oficial (nullable en filas viejas) y el área.
+          'descripcion', pr.descripcion,
+          'categoria', pr.categoria,
+          'sucursal', pr.sucursal,
+          'avance', pr.avance,
+          -- La nota del último avance: lo que la ficha muestra debajo del
+          -- porcentaje (en la Arena reemplaza al «impacto» estático).
+          'avance_nota', pr.avance_nota,
+          -- Epoch en segundos: el orden de «Más recientes» de la Arena.
+          'created_at', extract(epoch from pr.created_at)::bigint,
+          -- Sólo NOMBRES: los usuario_id no son contenido público.
+          'miembros', (
+            select coalesce(jsonb_agg(m -> 'nombre'), '[]'::jsonb)
+            from jsonb_array_elements(pr.miembros) m
+          ),
+          'riegos', (
+            select count(*)
+            from public.gran_cosecha_riego r
+            where r.proyecto_id = pr.id
+          ),
+          -- Las dos fotos, guardadas EN EL PROYECTO (las edita la consola de
+          -- Proyectos): vacías, la tarjeta usa la inicial del título.
+          'imagen', pr.imagen,
+          'foto', pr.foto,
+          -- Los archivos de la presentación (documentos y videos): van
+          -- enteros, que la página los pinta tal cual. La tabla de proyectos
+          -- es pública de lectura por esta función; nada de acá da permiso
+          -- sobre el bucket (el bucket es público para lectura).
+          'adjuntos', pr.adjuntos
+        )
+        order by pr.avance desc, pr.created_at
+      ), '[]'::jsonb)
+      from public.gran_cosecha_proyecto pr
+      where pr.periodo = to_char(now(), 'YYYY') || '-T' || to_char(now(), 'Q')
+        and pr.estado <> 'CANCELADO'
+    )
+  )
+  from public.gran_cosecha_pagina g
+  where g.id;
+$$;
+
+-- Igual que las funciones de los enlaces compartidos: sin el revoke, el
+-- grant por defecto de Supabase la deja ejecutable por todos. El acceso
+-- público de ésta es éste, declarado de una vez.
+revoke execute on function public.ver_contenido_gran_cosecha() from public, anon;
+grant execute on function public.ver_contenido_gran_cosecha() to anon, authenticated;
+
+-- Las FOTOS de la página: un bucket propio y PÚBLICO, porque la landing se
+-- ve sin sesión y con las URLs directas del bucket. Es el primer bucket
+-- público del repo —`evidencias` sigue privado y con URLs firmadas—, y sólo
+-- sube quien puede editar la página: el Líder, con `es_lider()` en las
+-- políticas de abajo.
+insert into storage.buckets (id, name, public)
+values ('gran-cosecha', 'gran-cosecha', true)
+on conflict (id) do update set public = excluded.public;
+
+-- Ver las fotos: cualquiera, que es lo que significa un bucket público.
+drop policy if exists gran_cosecha_pagina_fotos_select on storage.objects;
+create policy gran_cosecha_pagina_fotos_select on storage.objects
+  for select to public
+  using (bucket_id = 'gran-cosecha');
+
+-- Subir, reemplazar y borrar: sólo el Líder, y sólo en ESTE bucket.
+drop policy if exists gran_cosecha_pagina_fotos_lider on storage.objects;
+create policy gran_cosecha_pagina_fotos_lider on storage.objects
+  for all to authenticated
+  using (bucket_id = 'gran-cosecha' and public.es_lider())
+  with check (bucket_id = 'gran-cosecha' and public.es_lider());
+
+-- …salvo las FOTOS DE UN PROYECTO: el que puede editar el proyecto puede
+-- cambiar sus fotos, y sólo bajo `proyectos/` (rutas con uuid). Las
+-- políticas de `permissive` se UNEN, así que el Líder conserva todo lo de
+-- arriba y cualquier otra sesión queda limitada a ese prefijo.
+drop policy if exists gran_cosecha_fotos_proyecto on storage.objects;
+create policy gran_cosecha_fotos_proyecto on storage.objects
+  for all to authenticated
+  using (bucket_id = 'gran-cosecha' and name like 'proyectos/%')
+  with check (bucket_id = 'gran-cosecha' and name like 'proyectos/%');
+
+-- ###########################################################################
+-- Archivo consolidado: menu-sucursal.sql
+-- ###########################################################################
+-- EL MENÚ DE CADA SUCURSAL
+--
+-- Cada sucursal tiene su menú: la lista de productos que carga SU encargado
+-- —el Gerente de Sucursal, para el que `profiles.sucursal_id` ES su sucursal:
+-- la misma invitación que le da el rol ya le asigna la tienda— buscándolos
+-- por ID o código de barra contra la API de precios, con una foto del
+-- producto. La página del menú es PÚBLICA: el cliente la abre sin sesión
+-- desde el QR de su sucursal, así que la lectura anónima va por una función
+-- `security definer` con `search_path` fijo —mismo criterio que
+-- `ver_contenido_gran_cosecha`: exponer la tabla a `anon` sería dejar la
+-- escritura a merced de una política mal puesta—. Escribir es RLS normal,
+-- sólo del encargado de ESA sucursal (y del Líder, que en todo el repo
+-- puede con todo).
+
+create table if not exists public.menu_productos (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales (id) on delete cascade,
+  sku text not null,
+  producto_id text,
+  nombre text not null,
+  descripcion text,
+  categoria text,
+  precio numeric(12,2),
+  departamento text,
+  foto_url text,
+  orden integer not null default 0,
+  activo boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (sucursal_id, sku)
+);
+
+-- La descripción vino después del primer despliegue y la tabla YA EXISTE en
+-- producción: `create table if not exists` no agrega columnas, así que va el
+-- alter idempotente (el mismo patrón que shop_id en sucursales).
+alter table public.menu_productos add column if not exists descripcion text;
+
+-- La categoría (la pestaña de la carta: Entradas, Bebidas…) se sumó junto
+-- con la descripción por la misma razón: la tabla ya existe en producción.
+alter table public.menu_productos add column if not exists categoria text;
+
+-- Los TURNOS en los que el producto está disponible: M (mañana, 06–12),
+-- T (tarde, 12–18) y N (noche, 18–06), siempre en ese orden y sin repetir.
+-- Va con el mismo `alter idempotente` que descripcion y categoria — la tabla
+-- ya existe en producción— y NACE EN 'MTN': lo que ya está cargado sigue
+-- disponible todo el día hasta que el encargado lo acote. La carta pública
+-- filtra con el turno del momento (ver `ver_menu_publico`).
+alter table public.menu_productos
+  add column if not exists turnos text not null default 'MTN';
+
+-- El `check` con drop + add para que el bloque se pueda correr de nuevo (el
+-- SQL Editor lo aplica entero y el test lo corre dos veces). La expresión
+-- acepta sólo la forma canónica: '' queda fuera por el `and`, y 'NM' o 'MM'
+-- porque las letras no pueden venir en otro orden ni repetidas.
+alter table public.menu_productos
+  drop constraint if exists menu_productos_turnos_chk;
+alter table public.menu_productos
+  add constraint menu_productos_turnos_chk
+  check (turnos ~ '^M?T?N?$' and turnos <> '');
+
+-- Quién puede con esta sucursal: su encargado (Gerente de Sucursal con esa
+-- sucursal en el perfil) o el Líder. `security definer` para leer `profiles`
+-- sin que sus políticas se interpongan, igual que `es_lider` y `puede_bonos`.
+create or replace function public.es_encargado_menu(p_sucursal uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.es_lider() or exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.activo and p.rol = 'GERENTE_S'
+       and p.sucursal_id = p_sucursal
+  );
+$$;
+
+-- El mismo cierre que el resto de los ayudantes: sólo quien tiene sesión
+-- (las políticas se evalúan con el privilegio de quien consulta, y anon no
+-- llega a la tabla igual).
+revoke execute on function public.es_encargado_menu(uuid) from public, anon;
+grant execute on function public.es_encargado_menu(uuid) to authenticated;
+
+alter table public.menu_productos enable row level security;
+
+-- DOS políticas, con DOS dueños distintos:
+--
+--  - LEER: el encargado (Gerente de Sucursal de ESA tienda) o el Líder. El
+--    Gerente ve su carta y su reporte de visitas: eso es todo lo que pide.
+--  - ESCRIBIR: SÓLO el Líder. El Gerente de Sucursal pasa a ser de SÓLO
+--    LECTURA —ni agrega, ni edita, ni reordena, ni quita de su propia
+--    tienda—. Antes una política `for all` le dejaba editar la suya; el
+--    permiso real es RLS, así que el cambio vive acá y la pantalla lo
+--    acompaña escondiendo los controles.
+drop policy if exists menu_productos_encargado on public.menu_productos;
+drop policy if exists menu_productos_select on public.menu_productos;
+create policy menu_productos_select on public.menu_productos
+  for select to authenticated
+  using (public.es_encargado_menu(sucursal_id));
+
+drop policy if exists menu_productos_gestion on public.menu_productos;
+create policy menu_productos_gestion on public.menu_productos
+  for all to authenticated
+  using (public.es_lider())
+  with check (public.es_lider());
+
+-- La tabla nace con el `alter default privileges ... revoke from anon` de
+-- `cerrar-permisos-anon.sql`, y el revoke explícito no deja nada al azar
+-- (es el mismo cierre que hace gran-cosecha).
+do $$
+begin
+  execute 'revoke all on public.menu_productos from anon';
+end $$;
+
+-- Lo que lee la página pública: la sucursal y sus productos activos, en una
+-- sola llamada. Sucursal inexistente o inactiva → `sucursal: null`
+-- (indistinguible de "no existe", no se puede enumerar sucursales a ciegas).
+create or replace function public.ver_menu_publico(p_sucursal uuid)
+returns jsonb
+language sql stable security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'sucursal', (
+      select jsonb_build_object('nombre', s.nombre)
+        from public.sucursales s
+       where s.id = p_sucursal and s.activa
+    ),
+    -- El turno del momento en Venezuela (06–12 M, 12–18 T, 18–06 N). Lo
+    -- manda la BASE y no el reloj del celular: un cliente con el teléfono
+    -- en otra zona horaria ve la misma carta que el de la puerta. La página
+    -- filtra con esto y con el `turnos` de cada producto.
+    'turno', (
+      select case
+               when h between 6 and 11 then 'M'
+               when h between 12 and 17 then 'T'
+               else 'N'
+             end
+        from (select extract(hour from now() at time zone 'America/Caracas')::int as h) t
+    ),
+    'productos', coalesce((
+      select jsonb_agg(
+               jsonb_build_object(
+                 'nombre', m.nombre,
+                 'descripcion', m.descripcion,
+                 'categoria', m.categoria,
+                 'precio', m.precio,
+                 'departamento', m.departamento,
+                 'foto', m.foto_url,
+                 'turnos', m.turnos
+               )
+               order by m.orden, m.created_at
+             )
+        from public.menu_productos m
+       where m.sucursal_id = p_sucursal and m.activo
+    ), '[]'::jsonb)
+  );
+$$;
+
+revoke execute on function public.ver_menu_publico(uuid) from public, anon;
+grant execute on function public.ver_menu_publico(uuid) to anon, authenticated;
+
+-- Las FOTOS del menú: bucket PÚBLICO (la página las ve con URL directa,
+-- igual que la landing de la Gran Cosecha). Sólo SUBE el Líder —el Gerente
+-- de Sucursal ve la carta pero no la altera—, y la ruta ES la sucursal
+-- (`menu/<sucursal>/<sku>.webp`): no se mete manos en la carpeta de otra
+-- tienda. Ver no necesita permiso: eso lo da `menu_fotos_select`.
+insert into storage.buckets (id, name, public)
+values ('menu-fotos', 'menu-fotos', true)
+on conflict (id) do update set public = excluded.public;
+
+drop policy if exists menu_fotos_select on storage.objects;
+create policy menu_fotos_select on storage.objects
+  for select to public
+  using (bucket_id = 'menu-fotos');
+
+drop policy if exists menu_fotos_encargado on storage.objects;
+create policy menu_fotos_encargado on storage.objects
+  for all to authenticated
+  using (bucket_id = 'menu-fotos' and public.es_lider())
+  with check (bucket_id = 'menu-fotos' and public.es_lider());
+
+-- ---------------------------------------------------------------------------
+-- VISITAS: cuántas veces se abre la página del menú, por día y por hora.
+-- (Separador de guiones y no de numeral: `bloqueSql` corta el bloque en la
+-- próxima línea con ###, que es cómo se marcan los bloques consolidados.)
+-- ---------------------------------------------------------------------------
+-- La página se abre SIN SESIÓN, así que quien cuenta es una función
+-- `security definer` llamada desde ella (mismo porqué que
+-- `ver_menu_publico`). La tabla nace con RLS activada y SIN políticas:
+-- nadie —ni authenticated— lee filas crudas, sólo las funciones de abajo;
+-- el revoke a anon es cinturón y corbata porque los defaults ya lo
+-- cerraron. Ojo con lo que mide: son APERTURAS, no usuarios únicos — un
+-- bot que repita la URL subiría el número; el cliente de todos modos sólo
+-- cuenta una vez por hora (localStorage), así que un refresco no infla.
+
+create table if not exists public.menu_visitas (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales (id) on delete cascade,
+  abierta_en timestamptz not null default now()
+);
+
+alter table public.menu_visitas enable row level security;
+
+do $$
+begin
+  execute 'revoke all on public.menu_visitas from anon';
+end $$;
+
+-- Registra la apertura. Sin `stable`: escribe. Sólo cuenta sucursales
+-- EXISTENTES y activas — un uuid al azar no deja filas, así que la tabla
+-- no se puede poblar con URLs inventadas.
+create or replace function public.registrar_visita_menu(p_sucursal uuid)
+returns void
+language sql security definer
+set search_path = public
+as $$
+  insert into public.menu_visitas (sucursal_id, abierta_en)
+  select s.id, now()
+    from public.sucursales s
+   where s.id = p_sucursal and s.activa
+$$;
+
+revoke execute on function public.registrar_visita_menu(uuid) from public, anon;
+grant execute on function public.registrar_visita_menu(uuid) to anon, authenticated;
+
+-- El reporte por día y hora: ES DE SESIÓN (nada de anon) y sólo devuelve
+-- datos si el llamador ES encargado de ESA sucursal o Líder — sin permiso
+-- devuelve la lista vacía, indistinguible de "sin visitas". Las horas van
+-- en la zona de la empresa (Caracas): lo que el encargado llama "las 10
+-- de la mañana" no es las 6 UTC.
+create or replace function public.ver_visitas_menu(
+  p_sucursal uuid,
+  p_desde date,
+  p_hasta date
+)
+returns jsonb
+language sql stable security definer
+set search_path = public
+as $$
+  select case
+    when public.es_encargado_menu(p_sucursal) then (
+      select coalesce(
+        jsonb_agg(
+          jsonb_build_object('fecha', fecha, 'hora', hora, 'visitas', visitas)
+          order by fecha, hora
+        ),
+        '[]'::jsonb
+      )
+      from (
+        select date_trunc('day', v.abierta_en at time zone 'America/Caracas')::date as fecha,
+               extract(hour from v.abierta_en at time zone 'America/Caracas')::int as hora,
+               count(*)::int as visitas
+          from public.menu_visitas v
+         where v.sucursal_id = p_sucursal
+           and (v.abierta_en at time zone 'America/Caracas')::date between p_desde and p_hasta
+         group by 1, 2
+      ) x
+    )
+    else '[]'::jsonb
+  end
+$$;
+
+revoke execute on function public.ver_visitas_menu(uuid, date, date) from public, anon;
+grant execute on function public.ver_visitas_menu(uuid, date, date) to authenticated;
+
+-- La lista que ofrece el selector de sucursales de la página pública
+-- (cambiar de tienda sin un QR nuevo): sólo activas y sólo id + nombre —
+-- ni direcciones ni teléfonos, lo justo para poder elegir.
+create or replace function public.ver_sucursales_menu()
+returns jsonb
+language sql stable security definer
+set search_path = public
+as $$
+  select coalesce(
+    jsonb_agg(jsonb_build_object('id', s.id, 'nombre', s.nombre) order by s.nombre),
+    '[]'::jsonb
+  )
+  from public.sucursales s
+  where s.activa
+$$;
+
+revoke execute on function public.ver_sucursales_menu() from public, anon;
+grant execute on function public.ver_sucursales_menu() to anon, authenticated;
+
+-- Archivo consolidado: helpdesk.sql
+-- ###########################################################################
+-- ============================================================================
+-- MESA DE AYUDA (HELPDESK TI) MULTISUCURSAL
+--
+-- Casos de soporte que cualquier colaborador CON SESIÓN puede abrir (su vista
+-- es la de sucursal) y que atiende el EQUIPO DE TI —la vista TI: asignar,
+-- estados, prioridad, analítica—. La Mesa de Ayuda tiene SUS DOS
+-- cerraduras, para que el Técnico atienda sin administrar:
+--
+--  - `es_equipo_ti()`: LÍDER, GERENTE_TI y TECNICO_TI — ver todos los
+--    casos, tomarlos, cambiar el estado, chatear como TI y notas internas.
+--  - `es_gerente_ti()`: LÍDER y GERENTE_TI — administrar el equipo de
+--    técnicos (alta y baja).
+--
+-- `es_lider()` NO se toca: ésa es la de Bonos y Configuración, que el
+-- equipo de TI no ve. El catálogo de TÉCNICOS se carga desde la API de
+-- trabajadores (`helpdesk_tecnico`): nombres reales de la nómina, elegidos
+-- por el Gerente de TI o el Líder; el chat registra QUIÉN escribió con el
+-- usuario real.
+--
+-- TRES tablas:
+--  - `helpdesk_ticket`: el caso. Su `codigo` (HD-1043…) sale de una
+--    SECUENCIA —numeración estable sin carreras entre clientes— y es la
+--    primary key: todo lo demás lo referencia con él.
+--  - `helpdesk_mensaje`: el chat (con `sender_type` branch/it/system y la
+--    marca `es_nota_interna`, del equipo de TI).
+--  - `helpdesk_tecnico`: el equipo TI elegido de la nómina.
+--
+-- El trigger de `updated_at` es `security definer` a propósito: al insertar
+-- un mensaje desde la SUCURSAL (que no puede UPDATEar el ticket por RLS),
+-- el trigger igual necesita mover el sello de actualización.
+--
+-- Aplicar en el SQL Editor de Supabase. Idempotente.
+-- ============================================================================
+
+create sequence if not exists helpdesk_numero start 1043;
+
+create table if not exists public.helpdesk_ticket (
+  codigo text primary key default ('HD-' || nextval('helpdesk_numero')),
+  titulo text not null check (length(trim(titulo)) > 0),
+  descripcion text not null default '',
+  -- La sucursal que reporta: id real (el nombre sólo para mostrarlo en la
+  -- lista, tomado de `sucursales` al crear —denormalizado, como el resto de
+  -- nombres que pinta la pantalla—).
+  sucursal_id uuid references public.sucursales(id) on delete set null,
+  sucursal_nombre text not null default '',
+  reportado_por uuid,
+  reportado_nombre text not null default '',
+  categoria text not null check (categoria in (
+    'Punto de Venta (POS)', 'Redes y Wi-Fi', 'Impresoras y Etiquetadoras',
+    'Sistema / ERP', 'Accesos y Cuentas', 'Hardware / PC'
+  )),
+  prioridad text not null default 'Media' check (prioridad in ('Baja', 'Media', 'Alta', 'Crítica')),
+  estado text not null default 'Abierto' check (estado in ('Abierto', 'En Progreso', 'Resuelto', 'Cerrado')),
+  tecnico_dni bigint,
+  tecnico_nombre text,
+  resolucion_minutos integer check (resolucion_minutos is null or resolucion_minutos >= 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.helpdesk_mensaje (
+  id uuid primary key default gen_random_uuid(),
+  codigo_ticket text not null references public.helpdesk_ticket(codigo) on delete cascade,
+  sender_type text not null check (sender_type in ('branch', 'it', 'system')),
+  sender_name text not null,
+  texto text not null,
+  es_nota_interna boolean not null default false,
+  adjunto text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.helpdesk_tecnico (
+  id uuid primary key default gen_random_uuid(),
+  dni bigint not null,
+  nacionalidad text not null default 'V',
+  nombre text not null,
+  especialidad text not null default 'Mesa de Ayuda',
+  activo boolean not null default true,
+  unique (nacionalidad, dni)
+);
+
+-- El sello de actualización del caso: se mueve SOLO con la inserción de un
+-- mensaje (el chat es lo que más escribe), security definer para que una
+-- sucursal pueda "tocar" su caso sin tener política de UPDATE sobre él.
+create or replace function public.helpdesk_tocar_ticket()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.helpdesk_ticket set updated_at = now()
+   where codigo = new.codigo_ticket;
+  return new;
+end;
+$$;
+
+drop trigger if exists helpdesk_mensaje_toca_ticket on public.helpdesk_mensaje;
+create trigger helpdesk_mensaje_toca_ticket
+after insert on public.helpdesk_mensaje
+for each row execute function public.helpdesk_tocar_ticket();
+
+-- Nadie llama a esta función a mano: sólo la dispara la inserción del
+-- mensaje, y es `security definer` — el permiso no tiene por qué quedar
+-- en PUBLIC (la misma regla de todo el schema, ver permisos-sql.test).
+revoke execute on function public.helpdesk_tocar_ticket() from public, anon;
+
+-- LAS DOS CERRADURAS DE LA MESA DE AYUDA (ver la cabecera del bloque).
+-- Son `security definer` como `es_lider()` y `puede_bonos()`: leen
+-- `profiles` sin que sus políticas se interpongan.
+create or replace function public.es_equipo_ti()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.activo
+       and p.rol in ('LIDER', 'GERENTE_TI', 'TECNICO_TI')
+  );
+$$;
+
+create or replace function public.es_gerente_ti()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.activo
+       and p.rol in ('LIDER', 'GERENTE_TI')
+  );
+$$;
+
+-- Sólo con sesión: las políticas las evalúan con el privilegio de quien
+-- consulta, y anon no llega a la mesa de ayuda de todas formas.
+revoke execute on function public.es_equipo_ti() from public, anon;
+grant execute on function public.es_equipo_ti() to authenticated;
+revoke execute on function public.es_gerente_ti() from public, anon;
+grant execute on function public.es_gerente_ti() to authenticated;
+
+-- EL ATEDEDOR PUEDE SER UN USUARIO: quien atiende puede ser un USUARIO con
+-- rol TECNICO_TI (que no tiene DNI en la nómina) o una persona de la nómina
+-- del equipo de guardia. Los DOS van guardados: el uuid del usuario o el
+-- DNI de la nómina — nunca los dos a la vez.
+alter table public.helpdesk_ticket
+  add column if not exists tecnico_usuario uuid references public.profiles(id) on delete set null;
+
+-- SÓLO EL GERENTE DE TI (o el Líder) ASIGNA CASOS: ni el Técnico se
+-- autoasigna ni reparte, ni desde la pantalla ni desde la API. RLS no
+-- puede mirar COLUMNAS, así que esto va en un disparador y se fija sólo
+-- cuando el atendedor de la fila CAMBIA — cambiar el estado sigue siendo
+-- de todo el equipo de TI.
+create or replace function public.helpdesk_solo_gerente_asigna()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    if (new.tecnico_dni is not null or new.tecnico_usuario is not null)
+       and not public.es_gerente_ti() then
+      raise exception 'Sólo el Gerente de TI (o el Líder) asigna casos.';
+    end if;
+  elsif (new.tecnico_dni is distinct from old.tecnico_dni)
+     or (new.tecnico_usuario is distinct from old.tecnico_usuario) then
+    if not public.es_gerente_ti() then
+      raise exception 'Sólo el Gerente de TI (o el Líder) asigna casos.';
+    end if;
+  end if;
+  return new;
+end; $$;
+
+drop trigger if exists helpdesk_solo_gerente_asigna on public.helpdesk_ticket;
+create trigger helpdesk_solo_gerente_asigna
+before insert or update on public.helpdesk_ticket
+for each row execute function public.helpdesk_solo_gerente_asigna();
+
+-- Como `helpdesk_tocar_ticket`: nadie la llama a mano, sólo la dispara la
+-- base, así que su permiso no queda en PUBLIC.
+revoke execute on function public.helpdesk_solo_gerente_asigna() from public, anon;
+
+-- RLS
+alter table public.helpdesk_ticket enable row level security;
+alter table public.helpdesk_mensaje enable row level security;
+alter table public.helpdesk_tecnico enable row level security;
+
+-- Casos: todos con sesión los LEEN (multisucursal); el que gestiona
+-- —tomarlo, asignarlo, estados, prioridad, borrar— es el EQUIPO DE TI.
+drop policy if exists helpdesk_ticket_select on public.helpdesk_ticket;
+create policy helpdesk_ticket_select on public.helpdesk_ticket
+  for select to authenticated using (true);
+
+-- Alta: con la SUCURSAL DEL QUE REPORTA. Quien tiene sucursal en el perfil
+-- sólo puede abrirla en la SUYA —la pantalla ya la muestra bloqueada y este
+-- `with check` es lo que impide mandarla a otra desde afuera—; quien no
+-- tiene ninguna (roles corporativos, incluido el equipo de TI) elige.
+drop policy if exists helpdesk_ticket_insert on public.helpdesk_ticket;
+create policy helpdesk_ticket_insert on public.helpdesk_ticket
+  for insert to authenticated
+  with check (
+    public.es_equipo_ti()
+    or (select p.sucursal_id from public.profiles p where p.id = auth.uid()) is null
+    or sucursal_id = (select p.sucursal_id from public.profiles p where p.id = auth.uid())
+  );
+
+drop policy if exists helpdesk_ticket_lider on public.helpdesk_ticket;
+drop policy if exists helpdesk_ticket_gestion on public.helpdesk_ticket;
+create policy helpdesk_ticket_gestion on public.helpdesk_ticket
+  for all to authenticated using (public.es_equipo_ti()) with check (public.es_equipo_ti());
+
+-- Mensajes: se leen todos salvo las NOTAS INTERNAS (del equipo de TI) y se
+-- escribe como 'branch'; 'it' y 'system' los arma sólo el equipo de TI, así
+-- que nadie de sucursal puede hacerse pasar por TI.
+drop policy if exists helpdesk_mensaje_select on public.helpdesk_mensaje;
+create policy helpdesk_mensaje_select on public.helpdesk_mensaje
+  for select to authenticated
+  using (es_nota_interna = false or public.es_equipo_ti());
+drop policy if exists helpdesk_mensaje_insert on public.helpdesk_mensaje;
+create policy helpdesk_mensaje_insert on public.helpdesk_mensaje
+  for insert to authenticated
+  with check (sender_type = 'branch' or public.es_equipo_ti());
+
+-- Técnicos: se leen para armar los selectores; los carga y quita SÓLO
+-- LÍDER o GERENTE_TI — el Técnico de TI atiende, no arma el equipo.
+drop policy if exists helpdesk_tecnico_select on public.helpdesk_tecnico;
+create policy helpdesk_tecnico_select on public.helpdesk_tecnico
+  for select to authenticated using (true);
+drop policy if exists helpdesk_tecnico_lider on public.helpdesk_tecnico;
+drop policy if exists helpdesk_tecnico_gestion on public.helpdesk_tecnico;
+create policy helpdesk_tecnico_gestion on public.helpdesk_tecnico
+  for all to authenticated using (public.es_gerente_ti()) with check (public.es_gerente_ti());
+
+-- Sin datos de nadie para anon (los defaults de Supabase le dan todo).
+do $$
+begin
+  execute 'revoke all on public.helpdesk_ticket from anon';
+  execute 'revoke all on public.helpdesk_mensaje from anon';
+  execute 'revoke all on public.helpdesk_tecnico from anon';
+end $$;
+
+-- Archivo consolidado: modulos-fotos.sql
+-- ###########################################################################
+-- ============================================================================
+-- FOTOS REFERENCIALES DE LOS PUNTOS DE UN CHECKLIST
+--
+-- Config → Ítems permite adjuntar, a CADA punto de un ítem CHECKLIST, una
+-- foto de referencia —un listado de cortes de carne con su corte
+-- fotografiado, para que el evaluador no confunda un punto con otro—. La
+-- URL vive en el propio punto (`items.opciones[].foto`, jsonb): ESTE
+-- bloque sólo abre el bucket donde se guardan los archivos.
+--
+-- `modulos-fotos` es PÚBLICO, mismo criterio que `menu-fotos`: la
+-- evaluación pinta la URL directo, sin firmar nada ni pedir sesión para
+-- verla. Escribe sólo el LÍDER —la misma cerradura que Config → Ítems— con
+-- `es_lider()` en las dos caras de la política; el resto ni siquiera la
+-- lista.
+--
+-- Aplicar en el SQL Editor de Supabase. Idempotente: se puede correr de
+-- nuevo.
+-- ============================================================================
+
+insert into storage.buckets (id, name, public)
+values ('modulos-fotos', 'modulos-fotos', true)
+on conflict (id) do update set public = excluded.public;
+
+-- Ver: cualquiera que tenga la URL (la evaluación las pinta directo).
+drop policy if exists modulos_fotos_select on storage.objects;
+create policy modulos_fotos_select on storage.objects
+  for select to public
+  using (bucket_id = 'modulos-fotos');
+
+-- Subir, reemplazar y borrar: sólo el LÍDER, y sólo en ESTE bucket.
+drop policy if exists modulos_fotos_lider on storage.objects;
+create policy modulos_fotos_lider on storage.objects
+  for all to authenticated
+  using (bucket_id = 'modulos-fotos' and public.es_lider())
+  with check (bucket_id = 'modulos-fotos' and public.es_lider());
+
+-- ###########################################################################
+-- Archivo consolidado: gran-cosecha-publico.sql
+-- ###########################################################################
+-- ============================================================================
+-- GRAN COSECHA PÚBLICO — RETIRADO: lo que fue la landing /concurso
+--
+-- POR QUÉ SE FUE
+-- -------------
+-- La Gran Cosecha quedó con UNA sola página pública:
+--  * `/gran-cosecha.html` — la landing, con su editor «Página».
+--  * `/concurso` y su editor `/gran-cosecha/contenido` quedaron HUÉRFANOS:
+--    nadie enlazaba esa landing y lo que se cargaba ahí no se veía en la
+--    web. Se retiró entera: ruta, pantalla, editor y esta función.
+--
+-- QUÉ HACE ESTE BLOQUE AHORA
+-- --------------------------
+-- Cierra la boca que esa funcionalidad dejó en bases YA instaladas: sin los
+-- `drop`, una base con la landing vieja seguiría exponiendo
+-- `ver_concurso_publico` —una RPC abierta a `anon`— y su tabla de contenido.
+-- Idempotente: en una base nueva no hay nada que borrar.
+--
+-- (Los RIEGOS NO se tocan: `gran_cosecha_riego` vive en `gran-cosecha.sql`,
+-- la escribe la edge function `registrar-riego` y el conteo lo publica
+-- `ver_contenido_gran_cosecha`, en `gran-cosecha-pagina.sql`.)
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+
+-- Los DOS objetos de la landing retirada, en orden: primero la función (su
+-- cuerpo lee la tabla) y después la tabla.
+drop function if exists public.ver_concurso_publico(text);
+
+-- Única baja de datos de este archivo: la tabla guardaba bases, calendario,
+-- premios, jurado, FAQ y ganadores de una landing que ya no existe.
+drop table if exists public.gran_cosecha_contenido;
+
+-- Archivo consolidado: compartir-inspeccion.sql
+-- ###########################################################################
+-- ============================================================================
+-- ENLACE PÚBLICO DE UNA INSPECCIÓN DE VEHÍCULO / PRE-ENTREGA
+--
+-- POR QUÉ EXISTE
+-- -------------
+-- El PDF ya NO pega las fotos de evidencia: el papel no es el mejor lugar
+-- para mirar material visual (y una hoja con veinte fotos es un ladrillo).
+-- En su lugar lleva un QR que apunta a ESTE enlace, que sí muestra el
+-- detalle entero —la tabla de puntos con sus comentarios y el material
+-- visual, fotos y videos— sin cuenta y desde cualquier teléfono.
+--
+-- Es el mismo molde que `compartir-cargos.sql` y `compartir-evaluacion.sql`:
+--
+--  * La PK es la REVISIÓN y no el token: compartir de nuevo REEMPLAZA el
+--    enlace (y su reporte congelado) en vez de acumular links viejos que
+--    nadie puede apagar. Se apaga con un `activo = false`.
+--  * `datos` es el detalle ARMADO POR LA APP, con las URLs de las fotos ya
+--    firmadas (un año, igual que en cargos): lo que no está acá, el enlace
+--    no lo muestra.
+--  * La única puerta es `ver_inspeccion_compartida(p_token)`, SECURITY
+--    DEFINER: la pantalla corre sin sesión y `anon` no tiene permiso de
+--    tabla. Token equivocado y enlace apagado devuelven lo MISMO, para que
+--    no se pueda adivinar un token comparando respuestas.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+
+create table if not exists public.inspecciones_compartidas (
+  revision_id uuid primary key
+    references public.revision_pre_entrega (id) on delete cascade,
+  token text not null unique,
+  -- El detalle armado por la app (jsonb), con las URLs firmadas de las
+  -- fotos. Es lo único que viaja al que recibe el enlace.
+  datos jsonb not null,
+  activo boolean not null default true,
+  creado_por uuid references public.profiles (id) on delete set null,
+  creado_at timestamptz not null default now()
+);
+
+alter table public.inspecciones_compartidas enable row level security;
+
+-- Quien hizo la inspección (o el Líder, que puede con todo) ve que su
+-- enlace está activo: si no, el botón no tendría memoria entre sesiones.
+drop policy if exists inspecciones_compartidas_select on public.inspecciones_compartidas;
+create policy inspecciones_compartidas_select on public.inspecciones_compartidas
+  for select to authenticated
+  using (exists (
+    select 1 from public.revision_pre_entrega r
+    where r.id = inspecciones_compartidas.revision_id
+      and (r.evaluador_id = auth.uid() or public.es_lider())
+  ));
+
+-- Generar y apagar el enlace: mismo criterio que el select de arriba.
+drop policy if exists inspecciones_compartidas_gestion on public.inspecciones_compartidas;
+create policy inspecciones_compartidas_gestion on public.inspecciones_compartidas
+  for all to authenticated
+  using (exists (
+    select 1 from public.revision_pre_entrega r
+    where r.id = inspecciones_compartidas.revision_id
+      and (r.evaluador_id = auth.uid() or public.es_lider())
+  ))
+  with check (exists (
+    select 1 from public.revision_pre_entrega r
+    where r.id = inspecciones_compartidas.revision_id
+      and (r.evaluador_id = auth.uid() or public.es_lider())
+  ));
+
+-- La única puerta: leer el detalle de un enlace, SIN sesión.
+create or replace function public.ver_inspeccion_compartida(p_token text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select case
+    when exists (
+      select 1 from public.inspecciones_compartidas i
+      where i.activo and i.token = p_token
+    )
+    then (
+      select jsonb_build_object(
+        'datos', i.datos,
+        'generado', i.creado_at
+      )
+      from public.inspecciones_compartidas i
+      where i.activo and i.token = p_token
+    )
+    else jsonb_build_object('datos', null)
+  end;
+$$;
+
+-- `anon` porque la pantalla corre sin sesión, y `authenticated` porque el
+-- enlace lo puede abrir alguien que ya tiene la app abierta (el propio
+-- evaluador mirando su link). El revoke va con PUBLIC porque los permisos
+-- en Postgres son aditivos, y DESPUÉS del `create or replace`, que reactiva
+-- ese permiso.
+revoke execute on function public.ver_inspeccion_compartida(text) from public, anon;
+grant  execute on function public.ver_inspeccion_compartida(text) to anon, authenticated;
+
+-- Archivo consolidado: tabulador-paquetes.sql
+-- ###########################################################################
+-- ============================================================================
+-- TABULADOR DE PAQUETES: LAS CIFRAS DE TALENTO HUMANO, EN LA CONSOLA
+--
+-- Por cargo: código, departamento, dependencia, plantilla (plazas) y el
+-- desglose del PAQUETE, cada cifra en SU moneda de declaración:
+--
+--   SALARIO (BS), BONO TRASLADO (BS)                    -> bolívares
+--   BONO ASISTENCIA (USD), CESTATICKETS (USD),
+--   PAQUETE APROBADO (USD)                              -> dólares
+--
+--   BONO COMPENSATORIO (USD) NO se guarda: es el resultado de
+--   PAQUETE APROBADO − (SALARIO + TRASLADO + ASISTENCIA + CESTATICKETS),
+--   con SALARIO y TRASLADO pasados a USD por la tasa del BCV. Se calcula
+--   en la pantalla (`bonoCompensatorio`) y se pinta como cualquier otra
+--   cifra USD — si falta el paquete o falta la tasa, la celda es «—», no
+--   un número de mentira.
+--
+-- La fila guarda cada cifra EN SU MONEDA —nadie convierte al guardar—:
+-- la conversión es de la PANTALLA y sólo cuando se pide la vista «solo
+-- BS» o «solo USD», aplicando la tasa del BCV (`src/lib/tasaBcv.ts`: la
+-- manual si existe, si no la oficial). La vista «según declaración» pinta
+-- cada columna en la moneda con la que fue cargada, sin tocar nada.
+--
+-- A diferencia del tabulador anterior (una foto del Excel, de sólo
+-- lectura), ESTE se edita desde la consola: alta, edición y borrado. La
+-- cerradura es la MISMA de los bonos —LÍDER y GERENTE DE TALENTO HUMANO—
+-- en el menú, en la ruta y acá (`puede_bonos`), con el RLS como segunda
+-- puerta y `anon` sin privilegio de tabla.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente: se puede correr
+-- de nuevo.
+-- ============================================================================
+create table if not exists public.tabulador_paquete (
+  id uuid primary key default gen_random_uuid(),
+  -- Código del puesto en el organigrama de Talento Humano. Texto, porque
+  -- conserva los ceros a la izquierda ('0037000').
+  codigo text not null default '',
+  cargo text not null,
+  -- El cargo normalizado (sin acentos ni mayúsculas), la MISMA que calcula
+  -- el cliente con `claveNormalizada`: es con lo que se busca en pantalla.
+  clave text not null default '',
+  departamento text not null default '',
+  dependencia text not null default '',
+  -- Plazas del puesto. NULL = no declarado (se pinta «—», no un cero).
+  plantilla integer check (plantilla is null or plantilla >= 0),
+  -- LAS CUATRO CIFRAS QUE SE GUARDAN: cada una en su moneda de declaración
+  -- y NULL cuando no está declarada. Los `check` no dejan números
+  -- negativos, y el cero sigue siendo un valor válido («declarado en cero»).
+  -- El PAQUETE APROBADO es la cifra que aprueba Talento Humano, en USD.
+  -- De ahí sale el BONO COMPENSATORIO, que NO se guarda: se resta en la
+  -- pantalla y por eso no puede quedar desfasado del salario o de la tasa.
+  salario_bs numeric check (salario_bs is null or salario_bs >= 0),
+  bono_traslado_bs numeric check (bono_traslado_bs is null or bono_traslado_bs >= 0),
+  bono_asistencia_usd numeric check (bono_asistencia_usd is null or bono_asistencia_usd >= 0),
+  cestatickets_usd numeric check (cestatickets_usd is null or cestatickets_usd >= 0),
+  paquete_aprobado_usd numeric check (paquete_aprobado_usd is null or paquete_aprobado_usd >= 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- MIGRACIÓN: las columnas nuevas nacen en el `create table` de arriba, pero
+-- una tabla ya creada por una versión anterior no las trae —y la anterior
+-- guardaba el `bono_compensatorio_usd`, que hoy se CALCULA—. El `if not
+-- exists` / `if exists` hace que el bloque actualice sin romper nada y
+-- siga siendo idempotente.
+alter table public.tabulador_paquete
+  add column if not exists paquete_aprobado_usd numeric
+  check (paquete_aprobado_usd is null or paquete_aprobado_usd >= 0);
+alter table public.tabulador_paquete drop column if exists bono_compensatorio_usd;
+
+create index if not exists idx_tabulador_paquete_clave on public.tabulador_paquete (clave);
+create index if not exists idx_tabulador_paquete_departamento on public.tabulador_paquete (departamento);
+
+-- ROW LEVEL SECURITY: la misma cerradura que los bonos. El select TAMBIÉN
+-- va filtrado —una cifra de sueldo no la lee cualquier sesión autenticada—
+-- y la escritura es de los DOS roles que gestionan compensación.
+alter table public.tabulador_paquete enable row level security;
+
+drop policy if exists tabulador_paquete_select on public.tabulador_paquete;
+create policy tabulador_paquete_select on public.tabulador_paquete
+  for select to authenticated using (public.puede_bonos());
+drop policy if exists tabulador_paquete_gestion on public.tabulador_paquete;
+create policy tabulador_paquete_gestion on public.tabulador_paquete
+  for all to authenticated using (public.puede_bonos()) with check (public.puede_bonos());
+
+-- Segunda mitad de la cerradura: si algún día RLS queda apagado, el grant
+-- por defecto de Supabase sería la única puerta. Con el revoke sigue cerrada.
+do $$
+begin
+  execute 'revoke all on public.tabulador_paquete from anon';
+end $$;
+
+-- Archivo consolidado: acuerdos-comerciales.sql
+-- ###########################################################################
+-- ============================================================================
+-- ACUERDOS COMERCIALES: ESPACIOS DEL PISO DE VENTA ALQUILADOS A PROVEEDORES
+--
+-- Cada sucursal tiene un PLANO con sus espacios (cabezal, góndola, checkout,
+-- verificador de precios, pantalla, publiposte, valla, exhibidor,
+-- microperforado, otro). Un PROVEEDOR ocupa espacios a través de un ACUERDO
+-- comercial con fechas, monto en DÓLARES, frecuencia de pago y tipo de pago.
+--
+-- QUIÉN ES QUIÉN (tres roles, tres permisos):
+--
+--  - COOR_ACU: CREA y gestiona —tipos de espacio, catálogo del formulario,
+--    proveedores, espacios del plano, planos e acuerdos—.
+--  - AUD_EX: MARCA como cobrado y sube el comprobante (PDF o imagen).
+--  - LÍDER: SÓLO VE (como pidió el usuario): no escribe en este módulo.
+--
+-- POR QUÉ LOS COBROS SON FILAS Y NO SE GENERAN: el calendario se deriva de
+-- `fecha_inicio + frecuencia` hasta `fecha_fin` en el cliente, y en la base
+-- sólo queda REGISTRADO lo que se cobró (`acuerdo_cobro`). Así no hay un
+-- trabajo que genere renglones, una fecha vencida sin cobrar no necesita
+-- ningún cron para pintarse de rojo (se calcula) y marcar como pagado es
+-- insertar un renglón.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- ROLES NUEVOS: se rehacen los checks (mismo patrón que JUEZ y los de TI).
+-- `create table if not exists` no toca un check de una tabla ya creada.
+-- ----------------------------------------------------------------------------
+alter table public.profiles drop constraint if exists profiles_rol_check;
+alter table public.profiles add constraint profiles_rol_check
+  check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ','GERENTE_TI','TECNICO_TI','COOR_ACU','AUD_EX'));
+
+alter table public.invitaciones drop constraint if exists invitaciones_rol_check;
+alter table public.invitaciones add constraint invitaciones_rol_check
+  check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ','GERENTE_TI','TECNICO_TI','COOR_ACU','AUD_EX'));
+
+-- ----------------------------------------------------------------------------
+-- QUIÉN ES QUIÉN EN ESTE MÓDULO. `security definer` como `es_lider()`:
+-- leen `profiles` sin que sus políticas se interpongan.
+-- ----------------------------------------------------------------------------
+create or replace function public.es_coordinador_acu()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.activo and p.rol = 'COOR_ACU'
+  );
+$$;
+
+create or replace function public.es_aud_ex()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.activo and p.rol = 'AUD_EX'
+  );
+$$;
+
+-- El que ve el módulo: los TRES roles (el Líder entra a mirar).
+create or replace function public.puede_ver_acuerdos()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.activo
+       and p.rol in ('LIDER', 'COOR_ACU', 'AUD_EX')
+  );
+$$;
+
+revoke execute on function public.es_coordinador_acu() from public, anon;
+grant execute on function public.es_coordinador_acu() to authenticated;
+revoke execute on function public.es_aud_ex() from public, anon;
+grant execute on function public.es_aud_ex() to authenticated;
+revoke execute on function public.puede_ver_acuerdos() from public, anon;
+grant execute on function public.puede_ver_acuerdos() to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- CATÁLOGOS: los tipos de espacio y las opciones del formulario (frecuencia
+-- y tipo de pago). Se llenan con la semilla y el Coordinador agrega más
+-- desde la pantalla.
+-- ----------------------------------------------------------------------------
+create table if not exists public.acuerdo_tipo_espacio (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null unique check (length(trim(nombre)) > 0),
+  activo boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+insert into public.acuerdo_tipo_espacio (nombre) values
+  ('Cabezal'), ('Góndola'), ('Checkout'), ('Verificador de precios'),
+  ('Pantalla'), ('Publiposte'), ('Valla publicitaria'), ('Exhibidor'),
+  ('Microperforado'), ('Otro')
+on conflict (nombre) do nothing;
+
+create table if not exists public.acuerdo_catalogo (
+  id uuid primary key default gen_random_uuid(),
+  clase text not null check (clase in ('FRECUENCIA', 'TIPO_PAGO')),
+  valor text not null check (length(trim(valor)) > 0),
+  activo boolean not null default true,
+  created_at timestamptz not null default now(),
+  constraint acuerdo_catalogo_unico unique (clase, valor)
+);
+
+insert into public.acuerdo_catalogo (clase, valor) values
+  ('FRECUENCIA', 'Quincenal'), ('FRECUENCIA', 'Mensual'),
+  ('FRECUENCIA', 'Trimestral'), ('FRECUENCIA', 'Semestre'),
+  ('TIPO_PAGO', 'Nota de crédito'), ('TIPO_PAGO', 'Factura')
+on conflict (clase, valor) do nothing;
+
+-- ----------------------------------------------------------------------------
+-- PROVEEDORES: quién alquila. El COLOR se asigna solo al crear (la pantalla
+-- elige el primero libre de la paleta) y es el que marca al proveedor en la
+-- lista y a su espacio en el plano. El RIF, el teléfono y el correo van en
+-- columnas propias; `contacto` es la persona de contacto.
+-- ----------------------------------------------------------------------------
+create table if not exists public.acuerdo_proveedor (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null unique check (length(trim(nombre)) > 0),
+  rif text not null default '',
+  contacto text not null default '',
+  telefono text not null default '',
+  correo text not null default '',
+  color text not null default '#2e6ab0',
+  activo boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Compatibilidad: si la tabla se creó antes de estas columnas (sólo tenía
+-- nombre y contacto), se agregan. Idempotente.
+alter table public.acuerdo_proveedor add column if not exists rif text not null default '';
+alter table public.acuerdo_proveedor add column if not exists telefono text not null default '';
+alter table public.acuerdo_proveedor add column if not exists correo text not null default '';
+
+-- ----------------------------------------------------------------------------
+-- EL PLANO DE LA SUCURSAL: una imagen por tienda (bucket `acuerdos`).
+-- ----------------------------------------------------------------------------
+create table if not exists public.acuerdo_plano (
+  sucursal_id uuid primary key references public.sucursales(id) on delete cascade,
+  imagen text not null,
+  updated_at timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
+-- ESPACIOS DEL PISO DE VENTA: el ítem que identifica la ubicación exacta
+-- (código + detalle) y su POSICIÓN sobre el plano, en porcentaje del ancho
+-- y del alto de la imagen — así la imagen se cambia de tamaño sin reubicar
+-- nada. La FORMA dice cómo se pinta: un punto (marcador), un CUADRO o un
+-- CÍRCULO dibujado arrastrando sobre el plano; para las dos últimas,
+-- `ancho` y `alto` son el tamaño en % (0 en un punto).
+-- ----------------------------------------------------------------------------
+create table if not exists public.acuerdo_espacio (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  tipo_id uuid not null references public.acuerdo_tipo_espacio(id),
+  codigo text not null check (length(trim(codigo)) > 0),
+  detalle text not null default '',
+  x numeric not null check (x >= 0 and x <= 100),
+  y numeric not null check (y >= 0 and y <= 100),
+  forma text not null default 'punto',
+  ancho numeric not null default 0,
+  alto numeric not null default 0,
+  activo boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint acuerdo_espacio_unico unique (sucursal_id, codigo)
+);
+
+-- Compatibilidad: si la tabla se creó antes de las formas (sólo tenía el
+-- punto), se agregan las tres columnas y sus chequeos. Idempotente.
+alter table public.acuerdo_espacio add column if not exists forma text not null default 'punto';
+alter table public.acuerdo_espacio add column if not exists ancho numeric not null default 0;
+alter table public.acuerdo_espacio add column if not exists alto numeric not null default 0;
+
+alter table public.acuerdo_espacio drop constraint if exists acuerdo_espacio_forma_chk;
+alter table public.acuerdo_espacio add constraint acuerdo_espacio_forma_chk
+  check (forma in ('punto', 'rectangulo', 'circulo'));
+alter table public.acuerdo_espacio drop constraint if exists acuerdo_espacio_ancho_chk;
+alter table public.acuerdo_espacio add constraint acuerdo_espacio_ancho_chk
+  check (ancho >= 0 and ancho <= 100);
+alter table public.acuerdo_espacio drop constraint if exists acuerdo_espacio_alto_chk;
+alter table public.acuerdo_espacio add constraint acuerdo_espacio_alto_chk
+  check (alto >= 0 and alto <= 100);
+
+create index if not exists idx_acuerdo_espacio_sucursal on public.acuerdo_espacio (sucursal_id);
+
+-- ----------------------------------------------------------------------------
+-- EL ACUERDO COMERCIAL: entre MERCADO (el espacio) y PROVEEDOR.
+-- El MONTO es en DÓLARES y la frecuencia viene del catálogo; el solape de
+-- fechas en un mismo espacio lo valida la pantalla (dos acuerdos del mismo
+-- espacio no pueden cruzarse en el tiempo). `contrato` es la RUTA del
+-- archivo adjunto en el bucket (`contratos/…`), si se cargó uno.
+-- ----------------------------------------------------------------------------
+create table if not exists public.acuerdo_comercial (
+  id uuid primary key default gen_random_uuid(),
+  espacio_id uuid not null references public.acuerdo_espacio(id) on delete cascade,
+  proveedor_id uuid not null references public.acuerdo_proveedor(id),
+  fecha_inicio date not null,
+  fecha_fin date not null,
+  monto_usd numeric not null check (monto_usd > 0),
+  frecuencia text not null,
+  tipo_pago text not null,
+  contrato text,
+  activo boolean not null default true,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint acuerdo_fechas_chk check (fecha_fin >= fecha_inicio)
+);
+
+-- Compatibilidad: si la tabla se creó antes del contrato adjunto, se agrega
+-- la columna. Idempotente.
+alter table public.acuerdo_comercial add column if not exists contrato text;
+
+create index if not exists idx_acuerdo_espacio_fechas
+  on public.acuerdo_comercial (espacio_id, fecha_inicio, fecha_fin);
+create index if not exists idx_acuerdo_proveedor on public.acuerdo_comercial (proveedor_id);
+
+-- ----------------------------------------------------------------------------
+-- LO QUE SE COBRÓ: una fila por fecha de cobro REGISTRADA como pagada. Las
+-- fechas pendientes NO están acá —salen de `fecha_inicio + frecuencia` en la
+-- pantalla—, así que una vencida sin fila se pinta de rojo sin ningún cron.
+-- ----------------------------------------------------------------------------
+create table if not exists public.acuerdo_cobro (
+  id uuid primary key default gen_random_uuid(),
+  acuerdo_id uuid not null references public.acuerdo_comercial(id) on delete cascade,
+  fecha date not null,
+  monto numeric not null check (monto >= 0),
+  pagado_en date not null default current_date,
+  -- Ruta en el bucket `acuerdos`: `comprobantes/<id>/<millis>.pdf|png…`.
+  comprobante text,
+  comprobante_tipo text check (comprobante_tipo is null or comprobante_tipo in ('pdf', 'imagen')),
+  registrado_por uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint acuerdo_cobro_unico unique (acuerdo_id, fecha)
+);
+
+-- ----------------------------------------------------------------------------
+-- RLS
+-- ----------------------------------------------------------------------------
+alter table public.acuerdo_tipo_espacio enable row level security;
+alter table public.acuerdo_catalogo enable row level security;
+alter table public.acuerdo_proveedor enable row level security;
+alter table public.acuerdo_plano enable row level security;
+alter table public.acuerdo_espacio enable row level security;
+alter table public.acuerdo_comercial enable row level security;
+alter table public.acuerdo_cobro enable row level security;
+
+-- Ver: los TRES roles. Escribir lo que es DEL ACUERDO: sólo el Coordinador.
+-- Los cobros los escribe el Auditor (ver más abajo).
+drop policy if exists acuerdo_tipo_espacio_ver on public.acuerdo_tipo_espacio;
+create policy acuerdo_tipo_espacio_ver on public.acuerdo_tipo_espacio
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_tipo_espacio_gestion on public.acuerdo_tipo_espacio;
+create policy acuerdo_tipo_espacio_gestion on public.acuerdo_tipo_espacio
+  for all to authenticated using (public.es_coordinador_acu()) with check (public.es_coordinador_acu());
+
+drop policy if exists acuerdo_catalogo_ver on public.acuerdo_catalogo;
+create policy acuerdo_catalogo_ver on public.acuerdo_catalogo
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_catalogo_gestion on public.acuerdo_catalogo;
+create policy acuerdo_catalogo_gestion on public.acuerdo_catalogo
+  for all to authenticated using (public.es_coordinador_acu()) with check (public.es_coordinador_acu());
+
+drop policy if exists acuerdo_proveedor_ver on public.acuerdo_proveedor;
+create policy acuerdo_proveedor_ver on public.acuerdo_proveedor
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_proveedor_gestion on public.acuerdo_proveedor;
+create policy acuerdo_proveedor_gestion on public.acuerdo_proveedor
+  for all to authenticated using (public.es_coordinador_acu()) with check (public.es_coordinador_acu());
+
+drop policy if exists acuerdo_plano_ver on public.acuerdo_plano;
+create policy acuerdo_plano_ver on public.acuerdo_plano
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_plano_gestion on public.acuerdo_plano;
+create policy acuerdo_plano_gestion on public.acuerdo_plano
+  for all to authenticated using (public.es_coordinador_acu()) with check (public.es_coordinador_acu());
+
+drop policy if exists acuerdo_espacio_ver on public.acuerdo_espacio;
+create policy acuerdo_espacio_ver on public.acuerdo_espacio
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_espacio_gestion on public.acuerdo_espacio;
+create policy acuerdo_espacio_gestion on public.acuerdo_espacio
+  for all to authenticated using (public.es_coordinador_acu()) with check (public.es_coordinador_acu());
+
+drop policy if exists acuerdo_comercial_ver on public.acuerdo_comercial;
+create policy acuerdo_comercial_ver on public.acuerdo_comercial
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_comercial_gestion on public.acuerdo_comercial;
+create policy acuerdo_comercial_gestion on public.acuerdo_comercial
+  for all to authenticated using (public.es_coordinador_acu()) with check (public.es_coordinador_acu());
+
+-- Cobros: los ve el módulo entero; los REGISTRA (y sube comprobantes) el
+-- Auditor de Acuerdos.
+drop policy if exists acuerdo_cobro_ver on public.acuerdo_cobro;
+create policy acuerdo_cobro_ver on public.acuerdo_cobro
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_cobro_gestion on public.acuerdo_cobro;
+create policy acuerdo_cobro_gestion on public.acuerdo_cobro
+  for all to authenticated using (public.es_aud_ex()) with check (public.es_aud_ex());
+
+-- Cinturón y corbata: anon no llega a ninguna de estas tablas.
+do $$
+begin
+  execute 'revoke all on public.acuerdo_tipo_espacio from anon';
+  execute 'revoke all on public.acuerdo_catalogo from anon';
+  execute 'revoke all on public.acuerdo_proveedor from anon';
+  execute 'revoke all on public.acuerdo_plano from anon';
+  execute 'revoke all on public.acuerdo_espacio from anon';
+  execute 'revoke all on public.acuerdo_comercial from anon';
+  execute 'revoke all on public.acuerdo_cobro from anon';
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- BUCKET: planos, contratos y comprobantes, PRIVADO (son documentos
+-- internos). Se leen con URL firmada y se suben por carpeta: `planos/` y
+-- `contratos/` son del Coordinador, `comprobantes/` del Auditor.
+-- ----------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('acuerdos', 'acuerdos', false)
+on conflict (id) do update set public = excluded.public;
+
+drop policy if exists acuerdos_ver on storage.objects;
+create policy acuerdos_ver on storage.objects
+  for select to authenticated
+  using (bucket_id = 'acuerdos' and public.puede_ver_acuerdos());
+
+drop policy if exists acuerdos_subida on storage.objects;
+create policy acuerdos_subida on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'acuerdos'
+    and (
+      (split_part(name, '/', 1) in ('planos', 'contratos') and public.es_coordinador_acu())
+      or (split_part(name, '/', 1) = 'comprobantes' and public.es_aud_ex())
+    )
+  );
+
+drop policy if exists acuerdos_gestion on storage.objects;
+create policy acuerdos_gestion on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'acuerdos'
+    and (
+      (split_part(name, '/', 1) in ('planos', 'contratos') and public.es_coordinador_acu())
+      or (split_part(name, '/', 1) = 'comprobantes' and public.es_aud_ex())
+    )
+  );
+
+drop policy if exists acuerdos_borrado on storage.objects;
+create policy acuerdos_borrado on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'acuerdos'
+    and (
+      (split_part(name, '/', 1) in ('planos', 'contratos') and public.es_coordinador_acu())
+      or (split_part(name, '/', 1) = 'comprobantes' and public.es_aud_ex())
+    )
+  );

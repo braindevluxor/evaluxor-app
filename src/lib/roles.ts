@@ -1,4 +1,4 @@
-import type { Rol } from './types'
+import type { EstadoEvaluacion, Rol } from './types'
 
 export const ES_LIDER = 'LIDER'
 export const ES_EVALUADOR = 'EVALUADOR'
@@ -9,7 +9,12 @@ export const ETIQUETAS_ROL: Record<Rol, string> = {
   EVALUADOR: 'Evaluador',
   GERENTE_S: 'Gerente de Sucursal',
   GERENTE_C: 'Gerente Corporativo',
-  GERENTE_TH: 'Gerente de Talento Humano'
+  GERENTE_TH: 'Gerente de Talento Humano',
+  JUEZ: 'Juez de Gran Cosecha',
+  GERENTE_TI: 'Gerente de TI',
+  TECNICO_TI: 'Técnico de TI',
+  COOR_ACU: 'Coordinador de Acuerdos',
+  AUD_EX: 'Auditor de Acuerdos'
 }
 
 export const ROLES_EDITABLES: Exclude<Rol, 'SIN_ROL'>[] = [
@@ -17,8 +22,57 @@ export const ROLES_EDITABLES: Exclude<Rol, 'SIN_ROL'>[] = [
   'EVALUADOR',
   'GERENTE_S',
   'GERENTE_C',
-  'GERENTE_TH'
+  'GERENTE_TH',
+  'JUEZ',
+  'GERENTE_TI',
+  'TECNICO_TI',
+  'COOR_ACU',
+  'AUD_EX'
 ]
+
+/**
+ * Los TRES roles de Acuerdos Comerciales: los que ENTRAN al módulo (el
+ * Líder, que sólo ve). Es la MISMA pregunta que `puede_ver_acuerdos()` en
+ * la base, así que menú, ruta y RLS se responden igual.
+ */
+export function esEquipoAcuerdos(rol: Rol): boolean {
+  return rol === 'LIDER' || rol === 'COOR_ACU' || rol === 'AUD_EX'
+}
+
+/**
+ * CREA y gestiona: tipos de espacio, catálogo del formulario, proveedores,
+ * espacios del plano y acuerdos. En la base es `es_coordinador_acu()`.
+ */
+export function gestionaAcuerdos(rol: Rol): boolean {
+  return rol === 'COOR_ACU'
+}
+
+/**
+ * MARCA como cobrado y sube el comprobante. En la base es `es_aud_ex()`.
+ */
+export function cobraAcuerdos(rol: Rol): boolean {
+  return rol === 'AUD_EX'
+}
+
+/**
+ * El equipo que ATENDE la Mesa de Ayuda: los tres que entran a la vista TI
+ * (asignar, estados, chat como TI y notas internas).
+ *
+ * Es la MISMA pregunta que la función `es_equipo_ti()` de la base, así que
+ * el menú, la ruta y el RLS se responden igual.
+ */
+export function esEquipoTi(rol: Rol): boolean {
+  return rol === 'LIDER' || rol === 'GERENTE_TI' || rol === 'TECNICO_TI'
+}
+
+/**
+ * Quién ADMINISTRA la Mesa de Ayuda: alta y baja del equipo de técnicos.
+ * El Técnico de TI atiende pero no arma el equipo (mismo corte que en la
+ * RLS `es_gerente_ti()`).
+ */
+export function gestionaMesaAyuda(rol: Rol): boolean {
+  return rol === 'LIDER' || rol === 'GERENTE_TI'
+}
 
 export function puedeEvaluar(rol: Rol): boolean {
   return rol === 'LIDER' || rol === 'EVALUADOR'
@@ -26,6 +80,24 @@ export function puedeEvaluar(rol: Rol): boolean {
 
 export function puedeConfigurar(rol: Rol): boolean {
   return rol === 'LIDER'
+}
+
+/**
+ * ¿Se pueden corregir los productos escaneados de una conciliación?
+ *
+ * Mientras la evaluación está ACTIVA, cualquiera que pueda responder. Una vez
+ * cerrada, solo el Líder —que es lo que permite el servidor: `puede_responder`
+ * arranca con `select public.es_lider() or …`, sin tocar el estado. Y tiene
+ * sentido: el borrón de inventario se corrige después de cerrar igual que
+ * cualquier otro dato mal escaneado, y lo que se arregla es el balance de
+ * conciliación, no el puntaje ya registrado.
+ *
+ * Existía porque el editor devolvía sin más en cuanto la evaluación no estaba
+ * ACTIVA, mientras el lápiz del historial la abría igual: el Líder confirmaba el
+ * borrado, la fila no se movía y el producto seguía en el detalle.
+ */
+export function puedeCorregirConciliacion(rol: Rol, estado: EstadoEvaluacion): boolean {
+  return estado === 'ACTIVA' || rol === 'LIDER'
 }
 
 export function verTodo(rol: Rol): boolean {
@@ -42,6 +114,19 @@ export function homePorRol(rol: Rol): string {
     case 'GERENTE_C':
     case 'GERENTE_TH':
       return '/dashboard'
+    case 'JUEZ':
+      // El juez no entra a Resultados (la ruta lo rebotaría acá), así que su
+      // casa es directamente el concurso que juzga.
+      return '/gran-cosecha/proyectos'
+    case 'GERENTE_TI':
+    case 'TECNICO_TI':
+      // El equipo de TI sólo tiene la Mesa de Ayuda: es donde trabaja y es
+      // adonde vuelve cualquier ruta que les quede fuera.
+      return '/helpdesk'
+    case 'COOR_ACU':
+    case 'AUD_EX':
+      // Acuerdos Comerciales es SU módulo: ahí trabajan y ahí vuelven.
+      return '/acuerdos'
     default:
       return '/pendiente'
   }
