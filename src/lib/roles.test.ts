@@ -4,7 +4,10 @@ import { fileURLToPath } from 'node:url'
 import {
   ETIQUETAS_ROL,
   ROLES_EDITABLES,
+  cobraAcuerdos,
+  esEquipoAcuerdos,
   esEquipoTi,
+  gestionaAcuerdos,
   gestionaMesaAyuda,
   homePorRol,
 } from './roles'
@@ -52,6 +55,30 @@ describe('roles · el equipo de TI', () => {
     expect(ROLES_EDITABLES).toContain('TECNICO_TI')
     // Y Configuración sigue siendo del Líder: el corte no se corrió.
     expect(fuente('./roles.ts')).toContain("return rol === 'LIDER'")
+  })
+
+  it('Acuerdos Comerciales tiene sus TRES roles, con casa en el módulo', () => {
+    expect(homePorRol('COOR_ACU')).toBe('/acuerdos')
+    expect(homePorRol('AUD_EX')).toBe('/acuerdos')
+    expect(ETIQUETAS_ROL.COOR_ACU).toBeTruthy()
+    expect(ETIQUETAS_ROL.AUD_EX).toBeTruthy()
+    expect(ROLES_EDITABLES).toContain('COOR_ACU')
+    expect(ROLES_EDITABLES).toContain('AUD_EX')
+
+    // Los tres entran al módulo; el Líder sólo ve, el Coordinador gestiona
+    // y el Auditor cobra — la misma terna que `puede_ver_acuerdos()` en RLS.
+    for (const rol of ['LIDER', 'COOR_ACU', 'AUD_EX'] as const) {
+      expect(esEquipoAcuerdos(rol)).toBe(true)
+    }
+    for (const rol of ['EVALUADOR', 'GERENTE_S', 'GERENTE_TI', 'TECNICO_TI'] as const) {
+      expect(esEquipoAcuerdos(rol)).toBe(false)
+    }
+    expect(gestionaAcuerdos('COOR_ACU')).toBe(true)
+    expect(gestionaAcuerdos('LIDER')).toBe(false)
+    expect(gestionaAcuerdos('AUD_EX')).toBe(false)
+    expect(cobraAcuerdos('AUD_EX')).toBe(true)
+    expect(cobraAcuerdos('COOR_ACU')).toBe(false)
+    expect(cobraAcuerdos('LIDER')).toBe(false)
   })
 
   it('la consola les ofrece SÓLO la Mesa de Ayuda y la pantalla usa los mismos cortes', () => {

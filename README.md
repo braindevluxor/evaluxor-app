@@ -20,6 +20,8 @@ Vite + React 19 + TypeScript, Tailwind CSS (color primario azul oscuro `#0B2545`
 | `GERENTE_TH` | Talento Humano: ve todas las tiendas y gestiona los bonos por desempeño. |
 | `GERENTE_TI` | Gerente de TI: atiende la Mesa de Ayuda —asigna casos, cambia estados y prioridad, escribe notas internas— y administra el equipo de técnicos. Su consola es sólo la Mesa de Ayuda. |
 | `TECNICO_TI` | Técnico de TI: atiende los casos —los toma, cambia el estado, responde en el chat como TI y deja notas internas—, pero no administra el equipo de técnicos. Su consola es sólo la Mesa de Ayuda. |
+| `COOR_ACU` | Coordinador de Acuerdos: crea y gestiona los acuerdos comerciales —espacios del plano, proveedores, acuerdos y bajas—. Su consola es sólo Acuerdos Comerciales. |
+| `AUD_EX` | Auditor de Acuerdos: registra los cobros, sube los comprobantes (PDF o imagen) y marca la mora. Su consola es sólo Acuerdos Comerciales. |
 
 ### Flujo de creación de usuarios
 1. El **Líder** crea la cuenta desde `/config/usuarios` → **Crear usuario** (nombre opcional + correo + **usuario de acceso** + contraseña + rol + sucursal). La cuenta se crea en el acto: no hay enlace que la persona tenga que abrir.
@@ -41,6 +43,19 @@ Módulo en el menú de la consola (`/config/bonos`), para `LIDER` y `GERENTE_TH`
 Los datos viven en `supabase/schema.sql`, bloque `bonos.sql` (tablas `bonos_cargo`, `bonos_cargo_sucursal` y `bonos_pago`, con RLS sobre la función `puede_bonos`): hay que pegarlo en el SQL Editor de Supabase una vez. Es idempotente, se puede volver a correr.
 
 **Nómina espejo**: los ocupantes se leen de la tabla `trabajadores_nomina` —el registro **crudo** de la API, porque la normalización (activo, área, estado) vive sólo en el cliente—, que refresca la Edge Function `actualizar-nomina` todos los días a las 05:00 con `pg_cron` + `pg_net`. Si la tabla está vacía (o el bloque no está aplicado) la app cae a la API en vivo, y la pantalla avisa de dónde salió la nómina, cuánto hace que se actualizó y ofrece «Actualizar ahora». Si una tienda no responde, **sus filas no se borran**: se queda el último estado bueno. Para programarlo: habilitar `pg_cron` y `pg_net` (Database → Extensions), desplegar la función, aplicar el bloque `nomina-trabajadores.sql`, cargar la configuración y llamar `select public.programar_nomina_cron();` (el detalle está en la cabecera del bloque).
+
+## Acuerdos comerciales
+
+Módulo en el menú (sección **Comercial**, ruta `/acuerdos`) para `COOR_ACU`, `AUD_EX` y `LÍDER` (que **sólo ve**):
+
+- **Planos**: la imagen del piso de venta de cada sucursal con sus espacios —cabezal, góndola, checkout, verificador de precios, pantalla, publiposte, valla, exhibidor, microperforado…— posicionados en porcentaje, con un **semáforo de estado**: **rojo** si está disponible, **verde** si está ocupado y al día con sus cobros, **amarillo** si está ocupado pero con cobros vencidos sin pagar.
+- **Proveedores**: registro con color asignado solo; es el que marca al proveedor en la lista y a su espacio en el plano.
+- **Acuerdos**: espacio + proveedor + fechas + **monto en USD** + frecuencia (quincenal, mensual, trimestral, semestre) + tipo de pago (nota de crédito o factura) + **contrato adjunto** (PDF o imagen, en el bucket privado; se ve desde la tabla con un clip). Los selectores **pueden crear la opción que falte** y el solape de fechas en un mismo espacio se rechaza al guardar.
+- **Calendario**: las fechas de cobro salen de `fecha_inicio + frecuencia`; lo vencido sin cobrar se pinta de **rojo (mora)**, lo cobrado queda verde con su **comprobante** (PDF o imagen), y sólo el Auditor registra cobros. Trae el dinero recaudado y las cuentas pendientes por cobrar.
+- **Dashboard**: indicadores de hoy; % rentado de cada sucursal vs. disponible en **barras verticales**, **torta** con el rentado por tipo de espacio, y con **filtro de mes en la barra superior** un **medidor curvo de cuatro anillos**: negociado, recaudado, facturas y notas de crédito, cada uno con su % y su monto.
+- **Historial**: las rentas que existieron por espacio y su cumplimiento, con filtros por sucursal, proveedor y estado.
+
+Los datos viven en `supabase/schema.sql`, bloque `acuerdos-comerciales.sql` (las tablas `acuerdo_*`, el bucket privado `acuerdos` para planos y comprobantes y las tres funciones de permiso). Se pega en el SQL Editor y es idempotente.
 
 ## Riegos de Gran Cosecha (para Academia Luxor y Desarrollo Luxor)
 

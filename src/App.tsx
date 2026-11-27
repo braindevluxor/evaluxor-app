@@ -49,6 +49,11 @@ const GranCosechaPage = lazy(() => import('./pages/GranCosecha').then((m) => ({ 
 const HelpdeskPage = lazy(() =>
   import('./pages/helpdesk/Helpdesk').then((m) => ({ default: m.HelpdeskPage }))
 )
+// Acuerdos Comerciales: alquiler de espacios del piso de venta. Sólo lo
+// entran sus TRES roles (el Líder, que sólo ve).
+const AcuerdosPage = lazy(() =>
+  import('./pages/acuerdos/AcuerdosComerciales').then((m) => ({ default: m.AcuerdosPage }))
+)
 // La página pública (/gran-cosecha.html) vista desde la consola: sólo el
 // Líder la abre —la misma cerradura que su item de menú y su RLS—.
 const GranCosechaPagina = lazy(() =>
@@ -370,6 +375,19 @@ function Rutas() {
                           superior (ahí cuelga el cambio de vista por
                           PortalCabecera), como cualquier otra pantalla. */}
                       <Route path="/helpdesk" element={<HelpdeskPage />} />
+                      {/* Acuerdos Comerciales: los TRES roles del módulo
+                          (el Líder sólo ve) y la RLS vuelve a pedir lo mismo
+                          con `puede_ver_acuerdos()`. Cada vista es su propia
+                          ruta (el menú lateral enlaza a todas) y así recargar
+                          no pierde la pantalla. */}
+                      <Route
+                        path="/acuerdos/*"
+                        element={
+                          <RequireRol roles={['LIDER', 'COOR_ACU', 'AUD_EX']}>
+                            <AcuerdosPage />
+                          </RequireRol>
+                        }
+                      />
                       {/* Gran Cosecha es de TODA la empresa MENOS el
                           Gerente de Sucursal: ese rol no ve los proyectos ni
                           por el menú ni por la dirección (RequireRol lo

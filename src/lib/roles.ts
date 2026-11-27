@@ -12,7 +12,9 @@ export const ETIQUETAS_ROL: Record<Rol, string> = {
   GERENTE_TH: 'Gerente de Talento Humano',
   JUEZ: 'Juez de Gran Cosecha',
   GERENTE_TI: 'Gerente de TI',
-  TECNICO_TI: 'Técnico de TI'
+  TECNICO_TI: 'Técnico de TI',
+  COOR_ACU: 'Coordinador de Acuerdos',
+  AUD_EX: 'Auditor de Acuerdos'
 }
 
 export const ROLES_EDITABLES: Exclude<Rol, 'SIN_ROL'>[] = [
@@ -23,8 +25,34 @@ export const ROLES_EDITABLES: Exclude<Rol, 'SIN_ROL'>[] = [
   'GERENTE_TH',
   'JUEZ',
   'GERENTE_TI',
-  'TECNICO_TI'
+  'TECNICO_TI',
+  'COOR_ACU',
+  'AUD_EX'
 ]
+
+/**
+ * Los TRES roles de Acuerdos Comerciales: los que ENTRAN al módulo (el
+ * Líder, que sólo ve). Es la MISMA pregunta que `puede_ver_acuerdos()` en
+ * la base, así que menú, ruta y RLS se responden igual.
+ */
+export function esEquipoAcuerdos(rol: Rol): boolean {
+  return rol === 'LIDER' || rol === 'COOR_ACU' || rol === 'AUD_EX'
+}
+
+/**
+ * CREA y gestiona: tipos de espacio, catálogo del formulario, proveedores,
+ * espacios del plano y acuerdos. En la base es `es_coordinador_acu()`.
+ */
+export function gestionaAcuerdos(rol: Rol): boolean {
+  return rol === 'COOR_ACU'
+}
+
+/**
+ * MARCA como cobrado y sube el comprobante. En la base es `es_aud_ex()`.
+ */
+export function cobraAcuerdos(rol: Rol): boolean {
+  return rol === 'AUD_EX'
+}
 
 /**
  * El equipo que ATENDE la Mesa de Ayuda: los tres que entran a la vista TI
@@ -95,6 +123,10 @@ export function homePorRol(rol: Rol): string {
       // El equipo de TI sólo tiene la Mesa de Ayuda: es donde trabaja y es
       // adonde vuelve cualquier ruta que les quede fuera.
       return '/helpdesk'
+    case 'COOR_ACU':
+    case 'AUD_EX':
+      // Acuerdos Comerciales es SU módulo: ahí trabajan y ahí vuelven.
+      return '/acuerdos'
     default:
       return '/pendiente'
   }

@@ -72,7 +72,7 @@ create table if not exists public.profiles (
   usuario text not null default '',
   nombre text not null default '',
   rol text not null default 'SIN_ROL'
-    check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','GERENTE_TI','TECNICO_TI')),
+    check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','GERENTE_TI','TECNICO_TI','COOR_ACU','AUD_EX')),
   -- La FK a `sucursales` va DESPUES de crear las dos tablas: se referencian
   -- entre si y con la FK en linea la segunda en aparecer fallaria.
   sucursal_id uuid,
@@ -209,7 +209,7 @@ create table if not exists public.invitaciones (
   id uuid primary key default gen_random_uuid(),
   email text not null,
   usuario text not null,
-  rol text not null check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','GERENTE_TI','TECNICO_TI')),
+  rol text not null check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','GERENTE_TI','TECNICO_TI','COOR_ACU','AUD_EX')),
   sucursal_id uuid references public.sucursales(id) on delete set null,
   token text not null unique default gen_random_uuid()::text,
   usado boolean not null default false,
@@ -4312,11 +4312,11 @@ create policy departamentos_centralizados_select on public.departamentos_central
 drop policy if exists "departamentos_centralizados_lider" on public.departamentos_centralizados;
 create policy departamentos_centralizados_lider on public.departamentos_centralizados for all using (public.es_lider()) with check (public.es_lider());
 
--- storage.objects (29 políticas: 11 distintas de fotos, cada una re-declarada
+-- storage.objects (33 políticas: 11 distintas de fotos, cada una re-declarada
 -- por el bloque que la trae y por `reactivar-politicas.sql` —7 de evidencias
--- e incidencias + 4 de la pre-entrega—, y 7 que sólo se declaran en su
--- propio bloque: 3 de la Gran Cosecha (la página y las fotos de proyecto) y
--- 2 del menú y 2 de fotos de módulos)
+-- e incidencias + 4 de la pre-entrega—, y 11 que sólo se declaran en su
+-- propio bloque: 3 de la Gran Cosecha (la página y las fotos de proyecto),
+-- 2 del menú, 2 de fotos de módulos y 4 de Acuerdos Comerciales)
 -- (storage.objects ya tiene RLS; solo se reponen sus polÃ­ticas)
 drop policy if exists "evidencias_select" on storage.objects;
 create policy "evidencias_select" on storage.objects for select to authenticated using (bucket_id = 'evidencias');
@@ -7402,3 +7402,362 @@ begin
   execute 'revoke all on public.tabulador_paquete from anon';
 end $$;
 
+-- Archivo consolidado: acuerdos-comerciales.sql
+-- ###########################################################################
+-- ============================================================================
+-- ACUERDOS COMERCIALES: ESPACIOS DEL PISO DE VENTA ALQUILADOS A PROVEEDORES
+--
+-- Cada sucursal tiene un PLANO con sus espacios (cabezal, góndola, checkout,
+-- verificador de precios, pantalla, publiposte, valla, exhibidor,
+-- microperforado, otro). Un PROVEEDOR ocupa espacios a través de un ACUERDO
+-- comercial con fechas, monto en DÓLARES, frecuencia de pago y tipo de pago.
+--
+-- QUIÉN ES QUIÉN (tres roles, tres permisos):
+--
+--  - COOR_ACU: CREA y gestiona —tipos de espacio, catálogo del formulario,
+--    proveedores, espacios del plano, planos e acuerdos—.
+--  - AUD_EX: MARCA como cobrado y sube el comprobante (PDF o imagen).
+--  - LÍDER: SÓLO VE (como pidió el usuario): no escribe en este módulo.
+--
+-- POR QUÉ LOS COBROS SON FILAS Y NO SE GENERAN: el calendario se deriva de
+-- `fecha_inicio + frecuencia` hasta `fecha_fin` en el cliente, y en la base
+-- sólo queda REGISTRADO lo que se cobró (`acuerdo_cobro`). Así no hay un
+-- trabajo que genere renglones, una fecha vencida sin cobrar no necesita
+-- ningún cron para pintarse de rojo (se calcula) y marcar como pagado es
+-- insertar un renglón.
+--
+-- Aplicar en el SQL Editor de Supabase. Es idempotente.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- ROLES NUEVOS: se rehacen los checks (mismo patrón que JUEZ y los de TI).
+-- `create table if not exists` no toca un check de una tabla ya creada.
+-- ----------------------------------------------------------------------------
+alter table public.profiles drop constraint if exists profiles_rol_check;
+alter table public.profiles add constraint profiles_rol_check
+  check (rol in ('SIN_ROL','LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ','GERENTE_TI','TECNICO_TI','COOR_ACU','AUD_EX'));
+
+alter table public.invitaciones drop constraint if exists invitaciones_rol_check;
+alter table public.invitaciones add constraint invitaciones_rol_check
+  check (rol in ('LIDER','EVALUADOR','GERENTE_S','GERENTE_C','GERENTE_TH','JUEZ','GERENTE_TI','TECNICO_TI','COOR_ACU','AUD_EX'));
+
+-- ----------------------------------------------------------------------------
+-- QUIÉN ES QUIÉN EN ESTE MÓDULO. `security definer` como `es_lider()`:
+-- leen `profiles` sin que sus políticas se interpongan.
+-- ----------------------------------------------------------------------------
+create or replace function public.es_coordinador_acu()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.activo and p.rol = 'COOR_ACU'
+  );
+$$;
+
+create or replace function public.es_aud_ex()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.activo and p.rol = 'AUD_EX'
+  );
+$$;
+
+-- El que ve el módulo: los TRES roles (el Líder entra a mirar).
+create or replace function public.puede_ver_acuerdos()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles p
+     where p.id = auth.uid() and p.activo
+       and p.rol in ('LIDER', 'COOR_ACU', 'AUD_EX')
+  );
+$$;
+
+revoke execute on function public.es_coordinador_acu() from public, anon;
+grant execute on function public.es_coordinador_acu() to authenticated;
+revoke execute on function public.es_aud_ex() from public, anon;
+grant execute on function public.es_aud_ex() to authenticated;
+revoke execute on function public.puede_ver_acuerdos() from public, anon;
+grant execute on function public.puede_ver_acuerdos() to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- CATÁLOGOS: los tipos de espacio y las opciones del formulario (frecuencia
+-- y tipo de pago). Se llenan con la semilla y el Coordinador agrega más
+-- desde la pantalla.
+-- ----------------------------------------------------------------------------
+create table if not exists public.acuerdo_tipo_espacio (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null unique check (length(trim(nombre)) > 0),
+  activo boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+insert into public.acuerdo_tipo_espacio (nombre) values
+  ('Cabezal'), ('Góndola'), ('Checkout'), ('Verificador de precios'),
+  ('Pantalla'), ('Publiposte'), ('Valla publicitaria'), ('Exhibidor'),
+  ('Microperforado'), ('Otro')
+on conflict (nombre) do nothing;
+
+create table if not exists public.acuerdo_catalogo (
+  id uuid primary key default gen_random_uuid(),
+  clase text not null check (clase in ('FRECUENCIA', 'TIPO_PAGO')),
+  valor text not null check (length(trim(valor)) > 0),
+  activo boolean not null default true,
+  created_at timestamptz not null default now(),
+  constraint acuerdo_catalogo_unico unique (clase, valor)
+);
+
+insert into public.acuerdo_catalogo (clase, valor) values
+  ('FRECUENCIA', 'Quincenal'), ('FRECUENCIA', 'Mensual'),
+  ('FRECUENCIA', 'Trimestral'), ('FRECUENCIA', 'Semestre'),
+  ('TIPO_PAGO', 'Nota de crédito'), ('TIPO_PAGO', 'Factura')
+on conflict (clase, valor) do nothing;
+
+-- ----------------------------------------------------------------------------
+-- PROVEEDORES: quién alquila. El COLOR se asigna solo al crear (la pantalla
+-- elige el primero libre de la paleta) y es el que marca al proveedor en la
+-- lista y a su espacio en el plano. El RIF, el teléfono y el correo van en
+-- columnas propias; `contacto` es la persona de contacto.
+-- ----------------------------------------------------------------------------
+create table if not exists public.acuerdo_proveedor (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null unique check (length(trim(nombre)) > 0),
+  rif text not null default '',
+  contacto text not null default '',
+  telefono text not null default '',
+  correo text not null default '',
+  color text not null default '#2e6ab0',
+  activo boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Compatibilidad: si la tabla se creó antes de estas columnas (sólo tenía
+-- nombre y contacto), se agregan. Idempotente.
+alter table public.acuerdo_proveedor add column if not exists rif text not null default '';
+alter table public.acuerdo_proveedor add column if not exists telefono text not null default '';
+alter table public.acuerdo_proveedor add column if not exists correo text not null default '';
+
+-- ----------------------------------------------------------------------------
+-- EL PLANO DE LA SUCURSAL: una imagen por tienda (bucket `acuerdos`).
+-- ----------------------------------------------------------------------------
+create table if not exists public.acuerdo_plano (
+  sucursal_id uuid primary key references public.sucursales(id) on delete cascade,
+  imagen text not null,
+  updated_at timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
+-- ESPACIOS DEL PISO DE VENTA: el ítem que identifica la ubicación exacta
+-- (código + detalle) y su POSICIÓN sobre el plano, en porcentaje del ancho
+-- y del alto de la imagen — así la imagen se cambia de tamaño sin reubicar
+-- nada. La FORMA dice cómo se pinta: un punto (marcador), un CUADRO o un
+-- CÍRCULO dibujado arrastrando sobre el plano; para las dos últimas,
+-- `ancho` y `alto` son el tamaño en % (0 en un punto).
+-- ----------------------------------------------------------------------------
+create table if not exists public.acuerdo_espacio (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references public.sucursales(id) on delete cascade,
+  tipo_id uuid not null references public.acuerdo_tipo_espacio(id),
+  codigo text not null check (length(trim(codigo)) > 0),
+  detalle text not null default '',
+  x numeric not null check (x >= 0 and x <= 100),
+  y numeric not null check (y >= 0 and y <= 100),
+  forma text not null default 'punto',
+  ancho numeric not null default 0,
+  alto numeric not null default 0,
+  activo boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint acuerdo_espacio_unico unique (sucursal_id, codigo)
+);
+
+-- Compatibilidad: si la tabla se creó antes de las formas (sólo tenía el
+-- punto), se agregan las tres columnas y sus chequeos. Idempotente.
+alter table public.acuerdo_espacio add column if not exists forma text not null default 'punto';
+alter table public.acuerdo_espacio add column if not exists ancho numeric not null default 0;
+alter table public.acuerdo_espacio add column if not exists alto numeric not null default 0;
+
+alter table public.acuerdo_espacio drop constraint if exists acuerdo_espacio_forma_chk;
+alter table public.acuerdo_espacio add constraint acuerdo_espacio_forma_chk
+  check (forma in ('punto', 'rectangulo', 'circulo'));
+alter table public.acuerdo_espacio drop constraint if exists acuerdo_espacio_ancho_chk;
+alter table public.acuerdo_espacio add constraint acuerdo_espacio_ancho_chk
+  check (ancho >= 0 and ancho <= 100);
+alter table public.acuerdo_espacio drop constraint if exists acuerdo_espacio_alto_chk;
+alter table public.acuerdo_espacio add constraint acuerdo_espacio_alto_chk
+  check (alto >= 0 and alto <= 100);
+
+create index if not exists idx_acuerdo_espacio_sucursal on public.acuerdo_espacio (sucursal_id);
+
+-- ----------------------------------------------------------------------------
+-- EL ACUERDO COMERCIAL: entre MERCADO (el espacio) y PROVEEDOR.
+-- El MONTO es en DÓLARES y la frecuencia viene del catálogo; el solape de
+-- fechas en un mismo espacio lo valida la pantalla (dos acuerdos del mismo
+-- espacio no pueden cruzarse en el tiempo). `contrato` es la RUTA del
+-- archivo adjunto en el bucket (`contratos/…`), si se cargó uno.
+-- ----------------------------------------------------------------------------
+create table if not exists public.acuerdo_comercial (
+  id uuid primary key default gen_random_uuid(),
+  espacio_id uuid not null references public.acuerdo_espacio(id) on delete cascade,
+  proveedor_id uuid not null references public.acuerdo_proveedor(id),
+  fecha_inicio date not null,
+  fecha_fin date not null,
+  monto_usd numeric not null check (monto_usd > 0),
+  frecuencia text not null,
+  tipo_pago text not null,
+  contrato text,
+  activo boolean not null default true,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint acuerdo_fechas_chk check (fecha_fin >= fecha_inicio)
+);
+
+-- Compatibilidad: si la tabla se creó antes del contrato adjunto, se agrega
+-- la columna. Idempotente.
+alter table public.acuerdo_comercial add column if not exists contrato text;
+
+create index if not exists idx_acuerdo_espacio_fechas
+  on public.acuerdo_comercial (espacio_id, fecha_inicio, fecha_fin);
+create index if not exists idx_acuerdo_proveedor on public.acuerdo_comercial (proveedor_id);
+
+-- ----------------------------------------------------------------------------
+-- LO QUE SE COBRÓ: una fila por fecha de cobro REGISTRADA como pagada. Las
+-- fechas pendientes NO están acá —salen de `fecha_inicio + frecuencia` en la
+-- pantalla—, así que una vencida sin fila se pinta de rojo sin ningún cron.
+-- ----------------------------------------------------------------------------
+create table if not exists public.acuerdo_cobro (
+  id uuid primary key default gen_random_uuid(),
+  acuerdo_id uuid not null references public.acuerdo_comercial(id) on delete cascade,
+  fecha date not null,
+  monto numeric not null check (monto >= 0),
+  pagado_en date not null default current_date,
+  -- Ruta en el bucket `acuerdos`: `comprobantes/<id>/<millis>.pdf|png…`.
+  comprobante text,
+  comprobante_tipo text check (comprobante_tipo is null or comprobante_tipo in ('pdf', 'imagen')),
+  registrado_por uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint acuerdo_cobro_unico unique (acuerdo_id, fecha)
+);
+
+-- ----------------------------------------------------------------------------
+-- RLS
+-- ----------------------------------------------------------------------------
+alter table public.acuerdo_tipo_espacio enable row level security;
+alter table public.acuerdo_catalogo enable row level security;
+alter table public.acuerdo_proveedor enable row level security;
+alter table public.acuerdo_plano enable row level security;
+alter table public.acuerdo_espacio enable row level security;
+alter table public.acuerdo_comercial enable row level security;
+alter table public.acuerdo_cobro enable row level security;
+
+-- Ver: los TRES roles. Escribir lo que es DEL ACUERDO: sólo el Coordinador.
+-- Los cobros los escribe el Auditor (ver más abajo).
+drop policy if exists acuerdo_tipo_espacio_ver on public.acuerdo_tipo_espacio;
+create policy acuerdo_tipo_espacio_ver on public.acuerdo_tipo_espacio
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_tipo_espacio_gestion on public.acuerdo_tipo_espacio;
+create policy acuerdo_tipo_espacio_gestion on public.acuerdo_tipo_espacio
+  for all to authenticated using (public.es_coordinador_acu()) with check (public.es_coordinador_acu());
+
+drop policy if exists acuerdo_catalogo_ver on public.acuerdo_catalogo;
+create policy acuerdo_catalogo_ver on public.acuerdo_catalogo
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_catalogo_gestion on public.acuerdo_catalogo;
+create policy acuerdo_catalogo_gestion on public.acuerdo_catalogo
+  for all to authenticated using (public.es_coordinador_acu()) with check (public.es_coordinador_acu());
+
+drop policy if exists acuerdo_proveedor_ver on public.acuerdo_proveedor;
+create policy acuerdo_proveedor_ver on public.acuerdo_proveedor
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_proveedor_gestion on public.acuerdo_proveedor;
+create policy acuerdo_proveedor_gestion on public.acuerdo_proveedor
+  for all to authenticated using (public.es_coordinador_acu()) with check (public.es_coordinador_acu());
+
+drop policy if exists acuerdo_plano_ver on public.acuerdo_plano;
+create policy acuerdo_plano_ver on public.acuerdo_plano
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_plano_gestion on public.acuerdo_plano;
+create policy acuerdo_plano_gestion on public.acuerdo_plano
+  for all to authenticated using (public.es_coordinador_acu()) with check (public.es_coordinador_acu());
+
+drop policy if exists acuerdo_espacio_ver on public.acuerdo_espacio;
+create policy acuerdo_espacio_ver on public.acuerdo_espacio
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_espacio_gestion on public.acuerdo_espacio;
+create policy acuerdo_espacio_gestion on public.acuerdo_espacio
+  for all to authenticated using (public.es_coordinador_acu()) with check (public.es_coordinador_acu());
+
+drop policy if exists acuerdo_comercial_ver on public.acuerdo_comercial;
+create policy acuerdo_comercial_ver on public.acuerdo_comercial
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_comercial_gestion on public.acuerdo_comercial;
+create policy acuerdo_comercial_gestion on public.acuerdo_comercial
+  for all to authenticated using (public.es_coordinador_acu()) with check (public.es_coordinador_acu());
+
+-- Cobros: los ve el módulo entero; los REGISTRA (y sube comprobantes) el
+-- Auditor de Acuerdos.
+drop policy if exists acuerdo_cobro_ver on public.acuerdo_cobro;
+create policy acuerdo_cobro_ver on public.acuerdo_cobro
+  for select to authenticated using (public.puede_ver_acuerdos());
+drop policy if exists acuerdo_cobro_gestion on public.acuerdo_cobro;
+create policy acuerdo_cobro_gestion on public.acuerdo_cobro
+  for all to authenticated using (public.es_aud_ex()) with check (public.es_aud_ex());
+
+-- Cinturón y corbata: anon no llega a ninguna de estas tablas.
+do $$
+begin
+  execute 'revoke all on public.acuerdo_tipo_espacio from anon';
+  execute 'revoke all on public.acuerdo_catalogo from anon';
+  execute 'revoke all on public.acuerdo_proveedor from anon';
+  execute 'revoke all on public.acuerdo_plano from anon';
+  execute 'revoke all on public.acuerdo_espacio from anon';
+  execute 'revoke all on public.acuerdo_comercial from anon';
+  execute 'revoke all on public.acuerdo_cobro from anon';
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- BUCKET: planos, contratos y comprobantes, PRIVADO (son documentos
+-- internos). Se leen con URL firmada y se suben por carpeta: `planos/` y
+-- `contratos/` son del Coordinador, `comprobantes/` del Auditor.
+-- ----------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('acuerdos', 'acuerdos', false)
+on conflict (id) do update set public = excluded.public;
+
+drop policy if exists acuerdos_ver on storage.objects;
+create policy acuerdos_ver on storage.objects
+  for select to authenticated
+  using (bucket_id = 'acuerdos' and public.puede_ver_acuerdos());
+
+drop policy if exists acuerdos_subida on storage.objects;
+create policy acuerdos_subida on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'acuerdos'
+    and (
+      (split_part(name, '/', 1) in ('planos', 'contratos') and public.es_coordinador_acu())
+      or (split_part(name, '/', 1) = 'comprobantes' and public.es_aud_ex())
+    )
+  );
+
+drop policy if exists acuerdos_gestion on storage.objects;
+create policy acuerdos_gestion on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'acuerdos'
+    and (
+      (split_part(name, '/', 1) in ('planos', 'contratos') and public.es_coordinador_acu())
+      or (split_part(name, '/', 1) = 'comprobantes' and public.es_aud_ex())
+    )
+  );
+
+drop policy if exists acuerdos_borrado on storage.objects;
+create policy acuerdos_borrado on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'acuerdos'
+    and (
+      (split_part(name, '/', 1) in ('planos', 'contratos') and public.es_coordinador_acu())
+      or (split_part(name, '/', 1) = 'comprobantes' and public.es_aud_ex())
+    )
+  );

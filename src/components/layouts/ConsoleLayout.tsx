@@ -1,4 +1,4 @@
-import { Star, Sprout, Gauge, Globe, FolderOpen, History, Headset, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen, Table2 } from 'lucide-react'
+import { Star, Sprout, Gauge, Globe, FolderOpen, History, Headset, Handshake, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Store, Users, X, ClipboardCheck, BookOpen, Table2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
@@ -54,6 +54,19 @@ const enlaces: { seccion: string; items: EnlaceMenu[] }[] = [
   // la vista de TI que gestiona la habilita el RLS, no el menú.
   { seccion: 'Soporte', items: [
     { to: '/helpdesk', label: 'Mesa de Ayuda', icon: <Headset className="h-5 w-5" /> }
+  ]},
+  // ACUERDOS COMERCIALES: el alquiler de espacios del piso de venta. Van
+  // los TRES roles del módulo —el Líder sólo ve— y para los otros dos es
+  // TODO lo que ven (el filtro de `seccionesDe` más abajo). Cada vista del
+  // módulo es un submenú con SU ruta: así se comparte el enlace y recargar
+  // no devuelve a la primera pantalla.
+  { seccion: 'Comercial', items: [
+    { to: '/acuerdos', label: 'Dashboard', end: true, icon: <Gauge className="h-5 w-5" />, roles: ['LIDER', 'COOR_ACU', 'AUD_EX'] },
+    { to: '/acuerdos/planos', label: 'Planos', icon: <Table2 className="h-5 w-5" />, roles: ['LIDER', 'COOR_ACU', 'AUD_EX'] },
+    { to: '/acuerdos/proveedores', label: 'Proveedores', icon: <Users className="h-5 w-5" />, roles: ['LIDER', 'COOR_ACU', 'AUD_EX'] },
+    { to: '/acuerdos/acuerdos', label: 'Acuerdos', icon: <Handshake className="h-5 w-5" />, roles: ['LIDER', 'COOR_ACU', 'AUD_EX'] },
+    { to: '/acuerdos/calendario', label: 'Calendario', icon: <History className="h-5 w-5" />, roles: ['LIDER', 'COOR_ACU', 'AUD_EX'] },
+    { to: '/acuerdos/historial', label: 'Historial', icon: <FolderOpen className="h-5 w-5" />, roles: ['LIDER', 'COOR_ACU', 'AUD_EX'] }
   ]}
 ]
 
@@ -85,6 +98,9 @@ function seccionesDe(rol: string | undefined): { seccion: string; items: EnlaceM
   // (mismo criterio que el JUEZ con Gran Cosecha), y así ningún enlace los
   // rebotaría — Resultados, Bonos y Gran Cosecha piden roles que no tienen.
   if (rol === 'GERENTE_TI' || rol === 'TECNICO_TI') return visibles.filter((s) => s.seccion === 'Soporte')
+  // El equipo de Acuerdos Comerciales sólo ve SU sección: el Coordinador
+  // gestiona y el Auditor cobra, y ninguna otra pantalla les sirve.
+  if (rol === 'COOR_ACU' || rol === 'AUD_EX') return visibles.filter((s) => s.seccion === 'Comercial')
   return visibles
 }
 
@@ -108,6 +124,31 @@ const titulosVista: Record<string, { titulo: string; subtitulo: string }> = {
   '/helpdesk': {
     titulo: 'Mesa de Ayuda',
     subtitulo: 'Casos de soporte TI: reportar un incidente y darle seguimiento'
+  },
+  '/acuerdos': {
+    titulo: 'Acuerdos comerciales',
+    subtitulo: 'Espacios del piso de venta alquilados a proveedores'
+  },
+  // Las vistas del módulo, cada una en SU ruta (submenú «Comercial»).
+  '/acuerdos/planos': {
+    titulo: 'Planos de piso',
+    subtitulo: 'Espacios de cada sucursal: disponible, ocupado o con cobros pendientes'
+  },
+  '/acuerdos/proveedores': {
+    titulo: 'Proveedores',
+    subtitulo: 'Registro de quienes alquilan espacios: RIF, contacto, teléfono y correo'
+  },
+  '/acuerdos/acuerdos': {
+    titulo: 'Acuerdos comerciales',
+    subtitulo: 'Contratos de alquiler: espacio, proveedor, fechas, monto y forma de pago'
+  },
+  '/acuerdos/calendario': {
+    titulo: 'Calendario de cobros',
+    subtitulo: 'Fechas de cobro, mora y comprobantes de cada acuerdo'
+  },
+  '/acuerdos/historial': {
+    titulo: 'Historial de rentas',
+    subtitulo: 'Todas las rentas que existieron, con su cumplimiento'
   },
   // OJO con la barra: `/gran-cosecha` (sin más) YA NO es la consola — es la
   // redirección a la landing pública. El concurso vive en `/gran-cosecha/proyectos`.
@@ -528,7 +569,10 @@ function ConsoleLayoutInterna() {
                 Filtros
               </button>
             ) : null}
-            <div id="acciones-vista" className="flex items-center gap-2" />
+            {/* `flex-wrap`: en pantallas angostas las acciones de la vista
+                (como el selector de sucursal + los botones del plano) se
+                van a una segunda línea en vez de desbordar el header. */}
+            <div id="acciones-vista" className="flex min-w-0 flex-wrap items-center gap-2" />
           </div>
         </header>
         {esDashboard ? (

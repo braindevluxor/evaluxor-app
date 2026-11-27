@@ -492,7 +492,11 @@ function RolBadge({ rol }: { rol: Rol }) {
     // El equipo de TI: el Gerente manda (mismo tono que el Líder) y el
     // Técnico resuelve (verde), para que se distingan de un vistazo.
     GERENTE_TI: 5,
-    TECNICO_TI: 2
+    TECNICO_TI: 2,
+    // Acuerdos Comerciales: el Coordinador gestiona (primario) y el Auditor
+    // cobra (ámbar, como el control de pagos).
+    COOR_ACU: 1,
+    AUD_EX: 3
   }
   return <Badge color={colores[rol] ?? 0}>{ETIQUETAS_ROL[rol]}</Badge>
 }

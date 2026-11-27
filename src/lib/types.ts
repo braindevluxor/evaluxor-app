@@ -1,6 +1,6 @@
 import type { ContraDatoConciliacion } from './scoring'
 
-export type Rol = 'SIN_ROL' | 'LIDER' | 'EVALUADOR' | 'GERENTE_S' | 'GERENTE_C' | 'GERENTE_TH' | 'JUEZ' | 'GERENTE_TI' | 'TECNICO_TI'
+export type Rol = 'SIN_ROL' | 'LIDER' | 'EVALUADOR' | 'GERENTE_S' | 'GERENTE_C' | 'GERENTE_TH' | 'JUEZ' | 'GERENTE_TI' | 'TECNICO_TI' | 'COOR_ACU' | 'AUD_EX'
 
 export type TipoItem =
   | 'CHECKLIST'
